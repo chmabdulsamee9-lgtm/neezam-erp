@@ -62,15 +62,15 @@ function App() {
     { id: 'store-connect', label: 'Store Connect', icon: '🔗' },
   ]
 
-  const sidebarWidth = sidebarOpen ? 240 : 60
+  const fullScreenModules = ['orders']
 
   return (
     <div style={{display:'flex', height:'100vh', overflow:'hidden', background:'#0f172a', color:'#fff'}}>
-      
+
       {/* Sidebar */}
       <div style={{
-        width: sidebarWidth,
-        minWidth: sidebarWidth,
+        width: sidebarOpen ? 240 : 60,
+        minWidth: sidebarOpen ? 240 : 60,
         background:'#1e293b',
         padding:'1rem 0',
         transition:'width 0.3s, min-width 0.3s',
@@ -110,7 +110,7 @@ function App() {
             }}
           >
             <span style={{fontSize:'17px', flexShrink: 0}}>{item.icon}</span>
-            {sidebarOpen && <span style={{fontSize:'13px', color: activeMenu === item.id ? '#fff' : '#94a3b8', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{item.label}</span>}
+            {sidebarOpen && <span style={{fontSize:'13px', color: activeMenu === item.id ? '#fff' : '#94a3b8', whiteSpace:'nowrap'}}>{item.label}</span>}
           </div>
         ))}
 
@@ -134,35 +134,34 @@ function App() {
         overflow: 'hidden',
         minWidth: 0,
       }}>
-        {/* Top Header */}
-        <div style={{
-          display:'flex',
-          justifyContent:'space-between',
-          alignItems:'center',
-          padding: '0.75rem 1.25rem',
-          background:'#1e293b',
-          borderBottom: '1px solid #334155',
-          flexShrink: 0,
-        }}>
-          <h1 style={{fontSize:'16px', fontWeight:'600', color:'#fff', margin: 0}}>
-            {menuItems.find(m => m.id === activeMenu)?.icon} {menuItems.find(m => m.id === activeMenu)?.label}
-          </h1>
-          <div style={{display:'flex', alignItems:'center', gap:'12px'}}>
-            <span style={{fontSize:'12px', color:'#94a3b8'}}>{session.user.email}</span>
-            <div style={{width:'30px', height:'30px', borderRadius:'50%', background:'#3b82f6', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'13px', fontWeight:'600'}}>
-              {session.user.email[0].toUpperCase()}
+        {/* Top Header — full screen modules mein nahi dikhega */}
+        {!fullScreenModules.includes(activeMenu) && (
+          <div style={{
+            display:'flex',
+            justifyContent:'space-between',
+            alignItems:'center',
+            padding: '0.75rem 1.25rem',
+            background:'#1e293b',
+            borderBottom: '1px solid #334155',
+            flexShrink: 0,
+          }}>
+            <h1 style={{fontSize:'16px', fontWeight:'600', color:'#fff', margin: 0}}>
+              {menuItems.find(m => m.id === activeMenu)?.icon} {menuItems.find(m => m.id === activeMenu)?.label}
+            </h1>
+            <div style={{display:'flex', alignItems:'center', gap:'12px'}}>
+              <span style={{fontSize:'12px', color:'#94a3b8'}}>{session.user.email}</span>
+              <div style={{width:'30px', height:'30px', borderRadius:'50%', background:'#3b82f6', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'13px', fontWeight:'600'}}>
+                {session.user.email[0].toUpperCase()}
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Page Content */}
-        <div style={{
-          flex: 1,
-          overflow: 'auto',
-          minWidth: 0,
-        }}>
-          {activeMenu === 'store-connect' && <StoreConnect />}
+        <div style={{flex: 1, overflow: 'auto', minWidth: 0}}>
+
           {activeMenu === 'orders' && <Orders />}
+          {activeMenu === 'store-connect' && <StoreConnect />}
 
           {activeMenu === 'dashboard' && (
             <div style={{padding: '1.25rem'}}>
