@@ -1,9 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 
-const CLIENT_ID = import.meta.env.VITE_SHOPIFY_CLIENT_ID;
-const CLIENT_SECRET = import.meta.env.VITE_SHOPIFY_CLIENT_SECRET;
-
 export default function ShopifyCallback() {
   const [status, setStatus] = useState("🔄 Processing...");
 
@@ -24,23 +21,11 @@ export default function ShopifyCallback() {
 
       setStatus("🔄 Token le rahe hain...");
 
-      const targetUrl = `https://${shop}/admin/oauth/access_token`;
-      
-      const res = await fetch(
-        `https://proxy.cors.sh/${targetUrl}`,
-        {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "x-cors-api-key": "temp_" + Math.random()
-          },
-          body: JSON.stringify({
-            client_id: CLIENT_ID,
-            client_secret: CLIENT_SECRET,
-            code: code,
-          }),
-        }
-      );
+      const res = await fetch("/.netlify/functions/shopify-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, shop }),
+      });
 
       const data = await res.json();
 
