@@ -125,7 +125,7 @@ function App() {
       </div>
 
       {/* Main Content */}
-      <div style={{marginLeft: sidebarOpen ? '240px' : '60px',flex:1,padding:'1.5rem',transition:'margin 0.3s'}}>
+      <div style={{marginLeft: sidebarOpen ? '240px' : '60px',flex:1,padding:'1.5rem',transition:'margin 0.3s', minWidth: 0, overflowX: 'hidden'}}>
         
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1.5rem'}}>
           <h1 style={{fontSize:'20px',fontWeight:'600',color:'#fff'}}>
