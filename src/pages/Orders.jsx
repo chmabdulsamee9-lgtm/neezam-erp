@@ -23,6 +23,12 @@ const truncate = (str, max = 25) => {
   return str.length > max ? str.slice(0, max) + "…" : str;
 };
 
+const fixedColStyle = {
+  position: "sticky",
+  background: "inherit",
+  zIndex: 5,
+};
+
 export default function Orders() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -128,7 +134,7 @@ export default function Orders() {
   const totalPages = Math.ceil(filteredOrders.length / perPage);
   const pagedOrders = filteredOrders.slice((page - 1) * perPage, page * perPage);
 
-  const EditableCell = ({ orderId, field, value, shopify = false, width = 120, maxChars = 25 }) => {
+  const EditableCell = ({ orderId, field, value, shopify = false, width = 100, maxChars = 20 }) => {
     const cellKey = `${orderId}-${field}`;
     const isEditing = editingCell === cellKey;
     const [val, setVal] = useState(value || "");
@@ -138,11 +144,11 @@ export default function Orders() {
       <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
         <input autoFocus value={val} onChange={e => setVal(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter") updateField(orderId, field, val, shopify); if (e.key === "Escape") setEditingCell(null); }}
-          style={{ width, padding: "2px 6px", borderRadius: 4, border: "1px solid #3b82f6", background: "#0f172a", color: "#fff", fontSize: 12 }} />
+          style={{ width, padding: "2px 5px", borderRadius: 4, border: "1px solid #3b82f6", background: "#0f172a", color: "#fff", fontSize: 11 }} />
         <button onClick={() => updateField(orderId, field, val, shopify)}
-          style={{ background: "#3b82f6", border: "none", borderRadius: 4, color: "#fff", padding: "2px 6px", cursor: "pointer", fontSize: 11 }}>✓</button>
+          style={{ background: "#3b82f6", border: "none", borderRadius: 4, color: "#fff", padding: "2px 5px", cursor: "pointer", fontSize: 10 }}>✓</button>
         <button onClick={() => setEditingCell(null)}
-          style={{ background: "#334155", border: "none", borderRadius: 4, color: "#fff", padding: "2px 6px", cursor: "pointer", fontSize: 11 }}>✕</button>
+          style={{ background: "#334155", border: "none", borderRadius: 4, color: "#fff", padding: "2px 5px", cursor: "pointer", fontSize: 10 }}>✕</button>
       </div>
     );
 
@@ -150,11 +156,8 @@ export default function Orders() {
     const needsTooltip = value && value.length > maxChars;
 
     return (
-      <span
-        onClick={() => setEditingCell(cellKey)}
-        title={needsTooltip ? value : ""}
-        style={{ cursor: "pointer", color: value ? "#e2e8f0" : "#475569", fontSize: 12, whiteSpace: "nowrap" }}
-      >
+      <span onClick={() => setEditingCell(cellKey)} title={needsTooltip ? value : ""}
+        style={{ cursor: "pointer", color: value ? "#e2e8f0" : "#475569", fontSize: 11, whiteSpace: "nowrap" }}>
         {display || "—"}
       </span>
     );
@@ -162,54 +165,58 @@ export default function Orders() {
 
   if (error) return <div style={{ padding: "2rem", color: "#ef4444" }}>❌ {error}</div>;
 
+  const tdBase = { padding: "5px 6px" };
+  const thBase = { padding: "7px 6px", textAlign: "left", color: "#64748b", whiteSpace: "nowrap", fontWeight: 500, borderBottom: "1px solid #334155", background: "#1e293b" };
+
   return (
-    <div style={{ padding: "1rem", height: "100%", display: "flex", flexDirection: "column" }}>
+    <div style={{ padding: "0.5rem", height: "100%", display: "flex", flexDirection: "column" }}>
 
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: "#fff" }}>📦 Orders</h1>
-          <p style={{ margin: "2px 0 0", fontSize: 12, color: "#64748b" }}>{store?.store_name} — {filteredOrders.length} orders</p>
+          <h1 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "#fff" }}>📦 Orders</h1>
+          <p style={{ margin: "2px 0 0", fontSize: 11, color: "#64748b" }}>{store?.store_name} — {filteredOrders.length} orders</p>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <select value={perPage} onChange={e => { setPerPage(Number(e.target.value)); setPage(1); }}
-            style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#1e293b", color: "#fff", fontSize: 12 }}>
-            {PER_PAGE_OPTIONS.map(n => <option key={n} value={n}>{n} per page</option>)}
+            style={{ padding: "4px 6px", borderRadius: 6, border: "1px solid #334155", background: "#1e293b", color: "#fff", fontSize: 11 }}>
+            {PER_PAGE_OPTIONS.map(n => <option key={n} value={n}>{n} / page</option>)}
           </select>
           <button onClick={() => store && fetchOrders(store)}
-            style={{ background: "#1e293b", color: "#94a3b8", border: "1px solid #334155", borderRadius: 6, padding: "5px 12px", fontSize: 12, cursor: "pointer" }}>
+            style={{ background: "#1e293b", color: "#94a3b8", border: "1px solid #334155", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer" }}>
             🔄 Refresh
           </button>
         </div>
       </div>
 
       {/* Filters Row 1 */}
-      <div style={{ display: "flex", gap: 6, marginBottom: "6px", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 5, marginBottom: "4px", flexWrap: "wrap" }}>
         <input type="text" placeholder="🔍 Name, phone, order#..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
-          style={{ flex: 1, minWidth: 150, padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 12 }} />
+          style={{ flex: 1, minWidth: 130, padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 11 }} />
         <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(1); }}
-          style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 12 }} />
+          style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 11 }} />
         <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(1); }}
-          style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 12 }} />
+          style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 11 }} />
         {(dateFrom || dateTo) && (
-          <button onClick={() => { setDateFrom(""); setDateTo(""); }} style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#7f1d1d", color: "#fca5a5", fontSize: 12, cursor: "pointer" }}>✕ Date</button>
+          <button onClick={() => { setDateFrom(""); setDateTo(""); }}
+            style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#7f1d1d", color: "#fca5a5", fontSize: 11, cursor: "pointer" }}>✕</button>
         )}
       </div>
 
       {/* Filters Row 2 */}
-      <div style={{ display: "flex", gap: 6, marginBottom: "0.75rem", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 5, marginBottom: "0.5rem", flexWrap: "wrap" }}>
         <div style={{ position: "relative" }}>
           <button onClick={() => setStatusMultiOpen(!statusMultiOpen)}
-            style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" }}>
+            style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>
             {statusFilters.length === 0 ? "All Status ▼" : `${statusFilters.length} selected ▼`}
           </button>
           {statusMultiOpen && (
             <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 300, background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "6px", minWidth: 180, boxShadow: "0 4px 20px rgba(0,0,0,0.5)" }}>
               <div onClick={() => { setStatusFilters([]); setStatusMultiOpen(false); }}
-                style={{ padding: "5px 10px", borderRadius: 6, cursor: "pointer", color: "#94a3b8", fontSize: 12 }}>✕ Clear All</div>
+                style={{ padding: "5px 10px", borderRadius: 6, cursor: "pointer", color: "#94a3b8", fontSize: 11 }}>✕ Clear All</div>
               {STATUSES.map(s => (
                 <div key={s.label} onClick={() => { setStatusFilters(prev => prev.includes(s.label) ? prev.filter(x => x !== s.label) : [...prev, s.label]); setPage(1); }}
-                  style={{ padding: "5px 10px", borderRadius: 6, cursor: "pointer", color: s.color, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}
+                  style={{ padding: "5px 10px", borderRadius: 6, cursor: "pointer", color: s.color, fontSize: 11, fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}
                   onMouseEnter={e => e.currentTarget.style.background = s.bg}
                   onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                   <span>{statusFilters.includes(s.label) ? "✅" : "⬜"}</span>{s.label}
@@ -219,16 +226,16 @@ export default function Orders() {
           )}
         </div>
         <select value={sourceFilter} onChange={e => { setSourceFilter(e.target.value); setPage(1); }}
-          style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 12 }}>
+          style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 11 }}>
           <option value="All">All Source</option>
           {["Meta", "TikTok", "Snapchat", "Google", "Direct"].map(s => <option key={s}>{s}</option>)}
         </select>
         <select value={cityFilter} onChange={e => { setCityFilter(e.target.value); setPage(1); }}
-          style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 12 }}>
+          style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 11 }}>
           {cities.map(c => <option key={c}>{c}</option>)}
         </select>
         <select value={skuFilter} onChange={e => { setSkuFilter(e.target.value); setPage(1); }}
-          style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 12 }}>
+          style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 11 }}>
           <option value="All">All SKU</option>
           {allSKUs.map(s => <option key={s}>{s}</option>)}
         </select>
@@ -238,13 +245,25 @@ export default function Orders() {
       {loading ? (
         <div style={{ textAlign: "center", padding: "4rem", color: "#94a3b8" }}>Loading orders...</div>
       ) : (
-        <div ref={tableRef} style={{ overflowX: "auto", borderRadius: 10, border: "1px solid #1e293b", flex: 1, overflowY: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-            <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
+        <div ref={tableRef} style={{ overflowX: "auto", borderRadius: 8, border: "1px solid #1e293b", flex: 1, overflowY: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+            <thead style={{ position: "sticky", top: 0, zIndex: 15 }}>
               <tr style={{ background: "#1e293b" }}>
-                {["Date", "Time", "Order#", "Full Name", "Phone", "Address", "City", "Products", "SKU", "Unit Price", "Shipping", "Discount", "Total", "Source", "Status"].map(h => (
-                  <th key={h} style={{ padding: "9px 10px", textAlign: "left", color: "#64748b", whiteSpace: "nowrap", fontWeight: 500, borderBottom: "1px solid #334155" }}>{h}</th>
-                ))}
+                <th style={{ ...thBase, position: "sticky", left: 0, zIndex: 20, background: "#1e293b", minWidth: 85 }}>Order#</th>
+                <th style={{ ...thBase }}>Date</th>
+                <th style={{ ...thBase }}>Time</th>
+                <th style={{ ...thBase }}>Full Name</th>
+                <th style={{ ...thBase }}>Phone</th>
+                <th style={{ ...thBase }}>Address</th>
+                <th style={{ ...thBase }}>City</th>
+                <th style={{ ...thBase }}>Products</th>
+                <th style={{ ...thBase }}>SKU</th>
+                <th style={{ ...thBase }}>Unit Price</th>
+                <th style={{ ...thBase }}>Shipping</th>
+                <th style={{ ...thBase }}>Discount</th>
+                <th style={{ ...thBase }}>Total</th>
+                <th style={{ ...thBase }}>Source</th>
+                <th style={{ ...thBase, position: "sticky", right: 0, zIndex: 20, background: "#1e293b", minWidth: 100 }}>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -263,38 +282,39 @@ export default function Orders() {
                 const date = new Date(order.created_at).toLocaleDateString("en-PK");
                 const time = new Date(order.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" });
                 const shopifyUrl = `https://${store?.shopify_url}/admin/orders/${order.id}`;
+                const rowBg = i % 2 === 0 ? "#0f172a" : "#0a0f1e";
 
                 return (
-                  <tr key={order.id} style={{ background: i % 2 === 0 ? "#0f172a" : "#0a0f1e", borderBottom: "1px solid #1e293b" }}>
-                    <td style={{ padding: "7px 10px", color: "#94a3b8", whiteSpace: "nowrap" }}>{date}</td>
-                    <td style={{ padding: "7px 10px", color: "#64748b", whiteSpace: "nowrap" }}>{time}</td>
-                    <td style={{ padding: "7px 10px", whiteSpace: "nowrap" }}>
-                      <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "#60a5fa", fontWeight: 600, textDecoration: "none" }}>{order.name}</a>
+                  <tr key={order.id} style={{ background: rowBg, borderBottom: "1px solid #1e293b" }}>
+                    <td style={{ ...tdBase, position: "sticky", left: 0, zIndex: 4, background: rowBg, whiteSpace: "nowrap" }}>
+                      <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "#60a5fa", fontWeight: 600, textDecoration: "none", fontSize: 11 }}>{order.name}</a>
                     </td>
-                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="customer_name" value={fullName} shopify width={130} maxChars={20} /></td>
-                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="phone" value={phone} shopify width={120} maxChars={15} /></td>
-                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="address" value={address} shopify width={160} maxChars={22} /></td>
-                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="city" value={city} shopify width={100} maxChars={12} /></td>
-                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="product" value={products} width={200} maxChars={25} /></td>
-                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="sku" value={skus} width={120} maxChars={15} /></td>
-                    <td style={{ padding: "7px 10px", color: "#94a3b8", whiteSpace: "nowrap" }}>{unitPrices}</td>
-                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="shipping" value={String(shipping)} width={80} maxChars={8} /></td>
-                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="discount" value={String(discount)} width={80} maxChars={8} /></td>
-                    <td style={{ padding: "7px 10px", color: "#10b981", fontWeight: 600, whiteSpace: "nowrap" }}>Rs. {Number(order.total_price).toLocaleString()}</td>
-                    <td style={{ padding: "7px 10px" }}>
-                      <span style={{ padding: "2px 8px", borderRadius: 10, fontSize: 11, background: "#1e293b", color: SOURCE_COLORS[source], fontWeight: 600 }}>{source}</span>
+                    <td style={{ ...tdBase, color: "#94a3b8", whiteSpace: "nowrap" }}>{date}</td>
+                    <td style={{ ...tdBase, color: "#64748b", whiteSpace: "nowrap" }}>{time}</td>
+                    <td style={tdBase}><EditableCell orderId={order.id} field="customer_name" value={fullName} shopify width={110} maxChars={15} /></td>
+                    <td style={tdBase}><EditableCell orderId={order.id} field="phone" value={phone} shopify width={100} maxChars={13} /></td>
+                    <td style={tdBase}><EditableCell orderId={order.id} field="address" value={address} shopify width={130} maxChars={18} /></td>
+                    <td style={tdBase}><EditableCell orderId={order.id} field="city" value={city} shopify width={80} maxChars={10} /></td>
+                    <td style={tdBase}><EditableCell orderId={order.id} field="product" value={products} width={160} maxChars={20} /></td>
+                    <td style={tdBase}><EditableCell orderId={order.id} field="sku" value={skus} width={100} maxChars={12} /></td>
+                    <td style={{ ...tdBase, color: "#94a3b8", whiteSpace: "nowrap" }}>{unitPrices}</td>
+                    <td style={tdBase}><EditableCell orderId={order.id} field="shipping" value={String(shipping)} width={60} maxChars={7} /></td>
+                    <td style={tdBase}><EditableCell orderId={order.id} field="discount" value={String(discount)} width={60} maxChars={7} /></td>
+                    <td style={{ ...tdBase, color: "#10b981", fontWeight: 600, whiteSpace: "nowrap" }}>Rs. {Number(order.total_price).toLocaleString()}</td>
+                    <td style={tdBase}>
+                      <span style={{ padding: "2px 6px", borderRadius: 8, fontSize: 10, background: "#1e293b", color: SOURCE_COLORS[source], fontWeight: 600 }}>{source}</span>
                     </td>
-                    <td style={{ padding: "7px 10px" }}>
+                    <td style={{ ...tdBase, position: "sticky", right: 0, zIndex: 4, background: rowBg }}>
                       <div style={{ position: "relative" }}>
                         <button onClick={() => setStatusDropdown(statusDropdown === order.id ? null : order.id)}
-                          style={{ padding: "3px 10px", borderRadius: 10, fontSize: 11, background: status?.bg || "#1e293b", color: status?.color || "#64748b", border: "none", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
+                          style={{ padding: "3px 8px", borderRadius: 8, fontSize: 10, background: status?.bg || "#1e293b", color: status?.color || "#64748b", border: "none", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
                           {order.agent_status || "Set ▼"}
                         </button>
                         {statusDropdown === order.id && (
                           <div style={{ position: "absolute", top: "100%", right: 0, zIndex: 200, background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "4px", minWidth: 170, boxShadow: "0 4px 20px rgba(0,0,0,0.5)" }}>
                             {STATUSES.map(s => (
                               <div key={s.label} onClick={() => updateStatus(order.id, s.label)}
-                                style={{ padding: "5px 10px", borderRadius: 6, cursor: "pointer", color: s.color, fontSize: 12, fontWeight: 500 }}
+                                style={{ padding: "5px 10px", borderRadius: 6, cursor: "pointer", color: s.color, fontSize: 11, fontWeight: 500 }}
                                 onMouseEnter={e => e.currentTarget.style.background = s.bg}
                                 onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                                 {s.label}
@@ -316,26 +336,26 @@ export default function Orders() {
       )}
 
       {/* Pagination */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.75rem" }}>
-        <span style={{ fontSize: 12, color: "#64748b" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.5rem" }}>
+        <span style={{ fontSize: 11, color: "#64748b" }}>
           Showing {((page - 1) * perPage) + 1}–{Math.min(page * perPage, filteredOrders.length)} of {filteredOrders.length}
         </span>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 4 }}>
           <button onClick={() => setPage(1)} disabled={page === 1}
-            style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #334155", background: page === 1 ? "#0f172a" : "#1e293b", color: page === 1 ? "#334155" : "#94a3b8", fontSize: 12, cursor: page === 1 ? "default" : "pointer" }}>«</button>
+            style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === 1 ? "#0f172a" : "#1e293b", color: page === 1 ? "#334155" : "#94a3b8", fontSize: 11, cursor: page === 1 ? "default" : "pointer" }}>«</button>
           <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-            style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #334155", background: page === 1 ? "#0f172a" : "#1e293b", color: page === 1 ? "#334155" : "#94a3b8", fontSize: 12, cursor: page === 1 ? "default" : "pointer" }}>‹ Prev</button>
+            style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === 1 ? "#0f172a" : "#1e293b", color: page === 1 ? "#334155" : "#94a3b8", fontSize: 11, cursor: page === 1 ? "default" : "pointer" }}>‹</button>
           {[...Array(Math.min(5, totalPages))].map((_, idx) => {
             const p = Math.max(1, Math.min(page - 2, totalPages - 4)) + idx;
             return (
               <button key={p} onClick={() => setPage(p)}
-                style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #334155", background: page === p ? "#3b82f6" : "#1e293b", color: page === p ? "#fff" : "#94a3b8", fontSize: 12, cursor: "pointer" }}>{p}</button>
+                style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === p ? "#3b82f6" : "#1e293b", color: page === p ? "#fff" : "#94a3b8", fontSize: 11, cursor: "pointer" }}>{p}</button>
             );
           })}
           <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-            style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #334155", background: page === totalPages ? "#0f172a" : "#1e293b", color: page === totalPages ? "#334155" : "#94a3b8", fontSize: 12, cursor: page === totalPages ? "default" : "pointer" }}>Next ›</button>
+            style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === totalPages ? "#0f172a" : "#1e293b", color: page === totalPages ? "#334155" : "#94a3b8", fontSize: 11, cursor: page === totalPages ? "default" : "pointer" }}>›</button>
           <button onClick={() => setPage(totalPages)} disabled={page === totalPages}
-            style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #334155", background: page === totalPages ? "#0f172a" : "#1e293b", color: page === totalPages ? "#334155" : "#94a3b8", fontSize: 12, cursor: page === totalPages ? "default" : "pointer" }}>»</button>
+            style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === totalPages ? "#0f172a" : "#1e293b", color: page === totalPages ? "#334155" : "#94a3b8", fontSize: 11, cursor: page === totalPages ? "default" : "pointer" }}>»</button>
         </div>
       </div>
     </div>
