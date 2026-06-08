@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../supabase";
 
-const CLIENT_ID = "4183ca3035d00fd99e9c98cd3c47f3dc";
+const CLIENT_ID = import.meta.env.VITE_SHOPIFY_CLIENT_ID;
 const REDIRECT_URI = "https://neezam-erp.netlify.app/auth/callback";
 
 export default function StoreConnect() {
@@ -9,6 +9,7 @@ export default function StoreConnect() {
   const [loading, setLoading] = useState(true);
   const [shopUrl, setShopUrl] = useState("");
   const [error, setError] = useState("");
+  const [showInput, setShowInput] = useState(false);
 
   useEffect(() => {
     fetchStores();
@@ -16,11 +17,11 @@ export default function StoreConnect() {
 
   const fetchStores = async () => {
     setLoading(true);
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("stores")
       .select("*")
       .order("created_at", { ascending: false });
-    if (!error) setStores(data || []);
+    setStores(data || []);
     setLoading(false);
   };
 
@@ -34,17 +35,14 @@ export default function StoreConnect() {
       .replace("https://", "")
       .replace("http://", "")
       .replace(/\/$/, "");
-
     if (!cleanUrl.includes(".myshopify.com")) {
       cleanUrl = cleanUrl + ".myshopify.com";
     }
-
     const authUrl =
       `https://${cleanUrl}/admin/oauth/authorize` +
       `?client_id=${CLIENT_ID}` +
       `&scope=read_orders,write_orders,read_customers,write_customers` +
       `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
-
     window.location.href = authUrl;
   };
 
@@ -56,68 +54,112 @@ export default function StoreConnect() {
 
   return (
     <div style={{ padding: "2rem", maxWidth: 800, margin: "0 auto" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "2rem" }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 600, color: "#fff" }}>
-            🔗 Store Connect
-          </h1>
-          <p style={{ margin: "4px 0 0", fontSize: 14, color: "#94a3b8" }}>
-            Apna Shopify store connect karo
-          </p>
-        </div>
-      </div>
-
-      {/* Connect Form */}
-      <div style={{
-        background: "#1e293b",
-        borderRadius: 12,
-        padding: "1.5rem",
-        marginBottom: "1.5rem",
-      }}>
-        <h2 style={{ margin: "0 0 1rem", fontSize: 16, color: "#fff" }}>
-          Naya Store Add Karo
-        </h2>
-        <div style={{ display: "flex", gap: 10 }}>
-          <input
-            type="text"
-            placeholder="yourstore.myshopify.com"
-            value={shopUrl}
-            onChange={(e) => setShopUrl(e.target.value)}
-            style={{
-              flex: 1,
-              padding: "10px 14px",
-              borderRadius: 8,
-              border: "1px solid #334155",
-              background: "#0f172a",
-              color: "#fff",
-              fontSize: 14,
-            }}
-          />
-          <button
-            onClick={handleConnect}
-            style={{
-              background: "#3b82f6",
-              color: "#fff",
-              border: "none",
-              borderRadius: 8,
-              padding: "10px 20px",
-              fontSize: 14,
-              cursor: "pointer",
-              whiteSpace: "nowrap",
-            }}
-          >
-            🔗 Shopify se Connect Karo
-          </button>
-        </div>
-        {error && (
-          <p style={{ color: "#ef4444", fontSize: 13, marginTop: 8 }}>{error}</p>
-        )}
-        <p style={{ fontSize: 12, color: "#64748b", marginTop: 8 }}>
-          Store URL daalo — Shopify ka login page khulega — Allow karo — automatically connect ho jayega!
+      
+      {/* Header */}
+      <div style={{ marginBottom: "2rem" }}>
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 600, color: "#fff" }}>
+          🔗 Store Connect
+        </h1>
+        <p style={{ margin: "4px 0 0", fontSize: 14, color: "#94a3b8" }}>
+          Apna Shopify store connect karo
         </p>
       </div>
 
+      {/* Add New Store Button */}
+      {!showInput ? (
+        <button
+          onClick={() => setShowInput(true)}
+          style={{
+            width: "100%",
+            padding: "16px",
+            background: "#3b82f6",
+            color: "#fff",
+            border: "none",
+            borderRadius: 12,
+            fontSize: 16,
+            fontWeight: 600,
+            cursor: "pointer",
+            marginBottom: "1.5rem",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 10,
+          }}
+        >
+          <span style={{ fontSize: 20 }}>🛍️</span>
+          Login with Shopify — Naya Store Add Karo
+        </button>
+      ) : (
+        <div style={{
+          background: "#1e293b",
+          borderRadius: 12,
+          padding: "1.5rem",
+          marginBottom: "1.5rem",
+        }}>
+          <h2 style={{ margin: "0 0 1rem", fontSize: 16, color: "#fff" }}>
+            Store URL daalo
+          </h2>
+          <div style={{ display: "flex", gap: 10 }}>
+            <input
+              type="text"
+              placeholder="yourstore.myshopify.com"
+              value={shopUrl}
+              onChange={(e) => setShopUrl(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleConnect()}
+              style={{
+                flex: 1,
+                padding: "10px 14px",
+                borderRadius: 8,
+                border: "1px solid #334155",
+                background: "#0f172a",
+                color: "#fff",
+                fontSize: 14,
+              }}
+            />
+            <button
+              onClick={handleConnect}
+              style={{
+                background: "#3b82f6",
+                color: "#fff",
+                border: "none",
+                borderRadius: 8,
+                padding: "10px 20px",
+                fontSize: 14,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              🔗 Connect
+            </button>
+            <button
+              onClick={() => { setShowInput(false); setError(""); }}
+              style={{
+                background: "#334155",
+                color: "#fff",
+                border: "none",
+                borderRadius: 8,
+                padding: "10px 14px",
+                fontSize: 14,
+                cursor: "pointer",
+              }}
+            >
+              ✕
+            </button>
+          </div>
+          {error && (
+            <p style={{ color: "#ef4444", fontSize: 13, marginTop: 8 }}>{error}</p>
+          )}
+          <p style={{ fontSize: 12, color: "#64748b", marginTop: 8 }}>
+            Store URL daalo — Shopify login page khulega — Allow karo — automatically connect!
+          </p>
+        </div>
+      )}
+
       {/* Connected Stores */}
+      <h2 style={{ fontSize: 15, color: "#94a3b8", marginBottom: 12, fontWeight: 400 }}>
+        Connected Stores
+      </h2>
+
       {loading ? (
         <div style={{ textAlign: "center", padding: "2rem", color: "#94a3b8" }}>
           Loading...
@@ -142,10 +184,10 @@ export default function StoreConnect() {
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                 <div style={{
-                  width: 40, height: 40, borderRadius: 8,
-                  background: "#e8f5e9", display: "flex",
+                  width: 44, height: 44, borderRadius: 10,
+                  background: "#0f172a", display: "flex",
                   alignItems: "center", justifyContent: "center",
-                  fontSize: 20,
+                  fontSize: 22, border: "1px solid #1e293b"
                 }}>
                   🛍️
                 </div>
@@ -153,16 +195,16 @@ export default function StoreConnect() {
                   <p style={{ margin: 0, fontWeight: 600, fontSize: 15, color: "#fff" }}>
                     {store.store_name}
                   </p>
-                  <p style={{ margin: "2px 0 0", fontSize: 13, color: "#94a3b8" }}>
+                  <p style={{ margin: "2px 0 0", fontSize: 12, color: "#64748b" }}>
                     {store.shopify_url}
                   </p>
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span style={{
-                  fontSize: 12, padding: "3px 10px",
+                  fontSize: 12, padding: "4px 12px",
                   background: "#14532d", color: "#4ade80",
-                  borderRadius: 20,
+                  borderRadius: 20, fontWeight: 500,
                 }}>
                   ✅ Connected
                 </span>
