@@ -80,9 +80,6 @@ export default function Orders() {
     }) || [];
   };
 
-  const allSKUs = [...new Set(filteredOrders.flatMap(o => getSKUs(o)))].filter(Boolean).sort();
-  const cities = ["All", ...new Set(orders.map(o => o.shipping_address?.city).filter(Boolean)).values()];
-
   const updateStatus = async (orderId, status) => {
     await supabase.from("order_statuses").upsert({ order_id: String(orderId), status, updated_at: new Date().toISOString() }, { onConflict: "order_id" });
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, agent_status: status } : o));
@@ -105,6 +102,8 @@ export default function Orders() {
     setEditingCell(null);
   };
 
+  const cities = ["All", ...new Set(orders.map(o => o.shipping_address?.city).filter(Boolean))];
+
   const filteredOrders = orders.filter(order => {
     const name = `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.toLowerCase();
     const phone = order.customer?.phone || order.shipping_address?.phone || "";
@@ -120,6 +119,7 @@ export default function Orders() {
     return matchSearch && matchStatus && matchSource && matchCity && matchSku && matchFrom && matchTo;
   });
 
+  const allSKUs = [...new Set(filteredOrders.flatMap(o => getSKUs(o)))].filter(Boolean).sort();
   const totalPages = Math.ceil(filteredOrders.length / perPage);
   const pagedOrders = filteredOrders.slice((page - 1) * perPage, page * perPage);
 
@@ -185,7 +185,6 @@ export default function Orders() {
 
       {/* Filters Row 2 */}
       <div style={{ display: "flex", gap: 6, marginBottom: "0.75rem", flexWrap: "wrap" }}>
-        {/* Multi Status Filter */}
         <div style={{ position: "relative" }}>
           <button onClick={() => setStatusMultiOpen(!statusMultiOpen)}
             style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" }}>
@@ -194,19 +193,13 @@ export default function Orders() {
           {statusMultiOpen && (
             <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 300, background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "6px", minWidth: 180, boxShadow: "0 4px 20px rgba(0,0,0,0.5)" }}>
               <div onClick={() => { setStatusFilters([]); setStatusMultiOpen(false); }}
-                style={{ padding: "5px 10px", borderRadius: 6, cursor: "pointer", color: "#94a3b8", fontSize: 12, fontWeight: 500 }}>
-                ✕ Clear All
-              </div>
+                style={{ padding: "5px 10px", borderRadius: 6, cursor: "pointer", color: "#94a3b8", fontSize: 12 }}>✕ Clear All</div>
               {STATUSES.map(s => (
-                <div key={s.label} onClick={() => {
-                  setStatusFilters(prev => prev.includes(s.label) ? prev.filter(x => x !== s.label) : [...prev, s.label]);
-                  setPage(1);
-                }}
+                <div key={s.label} onClick={() => { setStatusFilters(prev => prev.includes(s.label) ? prev.filter(x => x !== s.label) : [...prev, s.label]); setPage(1); }}
                   style={{ padding: "5px 10px", borderRadius: 6, cursor: "pointer", color: s.color, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}
                   onMouseEnter={e => e.currentTarget.style.background = s.bg}
                   onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  <span style={{ fontSize: 14 }}>{statusFilters.includes(s.label) ? "✅" : "⬜"}</span>
-                  {s.label}
+                  <span>{statusFilters.includes(s.label) ? "✅" : "⬜"}</span>{s.label}
                 </div>
               ))}
             </div>
@@ -231,16 +224,11 @@ export default function Orders() {
         </select>
       </div>
 
-      {/* Top Scrollbar */}
-      <div style={{ overflowX: "auto", marginBottom: 2 }} onScroll={e => { if (tableRef.current) tableRef.current.scrollLeft = e.target.scrollLeft; }}>
-        <div style={{ height: 1, width: tableRef.current?.scrollWidth || "200%" }} />
-      </div>
-
       {/* Table */}
       {loading ? (
         <div style={{ textAlign: "center", padding: "4rem", color: "#94a3b8" }}>Loading orders...</div>
       ) : (
-        <div ref={tableRef} style={{ overflowX: "auto", borderRadius: 10, border: "1px solid #1e293b", flex: 1 }}>
+        <div ref={tableRef} style={{ overflowX: "auto", borderRadius: 10, border: "1px solid #1e293b", flex: 1, overflowY: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
               <tr style={{ background: "#1e293b" }}>
@@ -264,7 +252,7 @@ export default function Orders() {
                 const discount = order.agent_data?.discount || order.total_discounts || "0";
                 const date = new Date(order.created_at).toLocaleDateString("en-PK");
                 const time = new Date(order.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" });
-                const shopifyUrl = `https://${store?.shopify_url?.replace(".myshopify.com", "")}.myshopify.com/admin/orders/${order.id}`;
+                const shopifyUrl = `https://${store?.shopify_url}/admin/orders/${order.id}`;
 
                 return (
                   <tr key={order.id} style={{ background: i % 2 === 0 ? "#0f172a" : "#0a0f1e", borderBottom: "1px solid #1e293b" }}>
