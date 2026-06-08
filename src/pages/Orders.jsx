@@ -117,7 +117,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     setStatusDropdown(null);
   };
 
-  const updateField = async (orderId, field, value, shopify = false) => {
+  const updateField = async (orderId, field, value) => {
     const existing = orders.find(o => o.id === orderId)?.agent_data || {};
     const updated = { ...existing, [field]: value };
     const { error } = await supabase.from("order_statuses").upsert({
@@ -134,7 +134,6 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       shipping: updated.shipping || null,
       updated_at: new Date().toISOString(),
     }, { onConflict: "order_id" });
-
     if (!error) {
       setOrders(prev => prev.map(o => o.id === orderId ? { ...o, agent_data: updated } : o));
     }
@@ -170,7 +169,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       if (data.errors || data.error) {
         alert("❌ Shopify Error:\n" + JSON.stringify(data.errors || data.error, null, 2));
       } else {
-        alert("✅ Shopify pe update ho gaya! Order: " + order.name);
+        alert("✅ Shopify pe update ho gaya!\nOrder: " + order.name);
       }
     } catch (err) {
       alert("❌ Error: " + err.message);
@@ -200,7 +199,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const totalPages = Math.ceil(filteredOrders.length / perPage);
   const pagedOrders = filteredOrders.slice((page - 1) * perPage, page * perPage);
 
-  const EditableCell = ({ orderId, field, value, shopify = false, width = 100, maxChars = 20 }) => {
+  const EditableCell = ({ orderId, field, value, width = 100, maxChars = 20 }) => {
     const cellKey = `${orderId}-${field}`;
     const isEditing = editingCell === cellKey;
     const [val, setVal] = useState(value || "");
@@ -209,9 +208,9 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     if (isEditing) return (
       <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
         <input autoFocus value={val} onChange={e => setVal(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter") updateField(orderId, field, val, shopify); if (e.key === "Escape") setEditingCell(null); }}
+          onKeyDown={e => { if (e.key === "Enter") updateField(orderId, field, val); if (e.key === "Escape") setEditingCell(null); }}
           style={{ width, padding: "2px 5px", borderRadius: 4, border: "1px solid #3b82f6", background: "#0f172a", color: "#fff", fontSize: 11 }} />
-        <button onClick={() => updateField(orderId, field, val, shopify)}
+        <button onClick={() => updateField(orderId, field, val)}
           style={{ background: "#3b82f6", border: "none", borderRadius: 4, color: "#fff", padding: "2px 5px", cursor: "pointer", fontSize: 10 }}>✓</button>
         <button onClick={() => setEditingCell(null)}
           style={{ background: "#334155", border: "none", borderRadius: 4, color: "#fff", padding: "2px 5px", cursor: "pointer", fontSize: 10 }}>✕</button>
@@ -329,8 +328,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                 <th style={{ ...thBase }}>Discount</th>
                 <th style={{ ...thBase }}>Total</th>
                 <th style={{ ...thBase }}>Source</th>
-                <th style={{ ...thBase, position: "sticky", right: 100, zIndex: 20, background: "#1e293b", minWidth: 60 }}>Sync</th>
-                <th style={{ ...thBase, position: "sticky", right: 0, zIndex: 20, background: "#1e293b", minWidth: 100 }}>Status</th>
+                <th style={{ ...thBase, position: "sticky", right: 0, zIndex: 20, background: "#1e293b", minWidth: 120 }}>Status / Sync</th>
               </tr>
             </thead>
             <tbody>
@@ -372,33 +370,33 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                     <td style={tdBase}>
                       <span style={{ padding: "2px 6px", borderRadius: 8, fontSize: 10, background: "#1e293b", color: SOURCE_COLORS[source], fontWeight: 600 }}>{source}</span>
                     </td>
-                    <td style={{ ...tdBase, position: "sticky", right: 100, zIndex: 4, background: rowBg }}>
-                      <button
-                        onClick={() => syncToShopify(order)}
-                        disabled={isSyncing}
-                        style={{ padding: "3px 8px", borderRadius: 6, fontSize: 10, background: isSyncing ? "#1e293b" : "#0c4a6e", color: isSyncing ? "#64748b" : "#38bdf8", border: "none", cursor: isSyncing ? "default" : "pointer", fontWeight: 600, whiteSpace: "nowrap" }}
-                      >
-                        {isSyncing ? "..." : "🔄 Sync"}
-                      </button>
-                    </td>
                     <td style={{ ...tdBase, position: "sticky", right: 0, zIndex: 4, background: rowBg }}>
-                      <div style={{ position: "relative" }}>
-                        <button onClick={() => setStatusDropdown(statusDropdown === order.id ? null : order.id)}
-                          style={{ padding: "3px 8px", borderRadius: 8, fontSize: 10, background: status?.bg || "#1e293b", color: status?.color || "#64748b", border: "none", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
-                          {order.agent_status || "Set ▼"}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start" }}>
+                        <div style={{ position: "relative" }}>
+                          <button onClick={() => setStatusDropdown(statusDropdown === order.id ? null : order.id)}
+                            style={{ padding: "3px 8px", borderRadius: 8, fontSize: 10, background: status?.bg || "#1e293b", color: status?.color || "#64748b", border: "none", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
+                            {order.agent_status || "Set ▼"}
+                          </button>
+                          {statusDropdown === order.id && (
+                            <div style={{ position: "fixed", zIndex: 9999, background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "4px", minWidth: 170, boxShadow: "0 4px 20px rgba(0,0,0,0.8)" }}>
+                              {STATUSES.map(s => (
+                                <div key={s.label} onClick={() => updateStatus(order.id, s.label)}
+                                  style={{ padding: "5px 10px", borderRadius: 6, cursor: "pointer", color: s.color, fontSize: 11, fontWeight: 500 }}
+                                  onMouseEnter={e => e.currentTarget.style.background = s.bg}
+                                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                                  {s.label}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => syncToShopify(order)}
+                          disabled={isSyncing}
+                          style={{ padding: "2px 8px", borderRadius: 6, fontSize: 9, background: isSyncing ? "#1e293b" : "#0c4a6e", color: isSyncing ? "#64748b" : "#38bdf8", border: "none", cursor: isSyncing ? "default" : "pointer", fontWeight: 600, whiteSpace: "nowrap" }}
+                        >
+                          {isSyncing ? "Syncing..." : "🔄 Sync"}
                         </button>
-                        {statusDropdown === order.id && (
-                          <div style={{ position: "fixed", zIndex: 9999, background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "4px", minWidth: 170, boxShadow: "0 4px 20px rgba(0,0,0,0.8)" }}>
-                            {STATUSES.map(s => (
-                              <div key={s.label} onClick={() => updateStatus(order.id, s.label)}
-                                style={{ padding: "5px 10px", borderRadius: 6, cursor: "pointer", color: s.color, fontSize: 11, fontWeight: 500 }}
-                                onMouseEnter={e => e.currentTarget.style.background = s.bg}
-                                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                                {s.label}
-                              </div>
-                            ))}
-                          </div>
-                        )}
                       </div>
                     </td>
                   </tr>
