@@ -41,12 +41,11 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const [statusMultiOpen, setStatusMultiOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(20);
+  const [syncingId, setSyncingId] = useState(null);
   const tableRef = useRef(null);
 
   useEffect(() => {
-    if (!ordersLoaded) {
-      loadStore();
-    }
+    if (!ordersLoaded) loadStore();
   }, []);
 
   const loadStore = async () => {
@@ -136,29 +135,47 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       updated_at: new Date().toISOString(),
     }, { onConflict: "order_id" });
 
-    if (shopify && ["address", "city", "phone", "customer_name"].includes(field)) {
-      const storeData = store || ordersStore;
-      await fetch("/.netlify/functions/shopify-update-order", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shop: storeData.shopify_url, token: storeData.api_token, orderId,
-          updates: {
-            shipping_address: {
-              first_name: (updated.customer_name || "").split(" ")[0] || "",
-              last_name: (updated.customer_name || "").split(" ").slice(1).join(" ") || "",
-              address1: updated.address || "",
-              city: updated.city || "",
-              phone: updated.phone || "",
-            }
-          }
-        }),
-      });
-    }
-
     if (!error) {
       setOrders(prev => prev.map(o => o.id === orderId ? { ...o, agent_data: updated } : o));
     }
     setEditingCell(null);
+  };
+
+  const syncToShopify = async (order) => {
+    const storeData = store || ordersStore;
+    if (!storeData) return;
+    setSyncingId(order.id);
+    const agentData = order.agent_data || {};
+    const customerName = agentData.customer_name || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim();
+    try {
+      const res = await fetch("/.netlify/functions/shopify-update-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shop: storeData.shopify_url,
+          token: storeData.api_token,
+          orderId: order.id,
+          updates: {
+            shipping_address: {
+              first_name: customerName.split(" ")[0] || "",
+              last_name: customerName.split(" ").slice(1).join(" ") || "",
+              address1: agentData.address || order.shipping_address?.address1 || "",
+              city: agentData.city || order.shipping_address?.city || "",
+              phone: agentData.phone || order.customer?.phone || "",
+            }
+          }
+        }),
+      });
+      const data = await res.json();
+      if (data.errors || data.error) {
+        alert("❌ Shopify Error:\n" + JSON.stringify(data.errors || data.error, null, 2));
+      } else {
+        alert("✅ Shopify pe update ho gaya! Order: " + order.name);
+      }
+    } catch (err) {
+      alert("❌ Error: " + err.message);
+    }
+    setSyncingId(null);
   };
 
   const currentStore = store || ordersStore;
@@ -312,6 +329,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                 <th style={{ ...thBase }}>Discount</th>
                 <th style={{ ...thBase }}>Total</th>
                 <th style={{ ...thBase }}>Source</th>
+                <th style={{ ...thBase, position: "sticky", right: 100, zIndex: 20, background: "#1e293b", minWidth: 60 }}>Sync</th>
                 <th style={{ ...thBase, position: "sticky", right: 0, zIndex: 20, background: "#1e293b", minWidth: 100 }}>Status</th>
               </tr>
             </thead>
@@ -332,6 +350,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                 const time = new Date(order.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" });
                 const shopifyUrl = `https://${currentStore?.shopify_url}/admin/orders/${order.id}`;
                 const rowBg = i % 2 === 0 ? "#0f172a" : "#0a0f1e";
+                const isSyncing = syncingId === order.id;
 
                 return (
                   <tr key={order.id} style={{ background: rowBg, borderBottom: "1px solid #1e293b" }}>
@@ -340,10 +359,10 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                     </td>
                     <td style={{ ...tdBase, color: "#94a3b8", whiteSpace: "nowrap" }}>{date}</td>
                     <td style={{ ...tdBase, color: "#64748b", whiteSpace: "nowrap" }}>{time}</td>
-                    <td style={tdBase}><EditableCell orderId={order.id} field="customer_name" value={fullName} shopify width={110} maxChars={15} /></td>
-                    <td style={tdBase}><EditableCell orderId={order.id} field="phone" value={phone} shopify width={100} maxChars={13} /></td>
-                    <td style={tdBase}><EditableCell orderId={order.id} field="address" value={address} shopify width={130} maxChars={18} /></td>
-                    <td style={tdBase}><EditableCell orderId={order.id} field="city" value={city} shopify width={80} maxChars={10} /></td>
+                    <td style={tdBase}><EditableCell orderId={order.id} field="customer_name" value={fullName} width={110} maxChars={15} /></td>
+                    <td style={tdBase}><EditableCell orderId={order.id} field="phone" value={phone} width={100} maxChars={13} /></td>
+                    <td style={tdBase}><EditableCell orderId={order.id} field="address" value={address} width={130} maxChars={18} /></td>
+                    <td style={tdBase}><EditableCell orderId={order.id} field="city" value={city} width={80} maxChars={10} /></td>
                     <td style={tdBase}><EditableCell orderId={order.id} field="product" value={products} width={160} maxChars={20} /></td>
                     <td style={tdBase}><EditableCell orderId={order.id} field="sku" value={skus} width={100} maxChars={12} /></td>
                     <td style={{ ...tdBase, color: "#94a3b8", whiteSpace: "nowrap" }}>{unitPrices}</td>
@@ -352,6 +371,15 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                     <td style={{ ...tdBase, color: "#10b981", fontWeight: 600, whiteSpace: "nowrap" }}>Rs. {Number(order.total_price).toLocaleString()}</td>
                     <td style={tdBase}>
                       <span style={{ padding: "2px 6px", borderRadius: 8, fontSize: 10, background: "#1e293b", color: SOURCE_COLORS[source], fontWeight: 600 }}>{source}</span>
+                    </td>
+                    <td style={{ ...tdBase, position: "sticky", right: 100, zIndex: 4, background: rowBg }}>
+                      <button
+                        onClick={() => syncToShopify(order)}
+                        disabled={isSyncing}
+                        style={{ padding: "3px 8px", borderRadius: 6, fontSize: 10, background: isSyncing ? "#1e293b" : "#0c4a6e", color: isSyncing ? "#64748b" : "#38bdf8", border: "none", cursor: isSyncing ? "default" : "pointer", fontWeight: 600, whiteSpace: "nowrap" }}
+                      >
+                        {isSyncing ? "..." : "🔄 Sync"}
+                      </button>
                     </td>
                     <td style={{ ...tdBase, position: "sticky", right: 0, zIndex: 4, background: rowBg }}>
                       <div style={{ position: "relative" }}>
