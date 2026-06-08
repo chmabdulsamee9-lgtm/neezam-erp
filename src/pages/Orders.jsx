@@ -23,10 +23,11 @@ const truncate = (str, max = 25) => {
   return str.length > max ? str.slice(0, max) + "…" : str;
 };
 
-export default function Orders() {
-  const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [store, setStore] = useState(null);
+export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrdersLoaded, ordersStore, setOrdersStore }) {
+  const orders = ordersData;
+  const setOrders = setOrdersData;
+  const [loading, setLoading] = useState(!ordersLoaded);
+  const [store, setStore] = useState(ordersStore);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilters, setStatusFilters] = useState([]);
@@ -42,12 +43,22 @@ export default function Orders() {
   const [perPage, setPerPage] = useState(20);
   const tableRef = useRef(null);
 
-  useEffect(() => { loadStore(); }, []);
+  useEffect(() => {
+    if (!ordersLoaded) {
+      loadStore();
+    }
+  }, []);
 
   const loadStore = async () => {
     const { data } = await supabase.from("stores").select("*").limit(1).single();
-    if (data) { setStore(data); fetchOrders(data); }
-    else { setError("Pehle Store Connect karo!"); setLoading(false); }
+    if (data) {
+      setStore(data);
+      setOrdersStore(data);
+      fetchOrders(data);
+    } else {
+      setError("Pehle Store Connect karo!");
+      setLoading(false);
+    }
   };
 
   const fetchOrders = async (storeData) => {
@@ -59,14 +70,25 @@ export default function Orders() {
         const { data: statuses } = await supabase.from("order_statuses").select("*");
         const statusMap = {};
         (statuses || []).forEach(s => { statusMap[s.order_id] = s; });
-        setOrders(data.orders.map(o => ({
+        const merged = data.orders.map(o => ({
           ...o,
           agent_data: statusMap[String(o.id)] || {},
           agent_status: statusMap[String(o.id)]?.status || null,
-        })));
-      } else { setError("Orders fetch nahi hue!"); }
-    } catch (err) { setError("Error: " + err.message); }
+        }));
+        setOrders(merged);
+        setOrdersLoaded(true);
+      } else {
+        setError("Orders fetch nahi hue!");
+      }
+    } catch (err) {
+      setError("Error: " + err.message);
+    }
     setLoading(false);
+  };
+
+  const handleRefresh = () => {
+    const storeData = store || ordersStore;
+    if (storeData) fetchOrders(storeData);
   };
 
   const getSource = (order) => {
@@ -115,10 +137,11 @@ export default function Orders() {
     }, { onConflict: "order_id" });
 
     if (shopify && ["address", "city", "phone"].includes(field)) {
+      const storeData = store || ordersStore;
       await fetch("/.netlify/functions/shopify-update-order", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          shop: store.shopify_url, token: store.api_token, orderId,
+          shop: storeData.shopify_url, token: storeData.api_token, orderId,
           updates: { shipping_address: { address1: updated.address, city: updated.city, phone: updated.phone } }
         }),
       });
@@ -129,6 +152,7 @@ export default function Orders() {
     setEditingCell(null);
   };
 
+  const currentStore = store || ordersStore;
   const cities = ["All", ...new Set(orders.map(o => o.shipping_address?.city).filter(Boolean))];
 
   const filteredOrders = orders.filter(order => {
@@ -191,14 +215,14 @@ export default function Orders() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "#fff" }}>📦 Orders</h1>
-          <p style={{ margin: "2px 0 0", fontSize: 11, color: "#64748b" }}>{store?.store_name} — {filteredOrders.length} orders</p>
+          <p style={{ margin: "2px 0 0", fontSize: 11, color: "#64748b" }}>{currentStore?.store_name} — {filteredOrders.length} orders</p>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <select value={perPage} onChange={e => { setPerPage(Number(e.target.value)); setPage(1); }}
             style={{ padding: "4px 6px", borderRadius: 6, border: "1px solid #334155", background: "#1e293b", color: "#fff", fontSize: 11 }}>
             {PER_PAGE_OPTIONS.map(n => <option key={n} value={n}>{n} / page</option>)}
           </select>
-          <button onClick={() => store && fetchOrders(store)}
+          <button onClick={handleRefresh}
             style={{ background: "#1e293b", color: "#94a3b8", border: "1px solid #334155", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer" }}>
             🔄 Refresh
           </button>
@@ -297,7 +321,7 @@ export default function Orders() {
                 const discount = order.agent_data?.discount || order.total_discounts || "0";
                 const date = new Date(order.created_at).toLocaleDateString("en-PK");
                 const time = new Date(order.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" });
-                const shopifyUrl = `https://${store?.shopify_url}/admin/orders/${order.id}`;
+                const shopifyUrl = `https://${currentStore?.shopify_url}/admin/orders/${order.id}`;
                 const rowBg = i % 2 === 0 ? "#0f172a" : "#0a0f1e";
 
                 return (

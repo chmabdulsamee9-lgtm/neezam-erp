@@ -10,6 +10,9 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [activeMenu, setActiveMenu] = useState('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [ordersData, setOrdersData] = useState([])
+  const [ordersLoaded, setOrdersLoaded] = useState(false)
+  const [ordersStore, setOrdersStore] = useState(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -195,7 +198,16 @@ function App() {
         {/* Page Content */}
         <div style={{flex: 1, overflow: 'auto', minWidth: 0, width: '100%'}}>
 
-          {activeMenu === 'orders' && <Orders />}
+          {activeMenu === 'orders' && (
+            <Orders
+              ordersData={ordersData}
+              setOrdersData={setOrdersData}
+              ordersLoaded={ordersLoaded}
+              setOrdersLoaded={setOrdersLoaded}
+              ordersStore={ordersStore}
+              setOrdersStore={setOrdersStore}
+            />
+          )}
           {activeMenu === 'store-connect' && <StoreConnect />}
 
           {activeMenu === 'dashboard' && (
