@@ -18,6 +18,11 @@ const STATUSES = [
 const SOURCE_COLORS = { Meta: "#3b82f6", TikTok: "#ec4899", Snapchat: "#eab308", Google: "#10b981", Direct: "#64748b" };
 const PER_PAGE_OPTIONS = [20, 50, 100];
 
+const truncate = (str, max = 25) => {
+  if (!str) return "";
+  return str.length > max ? str.slice(0, max) + "…" : str;
+};
+
 export default function Orders() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -36,6 +41,7 @@ export default function Orders() {
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(20);
   const tableRef = useRef(null);
+  const topScrollRef = useRef(null);
 
   useEffect(() => { loadStore(); }, []);
 
@@ -102,6 +108,10 @@ export default function Orders() {
     setEditingCell(null);
   };
 
+  const syncScroll = (source, target) => {
+    if (target.current) target.current.scrollLeft = source.scrollLeft;
+  };
+
   const cities = ["All", ...new Set(orders.map(o => o.shipping_address?.city).filter(Boolean))];
 
   const filteredOrders = orders.filter(order => {
@@ -123,7 +133,7 @@ export default function Orders() {
   const totalPages = Math.ceil(filteredOrders.length / perPage);
   const pagedOrders = filteredOrders.slice((page - 1) * perPage, page * perPage);
 
-  const EditableCell = ({ orderId, field, value, shopify = false, width = 120 }) => {
+  const EditableCell = ({ orderId, field, value, shopify = false, width = 120, maxChars = 25 }) => {
     const cellKey = `${orderId}-${field}`;
     const isEditing = editingCell === cellKey;
     const [val, setVal] = useState(value || "");
@@ -140,10 +150,18 @@ export default function Orders() {
           style={{ background: "#334155", border: "none", borderRadius: 4, color: "#fff", padding: "2px 6px", cursor: "pointer", fontSize: 11 }}>✕</button>
       </div>
     );
+
+    const display = truncate(value, maxChars);
+    const needsTooltip = value && value.length > maxChars;
+
     return (
-      <span onClick={() => setEditingCell(cellKey)}
+      <span
+        onClick={() => setEditingCell(cellKey)}
+        title={needsTooltip ? value : ""}
         style={{ cursor: "pointer", borderBottom: "1px dashed #334155", color: value ? "#e2e8f0" : "#475569", fontSize: 12, whiteSpace: "nowrap" }}
-        title="Click to edit">{value || "—"}</span>
+      >
+        {display || "—"}
+      </span>
     );
   };
 
@@ -205,18 +223,15 @@ export default function Orders() {
             </div>
           )}
         </div>
-
         <select value={sourceFilter} onChange={e => { setSourceFilter(e.target.value); setPage(1); }}
           style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 12 }}>
           <option value="All">All Source</option>
           {["Meta", "TikTok", "Snapchat", "Google", "Direct"].map(s => <option key={s}>{s}</option>)}
         </select>
-
         <select value={cityFilter} onChange={e => { setCityFilter(e.target.value); setPage(1); }}
           style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 12 }}>
           {cities.map(c => <option key={c}>{c}</option>)}
         </select>
-
         <select value={skuFilter} onChange={e => { setSkuFilter(e.target.value); setPage(1); }}
           style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 12 }}>
           <option value="All">All SKU</option>
@@ -224,11 +239,24 @@ export default function Orders() {
         </select>
       </div>
 
+      {/* Top Scrollbar */}
+      <div
+        ref={topScrollRef}
+        onScroll={e => syncScroll(e.target, tableRef)}
+        style={{ overflowX: "auto", overflowY: "hidden", height: 12, marginBottom: 2 }}
+      >
+        <div style={{ width: tableRef.current?.scrollWidth || 2000, height: 1 }} />
+      </div>
+
       {/* Table */}
       {loading ? (
         <div style={{ textAlign: "center", padding: "4rem", color: "#94a3b8" }}>Loading orders...</div>
       ) : (
-        <div ref={tableRef} style={{ overflowX: "auto", borderRadius: 10, border: "1px solid #1e293b", flex: 1, overflowY: "auto" }}>
+        <div
+          ref={tableRef}
+          onScroll={e => syncScroll(e.target, topScrollRef)}
+          style={{ overflowX: "auto", borderRadius: 10, border: "1px solid #1e293b", flex: 1, overflowY: "auto" }}
+        >
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
               <tr style={{ background: "#1e293b" }}>
@@ -261,15 +289,15 @@ export default function Orders() {
                     <td style={{ padding: "7px 10px", whiteSpace: "nowrap" }}>
                       <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "#60a5fa", fontWeight: 600, textDecoration: "none" }}>{order.name}</a>
                     </td>
-                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="customer_name" value={fullName} shopify width={130} /></td>
-                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="phone" value={phone} shopify width={120} /></td>
-                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="address" value={address} shopify width={160} /></td>
-                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="city" value={city} shopify width={100} /></td>
-                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="product" value={products} width={200} /></td>
-                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="sku" value={skus} width={120} /></td>
+                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="customer_name" value={fullName} shopify width={130} maxChars={20} /></td>
+                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="phone" value={phone} shopify width={120} maxChars={15} /></td>
+                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="address" value={address} shopify width={160} maxChars={22} /></td>
+                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="city" value={city} shopify width={100} maxChars={12} /></td>
+                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="product" value={products} width={200} maxChars={25} /></td>
+                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="sku" value={skus} width={120} maxChars={15} /></td>
                     <td style={{ padding: "7px 10px", color: "#94a3b8", whiteSpace: "nowrap" }}>{unitPrices}</td>
-                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="shipping" value={String(shipping)} width={80} /></td>
-                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="discount" value={String(discount)} width={80} /></td>
+                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="shipping" value={String(shipping)} width={80} maxChars={8} /></td>
+                    <td style={{ padding: "7px 10px" }}><EditableCell orderId={order.id} field="discount" value={String(discount)} width={80} maxChars={8} /></td>
                     <td style={{ padding: "7px 10px", color: "#10b981", fontWeight: 600, whiteSpace: "nowrap" }}>Rs. {Number(order.total_price).toLocaleString()}</td>
                     <td style={{ padding: "7px 10px" }}>
                       <span style={{ padding: "2px 8px", borderRadius: 10, fontSize: 11, background: "#1e293b", color: SOURCE_COLORS[source], fontWeight: 600 }}>{source}</span>
