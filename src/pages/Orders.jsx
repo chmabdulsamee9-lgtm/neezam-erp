@@ -80,7 +80,7 @@ export default function Orders() {
     }) || [];
   };
 
-  const allSKUs = [...new Set(orders.flatMap(o => getSKUs(o)))].filter(Boolean).sort();
+  const allSKUs = [...new Set(filteredOrders.flatMap(o => getSKUs(o)))].filter(Boolean).sort();
   const cities = ["All", ...new Set(orders.map(o => o.shipping_address?.city).filter(Boolean)).values()];
 
   const updateStatus = async (orderId, status) => {
