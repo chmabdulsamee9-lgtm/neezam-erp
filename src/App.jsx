@@ -4,6 +4,7 @@ import Login from './pages/Login'
 import StoreConnect from './pages/StoreConnect'
 import ShopifyCallback from './pages/ShopifyCallback'
 import Orders from './pages/Orders'
+import Dashboard from './pages/Dashboard'
 
 function App() {
   const [session, setSession] = useState(null)
@@ -208,38 +209,12 @@ function App() {
               setOrdersStore={setOrdersStore}
             />
           )}
-          {activeMenu === 'store-connect' && <StoreConnect />}
 
           {activeMenu === 'dashboard' && (
-            <div style={{padding: '1.25rem'}}>
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                gap: '1rem',
-                marginBottom: '1.5rem'
-              }}>
-                {[
-                  { label: 'Aaj ke Orders', value: '—', icon: '📦', color: '#3b82f6' },
-                  { label: 'Aaj ki Revenue', value: '—', icon: '💰', color: '#10b981' },
-                  { label: 'Net Profit', value: '—', icon: '📈', color: '#8b5cf6' },
-                  { label: 'Ad Spend', value: '—', icon: '📊', color: '#f59e0b' },
-                ].map((card, i) => (
-                  <div key={i} style={{
-                    background: '#1e293b', borderRadius: '10px',
-                    padding: '1.25rem', borderLeft: `3px solid ${card.color}`
-                  }}>
-                    <div style={{fontSize: '22px', marginBottom: '8px'}}>{card.icon}</div>
-                    <div style={{fontSize: '20px', fontWeight: '700', color: '#fff', marginBottom: '4px'}}>{card.value}</div>
-                    <div style={{fontSize: '12px', color: '#94a3b8'}}>{card.label}</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{background: '#1e293b', borderRadius: '10px', padding: '1.25rem'}}>
-                <h2 style={{fontSize: '15px', fontWeight: '600', marginBottom: '1rem', color: '#fff'}}>💡 Suggestions</h2>
-                <div style={{color: '#94a3b8', fontSize: '13px'}}>Modules connect hone ke baad suggestions yahan aayenge!</div>
-              </div>
-            </div>
+            <Dashboard ordersData={ordersData} />
           )}
+
+          {activeMenu === 'store-connect' && <StoreConnect />}
 
           {activeMenu !== 'dashboard' && activeMenu !== 'store-connect' && activeMenu !== 'orders' && (
             <div style={{padding: '1.25rem'}}>
