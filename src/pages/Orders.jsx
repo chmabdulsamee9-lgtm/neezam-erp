@@ -136,16 +136,25 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       updated_at: new Date().toISOString(),
     }, { onConflict: "order_id" });
 
-    if (shopify && ["address", "city", "phone"].includes(field)) {
+    if (shopify && ["address", "city", "phone", "customer_name"].includes(field)) {
       const storeData = store || ordersStore;
       await fetch("/.netlify/functions/shopify-update-order", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           shop: storeData.shopify_url, token: storeData.api_token, orderId,
-          updates: { shipping_address: { address1: updated.address, city: updated.city, phone: updated.phone } }
+          updates: {
+            shipping_address: {
+              first_name: (updated.customer_name || "").split(" ")[0] || "",
+              last_name: (updated.customer_name || "").split(" ").slice(1).join(" ") || "",
+              address1: updated.address || "",
+              city: updated.city || "",
+              phone: updated.phone || "",
+            }
+          }
         }),
       });
     }
+
     if (!error) {
       setOrders(prev => prev.map(o => o.id === orderId ? { ...o, agent_data: updated } : o));
     }

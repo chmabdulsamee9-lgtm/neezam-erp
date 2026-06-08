@@ -6,6 +6,20 @@ exports.handler = async (event) => {
   try {
     const { shop, token, orderId, updates } = JSON.parse(event.body);
 
+    const orderUpdate = {};
+
+    if (updates.shipping_address) {
+      orderUpdate.shipping_address = updates.shipping_address;
+    }
+
+    if (updates.discount) {
+      orderUpdate.discount_codes = [{
+        code: "AGENT_DISCOUNT",
+        amount: String(updates.discount),
+        type: "fixed_amount"
+      }];
+    }
+
     const response = await fetch(
       `https://${shop}/admin/api/2024-01/orders/${orderId}.json`,
       {
@@ -14,7 +28,7 @@ exports.handler = async (event) => {
           "X-Shopify-Access-Token": token,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ order: updates }),
+        body: JSON.stringify({ order: orderUpdate }),
       }
     );
 
