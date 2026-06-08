@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { supabase } from './supabase'
 import Login from './pages/Login'
+import StoreConnect from './pages/StoreConnect'
+import ShopifyCallback from './pages/ShopifyCallback'
 
 function App() {
   const [session, setSession] = useState(null)
@@ -17,6 +19,11 @@ function App() {
       setSession(session)
     })
   }, [])
+
+  // OAuth Callback handle karo
+  if (window.location.pathname === '/auth/callback') {
+    return <ShopifyCallback />
+  }
 
   if (loading) return (
     <div style={{minHeight:'100vh',background:'#0f172a',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:'18px'}}>
@@ -39,6 +46,7 @@ function App() {
     { id: 'budget', label: 'Budget Calculator', icon: '🧮' },
     { id: 'suggestions', label: 'Suggestions', icon: '💡' },
     { id: 'whatsapp', label: 'WhatsApp', icon: '💬' },
+    { id: 'store-connect', label: 'Store Connect', icon: '🔗' },
   ]
 
   return (
@@ -57,7 +65,6 @@ function App() {
         zIndex:100,
         overflowY:'auto'
       }}>
-        {/* Logo */}
         <div style={{padding:'0 1rem',marginBottom:'1.5rem',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
           {sidebarOpen && <span style={{fontSize:'1.5rem',fontWeight:'700',color:'#fff'}}>نظام</span>}
           <button
@@ -68,7 +75,6 @@ function App() {
           </button>
         </div>
 
-        {/* Menu Items */}
         {menuItems.map(item => (
           <div
             key={item.id}
@@ -90,7 +96,6 @@ function App() {
           </div>
         ))}
 
-        {/* Logout */}
         <div style={{marginTop:'auto',padding:'1rem'}}>
           <div
             onClick={() => supabase.auth.signOut()}
@@ -105,7 +110,6 @@ function App() {
       {/* Main Content */}
       <div style={{marginLeft: sidebarOpen ? '240px' : '60px',flex:1,padding:'1.5rem',transition:'margin 0.3s'}}>
         
-        {/* Header */}
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1.5rem'}}>
           <h1 style={{fontSize:'20px',fontWeight:'600',color:'#fff'}}>
             {menuItems.find(m => m.id === activeMenu)?.icon} {menuItems.find(m => m.id === activeMenu)?.label}
@@ -118,7 +122,8 @@ function App() {
           </div>
         </div>
 
-        {/* Dashboard Content */}
+        {activeMenu === 'store-connect' && <StoreConnect />}
+
         {activeMenu === 'dashboard' && (
           <div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))',gap:'1rem',marginBottom:'1.5rem'}}>
@@ -135,7 +140,6 @@ function App() {
                 </div>
               ))}
             </div>
-
             <div style={{background:'#1e293b',borderRadius:'12px',padding:'1.25rem'}}>
               <h2 style={{fontSize:'16px',fontWeight:'600',marginBottom:'1rem',color:'#fff'}}>💡 Suggestions</h2>
               <div style={{color:'#94a3b8',fontSize:'14px'}}>Modules connect hone ke baad suggestions yahan aayenge!</div>
@@ -143,11 +147,11 @@ function App() {
           </div>
         )}
 
-        {activeMenu !== 'dashboard' && (
+        {activeMenu !== 'dashboard' && activeMenu !== 'store-connect' && (
           <div style={{background:'#1e293b',borderRadius:'12px',padding:'2rem',textAlign:'center'}}>
             <div style={{fontSize:'48px',marginBottom:'1rem'}}>{menuItems.find(m => m.id === activeMenu)?.icon}</div>
             <h2 style={{color:'#fff',marginBottom:'8px'}}>{menuItems.find(m => m.id === activeMenu)?.label}</h2>
-            <p style={{color:'#94a3b8',fontSize:'14px'}}>Ye module jald aa raha hai — APIs connect ho rahi hain!</p>
+            <p style={{color:'#94a3b8',fontSize:'14px'}}>Ye module jald aa raha hai!</p>
           </div>
         )}
       </div>
