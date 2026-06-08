@@ -11,9 +11,24 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session)
       setLoading(false)
+
+      // Pending store check
+      const pending = localStorage.getItem("pending_store")
+      if (pending && session) {
+        const { shop, token } = JSON.parse(pending)
+        const storeName = shop.replace(".myshopify.com", "")
+        await supabase.from("stores").upsert({
+          user_id: session.user.id,
+          store_name: storeName,
+          shopify_url: shop,
+          api_token: token,
+          platform: "shopify",
+        }, { onConflict: "shopify_url" })
+        localStorage.removeItem("pending_store")
+      }
     })
     supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)

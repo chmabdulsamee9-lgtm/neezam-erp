@@ -36,16 +36,34 @@ export default function ShopifyCallback() {
 
       setStatus("💾 Store save ho raha hai...");
 
-      const { data: { user } } = await supabase.auth.getUser();
+      // Session check karo
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        // Token localStorage mein save karo
+        localStorage.setItem("pending_store", JSON.stringify({
+          shop,
+          token: data.access_token
+        }));
+        setStatus("✅ Almost done! Login page pe ja rahe hain...");
+        setTimeout(() => { window.location.href = "/"; }, 1500);
+        return;
+      }
+
       const storeName = shop.replace(".myshopify.com", "");
 
-      await supabase.from("stores").upsert({
-        user_id: user.id,
+      const { error } = await supabase.from("stores").upsert({
+        user_id: session.user.id,
         store_name: storeName,
         shopify_url: shop,
         api_token: data.access_token,
         platform: "shopify",
       }, { onConflict: "shopify_url" });
+
+      if (error) {
+        setStatus("❌ Save error: " + error.message);
+        return;
+      }
 
       setStatus("✅ Store connected! Redirect ho raha hai...");
       setTimeout(() => { window.location.href = "/"; }, 2000);
