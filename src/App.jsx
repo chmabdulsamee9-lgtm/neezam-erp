@@ -3,12 +3,14 @@ import { supabase } from './supabase'
 import Login from './pages/Login'
 import StoreConnect from './pages/StoreConnect'
 import ShopifyCallback from './pages/ShopifyCallback'
+import Orders from './pages/Orders'
 
 function App() {
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
   const [activeMenu, setActiveMenu] = useState('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -138,6 +140,7 @@ function App() {
         </div>
 
         {activeMenu === 'store-connect' && <StoreConnect />}
+        {activeMenu === 'orders' && <Orders />}
 
         {activeMenu === 'dashboard' && (
           <div>
