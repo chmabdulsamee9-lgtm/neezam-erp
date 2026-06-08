@@ -41,7 +41,6 @@ export default function Orders() {
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(20);
   const tableRef = useRef(null);
-  const topScrollRef = useRef(null);
 
   useEffect(() => { loadStore(); }, []);
 
@@ -108,10 +107,6 @@ export default function Orders() {
     setEditingCell(null);
   };
 
-  const syncScroll = (source, target) => {
-    if (target.current) target.current.scrollLeft = source.scrollLeft;
-  };
-
   const cities = ["All", ...new Set(orders.map(o => o.shipping_address?.city).filter(Boolean))];
 
   const filteredOrders = orders.filter(order => {
@@ -158,7 +153,7 @@ export default function Orders() {
       <span
         onClick={() => setEditingCell(cellKey)}
         title={needsTooltip ? value : ""}
-        style={{ cursor: "pointer", borderBottom: "1px dashed #334155", color: value ? "#e2e8f0" : "#475569", fontSize: 12, whiteSpace: "nowrap" }}
+        style={{ cursor: "pointer", color: value ? "#e2e8f0" : "#475569", fontSize: 12, whiteSpace: "nowrap" }}
       >
         {display || "—"}
       </span>
@@ -239,24 +234,11 @@ export default function Orders() {
         </select>
       </div>
 
-      {/* Top Scrollbar */}
-      <div
-        ref={topScrollRef}
-        onScroll={e => syncScroll(e.target, tableRef)}
-        style={{ overflowX: "auto", overflowY: "hidden", height: 12, marginBottom: 2 }}
-      >
-        <div style={{ width: tableRef.current?.scrollWidth || 2000, height: 1 }} />
-      </div>
-
       {/* Table */}
       {loading ? (
         <div style={{ textAlign: "center", padding: "4rem", color: "#94a3b8" }}>Loading orders...</div>
       ) : (
-        <div
-          ref={tableRef}
-          onScroll={e => syncScroll(e.target, topScrollRef)}
-          style={{ overflowX: "auto", borderRadius: 10, border: "1px solid #1e293b", flex: 1, overflowY: "auto" }}
-        >
+        <div ref={tableRef} style={{ overflowX: "auto", borderRadius: 10, border: "1px solid #1e293b", flex: 1, overflowY: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
               <tr style={{ background: "#1e293b" }}>
