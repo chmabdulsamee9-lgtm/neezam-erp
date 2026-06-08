@@ -23,12 +23,6 @@ const truncate = (str, max = 25) => {
   return str.length > max ? str.slice(0, max) + "…" : str;
 };
 
-const fixedColStyle = {
-  position: "sticky",
-  background: "inherit",
-  zIndex: 5,
-};
-
 export default function Orders() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -92,24 +86,46 @@ export default function Orders() {
   };
 
   const updateStatus = async (orderId, status) => {
-    await supabase.from("order_statuses").upsert({ order_id: String(orderId), status, updated_at: new Date().toISOString() }, { onConflict: "order_id" });
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, agent_status: status } : o));
+    const { error } = await supabase.from("order_statuses").upsert(
+      { order_id: String(orderId), status, updated_at: new Date().toISOString() },
+      { onConflict: "order_id" }
+    );
+    if (!error) {
+      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, agent_status: status } : o));
+    }
     setStatusDropdown(null);
   };
 
   const updateField = async (orderId, field, value, shopify = false) => {
     const existing = orders.find(o => o.id === orderId)?.agent_data || {};
     const updated = { ...existing, [field]: value };
-    await supabase.from("order_statuses").upsert({
-      order_id: String(orderId), ...updated, updated_at: new Date().toISOString(),
+    const { error } = await supabase.from("order_statuses").upsert({
+      order_id: String(orderId),
+      status: orders.find(o => o.id === orderId)?.agent_status || null,
+      customer_name: updated.customer_name || null,
+      phone: updated.phone || null,
+      address: updated.address || null,
+      city: updated.city || null,
+      discount: updated.discount || null,
+      notes: updated.notes || null,
+      product: updated.product || null,
+      sku: updated.sku || null,
+      shipping: updated.shipping || null,
+      updated_at: new Date().toISOString(),
     }, { onConflict: "order_id" });
+
     if (shopify && ["address", "city", "phone"].includes(field)) {
       await fetch("/.netlify/functions/shopify-update-order", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shop: store.shopify_url, token: store.api_token, orderId, updates: { shipping_address: { address1: updated.address, city: updated.city, phone: updated.phone } } }),
+        body: JSON.stringify({
+          shop: store.shopify_url, token: store.api_token, orderId,
+          updates: { shipping_address: { address1: updated.address, city: updated.city, phone: updated.phone } }
+        }),
       });
     }
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, agent_data: updated } : o));
+    if (!error) {
+      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, agent_data: updated } : o));
+    }
     setEditingCell(null);
   };
 
@@ -205,13 +221,13 @@ export default function Orders() {
 
       {/* Filters Row 2 */}
       <div style={{ display: "flex", gap: 5, marginBottom: "0.5rem", flexWrap: "wrap" }}>
-        <div style={{ position: "relative" }}>
+        <div style={{ position: "relative", zIndex: 100 }}>
           <button onClick={() => setStatusMultiOpen(!statusMultiOpen)}
             style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>
             {statusFilters.length === 0 ? "All Status ▼" : `${statusFilters.length} selected ▼`}
           </button>
           {statusMultiOpen && (
-            <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 300, background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "6px", minWidth: 180, boxShadow: "0 4px 20px rgba(0,0,0,0.5)" }}>
+            <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 9999, background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "6px", minWidth: 180, boxShadow: "0 4px 20px rgba(0,0,0,0.8)" }}>
               <div onClick={() => { setStatusFilters([]); setStatusMultiOpen(false); }}
                 style={{ padding: "5px 10px", borderRadius: 6, cursor: "pointer", color: "#94a3b8", fontSize: 11 }}>✕ Clear All</div>
               {STATUSES.map(s => (
@@ -311,7 +327,7 @@ export default function Orders() {
                           {order.agent_status || "Set ▼"}
                         </button>
                         {statusDropdown === order.id && (
-                          <div style={{ position: "absolute", top: "100%", right: 0, zIndex: 200, background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "4px", minWidth: 170, boxShadow: "0 4px 20px rgba(0,0,0,0.5)" }}>
+                          <div style={{ position: "fixed", zIndex: 9999, background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "4px", minWidth: 170, boxShadow: "0 4px 20px rgba(0,0,0,0.8)" }}>
                             {STATUSES.map(s => (
                               <div key={s.label} onClick={() => updateStatus(order.id, s.label)}
                                 style={{ padding: "5px 10px", borderRadius: 6, cursor: "pointer", color: s.color, fontSize: 11, fontWeight: 500 }}
