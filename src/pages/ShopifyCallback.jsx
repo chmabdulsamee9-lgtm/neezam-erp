@@ -5,7 +5,7 @@ const CLIENT_ID = import.meta.env.VITE_SHOPIFY_CLIENT_ID;
 const CLIENT_SECRET = import.meta.env.VITE_SHOPIFY_CLIENT_SECRET;
 
 export default function ShopifyCallback() {
-  const [status, setStatus] = useState("Processing...");
+  const [status, setStatus] = useState("🔄 Processing...");
 
   useEffect(() => {
     handleCallback();
@@ -24,11 +24,16 @@ export default function ShopifyCallback() {
 
       setStatus("🔄 Token le rahe hain...");
 
+      const targetUrl = `https://${shop}/admin/oauth/access_token`;
+      
       const res = await fetch(
-        `https://corsproxy.io/?https://${shop}/admin/oauth/access_token`,
+        `https://proxy.cors.sh/${targetUrl}`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            "x-cors-api-key": "temp_" + Math.random()
+          },
           body: JSON.stringify({
             client_id: CLIENT_ID,
             client_secret: CLIENT_SECRET,
