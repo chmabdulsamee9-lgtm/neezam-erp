@@ -14,6 +14,7 @@ function App() {
   const [ordersData, setOrdersData] = useState([])
   const [ordersLoaded, setOrdersLoaded] = useState(false)
   const [ordersStore, setOrdersStore] = useState(null)
+  const [ordersLoading, setOrdersLoading] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -32,21 +33,21 @@ function App() {
         }, { onConflict: "shopify_url" })
         localStorage.removeItem("pending_store")
       }
-      // Auto load orders
       if (session) {
         autoLoadOrders()
       }
     })
     supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
-      if (session) autoLoadOrders()
     })
   }, [])
 
   const autoLoadOrders = async () => {
+    if (ordersLoaded) return
+    setOrdersLoading(true)
     try {
       const { data: storeData } = await supabase.from("stores").select("*").limit(1).single()
-      if (!storeData) return
+      if (!storeData) { setOrdersLoading(false); return }
       setOrdersStore(storeData)
       const res = await fetch(`/.netlify/functions/shopify-orders?shop=${storeData.shopify_url}&token=${storeData.api_token}`)
       const data = await res.json()
@@ -65,6 +66,7 @@ function App() {
     } catch (err) {
       console.log("Auto load error:", err)
     }
+    setOrdersLoading(false)
   }
 
   if (window.location.pathname === '/auth/callback') {
@@ -240,7 +242,13 @@ function App() {
           )}
 
           {activeMenu === 'dashboard' && (
-            <Dashboard ordersData={ordersData} />
+            ordersLoading ? (
+              <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100%',color:'#94a3b8',fontSize:14}}>
+                ⏳ Orders load ho rahe hain...
+              </div>
+            ) : (
+              <Dashboard ordersData={ordersData} />
+            )
           )}
 
           {activeMenu === 'store-connect' && <StoreConnect />}
