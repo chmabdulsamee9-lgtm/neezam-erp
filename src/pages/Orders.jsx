@@ -38,6 +38,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const [dateTo, setDateTo] = useState("");
   const [editingCell, setEditingCell] = useState(null);
   const [statusDropdown, setStatusDropdown] = useState(null);
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, showAbove: false });
   const [statusMultiOpen, setStatusMultiOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(20);
@@ -46,6 +47,20 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
   useEffect(() => {
     if (!ordersLoaded) loadStore();
+  }, []);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (!e.target.closest("[data-status-dropdown]") && !e.target.closest("[data-order-btn]")) {
+        setStatusDropdown(null);
+      }
+      if (!e.target.closest("[data-status-multi]")) {
+        setStatusMultiOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
   const loadStore = async () => {
@@ -177,6 +192,24 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     setSyncingId(null);
   };
 
+  const handleStatusBtnClick = (e, orderId) => {
+    if (statusDropdown === orderId) {
+      setStatusDropdown(null);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const dropdownHeight = 290;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const showAbove = spaceBelow < dropdownHeight;
+    const left = Math.min(rect.left, window.innerWidth - 185);
+    setDropdownPos({
+      top: showAbove ? rect.top - dropdownHeight - 4 : rect.bottom + 4,
+      left,
+      showAbove,
+    });
+    setStatusDropdown(orderId);
+  };
+
   const currentStore = store || ordersStore;
   const cities = ["All", ...new Set(orders.map(o => o.shipping_address?.city).filter(Boolean))];
 
@@ -266,7 +299,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       </div>
 
       <div style={{ display: "flex", gap: 5, marginBottom: "0.5rem", flexWrap: "wrap" }}>
-        <div style={{ position: "relative", zIndex: 100 }}>
+        <div style={{ position: "relative" }} data-status-multi>
           <button onClick={() => setStatusMultiOpen(!statusMultiOpen)}
             style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>
             {statusFilters.length === 0 ? "All Status ▼" : `${statusFilters.length} selected ▼`}
@@ -368,22 +401,12 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                     <td style={{ ...tdBase, position: "sticky", right: 0, zIndex: 4, background: rowBg }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start" }}>
                         <div style={{ position: "relative" }}>
-                          <button onClick={() => setStatusDropdown(statusDropdown === order.id ? null : order.id)}
+                          <button
+                            data-order-btn={order.id}
+                            onClick={(e) => handleStatusBtnClick(e, order.id)}
                             style={{ padding: "3px 8px", borderRadius: 8, fontSize: 10, background: status?.bg || "#1e293b", color: status?.color || "#64748b", border: "none", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
                             {order.agent_status || "Set ▼"}
                           </button>
-                          {statusDropdown === order.id && (
-                            <div style={{ position: "fixed", zIndex: 9999, background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "4px", minWidth: 170, boxShadow: "0 4px 20px rgba(0,0,0,0.8)" }}>
-                              {STATUSES.map(s => (
-                                <div key={s.label} onClick={() => updateStatus(order.id, s.label)}
-                                  style={{ padding: "5px 10px", borderRadius: 6, cursor: "pointer", color: s.color, fontSize: 11, fontWeight: 500 }}
-                                  onMouseEnter={e => e.currentTarget.style.background = s.bg}
-                                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                                  {s.label}
-                                </div>
-                              ))}
-                            </div>
-                          )}
                         </div>
                         <button onClick={() => syncToShopify(order)} disabled={isSyncing}
                           style={{ padding: "2px 8px", borderRadius: 6, fontSize: 9, background: isSyncing ? "#1e293b" : "#0c4a6e", color: isSyncing ? "#64748b" : "#38bdf8", border: "none", cursor: isSyncing ? "default" : "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
@@ -399,6 +422,33 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           {pagedOrders.length === 0 && (
             <div style={{ textAlign: "center", padding: "3rem", color: "#94a3b8" }}>Koi order nahi mila!</div>
           )}
+        </div>
+      )}
+
+      {/* Status Dropdown — Fixed Portal */}
+      {statusDropdown && (
+        <div
+          data-status-dropdown
+          style={{
+            position: "fixed",
+            top: dropdownPos.top,
+            left: dropdownPos.left,
+            zIndex: 999999,
+            background: "#1e293b",
+            border: "1px solid #334155",
+            borderRadius: 8,
+            padding: "4px",
+            minWidth: 175,
+            boxShadow: "0 8px 30px rgba(0,0,0,0.9)",
+          }}>
+          {STATUSES.map(s => (
+            <div key={s.label} onClick={() => updateStatus(statusDropdown, s.label)}
+              style={{ padding: "6px 10px", borderRadius: 6, cursor: "pointer", color: s.color, fontSize: 11, fontWeight: 500 }}
+              onMouseEnter={e => e.currentTarget.style.background = s.bg}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              {s.label}
+            </div>
+          ))}
         </div>
       )}
 
