@@ -26,7 +26,6 @@ function App() {
     })
   }, [])
 
-  // Session aane ke baad orders load karo
   useEffect(() => {
     if (session && !ordersLoaded && !ordersLoading) {
       autoLoadOrders()
@@ -36,29 +35,22 @@ function App() {
   const autoLoadOrders = async () => {
     setOrdersLoading(true)
     try {
-      const { data: storeData, error: storeError } = await supabase
-        .from("stores")
-        .select("*")
-        .limit(1)
-        .single()
-
-      if (storeError || !storeData) {
-        console.log("Store nahi mila:", storeError)
+      const result = await supabase.from("stores").select("*").limit(1).single()
+      const storeData = result.data
+      if (!storeData) {
         setOrdersLoading(false)
         return
       }
-
       setOrdersStore(storeData)
-
       const res = await fetch(
         `/.netlify/functions/shopify-orders?shop=${storeData.shopify_url}&token=${storeData.api_token}`
       )
       const data = await res.json()
-
       if (data.orders) {
-        const { data: statuses } = await supabase.from("order_statuses").select("*")
+        const statusResult = await supabase.from("order_statuses").select("*")
+        const statuses = statusResult.data || []
         const statusMap = {}
-        ;(statuses || []).forEach(s => { statusMap[s.order_id] = s })
+        statuses.forEach(s => { statusMap[s.order_id] = s })
         const merged = data.orders.map(o => ({
           ...o,
           agent_data: statusMap[String(o.id)] || {},
@@ -68,7 +60,7 @@ function App() {
         setOrdersLoaded(true)
       }
     } catch (err) {
-      console.log("Auto load error:", err.message)
+      console.log("Orders load error:", err.message)
     }
     setOrdersLoading(false)
   }
@@ -105,69 +97,45 @@ function App() {
 
   return (
     <div style={{
-      display: 'flex',
-      height: '100%',
-      width: '100%',
-      overflow: 'hidden',
-      background: '#0f172a',
-      color: '#fff',
+      display: 'flex', height: '100%', width: '100%',
+      overflow: 'hidden', background: '#0f172a', color: '#fff',
     }}>
 
       {/* Sidebar */}
       <div style={{
         width: sidebarOpen ? '240px' : '60px',
         minWidth: sidebarOpen ? '240px' : '60px',
-        background: '#1e293b',
-        padding: '1rem 0',
+        background: '#1e293b', padding: '1rem 0',
         transition: 'width 0.3s, min-width 0.3s',
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100%',
-        overflowY: 'auto',
-        overflowX: 'hidden',
-        flexShrink: 0,
+        display: 'flex', flexDirection: 'column',
+        height: '100%', overflowY: 'auto', overflowX: 'hidden', flexShrink: 0,
       }}>
         <div style={{
-          padding: '0 1rem',
-          marginBottom: '1.5rem',
-          display: 'flex',
-          alignItems: 'center',
+          padding: '0 1rem', marginBottom: '1.5rem',
+          display: 'flex', alignItems: 'center',
           justifyContent: sidebarOpen ? 'space-between' : 'center'
         }}>
           {sidebarOpen && <span style={{fontSize: '1.4rem', fontWeight: '700', color: '#fff'}}>نظام</span>}
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            style={{background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '18px', padding: '4px', flexShrink: 0}}
-          >
+          <button onClick={() => setSidebarOpen(!sidebarOpen)}
+            style={{background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '18px', padding: '4px', flexShrink: 0}}>
             {sidebarOpen ? '◀' : '▶'}
           </button>
         </div>
 
         {menuItems.map(item => (
-          <div
-            key={item.id}
-            onClick={() => setActiveMenu(item.id)}
+          <div key={item.id} onClick={() => setActiveMenu(item.id)}
             title={!sidebarOpen ? item.label : ''}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
+              display: 'flex', alignItems: 'center', gap: '10px',
               padding: sidebarOpen ? '9px 1rem' : '9px 0',
               justifyContent: sidebarOpen ? 'flex-start' : 'center',
               cursor: 'pointer',
               background: activeMenu === item.id ? '#3b82f6' : 'transparent',
-              borderRadius: '8px',
-              margin: '2px 8px',
-              transition: 'background 0.2s',
-            }}
-          >
+              borderRadius: '8px', margin: '2px 8px', transition: 'background 0.2s',
+            }}>
             <span style={{fontSize: '17px', flexShrink: 0}}>{item.icon}</span>
             {sidebarOpen && (
-              <span style={{
-                fontSize: '13px',
-                color: activeMenu === item.id ? '#fff' : '#94a3b8',
-                whiteSpace: 'nowrap',
-              }}>
+              <span style={{fontSize: '13px', color: activeMenu === item.id ? '#fff' : '#94a3b8', whiteSpace: 'nowrap'}}>
                 {item.label}
               </span>
             )}
@@ -175,19 +143,12 @@ function App() {
         ))}
 
         <div style={{marginTop: 'auto', padding: '1rem'}}>
-          <div
-            onClick={() => supabase.auth.signOut()}
+          <div onClick={() => supabase.auth.signOut()}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-              padding: '9px',
+              display: 'flex', alignItems: 'center', gap: '10px', padding: '9px',
               justifyContent: sidebarOpen ? 'flex-start' : 'center',
-              cursor: 'pointer',
-              borderRadius: '8px',
-              background: '#dc262620',
-            }}
-          >
+              cursor: 'pointer', borderRadius: '8px', background: '#dc262620',
+            }}>
             <span>🚪</span>
             {sidebarOpen && <span style={{fontSize: '13px', color: '#dc2626'}}>Logout</span>}
           </div>
@@ -195,25 +156,14 @@ function App() {
       </div>
 
       {/* Main Content */}
-      <div style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100%',
-        overflow: 'hidden',
-        minWidth: 0,
-      }}>
+      <div style={{flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', minWidth: 0}}>
 
         {/* Top Header */}
         {!fullScreenModules.includes(activeMenu) && (
           <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '0.75rem 1.25rem',
-            background: '#1e293b',
-            borderBottom: '1px solid #334155',
-            flexShrink: 0,
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            padding: '0.75rem 1.25rem', background: '#1e293b',
+            borderBottom: '1px solid #334155', flexShrink: 0,
           }}>
             <h1 style={{fontSize: '16px', fontWeight: '600', color: '#fff', margin: 0}}>
               {menuItems.find(m => m.id === activeMenu)?.icon} {menuItems.find(m => m.id === activeMenu)?.label}
@@ -247,9 +197,19 @@ function App() {
 
           {activeMenu === 'dashboard' && (
             ordersLoading ? (
-              <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'200px',color:'#94a3b8',fontSize:14,gap:8}}>
-                <div>⏳ Orders load ho rahe hain...</div>
-                <div style={{fontSize:12,color:'#475569'}}>Thoda wait karo — Shopify se data aa raha hai</div>
+              <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'300px',color:'#94a3b8',fontSize:14,gap:8}}>
+                <div style={{fontSize:32}}>⏳</div>
+                <div>Orders load ho rahe hain...</div>
+                <div style={{fontSize:11,color:'#475569'}}>Shopify se data aa raha hai</div>
+              </div>
+            ) : ordersData.length === 0 ? (
+              <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'300px',color:'#94a3b8',fontSize:14,gap:8}}>
+                <div style={{fontSize:32}}>📦</div>
+                <div>Koi orders nahi mile</div>
+                <button onClick={autoLoadOrders}
+                  style={{padding:'6px 16px',borderRadius:6,background:'#3b82f6',color:'#fff',border:'none',cursor:'pointer',fontSize:12,marginTop:8}}>
+                  🔄 Retry Load
+                </button>
               </div>
             ) : (
               <Dashboard ordersData={ordersData} />
