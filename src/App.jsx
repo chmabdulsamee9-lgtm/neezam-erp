@@ -32,11 +32,40 @@ function App() {
         }, { onConflict: "shopify_url" })
         localStorage.removeItem("pending_store")
       }
+      // Auto load orders
+      if (session) {
+        autoLoadOrders()
+      }
     })
     supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
+      if (session) autoLoadOrders()
     })
   }, [])
+
+  const autoLoadOrders = async () => {
+    try {
+      const { data: storeData } = await supabase.from("stores").select("*").limit(1).single()
+      if (!storeData) return
+      setOrdersStore(storeData)
+      const res = await fetch(`/.netlify/functions/shopify-orders?shop=${storeData.shopify_url}&token=${storeData.api_token}`)
+      const data = await res.json()
+      if (data.orders) {
+        const { data: statuses } = await supabase.from("order_statuses").select("*")
+        const statusMap = {}
+        ;(statuses || []).forEach(s => { statusMap[s.order_id] = s })
+        const merged = data.orders.map(o => ({
+          ...o,
+          agent_data: statusMap[String(o.id)] || {},
+          agent_status: statusMap[String(o.id)]?.status || null,
+        }))
+        setOrdersData(merged)
+        setOrdersLoaded(true)
+      }
+    } catch (err) {
+      console.log("Auto load error:", err)
+    }
+  }
 
   if (window.location.pathname === '/auth/callback') {
     return <ShopifyCallback />
