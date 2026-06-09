@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 
+const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev"
+
 export default function ShopifyCallback() {
   const [status, setStatus] = useState("🔄 Processing...");
 
@@ -21,10 +23,13 @@ export default function ShopifyCallback() {
 
       setStatus("🔄 Token le rahe hain...");
 
-      const res = await fetch("/.netlify/functions/shopify-token", {
+      const res = await fetch(`${CF_URL}/shopify-token`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, shop }),
+        body: JSON.stringify({ code, shop,
+          client_id: "4183ca3035d00fd99e9c98cd3c47f3dc",
+          client_secret: "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"
+        }),
       });
 
       const data = await res.json();
@@ -36,15 +41,10 @@ export default function ShopifyCallback() {
 
       setStatus("💾 Store save ho raha hai...");
 
-      // Session check karo
       const { data: { session } } = await supabase.auth.getSession();
-      
+
       if (!session) {
-        // Token localStorage mein save karo
-        localStorage.setItem("pending_store", JSON.stringify({
-          shop,
-          token: data.access_token
-        }));
+        localStorage.setItem("pending_store", JSON.stringify({ shop, token: data.access_token }));
         setStatus("✅ Almost done! Login page pe ja rahe hain...");
         setTimeout(() => { window.location.href = "/"; }, 1500);
         return;
@@ -74,17 +74,7 @@ export default function ShopifyCallback() {
   };
 
   return (
-    <div style={{
-      minHeight: "100vh",
-      background: "#0f172a",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      color: "#fff",
-      fontSize: "18px",
-      flexDirection: "column",
-      gap: "1rem"
-    }}>
+    <div style={{ minHeight: "100vh", background: "#0f172a", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "18px", flexDirection: "column", gap: "1rem" }}>
       <div style={{ fontSize: 48 }}>🔗</div>
       <div>{status}</div>
     </div>

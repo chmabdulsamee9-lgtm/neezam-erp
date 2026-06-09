@@ -23,7 +23,7 @@ const truncate = (str, max = 25) => {
   return str.length > max ? str.slice(0, max) + "…" : str;
 };
 
-export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrdersLoaded, ordersStore, setOrdersStore }) {
+export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrdersLoaded, ordersStore, setOrdersStore, cfUrl }) {
   const orders = ordersData;
   const setOrders = setOrdersData;
   const [loading, setLoading] = useState(!ordersLoaded);
@@ -63,7 +63,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const fetchOrders = async (storeData) => {
     setLoading(true);
     try {
-      const res = await fetch(`/.netlify/functions/shopify-orders?shop=${storeData.shopify_url}&token=${storeData.api_token}`);
+      const res = await fetch(`${cfUrl}/shopify-orders?shop=${storeData.shopify_url}&token=${storeData.api_token}`);
       const data = await res.json();
       if (data.orders) {
         const { data: statuses } = await supabase.from("order_statuses").select("*");
@@ -147,7 +147,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     const agentData = order.agent_data || {};
     const customerName = agentData.customer_name || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim();
     try {
-      const res = await fetch("/.netlify/functions/shopify-update-order", {
+      const res = await fetch(`${cfUrl}/shopify-update-order`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -235,8 +235,6 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
   return (
     <div style={{ padding: "0.5rem", height: "100%", display: "flex", flexDirection: "column" }}>
-
-      {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "#fff" }}>📦 Orders</h1>
@@ -254,7 +252,6 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         </div>
       </div>
 
-      {/* Filters Row 1 */}
       <div style={{ display: "flex", gap: 5, marginBottom: "4px", flexWrap: "wrap" }}>
         <input type="text" placeholder="🔍 Name, phone, order#..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
           style={{ flex: 1, minWidth: 130, padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 11 }} />
@@ -268,7 +265,6 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         )}
       </div>
 
-      {/* Filters Row 2 */}
       <div style={{ display: "flex", gap: 5, marginBottom: "0.5rem", flexWrap: "wrap" }}>
         <div style={{ position: "relative", zIndex: 100 }}>
           <button onClick={() => setStatusMultiOpen(!statusMultiOpen)}
@@ -306,7 +302,6 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         </select>
       </div>
 
-      {/* Table */}
       {loading ? (
         <div style={{ textAlign: "center", padding: "4rem", color: "#94a3b8" }}>Loading orders...</div>
       ) : (
@@ -390,11 +385,8 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                             </div>
                           )}
                         </div>
-                        <button
-                          onClick={() => syncToShopify(order)}
-                          disabled={isSyncing}
-                          style={{ padding: "2px 8px", borderRadius: 6, fontSize: 9, background: isSyncing ? "#1e293b" : "#0c4a6e", color: isSyncing ? "#64748b" : "#38bdf8", border: "none", cursor: isSyncing ? "default" : "pointer", fontWeight: 600, whiteSpace: "nowrap" }}
-                        >
+                        <button onClick={() => syncToShopify(order)} disabled={isSyncing}
+                          style={{ padding: "2px 8px", borderRadius: 6, fontSize: 9, background: isSyncing ? "#1e293b" : "#0c4a6e", color: isSyncing ? "#64748b" : "#38bdf8", border: "none", cursor: isSyncing ? "default" : "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
                           {isSyncing ? "Syncing..." : "🔄 Sync"}
                         </button>
                       </div>
@@ -410,27 +402,19 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         </div>
       )}
 
-      {/* Pagination */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.5rem" }}>
         <span style={{ fontSize: 11, color: "#64748b" }}>
           Showing {((page - 1) * perPage) + 1}–{Math.min(page * perPage, filteredOrders.length)} of {filteredOrders.length}
         </span>
         <div style={{ display: "flex", gap: 4 }}>
-          <button onClick={() => setPage(1)} disabled={page === 1}
-            style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === 1 ? "#0f172a" : "#1e293b", color: page === 1 ? "#334155" : "#94a3b8", fontSize: 11, cursor: page === 1 ? "default" : "pointer" }}>«</button>
-          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-            style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === 1 ? "#0f172a" : "#1e293b", color: page === 1 ? "#334155" : "#94a3b8", fontSize: 11, cursor: page === 1 ? "default" : "pointer" }}>‹</button>
+          <button onClick={() => setPage(1)} disabled={page === 1} style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === 1 ? "#0f172a" : "#1e293b", color: page === 1 ? "#334155" : "#94a3b8", fontSize: 11, cursor: page === 1 ? "default" : "pointer" }}>«</button>
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === 1 ? "#0f172a" : "#1e293b", color: page === 1 ? "#334155" : "#94a3b8", fontSize: 11, cursor: page === 1 ? "default" : "pointer" }}>‹</button>
           {[...Array(Math.min(5, totalPages))].map((_, idx) => {
             const p = Math.max(1, Math.min(page - 2, totalPages - 4)) + idx;
-            return (
-              <button key={p} onClick={() => setPage(p)}
-                style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === p ? "#3b82f6" : "#1e293b", color: page === p ? "#fff" : "#94a3b8", fontSize: 11, cursor: "pointer" }}>{p}</button>
-            );
+            return <button key={p} onClick={() => setPage(p)} style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === p ? "#3b82f6" : "#1e293b", color: page === p ? "#fff" : "#94a3b8", fontSize: 11, cursor: "pointer" }}>{p}</button>;
           })}
-          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-            style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === totalPages ? "#0f172a" : "#1e293b", color: page === totalPages ? "#334155" : "#94a3b8", fontSize: 11, cursor: page === totalPages ? "default" : "pointer" }}>›</button>
-          <button onClick={() => setPage(totalPages)} disabled={page === totalPages}
-            style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === totalPages ? "#0f172a" : "#1e293b", color: page === totalPages ? "#334155" : "#94a3b8", fontSize: 11, cursor: page === totalPages ? "default" : "pointer" }}>»</button>
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === totalPages ? "#0f172a" : "#1e293b", color: page === totalPages ? "#334155" : "#94a3b8", fontSize: 11, cursor: page === totalPages ? "default" : "pointer" }}>›</button>
+          <button onClick={() => setPage(totalPages)} disabled={page === totalPages} style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === totalPages ? "#0f172a" : "#1e293b", color: page === totalPages ? "#334155" : "#94a3b8", fontSize: 11, cursor: page === totalPages ? "default" : "pointer" }}>»</button>
         </div>
       </div>
     </div>
