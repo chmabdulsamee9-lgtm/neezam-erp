@@ -23,6 +23,18 @@ const truncate = (str, max = 25) => {
   return str.length > max ? str.slice(0, max) + "…" : str;
 };
 
+const getDateRange = (type) => {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (type === "today") return { from: today, to: new Date(today.getTime() + 86400000 - 1) };
+  if (type === "yesterday") {
+    const y = new Date(today.getTime() - 86400000);
+    return { from: y, to: new Date(y.getTime() + 86400000 - 1) };
+  }
+  if (type === "7days") return { from: new Date(today.getTime() - 6 * 86400000), to: new Date(today.getTime() + 86400000 - 1) };
+  return null;
+};
+
 export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrdersLoaded, ordersStore, setOrdersStore, cfUrl }) {
   const orders = ordersData;
   const setOrders = setOrdersData;
@@ -36,28 +48,30 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const [skuFilter, setSkuFilter] = useState("All");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [activeDateBtn, setActiveDateBtn] = useState(null);
   const [editingCell, setEditingCell] = useState(null);
   const [statusDropdown, setStatusDropdown] = useState(null);
-  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, showAbove: false });
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0 });
   const [statusMultiOpen, setStatusMultiOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(20);
   const [syncingId, setSyncingId] = useState(null);
+  const [bulkSyncing, setBulkSyncing] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
   const tableRef = useRef(null);
 
   useEffect(() => {
     if (!ordersLoaded) loadStore();
   }, []);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClick = (e) => {
       if (!e.target.closest("[data-status-dropdown]") && !e.target.closest("[data-order-btn]")) {
         setStatusDropdown(null);
       }
-      if (!e.target.closest("[data-status-multi]")) {
-        setStatusMultiOpen(false);
-      }
+      if (!e.target.closest("[data-status-multi]")) setStatusMultiOpen(false);
+      if (!e.target.closest("[data-bulk-status]")) setBulkStatusOpen(false);
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -88,6 +102,8 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           ...o,
           agent_data: statusMap[String(o.id)] || {},
           agent_status: statusMap[String(o.id)]?.status || null,
+          synced_at: statusMap[String(o.id)]?.synced_at || null,
+          last_edited_at: statusMap[String(o.id)]?.last_edited_at || null,
         }));
         setOrders(merged);
         setOrdersLoaded(true);
@@ -122,12 +138,13 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   };
 
   const updateStatus = async (orderId, status) => {
+    const now = new Date().toISOString();
     const { error } = await supabase.from("order_statuses").upsert(
-      { order_id: String(orderId), status, updated_at: new Date().toISOString() },
+      { order_id: String(orderId), status, updated_at: now, last_edited_at: now },
       { onConflict: "order_id" }
     );
     if (!error) {
-      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, agent_status: status } : o));
+      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, agent_status: status, last_edited_at: now } : o));
     }
     setStatusDropdown(null);
   };
@@ -135,6 +152,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const updateField = async (orderId, field, value) => {
     const existing = orders.find(o => o.id === orderId)?.agent_data || {};
     const updated = { ...existing, [field]: value };
+    const now = new Date().toISOString();
     const { error } = await supabase.from("order_statuses").upsert({
       order_id: String(orderId),
       status: orders.find(o => o.id === orderId)?.agent_status || null,
@@ -147,17 +165,18 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       product: updated.product || null,
       sku: updated.sku || null,
       shipping: updated.shipping || null,
-      updated_at: new Date().toISOString(),
+      updated_at: now,
+      last_edited_at: now,
     }, { onConflict: "order_id" });
     if (!error) {
-      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, agent_data: updated } : o));
+      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, agent_data: updated, last_edited_at: now } : o));
     }
     setEditingCell(null);
   };
 
-  const syncToShopify = async (order) => {
+  const syncToShopify = async (order, silent = false) => {
     const storeData = store || ordersStore;
-    if (!storeData) return;
+    if (!storeData) return false;
     setSyncingId(order.id);
     const agentData = order.agent_data || {};
     const customerName = agentData.customer_name || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim();
@@ -181,39 +200,112 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         }),
       });
       const data = await res.json();
-      if (data.errors || data.error) {
-        alert("❌ Shopify Error:\n" + JSON.stringify(data.errors || data.error, null, 2));
+      if (!data.errors && !data.error) {
+        const now = new Date().toISOString();
+        await supabase.from("order_statuses").upsert(
+          { order_id: String(order.id), synced_at: now, updated_at: now },
+          { onConflict: "order_id" }
+        );
+        setOrders(prev => prev.map(o => o.id === order.id ? { ...o, synced_at: now } : o));
+        if (!silent) alert("✅ Shopify pe update ho gaya!\nOrder: " + order.name);
+        setSyncingId(null);
+        return true;
       } else {
-        alert("✅ Shopify pe update ho gaya!\nOrder: " + order.name);
+        if (!silent) alert("❌ Shopify Error:\n" + JSON.stringify(data.errors || data.error, null, 2));
+        setSyncingId(null);
+        return false;
       }
     } catch (err) {
-      alert("❌ Error: " + err.message);
+      if (!silent) alert("❌ Error: " + err.message);
+      setSyncingId(null);
+      return false;
     }
-    setSyncingId(null);
+  };
+
+  const bulkUpdateStatus = async (status) => {
+    const now = new Date().toISOString();
+    const ids = [...selectedIds];
+    for (const orderId of ids) {
+      await supabase.from("order_statuses").upsert(
+        { order_id: String(orderId), status, updated_at: now, last_edited_at: now },
+        { onConflict: "order_id" }
+      );
+    }
+    setOrders(prev => prev.map(o => selectedIds.has(o.id) ? { ...o, agent_status: status, last_edited_at: now } : o));
+    setBulkStatusOpen(false);
+    setSelectedIds(new Set());
+  };
+
+  const bulkSync = async () => {
+    const ids = [...selectedIds];
+    const ordersToSync = orders.filter(o => ids.includes(o.id));
+    setBulkSyncing(true);
+    let success = 0;
+    for (const order of ordersToSync) {
+      const ok = await syncToShopify(order, true);
+      if (ok) success++;
+    }
+    setBulkSyncing(false);
+    setSelectedIds(new Set());
+    alert(`✅ ${success}/${ordersToSync.length} orders sync ho gaye!`);
   };
 
   const handleStatusBtnClick = (e, orderId) => {
-    if (statusDropdown === orderId) {
-      setStatusDropdown(null);
-      return;
-    }
+    if (statusDropdown === orderId) { setStatusDropdown(null); return; }
     const rect = e.currentTarget.getBoundingClientRect();
     const dropdownHeight = 290;
     const spaceBelow = window.innerHeight - rect.bottom;
     const showAbove = spaceBelow < dropdownHeight;
-    const left = Math.min(rect.left, window.innerWidth - 185);
     setDropdownPos({
       top: showAbove ? rect.top - dropdownHeight - 4 : rect.bottom + 4,
-      left,
-      showAbove,
+      left: Math.min(rect.left, window.innerWidth - 185),
     });
     setStatusDropdown(orderId);
+  };
+
+  const handleDateBtn = (type) => {
+    if (activeDateBtn === type) {
+      setActiveDateBtn(null);
+      setDateFrom("");
+      setDateTo("");
+      return;
+    }
+    setActiveDateBtn(type);
+    const range = getDateRange(type);
+    if (range) {
+      setDateFrom(range.from.toISOString().split("T")[0]);
+      setDateTo(range.to.toISOString().split("T")[0]);
+    }
+    setPage(1);
+  };
+
+  const toggleSelect = (id) => {
+    setSelectedIds(prev => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === pagedOrders.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(pagedOrders.map(o => o.id)));
+    }
+  };
+
+  const getSyncState = (order) => {
+    if (!order.synced_at && !order.last_edited_at) return "never";
+    if (!order.synced_at && order.last_edited_at) return "pending";
+    if (order.last_edited_at && order.synced_at && new Date(order.last_edited_at) > new Date(order.synced_at)) return "pending";
+    return "synced";
   };
 
   const currentStore = store || ordersStore;
   const cities = ["All", ...new Set(orders.map(o => o.shipping_address?.city).filter(Boolean))];
 
-  const filteredOrders = orders.filter(order => {
+  const allOrdersFiltered = orders.filter(order => {
     const name = `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.toLowerCase();
     const phone = order.customer?.phone || order.shipping_address?.phone || "";
     const orderNum = order.name || "";
@@ -228,6 +320,22 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     return matchSearch && matchStatus && matchSource && matchCity && matchSku && matchFrom && matchTo;
   });
 
+  const todayCount = orders.filter(o => {
+    const r = getDateRange("today");
+    return new Date(o.created_at) >= r.from && new Date(o.created_at) <= r.to;
+  }).length;
+
+  const yesterdayCount = orders.filter(o => {
+    const r = getDateRange("yesterday");
+    return new Date(o.created_at) >= r.from && new Date(o.created_at) <= r.to;
+  }).length;
+
+  const last7Count = orders.filter(o => {
+    const r = getDateRange("7days");
+    return new Date(o.created_at) >= r.from && new Date(o.created_at) <= r.to;
+  }).length;
+
+  const filteredOrders = allOrdersFiltered;
   const allSKUs = [...new Set(filteredOrders.flatMap(o => getSKUs(o)))].filter(Boolean).sort();
   const totalPages = Math.ceil(filteredOrders.length / perPage);
   const pagedOrders = filteredOrders.slice((page - 1) * perPage, page * perPage);
@@ -252,7 +360,6 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
     const display = truncate(value, maxChars);
     const needsTooltip = value && value.length > maxChars;
-
     return (
       <span onClick={() => setEditingCell(cellKey)} title={needsTooltip ? value : ""}
         style={{ cursor: "pointer", color: value ? "#e2e8f0" : "#475569", fontSize: 11, whiteSpace: "nowrap" }}>
@@ -265,9 +372,17 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
   const tdBase = { padding: "5px 6px" };
   const thBase = { padding: "7px 6px", textAlign: "left", color: "#64748b", whiteSpace: "nowrap", fontWeight: 500, borderBottom: "1px solid #334155", background: "#1e293b" };
+  const dateBtnStyle = (type) => ({
+    padding: "4px 10px", borderRadius: 6, fontSize: 11, cursor: "pointer", fontWeight: 600, border: "1px solid",
+    background: activeDateBtn === type ? "#3b82f6" : "#0f172a",
+    color: activeDateBtn === type ? "#fff" : "#94a3b8",
+    borderColor: activeDateBtn === type ? "#3b82f6" : "#334155",
+  });
 
   return (
     <div style={{ padding: "0.5rem", height: "100%", display: "flex", flexDirection: "column" }}>
+
+      {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "#fff" }}>📦 Orders</h1>
@@ -285,20 +400,35 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 5, marginBottom: "4px", flexWrap: "wrap" }}>
-        <input type="text" placeholder="🔍 Name, phone, order#..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
-          style={{ flex: 1, minWidth: 130, padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 11 }} />
-        <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(1); }}
-          style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 11 }} />
-        <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(1); }}
-          style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 11 }} />
+      {/* Date Quick Buttons */}
+      <div style={{ display: "flex", gap: 6, marginBottom: "6px", alignItems: "center" }}>
+        <button style={dateBtnStyle("today")} onClick={() => handleDateBtn("today")}>
+          Today <span style={{ opacity: 0.7, fontWeight: 400 }}>({todayCount})</span>
+        </button>
+        <button style={dateBtnStyle("yesterday")} onClick={() => handleDateBtn("yesterday")}>
+          Yesterday <span style={{ opacity: 0.7, fontWeight: 400 }}>({yesterdayCount})</span>
+        </button>
+        <button style={dateBtnStyle("7days")} onClick={() => handleDateBtn("7days")}>
+          Last 7 Days <span style={{ opacity: 0.7, fontWeight: 400 }}>({last7Count})</span>
+        </button>
         {(dateFrom || dateTo) && (
-          <button onClick={() => { setDateFrom(""); setDateTo(""); }}
-            style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#7f1d1d", color: "#fca5a5", fontSize: 11, cursor: "pointer" }}>✕</button>
+          <button onClick={() => { setDateFrom(""); setDateTo(""); setActiveDateBtn(null); }}
+            style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #334155", background: "#7f1d1d", color: "#fca5a5", fontSize: 11, cursor: "pointer" }}>✕ Clear</button>
         )}
       </div>
 
-      <div style={{ display: "flex", gap: 5, marginBottom: "0.5rem", flexWrap: "wrap" }}>
+      {/* Search + Date Range */}
+      <div style={{ display: "flex", gap: 5, marginBottom: "4px", flexWrap: "wrap" }}>
+        <input type="text" placeholder="🔍 Name, phone, order#..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
+          style={{ flex: 1, minWidth: 130, padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 11 }} />
+        <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setActiveDateBtn(null); setPage(1); }}
+          style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 11 }} />
+        <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setActiveDateBtn(null); setPage(1); }}
+          style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 11 }} />
+      </div>
+
+      {/* Filters + Bulk Actions */}
+      <div style={{ display: "flex", gap: 5, marginBottom: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
         <div style={{ position: "relative" }} data-status-multi>
           <button onClick={() => setStatusMultiOpen(!statusMultiOpen)}
             style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>
@@ -333,6 +463,37 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           <option value="All">All SKU</option>
           {allSKUs.map(s => <option key={s}>{s}</option>)}
         </select>
+
+        {/* Bulk Actions */}
+        {selectedIds.size > 0 && (
+          <div style={{ display: "flex", gap: 5, alignItems: "center", marginLeft: "auto" }}>
+            <span style={{ fontSize: 11, color: "#94a3b8" }}>{selectedIds.size} selected</span>
+            <div style={{ position: "relative" }} data-bulk-status>
+              <button onClick={() => setBulkStatusOpen(!bulkStatusOpen)}
+                style={{ padding: "5px 10px", borderRadius: 6, border: "1px solid #334155", background: "#1e3a5f", color: "#60a5fa", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
+                Bulk Status ▼
+              </button>
+              {bulkStatusOpen && (
+                <div style={{ position: "absolute", top: "100%", right: 0, zIndex: 9999, background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "6px", minWidth: 180, boxShadow: "0 4px 20px rgba(0,0,0,0.8)" }}>
+                  {STATUSES.map(s => (
+                    <div key={s.label} onClick={() => bulkUpdateStatus(s.label)}
+                      style={{ padding: "5px 10px", borderRadius: 6, cursor: "pointer", color: s.color, fontSize: 11, fontWeight: 500 }}
+                      onMouseEnter={e => e.currentTarget.style.background = s.bg}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      {s.label}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button onClick={bulkSync} disabled={bulkSyncing}
+              style={{ padding: "5px 10px", borderRadius: 6, border: "none", background: bulkSyncing ? "#1e293b" : "#0c4a6e", color: bulkSyncing ? "#64748b" : "#38bdf8", fontSize: 11, cursor: bulkSyncing ? "default" : "pointer", fontWeight: 600 }}>
+              {bulkSyncing ? "Syncing..." : `🔄 Bulk Sync (${selectedIds.size})`}
+            </button>
+            <button onClick={() => setSelectedIds(new Set())}
+              style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#1e293b", color: "#94a3b8", fontSize: 11, cursor: "pointer" }}>✕</button>
+          </div>
+        )}
       </div>
 
       {loading ? (
@@ -342,20 +503,24 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
             <thead style={{ position: "sticky", top: 0, zIndex: 15 }}>
               <tr style={{ background: "#1e293b" }}>
+                <th style={{ ...thBase, width: 30 }}>
+                  <input type="checkbox" checked={selectedIds.size === pagedOrders.length && pagedOrders.length > 0}
+                    onChange={toggleSelectAll} style={{ cursor: "pointer" }} />
+                </th>
                 <th style={{ ...thBase, position: "sticky", left: 0, zIndex: 20, background: "#1e293b", minWidth: 85 }}>Order#</th>
-                <th style={{ ...thBase }}>Date</th>
-                <th style={{ ...thBase }}>Time</th>
-                <th style={{ ...thBase }}>Full Name</th>
-                <th style={{ ...thBase }}>Phone</th>
-                <th style={{ ...thBase }}>Address</th>
-                <th style={{ ...thBase }}>City</th>
-                <th style={{ ...thBase }}>Products</th>
-                <th style={{ ...thBase }}>SKU</th>
-                <th style={{ ...thBase }}>Unit Price</th>
-                <th style={{ ...thBase }}>Shipping</th>
-                <th style={{ ...thBase }}>Discount</th>
-                <th style={{ ...thBase }}>Total</th>
-                <th style={{ ...thBase }}>Source</th>
+                <th style={thBase}>Date</th>
+                <th style={thBase}>Time</th>
+                <th style={thBase}>Full Name</th>
+                <th style={thBase}>Phone</th>
+                <th style={thBase}>Address</th>
+                <th style={thBase}>City</th>
+                <th style={thBase}>Products</th>
+                <th style={thBase}>SKU</th>
+                <th style={thBase}>Unit Price</th>
+                <th style={thBase}>Shipping</th>
+                <th style={thBase}>Discount</th>
+                <th style={thBase}>Total</th>
+                <th style={thBase}>Source</th>
                 <th style={{ ...thBase, position: "sticky", right: 0, zIndex: 20, background: "#1e293b", minWidth: 120 }}>Status / Sync</th>
               </tr>
             </thead>
@@ -377,10 +542,22 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                 const shopifyUrl = `https://${currentStore?.shopify_url}/admin/orders/${order.id}`;
                 const rowBg = i % 2 === 0 ? "#0f172a" : "#0a0f1e";
                 const isSyncing = syncingId === order.id;
+                const syncState = getSyncState(order);
+                const isSelected = selectedIds.has(order.id);
+
+                const syncBtn = () => {
+                  if (syncState === "pending") return { bg: "#713f12", color: "#eab308", label: "⚡ Ready to Sync" };
+                  if (syncState === "synced") return { bg: "#14532d", color: "#16a34a", label: "✓ Synced" };
+                  return { bg: "#1e293b", color: "#475569", label: "Sync" };
+                };
+                const sb = syncBtn();
 
                 return (
-                  <tr key={order.id} style={{ background: rowBg, borderBottom: "1px solid #1e293b" }}>
-                    <td style={{ ...tdBase, position: "sticky", left: 0, zIndex: 4, background: rowBg, whiteSpace: "nowrap" }}>
+                  <tr key={order.id} style={{ background: isSelected ? "#1e3a5f" : rowBg, borderBottom: "1px solid #1e293b" }}>
+                    <td style={{ ...tdBase, textAlign: "center" }}>
+                      <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(order.id)} style={{ cursor: "pointer" }} />
+                    </td>
+                    <td style={{ ...tdBase, position: "sticky", left: 0, zIndex: 4, background: isSelected ? "#1e3a5f" : rowBg, whiteSpace: "nowrap" }}>
                       <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "#60a5fa", fontWeight: 600, textDecoration: "none", fontSize: 11 }}>{order.name}</a>
                     </td>
                     <td style={{ ...tdBase, color: "#94a3b8", whiteSpace: "nowrap" }}>{date}</td>
@@ -398,19 +575,15 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                     <td style={tdBase}>
                       <span style={{ padding: "2px 6px", borderRadius: 8, fontSize: 10, background: "#1e293b", color: SOURCE_COLORS[source], fontWeight: 600 }}>{source}</span>
                     </td>
-                    <td style={{ ...tdBase, position: "sticky", right: 0, zIndex: 4, background: rowBg }}>
+                    <td style={{ ...tdBase, position: "sticky", right: 0, zIndex: 4, background: isSelected ? "#1e3a5f" : rowBg }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start" }}>
-                        <div style={{ position: "relative" }}>
-                          <button
-                            data-order-btn={order.id}
-                            onClick={(e) => handleStatusBtnClick(e, order.id)}
-                            style={{ padding: "3px 8px", borderRadius: 8, fontSize: 10, background: status?.bg || "#1e293b", color: status?.color || "#64748b", border: "none", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
-                            {order.agent_status || "Set ▼"}
-                          </button>
-                        </div>
+                        <button data-order-btn={order.id} onClick={(e) => handleStatusBtnClick(e, order.id)}
+                          style={{ padding: "3px 8px", borderRadius: 8, fontSize: 10, background: status?.bg || "#1e293b", color: status?.color || "#64748b", border: "none", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
+                          {order.agent_status || "Set ▼"}
+                        </button>
                         <button onClick={() => syncToShopify(order)} disabled={isSyncing}
-                          style={{ padding: "2px 8px", borderRadius: 6, fontSize: 9, background: isSyncing ? "#1e293b" : "#0c4a6e", color: isSyncing ? "#64748b" : "#38bdf8", border: "none", cursor: isSyncing ? "default" : "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
-                          {isSyncing ? "Syncing..." : "🔄 Sync"}
+                          style={{ padding: "2px 8px", borderRadius: 6, fontSize: 9, background: isSyncing ? "#1e293b" : sb.bg, color: isSyncing ? "#64748b" : sb.color, border: "none", cursor: isSyncing ? "default" : "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
+                          {isSyncing ? "Syncing..." : sb.label}
                         </button>
                       </div>
                     </td>
@@ -425,22 +598,9 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         </div>
       )}
 
-      {/* Status Dropdown — Fixed Portal */}
+      {/* Status Dropdown Portal */}
       {statusDropdown && (
-        <div
-          data-status-dropdown
-          style={{
-            position: "fixed",
-            top: dropdownPos.top,
-            left: dropdownPos.left,
-            zIndex: 999999,
-            background: "#1e293b",
-            border: "1px solid #334155",
-            borderRadius: 8,
-            padding: "4px",
-            minWidth: 175,
-            boxShadow: "0 8px 30px rgba(0,0,0,0.9)",
-          }}>
+        <div data-status-dropdown style={{ position: "fixed", top: dropdownPos.top, left: dropdownPos.left, zIndex: 999999, background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "4px", minWidth: 175, boxShadow: "0 8px 30px rgba(0,0,0,0.9)" }}>
           {STATUSES.map(s => (
             <div key={s.label} onClick={() => updateStatus(statusDropdown, s.label)}
               style={{ padding: "6px 10px", borderRadius: 6, cursor: "pointer", color: s.color, fontSize: 11, fontWeight: 500 }}
@@ -452,6 +612,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         </div>
       )}
 
+      {/* Pagination */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.5rem" }}>
         <span style={{ fontSize: 11, color: "#64748b" }}>
           Showing {((page - 1) * perPage) + 1}–{Math.min(page * perPage, filteredOrders.length)} of {filteredOrders.length}
