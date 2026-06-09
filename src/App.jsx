@@ -17,40 +17,44 @@ function App() {
   const [ordersLoading, setOrdersLoading] = useState(false)
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
       setLoading(false)
-      const pending = localStorage.getItem("pending_store")
-      if (pending && session) {
-        const { shop, token } = JSON.parse(pending)
-        const storeName = shop.replace(".myshopify.com", "")
-        await supabase.from("stores").upsert({
-          user_id: session.user.id,
-          store_name: storeName,
-          shopify_url: shop,
-          api_token: token,
-          platform: "shopify",
-        }, { onConflict: "shopify_url" })
-        localStorage.removeItem("pending_store")
-      }
-      if (session) {
-        autoLoadOrders()
-      }
     })
     supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
     })
   }, [])
 
+  // Session aane ke baad orders load karo
+  useEffect(() => {
+    if (session && !ordersLoaded && !ordersLoading) {
+      autoLoadOrders()
+    }
+  }, [session])
+
   const autoLoadOrders = async () => {
-    if (ordersLoaded) return
     setOrdersLoading(true)
     try {
-      const { data: storeData } = await supabase.from("stores").select("*").limit(1).single()
-      if (!storeData) { setOrdersLoading(false); return }
+      const { data: storeData, error: storeError } = await supabase
+        .from("stores")
+        .select("*")
+        .limit(1)
+        .single()
+
+      if (storeError || !storeData) {
+        console.log("Store nahi mila:", storeError)
+        setOrdersLoading(false)
+        return
+      }
+
       setOrdersStore(storeData)
-      const res = await fetch(`/.netlify/functions/shopify-orders?shop=${storeData.shopify_url}&token=${storeData.api_token}`)
+
+      const res = await fetch(
+        `/.netlify/functions/shopify-orders?shop=${storeData.shopify_url}&token=${storeData.api_token}`
+      )
       const data = await res.json()
+
       if (data.orders) {
         const { data: statuses } = await supabase.from("order_statuses").select("*")
         const statusMap = {}
@@ -64,7 +68,7 @@ function App() {
         setOrdersLoaded(true)
       }
     } catch (err) {
-      console.log("Auto load error:", err)
+      console.log("Auto load error:", err.message)
     }
     setOrdersLoading(false)
   }
@@ -243,8 +247,9 @@ function App() {
 
           {activeMenu === 'dashboard' && (
             ordersLoading ? (
-              <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100%',color:'#94a3b8',fontSize:14}}>
-                ⏳ Orders load ho rahe hain...
+              <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'200px',color:'#94a3b8',fontSize:14,gap:8}}>
+                <div>⏳ Orders load ho rahe hain...</div>
+                <div style={{fontSize:12,color:'#475569'}}>Thoda wait karo — Shopify se data aa raha hai</div>
               </div>
             ) : (
               <Dashboard ordersData={ordersData} />
