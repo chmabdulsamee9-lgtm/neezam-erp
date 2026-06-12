@@ -45,6 +45,10 @@ const getDateRange = (type) => {
   return null;
 };
 
+// Format a local Date as YYYY-MM-DD without UTC conversion
+const toLocalDateStr = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
 export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrdersLoaded, ordersStore, setOrdersStore, cfUrl }) {
   const orders = ordersData;
   const setOrders = setOrdersData;
@@ -305,8 +309,8 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     setActiveDateBtn(type);
     const range = getDateRange(type);
     if (range) {
-      setDateFrom(range.from.toISOString().split("T")[0]);
-      setDateTo(range.to.toISOString().split("T")[0]);
+      setDateFrom(toLocalDateStr(range.from));
+      setDateTo(toLocalDateStr(range.to));
     }
     setPage(1);
   };
@@ -336,24 +340,33 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
   const currentStore = store || ordersStore;
 
-  // Step 1: filter by date + search + source — base for dropdown options and tab counts
-  const preFiltered = orders.filter(order => {
+  // Step 1: date range only — source of truth for tab counts
+  const dateFilteredOrders = orders.filter(order => {
+    const orderDate = new Date(order.created_at);
+    // Append time so JS parses as LOCAL midnight, not UTC midnight
+    const matchFrom = !dateFrom || orderDate >= new Date(dateFrom + "T00:00:00");
+    const matchTo = !dateTo || orderDate <= new Date(dateTo + "T23:59:59");
+    return matchFrom && matchTo;
+  });
+
+  // Tab counts from date-only set so clicking Today/Yesterday updates all badges
+  const tabCounts = Object.fromEntries(TABS.map(t => [t, t === "All" ? dateFilteredOrders.length : dateFilteredOrders.filter(o => tabFilter(t, o)).length]));
+
+  // Step 2: date + search + source — base for dropdown options
+  const preFiltered = dateFilteredOrders.filter(order => {
     const name = `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.toLowerCase();
     const phone = order.customer?.phone || order.shipping_address?.phone || "";
     const orderNum = order.name || "";
     const matchSearch = !search || name.includes(search.toLowerCase()) || phone.includes(search) || orderNum.includes(search);
     const matchSource = sourceFilter === "All" || getSource(order) === sourceFilter;
-    const orderDate = new Date(order.created_at);
-    const matchFrom = !dateFrom || orderDate >= new Date(dateFrom);
-    const matchTo = !dateTo || orderDate <= new Date(dateTo + "T23:59:59");
-    return matchSearch && matchSource && matchFrom && matchTo;
+    return matchSearch && matchSource;
   });
 
-  // Dropdown options derived from the date-filtered set only
+  // Dropdown options derived from the date+search+source set
   const availableCities = ["All", ...new Set(preFiltered.map(o => o.agent_data?.city || o.shipping_address?.city).filter(Boolean))].sort();
   const availableSKUs = [...new Set(preFiltered.flatMap(o => getSKUs(o)))].filter(Boolean).sort();
 
-  // Step 2: apply status, city, sku filters on top
+  // Step 3: apply status, city, sku filters on top
   const filteredOrders = preFiltered.filter(order => {
     const orderCity = order.agent_data?.city || order.shipping_address?.city || "";
     const matchStatus = statusFilters.length === 0 || statusFilters.includes(order.agent_status);
@@ -362,8 +375,6 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     return matchStatus && matchCity && matchSku;
   });
 
-  // Tab counts from preFiltered so they reflect date filter, not all 250 orders
-  const tabCounts = Object.fromEntries(TABS.map(t => [t, t === "All" ? filteredOrders.length : filteredOrders.filter(o => tabFilter(t, o)).length]));
   const tabFilteredOrders = activeTab === "All" ? filteredOrders : filteredOrders.filter(o => tabFilter(activeTab, o));
   const totalPages = Math.ceil(tabFilteredOrders.length / perPage);
   const pagedOrders = tabFilteredOrders.slice((page - 1) * perPage, page * perPage);
