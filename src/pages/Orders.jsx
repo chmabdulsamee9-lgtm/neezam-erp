@@ -74,7 +74,9 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("All");
-  const [customReasonDraft, setCustomReasonDraft] = useState({});
+  const [cancelReasonModal, setCancelReasonModal] = useState(null);
+  const [cancelReasonOtherMode, setCancelReasonOtherMode] = useState(false);
+  const [cancelReasonCustomText, setCancelReasonCustomText] = useState("");
   const tableRef = useRef(null);
 
   useEffect(() => {
@@ -85,6 +87,11 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     const handleClick = (e) => {
       if (!e.target.closest("[data-status-dropdown]") && !e.target.closest("[data-order-btn]")) {
         setStatusDropdown(null);
+      }
+      if (!e.target.closest("[data-cancel-modal]")) {
+        setCancelReasonModal(null);
+        setCancelReasonOtherMode(false);
+        setCancelReasonCustomText("");
       }
       if (!e.target.closest("[data-status-multi]")) setStatusMultiOpen(false);
       if (!e.target.closest("[data-bulk-status]")) setBulkStatusOpen(false);
@@ -167,6 +174,11 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           : o.agent_data;
         return { ...o, agent_status: status, last_edited_at: now, agent_data: agentData };
       }));
+      if (status === "Cancelled") {
+        setCancelReasonModal(orderId);
+        setCancelReasonOtherMode(false);
+        setCancelReasonCustomText("");
+      }
     }
     setStatusDropdown(null);
   };
@@ -673,46 +685,6 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                           style={{ padding: "2px 8px", borderRadius: 6, fontSize: 9, background: isSyncing ? "#1e293b" : sb.bg, color: isSyncing ? "#64748b" : sb.color, border: "none", cursor: isSyncing ? "default" : "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
                           {isSyncing ? "Syncing..." : sb.label}
                         </button>
-                        {isCancelled && (() => {
-                          const isCustom = cancellationReason && !CANCEL_REASONS.includes(cancellationReason);
-                          const otherActive = customReasonDraft.hasOwnProperty(order.id) || isCustom;
-                          const selectVal = otherActive ? "Other" : (cancellationReason || "");
-                          const draftText = customReasonDraft.hasOwnProperty(order.id)
-                            ? customReasonDraft[order.id]
-                            : (isCustom ? cancellationReason : "");
-                          const saveDraft = (text) => {
-                            if (text.trim()) updateCancellationReason(order.id, text.trim());
-                            setCustomReasonDraft(prev => { const n = { ...prev }; delete n[order.id]; return n; });
-                          };
-                          return (
-                            <>
-                              <select value={selectVal}
-                                onChange={e => {
-                                  if (e.target.value === "Other") {
-                                    setCustomReasonDraft(prev => ({ ...prev, [order.id]: isCustom ? cancellationReason : "" }));
-                                  } else {
-                                    setCustomReasonDraft(prev => { const n = { ...prev }; delete n[order.id]; return n; });
-                                    if (e.target.value) updateCancellationReason(order.id, e.target.value);
-                                  }
-                                }}
-                                style={{ width: "100%", padding: "2px 4px", borderRadius: 4, border: "1px solid #7f1d1d", background: "#0f172a", color: selectVal ? "#fca5a5" : "#64748b", fontSize: 9, cursor: "pointer" }}>
-                                <option value="">Reason... ▼</option>
-                                {CANCEL_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
-                              </select>
-                              {otherActive && (
-                                <input
-                                  autoFocus
-                                  value={draftText}
-                                  placeholder="Type reason, press Enter"
-                                  onChange={e => setCustomReasonDraft(prev => ({ ...prev, [order.id]: e.target.value }))}
-                                  onBlur={e => saveDraft(e.target.value)}
-                                  onKeyDown={e => { if (e.key === "Enter") saveDraft(e.target.value); }}
-                                  style={{ width: "100%", padding: "2px 4px", borderRadius: 4, border: "1px solid #7f1d1d", background: "#0f172a", color: "#fca5a5", fontSize: 9 }}
-                                />
-                              )}
-                            </>
-                          );
-                        })()}
                       </div>
                     </td>
                   </tr>
@@ -737,6 +709,82 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
               {s.label}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Cancellation Reason Modal */}
+      {cancelReasonModal && (
+        <div data-cancel-modal style={{ position: "fixed", top: dropdownPos.top, left: dropdownPos.left, zIndex: 999999, background: "#1e293b", border: "1px solid #7f1d1d", borderRadius: 8, padding: "8px", minWidth: 190, boxShadow: "0 8px 30px rgba(0,0,0,0.9)" }}>
+          <div style={{ fontSize: 10, color: "#fca5a5", fontWeight: 600, marginBottom: 6, paddingLeft: 4 }}>
+            Cancellation Reason
+          </div>
+          {!cancelReasonOtherMode ? (
+            <>
+              {CANCEL_REASONS.map(r => (
+                <div key={r}
+                  onClick={() => {
+                    if (r === "Other") {
+                      setCancelReasonOtherMode(true);
+                    } else {
+                      updateCancellationReason(cancelReasonModal, r);
+                      setCancelReasonModal(null);
+                    }
+                  }}
+                  style={{ padding: "6px 10px", borderRadius: 6, cursor: "pointer", color: "#fca5a5", fontSize: 11, fontWeight: 500 }}
+                  onMouseEnter={e => e.currentTarget.style.background = "#7f1d1d"}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  {r}
+                </div>
+              ))}
+              <div onClick={() => setCancelReasonModal(null)}
+                style={{ padding: "6px 10px", borderRadius: 6, cursor: "pointer", color: "#64748b", fontSize: 10, marginTop: 2 }}
+                onMouseEnter={e => e.currentTarget.style.background = "#1e293b"}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                Skip
+              </div>
+            </>
+          ) : (
+            <div style={{ padding: "4px" }}>
+              <input
+                autoFocus
+                value={cancelReasonCustomText}
+                placeholder="Type custom reason..."
+                onChange={e => setCancelReasonCustomText(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && cancelReasonCustomText.trim()) {
+                    updateCancellationReason(cancelReasonModal, cancelReasonCustomText.trim());
+                    setCancelReasonModal(null);
+                    setCancelReasonOtherMode(false);
+                    setCancelReasonCustomText("");
+                  }
+                  if (e.key === "Escape") {
+                    setCancelReasonOtherMode(false);
+                    setCancelReasonCustomText("");
+                  }
+                }}
+                style={{ width: "100%", padding: "5px 8px", borderRadius: 4, border: "1px solid #7f1d1d", background: "#0f172a", color: "#fca5a5", fontSize: 11, boxSizing: "border-box" }}
+              />
+              <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
+                <button
+                  onClick={() => {
+                    if (cancelReasonCustomText.trim()) {
+                      updateCancellationReason(cancelReasonModal, cancelReasonCustomText.trim());
+                      setCancelReasonModal(null);
+                      setCancelReasonOtherMode(false);
+                      setCancelReasonCustomText("");
+                    }
+                  }}
+                  style={{ flex: 1, padding: "4px", borderRadius: 4, border: "none", background: "#7f1d1d", color: "#fca5a5", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>
+                  Save
+                </button>
+                <button
+                  onClick={() => { setCancelReasonOtherMode(false); setCancelReasonCustomText(""); }}
+                  style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid #334155", background: "transparent", color: "#64748b", fontSize: 10, cursor: "pointer" }}>
+                  ←
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
