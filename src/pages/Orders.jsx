@@ -362,7 +362,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   });
 
   // Tab counts from preFiltered so they reflect date filter, not all 250 orders
-  const tabCounts = Object.fromEntries(TABS.map(t => [t, t === "All" ? preFiltered.length : preFiltered.filter(o => tabFilter(t, o)).length]));
+  const tabCounts = Object.fromEntries(TABS.map(t => [t, t === "All" ? filteredOrders.length : filteredOrders.filter(o => tabFilter(t, o)).length]));
   const tabFilteredOrders = activeTab === "All" ? filteredOrders : filteredOrders.filter(o => tabFilter(activeTab, o));
   const totalPages = Math.ceil(tabFilteredOrders.length / perPage);
   const pagedOrders = tabFilteredOrders.slice((page - 1) * perPage, page * perPage);
