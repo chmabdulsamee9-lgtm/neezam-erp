@@ -27,6 +27,11 @@ export default function WhatsApp() {
     template_approved:  DEFAULT_TEMPLATES.approved,
     template_cancelled: DEFAULT_TEMPLATES.cancelled,
   });
+  const [connTab, setConnTab]                 = useState("qr"); // "qr" | "phone"
+  const [phoneNumber, setPhoneNumber]         = useState("");
+  const [pairingCode, setPairingCode]         = useState(null);
+  const [pairingLoading, setPairingLoading]   = useState(false);
+  const [pairingError, setPairingError]       = useState(null);
   const [editingTemplate, setEditingTemplate] = useState(null);
   const [editText, setEditText]               = useState("");
   const [saving, setSaving]                   = useState(false);
@@ -132,6 +137,44 @@ export default function WhatsApp() {
     persistSettings(updated);
   };
 
+  const requestCode = async () => {
+    if (!clientId || !phoneNumber.trim()) return;
+    setPairingLoading(true);
+    setPairingCode(null);
+    setPairingError(null);
+    try {
+      const res  = await fetch(`${WHATSAPP_SERVER}/request-code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId, phoneNumber: phoneNumber.trim() }),
+      });
+      const data = await res.json();
+      if (data.status === "connected") {
+        setStatus("connected");
+      } else if (data.code) {
+        setPairingCode(data.code);
+        // Poll for connection after user enters the code
+        clearInterval(pollRef.current);
+        pollRef.current = setInterval(async () => {
+          try {
+            const r = await fetch(`${WHATSAPP_SERVER}/status/${clientId}`);
+            const d = await r.json();
+            if (d.status === "connected") {
+              setStatus("connected");
+              setPairingCode(null);
+              clearInterval(pollRef.current);
+            }
+          } catch { /* ignore */ }
+        }, 5000);
+      } else {
+        setPairingError(data.error || "Code nahi mila. Dobara try karo.");
+      }
+    } catch {
+      setPairingError("Server se connect nahi ho saka.");
+    }
+    setPairingLoading(false);
+  };
+
   const handleSaveTemplate = () => {
     const updated = { ...settings, [`template_${editingTemplate}`]: editText };
     setSettings(updated);
@@ -146,9 +189,21 @@ export default function WhatsApp() {
 
       {/* ── Connection card ── */}
       <div style={{ background: "#1e293b", borderRadius: 12, padding: "1.25rem", marginBottom: "1rem" }}>
-        <h2 style={{ margin: "0 0 1rem", fontSize: 14, color: "#94a3b8", fontWeight: 500 }}>
-          💬 WhatsApp Connection
-        </h2>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+          <h2 style={{ margin: 0, fontSize: 14, color: "#94a3b8", fontWeight: 500 }}>
+            💬 WhatsApp Connection
+          </h2>
+          {status !== "connected" && (
+            <div style={{ display: "flex", background: "#0f172a", borderRadius: 8, padding: 2, gap: 2 }}>
+              {["qr", "phone"].map(t => (
+                <button key={t} onClick={() => { setConnTab(t); setPairingCode(null); setPairingError(null); clearInterval(pollRef.current); setStatus("idle"); setQrDataUrl(null); }}
+                  style={{ padding: "4px 12px", borderRadius: 6, border: "none", background: connTab === t ? "#3b82f6" : "transparent", color: connTab === t ? "#fff" : "#64748b", fontSize: 11, cursor: "pointer", fontWeight: connTab === t ? 600 : 400, transition: "all 0.15s" }}>
+                  {t === "qr" ? "QR Code" : "Phone Number"}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Connected */}
         {status === "connected" && (
@@ -164,39 +219,77 @@ export default function WhatsApp() {
           </div>
         )}
 
-        {/* Idle / Error */}
-        {(status === "idle" || status === "error") && (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "1rem 0" }}>
-            {status === "error" && (
-              <p style={{ color: "#ef4444", fontSize: 12, margin: 0 }}>
-                Server se connect nahi ho saka. Dobara try karo.
-              </p>
+        {/* ── QR tab ── */}
+        {connTab === "qr" && (
+          <>
+            {(status === "idle" || status === "error") && (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "1rem 0" }}>
+                {status === "error" && (
+                  <p style={{ color: "#ef4444", fontSize: 12, margin: 0 }}>
+                    Server se connect nahi ho saka. Dobara try karo.
+                  </p>
+                )}
+                <button onClick={startQR}
+                  style={{ padding: "8px 28px", borderRadius: 8, border: "none", background: "#16a34a", color: "#fff", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
+                  🔗 Connect WhatsApp
+                </button>
+              </div>
             )}
-            <button onClick={startQR}
-              style={{ padding: "8px 28px", borderRadius: 8, border: "none", background: "#16a34a", color: "#fff", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
-              🔗 Connect WhatsApp
-            </button>
-          </div>
+            {status === "loading" && (
+              <div style={{ textAlign: "center", padding: "1.5rem", color: "#94a3b8", fontSize: 13 }}>
+                QR generate ho raha hai...
+              </div>
+            )}
+            {status === "qr" && qrDataUrl && (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+                <img src={qrDataUrl} alt="WhatsApp QR Code"
+                  style={{ width: 230, height: 230, borderRadius: 10, border: "3px solid #16a34a", background: "#fff", display: "block" }} />
+                <p style={{ fontSize: 12, color: "#94a3b8", margin: 0, textAlign: "center" }}>
+                  WhatsApp pe{" "}
+                  <strong style={{ color: "#e2e8f0" }}>Linked Devices → Link a Device</strong>{" "}
+                  karo aur ye QR scan karo
+                </p>
+                <span style={{ fontSize: 10, color: "#475569" }}>Auto-refresh every 5s</span>
+              </div>
+            )}
+          </>
         )}
 
-        {/* Loading */}
-        {status === "loading" && (
-          <div style={{ textAlign: "center", padding: "1.5rem", color: "#94a3b8", fontSize: 13 }}>
-            QR generate ho raha hai...
-          </div>
-        )}
+        {/* ── Phone Number tab ── */}
+        {connTab === "phone" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "0.5rem 0" }}>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                type="text"
+                placeholder="Country code + number (e.g. 923001234567)"
+                value={phoneNumber}
+                onChange={e => setPhoneNumber(e.target.value)}
+                style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 12, outline: "none" }}
+              />
+              <button onClick={requestCode} disabled={pairingLoading || !phoneNumber.trim()}
+                style={{ padding: "7px 18px", borderRadius: 7, border: "none", background: pairingLoading ? "#1e3a5f" : "#3b82f6", color: "#fff", fontSize: 12, cursor: pairingLoading ? "default" : "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
+                {pairingLoading ? "..." : "Get Code"}
+              </button>
+            </div>
 
-        {/* QR */}
-        {status === "qr" && qrDataUrl && (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-            <img src={qrDataUrl} alt="WhatsApp QR Code"
-              style={{ width: 230, height: 230, borderRadius: 10, border: "3px solid #16a34a", background: "#fff", display: "block" }} />
-            <p style={{ fontSize: 12, color: "#94a3b8", margin: 0, textAlign: "center" }}>
-              WhatsApp pe{" "}
-              <strong style={{ color: "#e2e8f0" }}>Linked Devices → Link a Device</strong>{" "}
-              karo aur ye QR scan karo
-            </p>
-            <span style={{ fontSize: 10, color: "#475569" }}>Auto-refresh every 5s</span>
+            {pairingError && (
+              <p style={{ margin: 0, fontSize: 12, color: "#ef4444" }}>{pairingError}</p>
+            )}
+
+            {pairingCode && (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "1rem", background: "#0f172a", borderRadius: 10, border: "1px solid #16a34a" }}>
+                <span style={{ fontSize: 11, color: "#94a3b8" }}>Tumhara pairing code:</span>
+                <span style={{ fontSize: 32, fontWeight: 700, letterSpacing: 6, color: "#16a34a", fontFamily: "monospace" }}>
+                  {pairingCode}
+                </span>
+                <p style={{ margin: 0, fontSize: 12, color: "#94a3b8", textAlign: "center", lineHeight: 1.6 }}>
+                  Yeh code WhatsApp mein{" "}
+                  <strong style={{ color: "#e2e8f0" }}>Linked Devices → Link with phone number</strong>{" "}
+                  mein enter karo
+                </p>
+                <span style={{ fontSize: 10, color: "#475569" }}>Connection ka wait ho raha hai...</span>
+              </div>
+            )}
           </div>
         )}
       </div>
