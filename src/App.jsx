@@ -5,6 +5,7 @@ import StoreConnect from './pages/StoreConnect'
 import ShopifyCallback from './pages/ShopifyCallback'
 import Orders from './pages/Orders'
 import Dashboard from './pages/Dashboard'
+import WhatsApp from './pages/WhatsApp'
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev"
 
@@ -162,7 +163,8 @@ function App() {
             )
           )}
           {activeMenu === 'store-connect' && <StoreConnect />}
-          {activeMenu !== 'dashboard' && activeMenu !== 'store-connect' && activeMenu !== 'orders' && (
+          {activeMenu === 'whatsapp' && <WhatsApp />}
+          {activeMenu !== 'dashboard' && activeMenu !== 'store-connect' && activeMenu !== 'orders' && activeMenu !== 'whatsapp' && (
             <div style={{padding:'1.25rem'}}>
               <div style={{background:'#1e293b',borderRadius:'10px',padding:'2rem',textAlign:'center'}}>
                 <div style={{fontSize:'48px',marginBottom:'1rem'}}>{menuItems.find(m=>m.id===activeMenu)?.icon}</div>
