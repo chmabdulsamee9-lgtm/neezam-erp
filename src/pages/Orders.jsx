@@ -364,22 +364,23 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   // Tab counts from date-only set so clicking Today/Yesterday updates all badges
   const tabCounts = Object.fromEntries(TABS.map(t => [t, t === "All" ? dateFilteredOrders.length : dateFilteredOrders.filter(o => tabFilter(t, o)).length]));
 
-  // Step 2: date + search + source — base for dropdown options
-  const preFiltered = dateFilteredOrders.filter(order => {
+  // Step 2: date + search + source + active tab — base for city/sku dropdown options
+  const baseFilteredOrders = dateFilteredOrders.filter(order => {
     const name = `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.toLowerCase();
     const phone = order.customer?.phone || order.shipping_address?.phone || "";
     const orderNum = order.name || "";
     const matchSearch = !search || name.includes(search.toLowerCase()) || phone.includes(search) || orderNum.includes(search);
     const matchSource = sourceFilter === "All" || getSource(order) === sourceFilter;
-    return matchSearch && matchSource;
+    const matchTab = activeTab === "All" || tabFilter(activeTab, order);
+    return matchSearch && matchSource && matchTab;
   });
 
-  // Dropdown options derived from the date+search+source set
-  const availableCities = ["All", ...new Set(preFiltered.map(o => o.agent_data?.city || o.shipping_address?.city).filter(Boolean))].sort();
-  const availableSKUs = [...new Set(preFiltered.flatMap(o => getSKUs(o)))].filter(Boolean).sort();
+  // Dropdown options from the fully active context (date + search + source + tab)
+  const availableCities = ["All", ...new Set(baseFilteredOrders.map(o => o.agent_data?.city || o.shipping_address?.city).filter(Boolean))].sort();
+  const availableSKUs = [...new Set(baseFilteredOrders.flatMap(o => getSKUs(o)))].filter(Boolean).sort();
 
-  // Step 3: apply status, city, sku filters on top
-  const filteredOrders = preFiltered.filter(order => {
+  // Step 3: apply status, city, sku filters on top of baseFilteredOrders
+  const filteredOrders = baseFilteredOrders.filter(order => {
     const orderCity = order.agent_data?.city || order.shipping_address?.city || "";
     const matchStatus = statusFilters.length === 0 || statusFilters.includes(order.agent_status);
     const matchCity = cityFilter === "All" || orderCity === cityFilter;
@@ -387,9 +388,10 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     return matchStatus && matchCity && matchSku;
   });
 
-  const tabFilteredOrders = activeTab === "All" ? filteredOrders : filteredOrders.filter(o => tabFilter(activeTab, o));
-  const totalPages = Math.ceil(tabFilteredOrders.length / perPage);
-  const pagedOrders = tabFilteredOrders.slice((page - 1) * perPage, page * perPage);
+  // Tab already applied in baseFilteredOrders; alias kept for downstream references
+  const tabFilteredOrders = filteredOrders;
+  const totalPages = Math.ceil(filteredOrders.length / perPage);
+  const pagedOrders = filteredOrders.slice((page - 1) * perPage, page * perPage);
 
   const todayCount = orders.filter(o => {
     const r = getDateRange("today");
