@@ -18,6 +18,16 @@ const STATUSES = [
 const SOURCE_COLORS = { Meta: "#3b82f6", TikTok: "#ec4899", Snapchat: "#eab308", Google: "#10b981", Direct: "#64748b" };
 const PER_PAGE_OPTIONS = [20, 50, 100];
 
+const TABS = ["All", "New", "Approved", "Pending", "Cancelled"];
+
+const tabFilter = (tab, o) => {
+  if (tab === "New") return !o.agent_status;
+  if (tab === "Approved") return o.agent_status === "Approved";
+  if (tab === "Pending") return !!(o.agent_status && o.agent_status !== "Approved" && o.agent_status !== "Cancelled");
+  if (tab === "Cancelled") return o.agent_status === "Cancelled";
+  return true;
+};
+
 const truncate = (str, max = 25) => {
   if (!str) return "";
   return str.length > max ? str.slice(0, max) + "…" : str;
@@ -59,6 +69,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const [bulkSyncing, setBulkSyncing] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState("All");
   const tableRef = useRef(null);
 
   useEffect(() => {
@@ -337,8 +348,10 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
   const filteredOrders = allOrdersFiltered;
   const allSKUs = [...new Set(filteredOrders.flatMap(o => getSKUs(o)))].filter(Boolean).sort();
-  const totalPages = Math.ceil(filteredOrders.length / perPage);
-  const pagedOrders = filteredOrders.slice((page - 1) * perPage, page * perPage);
+  const tabCounts = Object.fromEntries(TABS.map(t => [t, t === "All" ? filteredOrders.length : filteredOrders.filter(o => tabFilter(t, o)).length]));
+  const tabFilteredOrders = activeTab === "All" ? filteredOrders : filteredOrders.filter(o => tabFilter(activeTab, o));
+  const totalPages = Math.ceil(tabFilteredOrders.length / perPage);
+  const pagedOrders = tabFilteredOrders.slice((page - 1) * perPage, page * perPage);
 
   const EditableCell = ({ orderId, field, value, width = 100, maxChars = 20 }) => {
     const cellKey = `${orderId}-${field}`;
@@ -386,7 +399,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "#fff" }}>📦 Orders</h1>
-          <p style={{ margin: "2px 0 0", fontSize: 11, color: "#64748b" }}>{currentStore?.store_name} — {filteredOrders.length} orders</p>
+          <p style={{ margin: "2px 0 0", fontSize: 11, color: "#64748b" }}>{currentStore?.store_name} — {tabFilteredOrders.length} orders</p>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <select value={perPage} onChange={e => { setPerPage(Number(e.target.value)); setPage(1); }}
@@ -494,6 +507,24 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
               style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#1e293b", color: "#94a3b8", fontSize: 11, cursor: "pointer" }}>✕</button>
           </div>
         )}
+      </div>
+
+      {/* Tab Navigation */}
+      <div style={{ display: "flex", gap: 4, marginBottom: "0.5rem", flexWrap: "wrap" }}>
+        {TABS.map(tab => (
+          <button key={tab} onClick={() => { setActiveTab(tab); setPage(1); }}
+            style={{ padding: "5px 12px", borderRadius: 20, fontSize: 11, cursor: "pointer", fontWeight: 600, border: "1px solid", transition: "all 0.15s",
+              background: activeTab === tab ? "#3b82f6" : "#1e293b",
+              color: activeTab === tab ? "#fff" : "#94a3b8",
+              borderColor: activeTab === tab ? "#3b82f6" : "#334155" }}>
+            {tab}
+            <span style={{ marginLeft: 5, padding: "1px 6px", borderRadius: 10, fontSize: 10,
+              background: activeTab === tab ? "rgba(255,255,255,0.25)" : "#0f172a",
+              color: activeTab === tab ? "#fff" : "#64748b" }}>
+              {tabCounts[tab]}
+            </span>
+          </button>
+        ))}
       </div>
 
       {loading ? (
@@ -615,7 +646,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       {/* Pagination */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.5rem" }}>
         <span style={{ fontSize: 11, color: "#64748b" }}>
-          Showing {((page - 1) * perPage) + 1}–{Math.min(page * perPage, filteredOrders.length)} of {filteredOrders.length}
+          Showing {((page - 1) * perPage) + 1}–{Math.min(page * perPage, tabFilteredOrders.length)} of {tabFilteredOrders.length}
         </span>
         <div style={{ display: "flex", gap: 4 }}>
           <button onClick={() => setPage(1)} disabled={page === 1} style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === 1 ? "#0f172a" : "#1e293b", color: page === 1 ? "#334155" : "#94a3b8", fontSize: 11, cursor: page === 1 ? "default" : "pointer" }}>«</button>
