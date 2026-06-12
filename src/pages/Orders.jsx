@@ -70,6 +70,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("All");
+  const [customReasonDraft, setCustomReasonDraft] = useState({});
   const tableRef = useRef(null);
 
   useEffect(() => {
@@ -581,8 +582,8 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                 <th style={thBase}>Discount</th>
                 <th style={thBase}>Total</th>
                 <th style={thBase}>Source</th>
-                <th style={{ ...thBase, position: "sticky", right: 110, zIndex: 20, background: "#1e293b", minWidth: 120 }}>Status / Sync</th>
-                <th style={{ ...thBase, position: "sticky", right: 0, zIndex: 20, background: "#1e293b", minWidth: 110 }}>Remarks</th>
+                <th style={thBase}>Remarks</th>
+                <th style={{ ...thBase, position: "sticky", right: 0, zIndex: 20, background: "#1e293b", minWidth: 120 }}>Status / Sync</th>
               </tr>
             </thead>
             <tbody>
@@ -648,7 +649,10 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                     <td style={tdBase}>
                       <span style={{ padding: "2px 6px", borderRadius: 8, fontSize: 10, background: "#1e293b", color: SOURCE_COLORS[source], fontWeight: 600 }}>{source}</span>
                     </td>
-                    <td style={{ ...tdBase, position: "sticky", right: 110, zIndex: 4, background: isSelected ? "#1e3a5f" : rowBg }}>
+                    <td style={tdBase}>
+                      <EditableCell orderId={order.id} field="remarks" value={remarks} width={100} maxChars={18} />
+                    </td>
+                    <td style={{ ...tdBase, position: "sticky", right: 0, zIndex: 4, background: isSelected ? "#1e3a5f" : rowBg }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start" }}>
                         <button data-order-btn={order.id} onClick={(e) => handleStatusBtnClick(e, order.id)}
                           style={{ padding: "3px 8px", borderRadius: 8, fontSize: 10, background: status?.bg || "#1e293b", color: status?.color || "#64748b", border: "none", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
@@ -658,17 +662,47 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                           style={{ padding: "2px 8px", borderRadius: 6, fontSize: 9, background: isSyncing ? "#1e293b" : sb.bg, color: isSyncing ? "#64748b" : sb.color, border: "none", cursor: isSyncing ? "default" : "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
                           {isSyncing ? "Syncing..." : sb.label}
                         </button>
-                        {isCancelled && (
-                          <select value={cancellationReason} onChange={e => updateCancellationReason(order.id, e.target.value)}
-                            style={{ width: "100%", padding: "2px 4px", borderRadius: 4, border: "1px solid #7f1d1d", background: "#0f172a", color: cancellationReason ? "#fca5a5" : "#64748b", fontSize: 9, cursor: "pointer" }}>
-                            <option value="">Reason... ▼</option>
-                            {CANCEL_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
-                          </select>
-                        )}
+                        {isCancelled && (() => {
+                          const isCustom = cancellationReason && !CANCEL_REASONS.includes(cancellationReason);
+                          const otherActive = customReasonDraft.hasOwnProperty(order.id) || isCustom;
+                          const selectVal = otherActive ? "Other" : (cancellationReason || "");
+                          const draftText = customReasonDraft.hasOwnProperty(order.id)
+                            ? customReasonDraft[order.id]
+                            : (isCustom ? cancellationReason : "");
+                          const saveDraft = (text) => {
+                            if (text.trim()) updateCancellationReason(order.id, text.trim());
+                            setCustomReasonDraft(prev => { const n = { ...prev }; delete n[order.id]; return n; });
+                          };
+                          return (
+                            <>
+                              <select value={selectVal}
+                                onChange={e => {
+                                  if (e.target.value === "Other") {
+                                    setCustomReasonDraft(prev => ({ ...prev, [order.id]: isCustom ? cancellationReason : "" }));
+                                  } else {
+                                    setCustomReasonDraft(prev => { const n = { ...prev }; delete n[order.id]; return n; });
+                                    if (e.target.value) updateCancellationReason(order.id, e.target.value);
+                                  }
+                                }}
+                                style={{ width: "100%", padding: "2px 4px", borderRadius: 4, border: "1px solid #7f1d1d", background: "#0f172a", color: selectVal ? "#fca5a5" : "#64748b", fontSize: 9, cursor: "pointer" }}>
+                                <option value="">Reason... ▼</option>
+                                {CANCEL_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                              </select>
+                              {otherActive && (
+                                <input
+                                  autoFocus
+                                  value={draftText}
+                                  placeholder="Type reason, press Enter"
+                                  onChange={e => setCustomReasonDraft(prev => ({ ...prev, [order.id]: e.target.value }))}
+                                  onBlur={e => saveDraft(e.target.value)}
+                                  onKeyDown={e => { if (e.key === "Enter") saveDraft(e.target.value); }}
+                                  style={{ width: "100%", padding: "2px 4px", borderRadius: 4, border: "1px solid #7f1d1d", background: "#0f172a", color: "#fca5a5", fontSize: 9 }}
+                                />
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
-                    </td>
-                    <td style={{ ...tdBase, position: "sticky", right: 0, zIndex: 4, background: isSelected ? "#1e3a5f" : rowBg }}>
-                      <EditableCell orderId={order.id} field="remarks" value={remarks} width={100} maxChars={18} />
                     </td>
                   </tr>
                 );
