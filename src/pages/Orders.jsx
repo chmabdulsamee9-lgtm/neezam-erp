@@ -17,8 +17,8 @@ const STATUSES = [
 
 const SOURCE_COLORS = { Meta: "#3b82f6", TikTok: "#ec4899", Snapchat: "#eab308", Google: "#10b981", Direct: "#64748b" };
 const PER_PAGE_OPTIONS = [20, 50, 100];
-
 const TABS = ["All", "New", "Approved", "Pending", "Cancelled"];
+const CANCEL_REASONS = ["Not Interested", "Wrong Number", "Duplicate Order", "Customer Cancelled", "Out of Stock", "Other"];
 
 const tabFilter = (tab, o) => {
   if (tab === "New") return !o.agent_status;
@@ -155,9 +155,27 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       { onConflict: "order_id" }
     );
     if (!error) {
-      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, agent_status: status, last_edited_at: now } : o));
+      setOrders(prev => prev.map(o => {
+        if (o.id !== orderId) return o;
+        const agentData = status !== "Cancelled"
+          ? { ...o.agent_data, cancellation_reason: null }
+          : o.agent_data;
+        return { ...o, agent_status: status, last_edited_at: now, agent_data: agentData };
+      }));
     }
     setStatusDropdown(null);
+  };
+
+  const updateCancellationReason = async (orderId, reason) => {
+    const now = new Date().toISOString();
+    await supabase.from("order_statuses").upsert(
+      { order_id: String(orderId), cancellation_reason: reason, updated_at: now },
+      { onConflict: "order_id" }
+    );
+    setOrders(prev => prev.map(o => o.id === orderId
+      ? { ...o, agent_data: { ...o.agent_data, cancellation_reason: reason } }
+      : o
+    ));
   };
 
   const updateField = async (orderId, field, value) => {
@@ -176,6 +194,8 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       product: updated.product || null,
       sku: updated.sku || null,
       shipping: updated.shipping || null,
+      remarks: updated.remarks || null,
+      cancellation_reason: updated.cancellation_reason || null,
       updated_at: now,
       last_edited_at: now,
     }, { onConflict: "order_id" });
@@ -314,22 +334,38 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   };
 
   const currentStore = store || ordersStore;
-  const cities = ["All", ...new Set(orders.map(o => o.shipping_address?.city).filter(Boolean))];
 
-  const allOrdersFiltered = orders.filter(order => {
+  // Step 1: filter by date + search + source — base for dropdown options and tab counts
+  const preFiltered = orders.filter(order => {
     const name = `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.toLowerCase();
     const phone = order.customer?.phone || order.shipping_address?.phone || "";
     const orderNum = order.name || "";
     const matchSearch = !search || name.includes(search.toLowerCase()) || phone.includes(search) || orderNum.includes(search);
-    const matchStatus = statusFilters.length === 0 || statusFilters.includes(order.agent_status);
     const matchSource = sourceFilter === "All" || getSource(order) === sourceFilter;
-    const matchCity = cityFilter === "All" || order.shipping_address?.city === cityFilter;
-    const matchSku = skuFilter === "All" || getSKUs(order).includes(skuFilter);
     const orderDate = new Date(order.created_at);
     const matchFrom = !dateFrom || orderDate >= new Date(dateFrom);
     const matchTo = !dateTo || orderDate <= new Date(dateTo + "T23:59:59");
-    return matchSearch && matchStatus && matchSource && matchCity && matchSku && matchFrom && matchTo;
+    return matchSearch && matchSource && matchFrom && matchTo;
   });
+
+  // Dropdown options derived from the date-filtered set only
+  const availableCities = ["All", ...new Set(preFiltered.map(o => o.agent_data?.city || o.shipping_address?.city).filter(Boolean))].sort();
+  const availableSKUs = [...new Set(preFiltered.flatMap(o => getSKUs(o)))].filter(Boolean).sort();
+
+  // Step 2: apply status, city, sku filters on top
+  const filteredOrders = preFiltered.filter(order => {
+    const orderCity = order.agent_data?.city || order.shipping_address?.city || "";
+    const matchStatus = statusFilters.length === 0 || statusFilters.includes(order.agent_status);
+    const matchCity = cityFilter === "All" || orderCity === cityFilter;
+    const matchSku = skuFilter === "All" || getSKUs(order).includes(skuFilter);
+    return matchStatus && matchCity && matchSku;
+  });
+
+  // Tab counts from preFiltered so they reflect date filter, not all 250 orders
+  const tabCounts = Object.fromEntries(TABS.map(t => [t, t === "All" ? preFiltered.length : preFiltered.filter(o => tabFilter(t, o)).length]));
+  const tabFilteredOrders = activeTab === "All" ? filteredOrders : filteredOrders.filter(o => tabFilter(activeTab, o));
+  const totalPages = Math.ceil(tabFilteredOrders.length / perPage);
+  const pagedOrders = tabFilteredOrders.slice((page - 1) * perPage, page * perPage);
 
   const todayCount = orders.filter(o => {
     const r = getDateRange("today");
@@ -345,13 +381,6 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     const r = getDateRange("7days");
     return new Date(o.created_at) >= r.from && new Date(o.created_at) <= r.to;
   }).length;
-
-  const filteredOrders = allOrdersFiltered;
-  const allSKUs = [...new Set(filteredOrders.flatMap(o => getSKUs(o)))].filter(Boolean).sort();
-  const tabCounts = Object.fromEntries(TABS.map(t => [t, t === "All" ? filteredOrders.length : filteredOrders.filter(o => tabFilter(t, o)).length]));
-  const tabFilteredOrders = activeTab === "All" ? filteredOrders : filteredOrders.filter(o => tabFilter(activeTab, o));
-  const totalPages = Math.ceil(tabFilteredOrders.length / perPage);
-  const pagedOrders = tabFilteredOrders.slice((page - 1) * perPage, page * perPage);
 
   const EditableCell = ({ orderId, field, value, width = 100, maxChars = 20 }) => {
     const cellKey = `${orderId}-${field}`;
@@ -467,14 +496,14 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           <option value="All">All Source</option>
           {["Meta", "TikTok", "Snapchat", "Google", "Direct"].map(s => <option key={s}>{s}</option>)}
         </select>
-        <select value={cityFilter} onChange={e => { setCityFilter(e.target.value); setPage(1); }}
+        <select value={availableCities.includes(cityFilter) ? cityFilter : "All"} onChange={e => { setCityFilter(e.target.value); setPage(1); }}
           style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 11 }}>
-          {cities.map(c => <option key={c}>{c}</option>)}
+          {availableCities.map(c => <option key={c}>{c}</option>)}
         </select>
-        <select value={skuFilter} onChange={e => { setSkuFilter(e.target.value); setPage(1); }}
+        <select value={availableSKUs.includes(skuFilter) ? skuFilter : "All"} onChange={e => { setSkuFilter(e.target.value); setPage(1); }}
           style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 11 }}>
           <option value="All">All SKU</option>
-          {allSKUs.map(s => <option key={s}>{s}</option>)}
+          {availableSKUs.map(s => <option key={s}>{s}</option>)}
         </select>
 
         {/* Bulk Actions */}
@@ -552,7 +581,8 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                 <th style={thBase}>Discount</th>
                 <th style={thBase}>Total</th>
                 <th style={thBase}>Source</th>
-                <th style={{ ...thBase, position: "sticky", right: 0, zIndex: 20, background: "#1e293b", minWidth: 120 }}>Status / Sync</th>
+                <th style={{ ...thBase, position: "sticky", right: 110, zIndex: 20, background: "#1e293b", minWidth: 120 }}>Status / Sync</th>
+                <th style={{ ...thBase, position: "sticky", right: 0, zIndex: 20, background: "#1e293b", minWidth: 110 }}>Remarks</th>
               </tr>
             </thead>
             <tbody>
@@ -568,6 +598,8 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                 const unitPrices = order.line_items?.map(i => i.price).join(" + ") || "—";
                 const shipping = order.agent_data?.shipping || order.total_shipping_price_set?.presentment_money?.amount || "0";
                 const discount = order.agent_data?.discount || order.total_discounts || "0";
+                const remarks = order.agent_data?.remarks || "";
+                const cancellationReason = order.agent_data?.cancellation_reason || "";
                 const date = new Date(order.created_at).toLocaleDateString("en-PK");
                 const time = new Date(order.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" });
                 const shopifyUrl = `https://${currentStore?.shopify_url}/admin/orders/${order.id}`;
@@ -575,6 +607,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                 const isSyncing = syncingId === order.id;
                 const syncState = getSyncState(order);
                 const isSelected = selectedIds.has(order.id);
+                const isCancelled = order.agent_status === "Cancelled";
 
                 const syncBtn = () => {
                   if (syncState === "pending") return { bg: "#713f12", color: "#eab308", label: "⚡ Ready to Sync" };
@@ -593,7 +626,16 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                     </td>
                     <td style={{ ...tdBase, color: "#94a3b8", whiteSpace: "nowrap" }}>{date}</td>
                     <td style={{ ...tdBase, color: "#64748b", whiteSpace: "nowrap" }}>{time}</td>
-                    <td style={tdBase}><EditableCell orderId={order.id} field="customer_name" value={fullName} width={110} maxChars={15} /></td>
+                    <td style={tdBase}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                        <EditableCell orderId={order.id} field="customer_name" value={fullName} width={110} maxChars={15} />
+                        {isCancelled && cancellationReason && (
+                          <span style={{ padding: "1px 5px", borderRadius: 6, fontSize: 9, background: "#7f1d1d", color: "#fca5a5", fontWeight: 500, whiteSpace: "nowrap", display: "inline-block" }}>
+                            {cancellationReason}
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td style={tdBase}><EditableCell orderId={order.id} field="phone" value={phone} width={100} maxChars={13} /></td>
                     <td style={tdBase}><EditableCell orderId={order.id} field="address" value={address} width={130} maxChars={18} /></td>
                     <td style={tdBase}><EditableCell orderId={order.id} field="city" value={city} width={80} maxChars={10} /></td>
@@ -606,7 +648,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                     <td style={tdBase}>
                       <span style={{ padding: "2px 6px", borderRadius: 8, fontSize: 10, background: "#1e293b", color: SOURCE_COLORS[source], fontWeight: 600 }}>{source}</span>
                     </td>
-                    <td style={{ ...tdBase, position: "sticky", right: 0, zIndex: 4, background: isSelected ? "#1e3a5f" : rowBg }}>
+                    <td style={{ ...tdBase, position: "sticky", right: 110, zIndex: 4, background: isSelected ? "#1e3a5f" : rowBg }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start" }}>
                         <button data-order-btn={order.id} onClick={(e) => handleStatusBtnClick(e, order.id)}
                           style={{ padding: "3px 8px", borderRadius: 8, fontSize: 10, background: status?.bg || "#1e293b", color: status?.color || "#64748b", border: "none", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
@@ -616,7 +658,17 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                           style={{ padding: "2px 8px", borderRadius: 6, fontSize: 9, background: isSyncing ? "#1e293b" : sb.bg, color: isSyncing ? "#64748b" : sb.color, border: "none", cursor: isSyncing ? "default" : "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
                           {isSyncing ? "Syncing..." : sb.label}
                         </button>
+                        {isCancelled && (
+                          <select value={cancellationReason} onChange={e => updateCancellationReason(order.id, e.target.value)}
+                            style={{ width: "100%", padding: "2px 4px", borderRadius: 4, border: "1px solid #7f1d1d", background: "#0f172a", color: cancellationReason ? "#fca5a5" : "#64748b", fontSize: 9, cursor: "pointer" }}>
+                            <option value="">Reason... ▼</option>
+                            {CANCEL_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                          </select>
+                        )}
                       </div>
+                    </td>
+                    <td style={{ ...tdBase, position: "sticky", right: 0, zIndex: 4, background: isSelected ? "#1e3a5f" : rowBg }}>
+                      <EditableCell orderId={order.id} field="remarks" value={remarks} width={100} maxChars={18} />
                     </td>
                   </tr>
                 );
