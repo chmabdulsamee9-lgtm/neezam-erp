@@ -3,6 +3,7 @@ import { supabase } from "../supabase";
 
 const CLIENT_ID = import.meta.env.VITE_SHOPIFY_CLIENT_ID;
 const REDIRECT_URI = "https://neezam-erp.pages.dev/auth/callback";
+const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 
 const SCOPES = [
   "read_orders",
@@ -60,6 +61,10 @@ export default function StoreConnect() {
   const [shopUrl, setShopUrl] = useState("");
   const [error, setError] = useState("");
   const [showInput, setShowInput] = useState(false);
+  const [cacheCounts, setCacheCounts] = useState({});
+  const [syncingStoreId, setSyncingStoreId] = useState(null);
+  const [syncProgress, setSyncProgress] = useState(0);
+  const [syncError, setSyncError] = useState("");
 
   useEffect(() => {
     fetchStores();
@@ -73,6 +78,17 @@ export default function StoreConnect() {
       .order("created_at", { ascending: false });
     setStores(data || []);
     setLoading(false);
+    if (data) {
+      data.forEach((store) => fetchCacheCount(store.id));
+    }
+  };
+
+  const fetchCacheCount = async (storeId) => {
+    const { count } = await supabase
+      .from("shopify_orders_cache")
+      .select("*", { count: "exact", head: true })
+      .eq("store_id", storeId);
+    setCacheCounts((prev) => ({ ...prev, [storeId]: count ?? 0 }));
   };
 
   const handleConnect = () => {
@@ -100,6 +116,43 @@ export default function StoreConnect() {
     if (!window.confirm("Yeh store delete karna chahte ho?")) return;
     await supabase.from("stores").delete().eq("id", id);
     fetchStores();
+  };
+
+  const handleSync = async (store) => {
+    setSyncingStoreId(store.id);
+    setSyncProgress(0);
+    setSyncError("");
+
+    let cursor = null;
+    let total = 0;
+    let safety = 0;
+
+    try {
+      while (safety < 200) {
+        safety++;
+        const qs = cursor
+          ? `?store_id=${store.id}&cursor=${cursor}`
+          : `?store_id=${store.id}`;
+        const res = await fetch(`${CF_URL}/sync-orders-chunk${qs}`);
+        const data = await res.json();
+
+        if (data.error) {
+          setSyncError(data.error);
+          break;
+        }
+
+        total += data.count || 0;
+        setSyncProgress(total);
+
+        if (data.done) break;
+        cursor = data.nextCursor;
+      }
+    } catch (err) {
+      setSyncError(err.message);
+    }
+
+    setSyncingStoreId(null);
+    fetchCacheCount(store.id);
   };
 
   return (
@@ -228,47 +281,92 @@ export default function StoreConnect() {
               background: "#1e293b",
               borderRadius: 12,
               padding: "1rem 1.25rem",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
             }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                <div style={{
-                  width: 44, height: 44, borderRadius: 10,
-                  background: "#0f172a", display: "flex",
-                  alignItems: "center", justifyContent: "center",
-                  fontSize: 22, border: "1px solid #1e293b"
-                }}>
-                  🛍️
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 12,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <div style={{
+                    width: 44, height: 44, borderRadius: 10,
+                    background: "#0f172a", display: "flex",
+                    alignItems: "center", justifyContent: "center",
+                    fontSize: 22, border: "1px solid #1e293b"
+                  }}>
+                    🛍️
+                  </div>
+                  <div>
+                    <p style={{ margin: 0, fontWeight: 600, fontSize: 15, color: "#fff" }}>
+                      {store.store_name}
+                    </p>
+                    <p style={{ margin: "2px 0 0", fontSize: 12, color: "#64748b" }}>
+                      {store.shopify_url}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p style={{ margin: 0, fontWeight: 600, fontSize: 15, color: "#fff" }}>
-                    {store.store_name}
-                  </p>
-                  <p style={{ margin: "2px 0 0", fontSize: 12, color: "#64748b" }}>
-                    {store.shopify_url}
-                  </p>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{
+                    fontSize: 12, padding: "4px 12px",
+                    background: "#14532d", color: "#4ade80",
+                    borderRadius: 20, fontWeight: 500,
+                  }}>
+                    ✅ Connected
+                  </span>
+                  <button
+                    onClick={() => handleDelete(store.id)}
+                    style={{
+                      background: "transparent", border: "none",
+                      cursor: "pointer", color: "#64748b",
+                      padding: 6, fontSize: 18,
+                    }}
+                  >
+                    🗑️
+                  </button>
                 </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{
-                  fontSize: 12, padding: "4px 12px",
-                  background: "#14532d", color: "#4ade80",
-                  borderRadius: 20, fontWeight: 500,
-                }}>
-                  ✅ Connected
-                </span>
+
+              {/* Sync section */}
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                background: "#0f172a",
+                borderRadius: 8,
+                padding: "10px 14px",
+              }}>
+                <div style={{ fontSize: 13, color: "#94a3b8" }}>
+                  🗄️ <strong style={{ color: "#fff" }}>{cacheCounts[store.id] ?? "..."}</strong> orders cached
+                  {syncingStoreId === store.id && (
+                    <span style={{ color: "#3b82f6", marginLeft: 10 }}>
+                      ⏳ Syncing... {syncProgress} orders so far
+                    </span>
+                  )}
+                </div>
                 <button
-                  onClick={() => handleDelete(store.id)}
+                  onClick={() => handleSync(store)}
+                  disabled={syncingStoreId === store.id}
                   style={{
-                    background: "transparent", border: "none",
-                    cursor: "pointer", color: "#64748b",
-                    padding: 6, fontSize: 18,
+                    background: syncingStoreId === store.id ? "#334155" : "#3b82f6",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 8,
+                    padding: "8px 16px",
+                    fontSize: 13,
+                    fontWeight: 500,
+                    cursor: syncingStoreId === store.id ? "not-allowed" : "pointer",
+                    whiteSpace: "nowrap",
                   }}
                 >
-                  🗑️
+                  {syncingStoreId === store.id ? "Syncing..." : "🔄 Sync Orders"}
                 </button>
               </div>
+              {syncError && syncingStoreId === null && (
+                <p style={{ color: "#ef4444", fontSize: 12, marginTop: 8 }}>
+                  ❌ {syncError}
+                </p>
+              )}
             </div>
           ))}
         </div>
