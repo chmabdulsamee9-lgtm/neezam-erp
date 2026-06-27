@@ -19,6 +19,7 @@ const SOURCE_COLORS = { Meta: "#3b82f6", TikTok: "#ec4899", Snapchat: "#eab308",
 const PER_PAGE_OPTIONS = [20, 50, 100];
 const TABS = ["All", "New", "Approved", "Pending", "Cancelled"];
 const CANCEL_REASONS = ["Not Interested", "Wrong Number", "Duplicate Order", "Customer Cancelled", "Out of Stock", "Other"];
+const PAGE_SIZE = 1000;
 
 const tabFilter = (tab, o) => {
   if (tab === "New") return !o.agent_status;
@@ -112,27 +113,60 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     }
   };
 
+  // Saari cached orders Supabase se paginate karke laata hai (1000 per page,
+  // PostgREST ki default row limit se bachne ke liye)
+  const fetchAllCachedOrders = async (storeId) => {
+    let allRows = [];
+    let from = 0;
+    while (true) {
+      const { data, error } = await supabase
+        .from("shopify_orders_cache")
+        .select("raw_data")
+        .eq("store_id", storeId)
+        .order("created_at", { ascending: false })
+        .range(from, from + PAGE_SIZE - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      allRows = allRows.concat(data.map(r => r.raw_data));
+      if (data.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+    return allRows;
+  };
+
+  const fetchAllOrderStatuses = async () => {
+    let allRows = [];
+    let from = 0;
+    while (true) {
+      const { data, error } = await supabase
+        .from("order_statuses")
+        .select("*")
+        .range(from, from + PAGE_SIZE - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      allRows = allRows.concat(data);
+      if (data.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+    return allRows;
+  };
+
   const fetchOrders = async (storeData) => {
     setLoading(true);
     try {
-      const res = await fetch(`${cfUrl}/shopify-orders?shop=${storeData.shopify_url}&token=${storeData.api_token}`);
-      const data = await res.json();
-      if (data.orders) {
-        const { data: statuses } = await supabase.from("order_statuses").select("*");
-        const statusMap = {};
-        (statuses || []).forEach(s => { statusMap[s.order_id] = s; });
-        const merged = data.orders.map(o => ({
-          ...o,
-          agent_data: statusMap[String(o.id)] || {},
-          agent_status: statusMap[String(o.id)]?.status || null,
-          synced_at: statusMap[String(o.id)]?.synced_at || null,
-          last_edited_at: statusMap[String(o.id)]?.last_edited_at || null,
-        }));
-        setOrders(merged);
-        setOrdersLoaded(true);
-      } else {
-        setError("Orders fetch nahi hue!");
-      }
+      const cachedOrders = await fetchAllCachedOrders(storeData.id);
+      const statuses = await fetchAllOrderStatuses();
+      const statusMap = {};
+      statuses.forEach(s => { statusMap[s.order_id] = s; });
+      const merged = cachedOrders.map(o => ({
+        ...o,
+        agent_data: statusMap[String(o.id)] || {},
+        agent_status: statusMap[String(o.id)]?.status || null,
+        synced_at: statusMap[String(o.id)]?.synced_at || null,
+        last_edited_at: statusMap[String(o.id)]?.last_edited_at || null,
+      }));
+      setOrders(merged);
+      setOrdersLoaded(true);
     } catch (err) {
       setError("Error: " + err.message);
     }

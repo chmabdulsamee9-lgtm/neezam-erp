@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard'
 import WhatsApp from './pages/WhatsApp'
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev"
+const PAGE_SIZE = 1000
 
 function App() {
   const [session, setSession] = useState(null)
@@ -35,6 +36,44 @@ function App() {
     }
   }, [session])
 
+  // Saari cached orders Supabase se paginate karke laata hai (1000 per page,
+  // PostgREST ki default row limit se bachne ke liye)
+  const fetchAllCachedOrders = async (storeId) => {
+    let allRows = []
+    let from = 0
+    while (true) {
+      const { data, error } = await supabase
+        .from("shopify_orders_cache")
+        .select("raw_data")
+        .eq("store_id", storeId)
+        .order("created_at", { ascending: false })
+        .range(from, from + PAGE_SIZE - 1)
+      if (error) throw error
+      if (!data || data.length === 0) break
+      allRows = allRows.concat(data.map(r => r.raw_data))
+      if (data.length < PAGE_SIZE) break
+      from += PAGE_SIZE
+    }
+    return allRows
+  }
+
+  const fetchAllOrderStatuses = async () => {
+    let allRows = []
+    let from = 0
+    while (true) {
+      const { data, error } = await supabase
+        .from("order_statuses")
+        .select("*")
+        .range(from, from + PAGE_SIZE - 1)
+      if (error) throw error
+      if (!data || data.length === 0) break
+      allRows = allRows.concat(data)
+      if (data.length < PAGE_SIZE) break
+      from += PAGE_SIZE
+    }
+    return allRows
+  }
+
   const autoLoadOrders = async () => {
     setOrdersLoading(true)
     try {
@@ -42,23 +81,22 @@ function App() {
       const storeData = result.data
       if (!storeData) { setOrdersLoading(false); return }
       setOrdersStore(storeData)
-      const res = await fetch(
-        `${CF_URL}/shopify-orders?shop=${storeData.shopify_url}&token=${storeData.api_token}`
-      )
-      const data = await res.json()
-      if (data.orders) {
-        const statusResult = await supabase.from("order_statuses").select("*")
-        const statuses = statusResult.data || []
-        const statusMap = {}
-        statuses.forEach(s => { statusMap[s.order_id] = s })
-        const merged = data.orders.map(o => ({
-          ...o,
-          agent_data: statusMap[String(o.id)] || {},
-          agent_status: statusMap[String(o.id)]?.status || null,
-        }))
-        setOrdersData(merged)
-        setOrdersLoaded(true)
-      }
+
+      const cachedOrders = await fetchAllCachedOrders(storeData.id)
+      const statuses = await fetchAllOrderStatuses()
+
+      const statusMap = {}
+      statuses.forEach(s => { statusMap[s.order_id] = s })
+
+      const merged = cachedOrders.map(o => ({
+        ...o,
+        agent_data: statusMap[String(o.id)] || {},
+        agent_status: statusMap[String(o.id)]?.status || null,
+        synced_at: statusMap[String(o.id)]?.synced_at || null,
+        last_edited_at: statusMap[String(o.id)]?.last_edited_at || null,
+      }))
+      setOrdersData(merged)
+      setOrdersLoaded(true)
     } catch (err) {
       console.log("Orders load error:", err.message)
     }
@@ -148,7 +186,7 @@ function App() {
               <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'300px',color:'#94a3b8',fontSize:14,gap:8}}>
                 <div style={{fontSize:32}}>⏳</div>
                 <div>Orders load ho rahe hain...</div>
-                <div style={{fontSize:11,color:'#475569'}}>Shopify se data aa raha hai</div>
+                <div style={{fontSize:11,color:'#475569'}}>Cache se data aa raha hai</div>
               </div>
             ) : ordersData.length === 0 ? (
               <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'300px',color:'#94a3b8',fontSize:14,gap:8}}>
