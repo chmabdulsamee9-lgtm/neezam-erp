@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev"
+const CLIENT_ID = import.meta.env.VITE_SHOPIFY_CLIENT_ID;
+const CLIENT_SECRET = import.meta.env.VITE_SHOPIFY_CLIENT_SECRET;
 
 export default function ShopifyCallback() {
   const [status, setStatus] = useState("🔄 Processing...");
@@ -27,8 +29,8 @@ export default function ShopifyCallback() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, shop,
-          client_id: "4183ca3035d00fd99e9c98cd3c47f3dc",
-          client_secret: "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"
+          client_id: CLIENT_ID,
+          client_secret: CLIENT_SECRET
         }),
       });
 
