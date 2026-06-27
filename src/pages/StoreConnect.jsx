@@ -123,15 +123,15 @@ export default function StoreConnect() {
     setSyncProgress(0);
     setSyncError("");
 
-    let cursor = null;
+    let sinceId = 0;
     let total = 0;
     let safety = 0;
 
     try {
       while (safety < 200) {
         safety++;
-        const qs = cursor
-          ? `?store_id=${store.id}&cursor=${cursor}`
+        const qs = sinceId
+          ? `?store_id=${store.id}&since_id=${sinceId}`
           : `?store_id=${store.id}`;
         const res = await fetch(`${CF_URL}/sync-orders-chunk${qs}`);
         const data = await res.json();
@@ -145,7 +145,7 @@ export default function StoreConnect() {
         setSyncProgress(total);
 
         if (data.done) break;
-        cursor = data.nextCursor;
+        sinceId = data.nextSinceId;
       }
     } catch (err) {
       setSyncError(err.message);
