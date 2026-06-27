@@ -8,7 +8,8 @@ import Dashboard from './pages/Dashboard'
 import WhatsApp from './pages/WhatsApp'
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev"
-const PAGE_SIZE = 1000
+const INITIAL_BATCH = 200
+const BATCH_SIZE = 1000
 
 function App() {
   const [session, setSession] = useState(null)
@@ -19,6 +20,7 @@ function App() {
   const [ordersLoaded, setOrdersLoaded] = useState(false)
   const [ordersStore, setOrdersStore] = useState(null)
   const [ordersLoading, setOrdersLoading] = useState(false)
+  const [backgroundLoading, setBackgroundLoading] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -36,27 +38,6 @@ function App() {
     }
   }, [session])
 
-  // Saari cached orders Supabase se paginate karke laata hai (1000 per page,
-  // PostgREST ki default row limit se bachne ke liye)
-  const fetchAllCachedOrders = async (storeId) => {
-    let allRows = []
-    let from = 0
-    while (true) {
-      const { data, error } = await supabase
-        .from("shopify_orders_cache")
-        .select("raw_data")
-        .eq("store_id", storeId)
-        .order("created_at", { ascending: false })
-        .range(from, from + PAGE_SIZE - 1)
-      if (error) throw error
-      if (!data || data.length === 0) break
-      allRows = allRows.concat(data.map(r => r.raw_data))
-      if (data.length < PAGE_SIZE) break
-      from += PAGE_SIZE
-    }
-    return allRows
-  }
-
   const fetchAllOrderStatuses = async () => {
     let allRows = []
     let from = 0
@@ -64,16 +45,18 @@ function App() {
       const { data, error } = await supabase
         .from("order_statuses")
         .select("*")
-        .range(from, from + PAGE_SIZE - 1)
+        .range(from, from + BATCH_SIZE - 1)
       if (error) throw error
       if (!data || data.length === 0) break
       allRows = allRows.concat(data)
-      if (data.length < PAGE_SIZE) break
-      from += PAGE_SIZE
+      if (data.length < BATCH_SIZE) break
+      from += BATCH_SIZE
     }
     return allRows
   }
 
+  // Pehle latest 200 orders fauran load karta hai (instant feel),
+  // phir baqi sab background mein silently load hote rehte hain
   const autoLoadOrders = async () => {
     setOrdersLoading(true)
     try {
@@ -82,25 +65,57 @@ function App() {
       if (!storeData) { setOrdersLoading(false); return }
       setOrdersStore(storeData)
 
-      const cachedOrders = await fetchAllCachedOrders(storeData.id)
-      const statuses = await fetchAllOrderStatuses()
+      const statusesPromise = fetchAllOrderStatuses()
 
+      const { data: firstBatch, error: firstError } = await supabase
+        .from("shopify_orders_cache")
+        .select("raw_data")
+        .eq("store_id", storeData.id)
+        .order("created_at", { ascending: false })
+        .range(0, INITIAL_BATCH - 1)
+      if (firstError) throw firstError
+
+      const statuses = await statusesPromise
       const statusMap = {}
       statuses.forEach(s => { statusMap[s.order_id] = s })
 
-      const merged = cachedOrders.map(o => ({
+      const mergeOrder = (o) => ({
         ...o,
         agent_data: statusMap[String(o.id)] || {},
         agent_status: statusMap[String(o.id)]?.status || null,
         synced_at: statusMap[String(o.id)]?.synced_at || null,
         last_edited_at: statusMap[String(o.id)]?.last_edited_at || null,
-      }))
-      setOrdersData(merged)
+      })
+
+      const firstMerged = (firstBatch || []).map(r => mergeOrder(r.raw_data))
+      setOrdersData(firstMerged)
       setOrdersLoaded(true)
+      setOrdersLoading(false)
+
+      // Baqi orders background mein load karo, page-by-page
+      if (firstBatch && firstBatch.length === INITIAL_BATCH) {
+        setBackgroundLoading(true)
+        let from = INITIAL_BATCH
+        while (true) {
+          const { data: nextBatch, error: nextError } = await supabase
+            .from("shopify_orders_cache")
+            .select("raw_data")
+            .eq("store_id", storeData.id)
+            .order("created_at", { ascending: false })
+            .range(from, from + BATCH_SIZE - 1)
+          if (nextError) break
+          if (!nextBatch || nextBatch.length === 0) break
+          const nextMerged = nextBatch.map(r => mergeOrder(r.raw_data))
+          setOrdersData(prev => [...prev, ...nextMerged])
+          if (nextBatch.length < BATCH_SIZE) break
+          from += BATCH_SIZE
+        }
+        setBackgroundLoading(false)
+      }
     } catch (err) {
       console.log("Orders load error:", err.message)
+      setOrdersLoading(false)
     }
-    setOrdersLoading(false)
   }
 
   if (window.location.pathname === '/auth/callback') {
@@ -162,6 +177,7 @@ function App() {
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.75rem 1.25rem',background:'#1e293b',borderBottom:'1px solid #334155',flexShrink:0}}>
             <h1 style={{fontSize:'16px',fontWeight:'600',color:'#fff',margin:0}}>
               {menuItems.find(m=>m.id===activeMenu)?.icon} {menuItems.find(m=>m.id===activeMenu)?.label}
+              {backgroundLoading && <span style={{fontSize:'11px',color:'#64748b',fontWeight:400,marginLeft:10}}>⏳ baqi orders load ho rahe hain...</span>}
             </h1>
             <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
               <span style={{fontSize:'12px',color:'#94a3b8'}}>{session.user.email}</span>
