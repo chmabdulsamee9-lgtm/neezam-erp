@@ -11,6 +11,27 @@ import WhatsApp from './pages/WhatsApp'
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev"
 const BATCH_SIZE = 1000
 
+function SplashScreen() {
+  return (
+    <div style={{
+      height: '100%', width: '100%', background: '#0f172a',
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      gap: 18,
+    }}>
+      <div style={{ fontSize: '2.8rem', fontWeight: 700, color: '#fff' }}>نظام</div>
+      <div style={{
+        width: 36, height: 36, borderRadius: '50%',
+        border: '3px solid #1e293b', borderTopColor: '#3b82f6',
+        animation: 'neezam-spin 0.8s linear infinite',
+      }} />
+      <div style={{ fontSize: 13, color: '#64748b' }}>Tayar ho raha hai...</div>
+      <style>{`
+        @keyframes neezam-spin { to { transform: rotate(360deg); } }
+      `}</style>
+    </div>
+  )
+}
+
 function App() {
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -25,6 +46,7 @@ function App() {
   const statusMapRef = useRef({})
   const storeIdRef = useRef(null)
   const realtimeChannelRef = useRef(null)
+  const rawOrdersRef = useRef([])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -109,8 +131,6 @@ function App() {
     realtimeChannelRef.current = channel
   }
 
-  const rawOrdersRef = useRef([])
-
   const autoLoadOrders = async () => {
     setOrdersLoading(true)
     try {
@@ -176,7 +196,6 @@ function App() {
       }
 
       // Naya browser — cache khaali hai. Pehle last 7 days fast laao, baqi background mein.
-      setSyncStatusText("⏳ recent orders load ho rahe hain...")
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
 
       const { data: recentBatch, error: recentError } = await supabase
@@ -225,6 +244,7 @@ function App() {
     } catch (err) {
       console.log("Orders load error:", err.message)
       setOrdersLoading(false)
+      setOrdersLoaded(true) // taake splash hamesha ke liye atak na jaye agar error aaye
     }
   }
 
@@ -232,13 +252,11 @@ function App() {
     return <ShopifyCallback />
   }
 
-  if (loading) return (
-    <div style={{height:'100%',background:'#0f172a',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:'18px'}}>
-      Loading...
-    </div>
-  )
-
+  // Session check ho rahi ho, ya orders ka pehla batch abhi load ho raha ho —
+  // dono cases mein clean splash dikhao, blank/incomplete UI kabhi nahi
+  if (loading) return <SplashScreen />
   if (!session) return <Login />
+  if (!ordersLoaded) return <SplashScreen />
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
@@ -308,13 +326,7 @@ function App() {
             />
           )}
           {activeMenu === 'dashboard' && (
-            ordersLoading ? (
-              <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'300px',color:'#94a3b8',fontSize:14,gap:8}}>
-                <div style={{fontSize:32}}>⏳</div>
-                <div>Orders load ho rahe hain...</div>
-                <div style={{fontSize:11,color:'#475569'}}>Cache se data aa raha hai</div>
-              </div>
-            ) : ordersData.length === 0 ? (
+            ordersData.length === 0 ? (
               <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'300px',color:'#94a3b8',fontSize:14,gap:8}}>
                 <div style={{fontSize:32}}>📦</div>
                 <div>Koi orders nahi mile</div>
