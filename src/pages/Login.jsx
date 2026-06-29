@@ -6,6 +6,8 @@ export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [brandName, setBrandName] = useState('')
+  const [fullName, setFullName] = useState('')
+  const [phone, setPhone] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [rememberMe, setRememberMe] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -46,6 +48,14 @@ export default function Login() {
       setError('Brand name daalo')
       return
     }
+    if (!fullName.trim()) {
+      setError('Apna naam daalo')
+      return
+    }
+    if (!phone.trim()) {
+      setError('Phone number daalo')
+      return
+    }
     if (password.length < 6) {
       setError('Password kam az kam 6 characters ka ho')
       return
@@ -84,6 +94,8 @@ export default function Login() {
       await supabase.from('profiles').insert({
         id: userId,
         email,
+        full_name: fullName.trim(),
+        phone: phone.trim(),
         role: 'admin',
         approved: false,
       })
@@ -116,7 +128,7 @@ export default function Login() {
             Jaise hi admin approve karega, aap login karke Neezam use kar sakenge.
           </p>
           <button
-            onClick={() => { setSignupDone(false); setMode('login'); setEmail(''); setPassword(''); setBrandName('') }}
+            onClick={() => { setSignupDone(false); setMode('login'); setEmail(''); setPassword(''); setBrandName(''); setFullName(''); setPhone('') }}
             style={{ marginTop: 16, padding: '9px 20px', borderRadius: 8, border: '1px solid #334155', background: 'transparent', color: '#94a3b8', fontSize: 13, cursor: 'pointer' }}>
             ← Login page pe jao
           </button>
@@ -167,7 +179,7 @@ export default function Login() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="email@example.com"
+                placeholder="Email type karein"
                 required
                 style={inputBoxStyle}
               />
@@ -180,7 +192,7 @@ export default function Login() {
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder="Password type karein"
                   required
                   style={{ ...inputBoxStyle, paddingRight: '60px' }}
                 />
@@ -217,12 +229,36 @@ export default function Login() {
         ) : (
           <form onSubmit={handleSignup}>
             <div style={{ marginBottom: '1rem' }}>
+              <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Apna Naam</label>
+              <input
+                type="text"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="Apna naam type karein"
+                required
+                style={inputBoxStyle}
+              />
+            </div>
+
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Phone Number</label>
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="Phone number type karein"
+                required
+                style={inputBoxStyle}
+              />
+            </div>
+
+            <div style={{ marginBottom: '1rem' }}>
               <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Brand / Store Name</label>
               <input
                 type="text"
                 value={brandName}
                 onChange={(e) => setBrandName(e.target.value)}
-                placeholder="DewareKhas"
+                placeholder="Brand name type karein"
                 required
                 style={inputBoxStyle}
               />
@@ -234,7 +270,7 @@ export default function Login() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="email@example.com"
+                placeholder="Email type karein"
                 required
                 style={inputBoxStyle}
               />
@@ -247,7 +283,7 @@ export default function Login() {
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="kam az kam 6 characters"
+                  placeholder="Password type karein (min 6 characters)"
                   required
                   style={{ ...inputBoxStyle, paddingRight: '60px' }}
                 />
