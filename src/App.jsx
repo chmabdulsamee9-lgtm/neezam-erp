@@ -111,7 +111,15 @@ function App() {
     return sorted.map(o => mergeOrder(o, statusMap))
   }
 
-  const setupRealtime = (storeId, getRawOrders) => {
+  // IMPORTANT: jab hum khud koi order Shopify pe update karte hain, Shopify
+  // "orders/updated" webhook fire karta hai jo wapas humare shopify_orders_cache
+  // mein aata hai aur Realtime se yahan event trigger hota hai. Pehle code
+  // poori order list ko PURANE/stale statusMap se rebuild kar deta tha — jisse
+  // user ka fresh edit/sync status 2-4 second baad "ulta" ho jata tha.
+  // Fix: sirf Shopify-side raw fields (address, line items, etc.) update karo,
+  // agent_data/agent_status/synced_at jo already current state mein hain
+  // unhe chhedo mat — woh sirf Orders.jsx ke apne updates se hi badalte hain.
+  const setupRealtime = (storeId) => {
     if (realtimeChannelRef.current) {
       supabase.removeChannel(realtimeChannelRef.current)
       realtimeChannelRef.current = null
@@ -126,26 +134,45 @@ function App() {
           if (!row || !row.raw_data) return
           const rawOrder = row.raw_data
           upsertOrder(rawOrder)
-          const currentRaw = getRawOrders()
-          const idx = currentRaw.findIndex(o => o.id === rawOrder.id)
-          let updatedRaw
-          if (idx >= 0) {
-            updatedRaw = [...currentRaw]
-            updatedRaw[idx] = rawOrder
-          } else {
-            updatedRaw = [rawOrder, ...currentRaw]
-          }
-          rawOrdersRef.current = updatedRaw
-          setOrdersData(rebuildOrdersData(updatedRaw, statusMapRef.current))
+
+          setOrdersData(prev => {
+            const idx = prev.findIndex(o => o.id === rawOrder.id)
+            let next
+            if (idx >= 0) {
+              // Existing order — sirf Shopify-side fields refresh karo,
+              // local agent_data/status/sync state ko bilkul chhedo mat
+              const existing = prev[idx]
+              const merged = {
+                ...rawOrder,
+                agent_data: existing.agent_data,
+                agent_status: existing.agent_status,
+                synced_at: existing.synced_at,
+                last_edited_at: existing.last_edited_at,
+              }
+              next = [...prev]
+              next[idx] = merged
+            } else {
+              // Bilkul naya order — fresh statusMap se merge karo
+              const merged = mergeOrder(rawOrder, statusMapRef.current)
+              next = [merged, ...prev]
+            }
+            // rawOrdersRef ko bhi sync rakho (IndexedDB / future reload ke liye)
+            const rawIdx = rawOrdersRef.current.findIndex(o => o.id === rawOrder.id)
+            if (rawIdx >= 0) {
+              const rawNext = [...rawOrdersRef.current]
+              rawNext[rawIdx] = rawOrder
+              rawOrdersRef.current = rawNext
+            } else {
+              rawOrdersRef.current = [rawOrder, ...rawOrdersRef.current]
+            }
+            return next
+          })
         }
       )
       .subscribe((status) => {
-        console.log("🔌 Realtime status:", status)
-        // Agar connection kisi wajah se TUT jaye (network blip, server restart),
-        // chhand second baad dobara connect karne ki koshish karo
         if (status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
           setTimeout(() => {
-            setupRealtime(storeId, getRawOrders)
+            setupRealtime(storeId)
           }, 3000)
         }
       })
@@ -174,7 +201,7 @@ function App() {
         setOrdersData(rebuildOrdersData(cachedRaw, statusMap))
         setOrdersLoaded(true)
         setOrdersLoading(false)
-        setupRealtime(storeData.id, () => rawOrdersRef.current)
+        setupRealtime(storeData.id)
 
         // Background mein: jo bhi naya/updated order pichli visit ke baad aaya, woh sync karo
         const lastSyncedAt = (await getMeta("lastSyncedAt")) || "2000-01-01T00:00:00Z"
@@ -231,7 +258,7 @@ function App() {
       setOrdersData(rebuildOrdersData(recentRaw, statusMap))
       setOrdersLoaded(true)
       setOrdersLoading(false)
-      setupRealtime(storeData.id, () => rawOrdersRef.current)
+      setupRealtime(storeData.id)
       await saveOrdersBulk(recentRaw)
 
       // Baqi (purane) orders background mein load karo
