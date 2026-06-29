@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from './supabase'
-import { getCachedOrders, saveOrdersBulk, upsertOrder, getMeta, setMeta } from './ordersCache'
+import { getCachedOrders, saveOrdersBulk, upsertOrder, getMeta, setMeta, clearCache } from './ordersCache'
 import Login from './pages/Login'
 import StoreConnect from './pages/StoreConnect'
 import ShopifyCallback from './pages/ShopifyCallback'
@@ -148,14 +148,42 @@ function App() {
   const realtimeChannelRef = useRef(null)
   const rawOrdersRef = useRef([])
   const hasStartedLoadRef = useRef(false)
+  const lastUserIdRef = useRef(null)
+
+  const resetUserState = () => {
+    if (realtimeChannelRef.current) {
+      supabase.removeChannel(realtimeChannelRef.current)
+      realtimeChannelRef.current = null
+    }
+    setProfile(null)
+    setProfileLoaded(false)
+    setOrdersData([])
+    setOrdersLoaded(false)
+    setOrdersStore(null)
+    setSelectedStoreId(null)
+    setIsMasterView(false)
+    setUserStoresList([])
+    setAllStores([])
+    setPendingProfiles([])
+    rawOrdersRef.current = []
+    statusMapRef.current = {}
+    hasStartedLoadRef.current = false
+    clearCache()
+  }
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
+      lastUserIdRef.current = session?.user?.id || null
       setLoading(false)
     })
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      const newUserId = newSession?.user?.id || null
+      if (newUserId !== lastUserIdRef.current) {
+        resetUserState()
+        lastUserIdRef.current = newUserId
+      }
+      setSession(newSession)
     })
     return () => {
       authListener.subscription.unsubscribe()
@@ -317,18 +345,24 @@ function App() {
 
   const autoLoadOrders = async (storeId) => {
     setOrdersLoading(true)
+    const expectedUserId = session?.user?.id
+    const isStale = () => session?.user?.id !== expectedUserId
+
     try {
       const { data: storeData } = await supabase.from('stores').select('*').eq('id', storeId).single()
+      if (isStale()) return
       if (!storeData) { setOrdersLoading(false); return }
       setOrdersStore(storeData)
 
       const statuses = await fetchAllOrderStatuses()
+      if (isStale()) return
       const statusMap = {}
       statuses.forEach(s => { statusMap[s.order_id] = s })
       statusMapRef.current = statusMap
 
       const loadStartTime = new Date().toISOString()
       const cachedRaw = await getCachedOrders()
+      if (isStale()) return
 
       if (cachedRaw.length > 0) {
         rawOrdersRef.current = cachedRaw
@@ -351,13 +385,16 @@ function App() {
               .order("synced_at", { ascending: true })
               .range(from, from + BATCH_SIZE - 1)
             if (error) break
+            if (isStale()) return
             if (!deltaBatch || deltaBatch.length === 0) break
             deltaOrders = deltaOrders.concat(deltaBatch.map(r => r.raw_data))
             if (deltaBatch.length < BATCH_SIZE) break
             from += BATCH_SIZE
           }
+          if (isStale()) return
           if (deltaOrders.length > 0) {
             await saveOrdersBulk(deltaOrders)
+            if (isStale()) return
             const merged = [...rawOrdersRef.current]
             deltaOrders.forEach(o => {
               const idx = merged.findIndex(m => m.id === o.id)
@@ -371,7 +408,7 @@ function App() {
         } catch (err) {
           console.log("Delta sync error:", err.message)
         }
-        setSyncStatusText("")
+        if (!isStale()) setSyncStatusText("")
         return
       }
 
@@ -384,6 +421,7 @@ function App() {
         .gte("created_at", sevenDaysAgo)
         .order("created_at", { ascending: false })
       if (recentError) throw recentError
+      if (isStale()) return
 
       const recentRaw = (recentBatch || []).map(r => r.raw_data)
       rawOrdersRef.current = recentRaw
@@ -392,6 +430,7 @@ function App() {
       setOrdersLoading(false)
       setupRealtime(storeId)
       await saveOrdersBulk(recentRaw)
+      if (isStale()) return
 
       setSyncStatusText("⏳ purane orders background mein load ho rahe hain...")
       try {
@@ -405,9 +444,11 @@ function App() {
             .order("created_at", { ascending: false })
             .range(from, from + BATCH_SIZE - 1)
           if (olderError) break
+          if (isStale()) return
           if (!olderBatch || olderBatch.length === 0) break
           const olderRaw = olderBatch.map(r => r.raw_data)
           await saveOrdersBulk(olderRaw)
+          if (isStale()) return
           const merged = [...rawOrdersRef.current, ...olderRaw]
           rawOrdersRef.current = merged
           setOrdersData(rebuildOrdersData(merged, statusMap))
@@ -418,11 +459,13 @@ function App() {
       } catch (err) {
         console.log("Background load error:", err.message)
       }
-      setSyncStatusText("")
+      if (!isStale()) setSyncStatusText("")
     } catch (err) {
       console.log("Orders load error:", err.message)
-      setOrdersLoading(false)
-      setOrdersLoaded(true)
+      if (!isStale()) {
+        setOrdersLoading(false)
+        setOrdersLoaded(true)
+      }
     }
   }
 
@@ -473,7 +516,6 @@ function App() {
     { id: 'store-connect', label: 'Store Connect', icon: '🔗' },
   ]
 
-  // Team sirf admin/creator ko dikhta hai — staff ko nahi
   const menuItemsWithTeam = (profile.role === 'admin' || profile.role === 'creator')
     ? [...allMenuItems, { id: 'team', label: 'Team', icon: '👥' }]
     : allMenuItems
@@ -563,11 +605,11 @@ function App() {
             )
           )}
           {activeMenu === 'store-connect' && hasAccess('store-connect') && <StoreConnect />}
+          {activeMenu === 'whatsapp' && hasAccess('whatsapp') && <WhatsApp />}
           {activeMenu === 'team' && (profile.role === 'admin' || profile.role === 'creator') && (
             <Team storeId={selectedStoreId} storeName={currentStoreInfo?.store_name || ordersStore?.store_name} cfUrl={CF_URL} />
           )}
-          {activeMenu === 'whatsapp' && hasAccess('whatsapp') && <WhatsApp />}
-          {!['dashboard','store-connect','orders','whatsapp'].includes(activeMenu) && (
+          {!['dashboard','store-connect','orders','whatsapp','team'].includes(activeMenu) && (
             <div style={{padding:'1.25rem'}}>
               <div style={{background:'#1e293b',borderRadius:'10px',padding:'2rem',textAlign:'center'}}>
                 <div style={{fontSize:'48px',marginBottom:'1rem'}}>{menuItems.find(m=>m.id===activeMenu)?.icon}</div>
