@@ -7,6 +7,7 @@ import ShopifyCallback from './pages/ShopifyCallback'
 import Orders from './pages/Orders'
 import Dashboard from './pages/Dashboard'
 import WhatsApp from './pages/WhatsApp'
+import Team from './pages/Team'
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev"
 const BATCH_SIZE = 1000
@@ -472,7 +473,12 @@ function App() {
     { id: 'store-connect', label: 'Store Connect', icon: '🔗' },
   ]
 
-  const menuItems = allMenuItems.filter(m => hasAccess(m.id))
+  // Team sirf admin/creator ko dikhta hai — staff ko nahi
+  const menuItemsWithTeam = (profile.role === 'admin' || profile.role === 'creator')
+    ? [...allMenuItems, { id: 'team', label: 'Team', icon: '👥' }]
+    : allMenuItems
+
+  const menuItems = menuItemsWithTeam.filter(m => hasAccess(m.id) || m.id === 'team')
   const fullScreenModules = ['orders']
   const currentStoreInfo = userStoresList.find(us => us.store_id === selectedStoreId)?.stores
 
@@ -557,6 +563,9 @@ function App() {
             )
           )}
           {activeMenu === 'store-connect' && hasAccess('store-connect') && <StoreConnect />}
+          {activeMenu === 'team' && (profile.role === 'admin' || profile.role === 'creator') && (
+            <Team storeId={selectedStoreId} storeName={currentStoreInfo?.store_name || ordersStore?.store_name} cfUrl={CF_URL} />
+          )}
           {activeMenu === 'whatsapp' && hasAccess('whatsapp') && <WhatsApp />}
           {!['dashboard','store-connect','orders','whatsapp'].includes(activeMenu) && (
             <div style={{padding:'1.25rem'}}>
