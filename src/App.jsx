@@ -127,7 +127,9 @@ function App() {
           setOrdersData(rebuildOrdersData(updatedRaw, statusMapRef.current))
         }
       )
-      .subscribe()
+      .subscribe((status) => {
+        console.log("🔌 Realtime status:", status)
+      })
     realtimeChannelRef.current = channel
   }
 
