@@ -32,6 +32,85 @@ function SplashScreen() {
   )
 }
 
+function PendingApprovalScreen({ onSignOut }) {
+  return (
+    <div style={{ height: '100%', background: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: '#1e293b', borderRadius: 16, padding: '2.5rem', maxWidth: 380, textAlign: 'center' }}>
+        <div style={{ fontSize: 40, marginBottom: 12 }}>⏳</div>
+        <h2 style={{ color: '#fff', margin: '0 0 8px', fontSize: 18 }}>Approval ka wait hai</h2>
+        <p style={{ color: '#94a3b8', fontSize: 13, lineHeight: 1.6 }}>
+          Aapka account abhi approve nahi hua. Jaise hi admin approve karega, aap Neezam use kar sakenge.
+        </p>
+        <button onClick={onSignOut}
+          style={{ marginTop: 16, padding: '9px 20px', borderRadius: 8, border: '1px solid #334155', background: 'transparent', color: '#94a3b8', fontSize: 13, cursor: 'pointer' }}>
+          🚪 Logout
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, onSignOut, userEmail }) {
+  return (
+    <div style={{ height: '100%', overflow: 'auto', background: '#0f172a', color: '#fff' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: '1px solid #1e293b' }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>نظام — Master Dashboard</h1>
+          <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>Creator view — saare brands</p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 12, color: '#94a3b8' }}>{userEmail}</span>
+          <button onClick={onSignOut}
+            style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #334155', background: 'transparent', color: '#dc2626', fontSize: 12, cursor: 'pointer' }}>
+            🚪 Logout
+          </button>
+        </div>
+      </div>
+
+      <div style={{ padding: '1.5rem' }}>
+        {pendingProfiles.length > 0 && (
+          <div style={{ marginBottom: '2rem' }}>
+            <h2 style={{ fontSize: 14, color: '#eab308', marginBottom: 10 }}>⏳ Pending Approvals ({pendingProfiles.length})</h2>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {pendingProfiles.map(p => (
+                <div key={p.id} style={{ background: '#1e293b', borderRadius: 10, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>{p.full_name || '—'}</div>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>{p.email} · {p.phone || 'no phone'} · {p.role}</div>
+                  </div>
+                  <button onClick={() => onApprove(p.id)}
+                    style={{ padding: '7px 16px', borderRadius: 7, border: 'none', background: '#16a34a', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                    ✓ Approve
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <h2 style={{ fontSize: 14, color: '#94a3b8', marginBottom: 10 }}>🏪 Saare Brands ({allStores.length})</h2>
+        <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
+          {allStores.map(s => (
+            <div key={s.id} style={{ background: '#1e293b', borderRadius: 12, padding: '16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>{s.store_name}</div>
+                <div style={{ fontSize: 12, color: '#64748b' }}>{s.shopify_url || 'Shopify connected nahi'}</div>
+              </div>
+              <button onClick={() => onEnterStore(s)}
+                style={{ padding: '8px', borderRadius: 8, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                → Enter
+              </button>
+            </div>
+          ))}
+          {allStores.length === 0 && (
+            <div style={{ color: '#64748b', fontSize: 13 }}>Abhi koi brand register nahi hua.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function App() {
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -42,6 +121,14 @@ function App() {
   const [ordersStore, setOrdersStore] = useState(null)
   const [ordersLoading, setOrdersLoading] = useState(false)
   const [syncStatusText, setSyncStatusText] = useState("")
+
+  const [profile, setProfile] = useState(null)
+  const [profileLoaded, setProfileLoaded] = useState(false)
+  const [userStoresList, setUserStoresList] = useState([]) // [{store_id, permissions, stores:{store_name, shopify_url}}]
+  const [allStores, setAllStores] = useState([])
+  const [pendingProfiles, setPendingProfiles] = useState([])
+  const [selectedStoreId, setSelectedStoreId] = useState(null)
+  const [isMasterView, setIsMasterView] = useState(false)
 
   const statusMapRef = useRef({})
   const realtimeChannelRef = useRef(null)
@@ -61,17 +148,19 @@ function App() {
     }
   }, [])
 
-  // Sirf ek baar trigger hota hai jab session pehli baar milta hai —
-  // baad mein token-refresh se session object badle to dobara load nahi hota
   useEffect(() => {
-    if (session && !hasStartedLoadRef.current) {
-      hasStartedLoadRef.current = true
-      autoLoadOrders()
+    if (session && !profileLoaded) {
+      loadProfileAndStores()
     }
   }, [session])
 
-  // Realtime channel sirf component unmount par close hota hai —
-  // session/auth refresh isay disturb nahi karta
+  useEffect(() => {
+    if (session && profile?.approved && selectedStoreId && !hasStartedLoadRef.current) {
+      hasStartedLoadRef.current = true
+      autoLoadOrders(selectedStoreId)
+    }
+  }, [session, profile, selectedStoreId])
+
   useEffect(() => {
     return () => {
       if (realtimeChannelRef.current) {
@@ -80,6 +169,40 @@ function App() {
       }
     }
   }, [])
+
+  const loadProfileAndStores = async () => {
+    const userId = session.user.id
+    const { data: profileData } = await supabase.from('profiles').select('*').eq('id', userId).single()
+    setProfile(profileData || null)
+
+    if (profileData?.role === 'creator') {
+      const { data: stores } = await supabase.from('stores').select('*').order('created_at', { ascending: false })
+      setAllStores(stores || [])
+      const { data: pending } = await supabase.from('profiles').select('*').eq('approved', false).neq('role', 'creator')
+      setPendingProfiles(pending || [])
+      setIsMasterView(true)
+    } else if (profileData?.approved) {
+      const { data: us } = await supabase
+        .from('user_stores')
+        .select('store_id, permissions, stores(store_name, shopify_url, id)')
+        .eq('user_id', userId)
+      setUserStoresList(us || [])
+      if (us && us.length > 0) {
+        setSelectedStoreId(us[0].store_id)
+      }
+    }
+    setProfileLoaded(true)
+  }
+
+  const handleApprove = async (profileId) => {
+    await supabase.from('profiles').update({ approved: true }).eq('id', profileId)
+    setPendingProfiles(prev => prev.filter(p => p.id !== profileId))
+  }
+
+  const handleEnterStore = (store) => {
+    setIsMasterView(false)
+    setSelectedStoreId(store.id)
+  }
 
   const fetchAllOrderStatuses = async () => {
     let allRows = []
@@ -111,14 +234,6 @@ function App() {
     return sorted.map(o => mergeOrder(o, statusMap))
   }
 
-  // IMPORTANT: jab hum khud koi order Shopify pe update karte hain, Shopify
-  // "orders/updated" webhook fire karta hai jo wapas humare shopify_orders_cache
-  // mein aata hai aur Realtime se yahan event trigger hota hai. Pehle code
-  // poori order list ko PURANE/stale statusMap se rebuild kar deta tha — jisse
-  // user ka fresh edit/sync status 2-4 second baad "ulta" ho jata tha.
-  // Fix: sirf Shopify-side raw fields (address, line items, etc.) update karo,
-  // agent_data/agent_status/synced_at jo already current state mein hain
-  // unhe chhedo mat — woh sirf Orders.jsx ke apne updates se hi badalte hain.
   const setupRealtime = (storeId) => {
     if (realtimeChannelRef.current) {
       supabase.removeChannel(realtimeChannelRef.current)
@@ -139,8 +254,6 @@ function App() {
             const idx = prev.findIndex(o => o.id === rawOrder.id)
             let next
             if (idx >= 0) {
-              // Existing order — sirf Shopify-side fields refresh karo,
-              // local agent_data/status/sync state ko bilkul chhedo mat
               const existing = prev[idx]
               const merged = {
                 ...rawOrder,
@@ -152,11 +265,9 @@ function App() {
               next = [...prev]
               next[idx] = merged
             } else {
-              // Bilkul naya order — fresh statusMap se merge karo
               const merged = mergeOrder(rawOrder, statusMapRef.current)
               next = [merged, ...prev]
             }
-            // rawOrdersRef ko bhi sync rakho (IndexedDB / future reload ke liye)
             const rawIdx = rawOrdersRef.current.findIndex(o => o.id === rawOrder.id)
             if (rawIdx >= 0) {
               const rawNext = [...rawOrdersRef.current]
@@ -179,11 +290,10 @@ function App() {
     realtimeChannelRef.current = channel
   }
 
-  const autoLoadOrders = async () => {
+  const autoLoadOrders = async (storeId) => {
     setOrdersLoading(true)
     try {
-      const result = await supabase.from("stores").select("*").limit(1).single()
-      const storeData = result.data
+      const { data: storeData } = await supabase.from('stores').select('*').eq('id', storeId).single()
       if (!storeData) { setOrdersLoading(false); return }
       setOrdersStore(storeData)
 
@@ -196,14 +306,12 @@ function App() {
       const cachedRaw = await getCachedOrders()
 
       if (cachedRaw.length > 0) {
-        // Browser mein pehle se data hai — INSTANT show karo, 0 sec wait
         rawOrdersRef.current = cachedRaw
         setOrdersData(rebuildOrdersData(cachedRaw, statusMap))
         setOrdersLoaded(true)
         setOrdersLoading(false)
-        setupRealtime(storeData.id)
+        setupRealtime(storeId)
 
-        // Background mein: jo bhi naya/updated order pichli visit ke baad aaya, woh sync karo
         const lastSyncedAt = (await getMeta("lastSyncedAt")) || "2000-01-01T00:00:00Z"
         setSyncStatusText("⏳ naye orders check ho rahe hain...")
         try {
@@ -213,7 +321,7 @@ function App() {
             const { data: deltaBatch, error } = await supabase
               .from("shopify_orders_cache")
               .select("raw_data")
-              .eq("store_id", storeData.id)
+              .eq("store_id", storeId)
               .gt("synced_at", lastSyncedAt)
               .order("synced_at", { ascending: true })
               .range(from, from + BATCH_SIZE - 1)
@@ -242,13 +350,12 @@ function App() {
         return
       }
 
-      // Naya browser — cache khaali hai. Pehle last 7 days fast laao, baqi background mein.
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
 
       const { data: recentBatch, error: recentError } = await supabase
         .from("shopify_orders_cache")
         .select("raw_data")
-        .eq("store_id", storeData.id)
+        .eq("store_id", storeId)
         .gte("created_at", sevenDaysAgo)
         .order("created_at", { ascending: false })
       if (recentError) throw recentError
@@ -258,10 +365,9 @@ function App() {
       setOrdersData(rebuildOrdersData(recentRaw, statusMap))
       setOrdersLoaded(true)
       setOrdersLoading(false)
-      setupRealtime(storeData.id)
+      setupRealtime(storeId)
       await saveOrdersBulk(recentRaw)
 
-      // Baqi (purane) orders background mein load karo
       setSyncStatusText("⏳ purane orders background mein load ho rahe hain...")
       try {
         let from = 0
@@ -269,7 +375,7 @@ function App() {
           const { data: olderBatch, error: olderError } = await supabase
             .from("shopify_orders_cache")
             .select("raw_data")
-            .eq("store_id", storeData.id)
+            .eq("store_id", storeId)
             .lt("created_at", sevenDaysAgo)
             .order("created_at", { ascending: false })
             .range(from, from + BATCH_SIZE - 1)
@@ -301,9 +407,33 @@ function App() {
 
   if (loading) return <SplashScreen />
   if (!session) return <Login />
+  if (!profileLoaded) return <SplashScreen />
+  if (!profile) return <PendingApprovalScreen onSignOut={() => supabase.auth.signOut()} />
+  if (profile.role !== 'creator' && !profile.approved) return <PendingApprovalScreen onSignOut={() => supabase.auth.signOut()} />
+
+  if (profile.role === 'creator' && isMasterView) {
+    return (
+      <MasterDashboard
+        allStores={allStores}
+        pendingProfiles={pendingProfiles}
+        onApprove={handleApprove}
+        onEnterStore={handleEnterStore}
+        onSignOut={() => supabase.auth.signOut()}
+        userEmail={session.user.email}
+      />
+    )
+  }
+
+  if (!selectedStoreId) return <SplashScreen />
   if (!ordersLoaded) return <SplashScreen />
 
-  const menuItems = [
+  // Current store ki staff permissions nikalo (admin/creator ke liye hamesha full access)
+  const currentUserStoreEntry = userStoresList.find(us => us.store_id === selectedStoreId)
+  const isStaff = profile.role === 'staff'
+  const staffPermissions = currentUserStoreEntry?.permissions || []
+  const hasAccess = (moduleId) => !isStaff || staffPermissions.includes(moduleId)
+
+  const allMenuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
     { id: 'orders', label: 'Orders', icon: '📦' },
     { id: 'courier', label: 'Courier Tracking', icon: '🚚' },
@@ -319,17 +449,37 @@ function App() {
     { id: 'store-connect', label: 'Store Connect', icon: '🔗' },
   ]
 
+  const menuItems = allMenuItems.filter(m => hasAccess(m.id))
   const fullScreenModules = ['orders']
+  const currentStoreInfo = userStoresList.find(us => us.store_id === selectedStoreId)?.stores
 
   return (
     <div style={{display:'flex',height:'100%',width:'100%',overflow:'hidden',background:'#0f172a',color:'#fff'}}>
       <div style={{width:sidebarOpen?'240px':'60px',minWidth:sidebarOpen?'240px':'60px',background:'#1e293b',padding:'1rem 0',transition:'width 0.3s, min-width 0.3s',display:'flex',flexDirection:'column',height:'100%',overflowY:'auto',overflowX:'hidden',flexShrink:0}}>
-        <div style={{padding:'0 1rem',marginBottom:'1.5rem',display:'flex',alignItems:'center',justifyContent:sidebarOpen?'space-between':'center'}}>
+        <div style={{padding:'0 1rem',marginBottom:'1rem',display:'flex',alignItems:'center',justifyContent:sidebarOpen?'space-between':'center'}}>
           {sidebarOpen && <span style={{fontSize:'1.4rem',fontWeight:'700',color:'#fff'}}>نظام</span>}
           <button onClick={() => setSidebarOpen(!sidebarOpen)} style={{background:'none',border:'none',color:'#94a3b8',cursor:'pointer',fontSize:'18px',padding:'4px',flexShrink:0}}>
             {sidebarOpen ? '◀' : '▶'}
           </button>
         </div>
+
+        {sidebarOpen && currentStoreInfo && (
+          <div style={{ padding: '0 1rem', marginBottom: '1rem' }}>
+            <div style={{ background: '#0f172a', borderRadius: 8, padding: '8px 10px', fontSize: 12, color: '#94a3b8' }}>
+              🏪 {currentStoreInfo.store_name}
+            </div>
+          </div>
+        )}
+
+        {profile.role === 'creator' && sidebarOpen && (
+          <div style={{ padding: '0 1rem', marginBottom: '0.5rem' }}>
+            <button onClick={() => { setIsMasterView(true); setSelectedStoreId(null); setOrdersLoaded(false); hasStartedLoadRef.current = false }}
+              style={{ width: '100%', padding: '7px', borderRadius: 8, border: '1px solid #334155', background: 'transparent', color: '#94a3b8', fontSize: 12, cursor: 'pointer' }}>
+              ← Master Dashboard
+            </button>
+          </div>
+        )}
+
         {menuItems.map(item => (
           <div key={item.id} onClick={() => setActiveMenu(item.id)} title={!sidebarOpen?item.label:''}
             style={{display:'flex',alignItems:'center',gap:'10px',padding:sidebarOpen?'9px 1rem':'9px 0',justifyContent:sidebarOpen?'flex-start':'center',cursor:'pointer',background:activeMenu===item.id?'#3b82f6':'transparent',borderRadius:'8px',margin:'2px 8px',transition:'background 0.2s'}}>
@@ -362,7 +512,7 @@ function App() {
         )}
 
         <div style={{flex:1,overflow:'auto',minWidth:0,width:'100%'}}>
-          {activeMenu === 'orders' && (
+          {activeMenu === 'orders' && hasAccess('orders') && (
             <Orders
               ordersData={ordersData} setOrdersData={setOrdersData}
               ordersLoaded={ordersLoaded} setOrdersLoaded={setOrdersLoaded}
@@ -370,12 +520,12 @@ function App() {
               cfUrl={CF_URL}
             />
           )}
-          {activeMenu === 'dashboard' && (
+          {activeMenu === 'dashboard' && hasAccess('dashboard') && (
             ordersData.length === 0 ? (
               <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'300px',color:'#94a3b8',fontSize:14,gap:8}}>
                 <div style={{fontSize:32}}>📦</div>
                 <div>Koi orders nahi mile</div>
-                <button onClick={autoLoadOrders} style={{padding:'6px 16px',borderRadius:6,background:'#3b82f6',color:'#fff',border:'none',cursor:'pointer',fontSize:12,marginTop:8}}>
+                <button onClick={() => autoLoadOrders(selectedStoreId)} style={{padding:'6px 16px',borderRadius:6,background:'#3b82f6',color:'#fff',border:'none',cursor:'pointer',fontSize:12,marginTop:8}}>
                   🔄 Retry Load
                 </button>
               </div>
@@ -383,9 +533,9 @@ function App() {
               <Dashboard ordersData={ordersData} />
             )
           )}
-          {activeMenu === 'store-connect' && <StoreConnect />}
-          {activeMenu === 'whatsapp' && <WhatsApp />}
-          {activeMenu !== 'dashboard' && activeMenu !== 'store-connect' && activeMenu !== 'orders' && activeMenu !== 'whatsapp' && (
+          {activeMenu === 'store-connect' && hasAccess('store-connect') && <StoreConnect />}
+          {activeMenu === 'whatsapp' && hasAccess('whatsapp') && <WhatsApp />}
+          {!['dashboard','store-connect','orders','whatsapp'].includes(activeMenu) && (
             <div style={{padding:'1.25rem'}}>
               <div style={{background:'#1e293b',borderRadius:'10px',padding:'2rem',textAlign:'center'}}>
                 <div style={{fontSize:'48px',marginBottom:'1rem'}}>{menuItems.find(m=>m.id===activeMenu)?.icon}</div>
