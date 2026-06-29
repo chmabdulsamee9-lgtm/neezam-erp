@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from './supabase'
+import { getCachedOrders, saveOrdersBulk, upsertOrder, getMeta, setMeta } from './ordersCache'
 import Login from './pages/Login'
 import StoreConnect from './pages/StoreConnect'
 import ShopifyCallback from './pages/ShopifyCallback'
@@ -8,7 +9,6 @@ import Dashboard from './pages/Dashboard'
 import WhatsApp from './pages/WhatsApp'
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev"
-const INITIAL_BATCH = 200
 const BATCH_SIZE = 1000
 
 function App() {
@@ -20,7 +20,11 @@ function App() {
   const [ordersLoaded, setOrdersLoaded] = useState(false)
   const [ordersStore, setOrdersStore] = useState(null)
   const [ordersLoading, setOrdersLoading] = useState(false)
-  const [backgroundLoading, setBackgroundLoading] = useState(false)
+  const [syncStatusText, setSyncStatusText] = useState("")
+
+  const statusMapRef = useRef({})
+  const storeIdRef = useRef(null)
+  const realtimeChannelRef = useRef(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -35,6 +39,12 @@ function App() {
   useEffect(() => {
     if (session && !ordersLoaded && !ordersLoading) {
       autoLoadOrders()
+    }
+    return () => {
+      if (realtimeChannelRef.current) {
+        supabase.removeChannel(realtimeChannelRef.current)
+        realtimeChannelRef.current = null
+      }
     }
   }, [session])
 
@@ -55,8 +65,52 @@ function App() {
     return allRows
   }
 
-  // Pehle latest 200 orders fauran load karta hai (instant feel),
-  // phir baqi sab background mein silently load hote rehte hain
+  const mergeOrder = (o, statusMap) => ({
+    ...o,
+    agent_data: statusMap[String(o.id)] || {},
+    agent_status: statusMap[String(o.id)]?.status || null,
+    synced_at: statusMap[String(o.id)]?.synced_at || null,
+    last_edited_at: statusMap[String(o.id)]?.last_edited_at || null,
+  })
+
+  const rebuildOrdersData = (rawOrders, statusMap) => {
+    const sorted = [...rawOrders].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    return sorted.map(o => mergeOrder(o, statusMap))
+  }
+
+  const setupRealtime = (storeId, getRawOrders) => {
+    if (realtimeChannelRef.current) {
+      supabase.removeChannel(realtimeChannelRef.current)
+    }
+    const channel = supabase
+      .channel(`orders-changes-${storeId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "shopify_orders_cache", filter: `store_id=eq.${storeId}` },
+        (payload) => {
+          const row = payload.new
+          if (!row || !row.raw_data) return
+          const rawOrder = row.raw_data
+          upsertOrder(rawOrder)
+          const currentRaw = getRawOrders()
+          const idx = currentRaw.findIndex(o => o.id === rawOrder.id)
+          let updatedRaw
+          if (idx >= 0) {
+            updatedRaw = [...currentRaw]
+            updatedRaw[idx] = rawOrder
+          } else {
+            updatedRaw = [rawOrder, ...currentRaw]
+          }
+          rawOrdersRef.current = updatedRaw
+          setOrdersData(rebuildOrdersData(updatedRaw, statusMapRef.current))
+        }
+      )
+      .subscribe()
+    realtimeChannelRef.current = channel
+  }
+
+  const rawOrdersRef = useRef([])
+
   const autoLoadOrders = async () => {
     setOrdersLoading(true)
     try {
@@ -64,54 +118,110 @@ function App() {
       const storeData = result.data
       if (!storeData) { setOrdersLoading(false); return }
       setOrdersStore(storeData)
+      storeIdRef.current = storeData.id
 
-      const statusesPromise = fetchAllOrderStatuses()
+      const statuses = await fetchAllOrderStatuses()
+      const statusMap = {}
+      statuses.forEach(s => { statusMap[s.order_id] = s })
+      statusMapRef.current = statusMap
 
-      const { data: firstBatch, error: firstError } = await supabase
+      const loadStartTime = new Date().toISOString()
+      const cachedRaw = await getCachedOrders()
+
+      if (cachedRaw.length > 0) {
+        // Browser mein pehle se data hai — INSTANT show karo, 0 sec wait
+        rawOrdersRef.current = cachedRaw
+        setOrdersData(rebuildOrdersData(cachedRaw, statusMap))
+        setOrdersLoaded(true)
+        setOrdersLoading(false)
+        setupRealtime(storeData.id, () => rawOrdersRef.current)
+
+        // Background mein: jo bhi naya/updated order pichli visit ke baad aaya, woh sync karo
+        const lastSyncedAt = (await getMeta("lastSyncedAt")) || "2000-01-01T00:00:00Z"
+        setSyncStatusText("⏳ naye orders check ho rahe hain...")
+        try {
+          let from = 0
+          let deltaOrders = []
+          while (true) {
+            const { data: deltaBatch, error } = await supabase
+              .from("shopify_orders_cache")
+              .select("raw_data")
+              .eq("store_id", storeData.id)
+              .gt("synced_at", lastSyncedAt)
+              .order("synced_at", { ascending: true })
+              .range(from, from + BATCH_SIZE - 1)
+            if (error) break
+            if (!deltaBatch || deltaBatch.length === 0) break
+            deltaOrders = deltaOrders.concat(deltaBatch.map(r => r.raw_data))
+            if (deltaBatch.length < BATCH_SIZE) break
+            from += BATCH_SIZE
+          }
+          if (deltaOrders.length > 0) {
+            await saveOrdersBulk(deltaOrders)
+            const merged = [...rawOrdersRef.current]
+            deltaOrders.forEach(o => {
+              const idx = merged.findIndex(m => m.id === o.id)
+              if (idx >= 0) merged[idx] = o
+              else merged.push(o)
+            })
+            rawOrdersRef.current = merged
+            setOrdersData(rebuildOrdersData(merged, statusMap))
+          }
+          await setMeta("lastSyncedAt", loadStartTime)
+        } catch (err) {
+          console.log("Delta sync error:", err.message)
+        }
+        setSyncStatusText("")
+        return
+      }
+
+      // Naya browser — cache khaali hai. Pehle last 7 days fast laao, baqi background mein.
+      setSyncStatusText("⏳ recent orders load ho rahe hain...")
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+
+      const { data: recentBatch, error: recentError } = await supabase
         .from("shopify_orders_cache")
         .select("raw_data")
         .eq("store_id", storeData.id)
+        .gte("created_at", sevenDaysAgo)
         .order("created_at", { ascending: false })
-        .range(0, INITIAL_BATCH - 1)
-      if (firstError) throw firstError
+      if (recentError) throw recentError
 
-      const statuses = await statusesPromise
-      const statusMap = {}
-      statuses.forEach(s => { statusMap[s.order_id] = s })
-
-      const mergeOrder = (o) => ({
-        ...o,
-        agent_data: statusMap[String(o.id)] || {},
-        agent_status: statusMap[String(o.id)]?.status || null,
-        synced_at: statusMap[String(o.id)]?.synced_at || null,
-        last_edited_at: statusMap[String(o.id)]?.last_edited_at || null,
-      })
-
-      const firstMerged = (firstBatch || []).map(r => mergeOrder(r.raw_data))
-      setOrdersData(firstMerged)
+      const recentRaw = (recentBatch || []).map(r => r.raw_data)
+      rawOrdersRef.current = recentRaw
+      setOrdersData(rebuildOrdersData(recentRaw, statusMap))
       setOrdersLoaded(true)
       setOrdersLoading(false)
+      setupRealtime(storeData.id, () => rawOrdersRef.current)
+      await saveOrdersBulk(recentRaw)
 
-      // Baqi orders background mein load karo, page-by-page
-      if (firstBatch && firstBatch.length === INITIAL_BATCH) {
-        setBackgroundLoading(true)
-        let from = INITIAL_BATCH
+      // Baqi (purane) orders background mein load karo
+      setSyncStatusText("⏳ purane orders background mein load ho rahe hain...")
+      try {
+        let from = 0
         while (true) {
-          const { data: nextBatch, error: nextError } = await supabase
+          const { data: olderBatch, error: olderError } = await supabase
             .from("shopify_orders_cache")
             .select("raw_data")
             .eq("store_id", storeData.id)
+            .lt("created_at", sevenDaysAgo)
             .order("created_at", { ascending: false })
             .range(from, from + BATCH_SIZE - 1)
-          if (nextError) break
-          if (!nextBatch || nextBatch.length === 0) break
-          const nextMerged = nextBatch.map(r => mergeOrder(r.raw_data))
-          setOrdersData(prev => [...prev, ...nextMerged])
-          if (nextBatch.length < BATCH_SIZE) break
+          if (olderError) break
+          if (!olderBatch || olderBatch.length === 0) break
+          const olderRaw = olderBatch.map(r => r.raw_data)
+          await saveOrdersBulk(olderRaw)
+          const merged = [...rawOrdersRef.current, ...olderRaw]
+          rawOrdersRef.current = merged
+          setOrdersData(rebuildOrdersData(merged, statusMap))
+          if (olderBatch.length < BATCH_SIZE) break
           from += BATCH_SIZE
         }
-        setBackgroundLoading(false)
+        await setMeta("lastSyncedAt", loadStartTime)
+      } catch (err) {
+        console.log("Background load error:", err.message)
       }
+      setSyncStatusText("")
     } catch (err) {
       console.log("Orders load error:", err.message)
       setOrdersLoading(false)
@@ -177,7 +287,7 @@ function App() {
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.75rem 1.25rem',background:'#1e293b',borderBottom:'1px solid #334155',flexShrink:0}}>
             <h1 style={{fontSize:'16px',fontWeight:'600',color:'#fff',margin:0}}>
               {menuItems.find(m=>m.id===activeMenu)?.icon} {menuItems.find(m=>m.id===activeMenu)?.label}
-              {backgroundLoading && <span style={{fontSize:'11px',color:'#64748b',fontWeight:400,marginLeft:10}}>⏳ baqi orders load ho rahe hain...</span>}
+              {syncStatusText && <span style={{fontSize:'11px',color:'#64748b',fontWeight:400,marginLeft:10}}>{syncStatusText}</span>}
             </h1>
             <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
               <span style={{fontSize:'12px',color:'#94a3b8'}}>{session.user.email}</span>
