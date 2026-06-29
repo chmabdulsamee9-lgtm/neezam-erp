@@ -34,6 +34,17 @@ const truncate = (str, max = 25) => {
   return str.length > max ? str.slice(0, max) + "…" : str;
 };
 
+// Pakistani phone numbers ko hamesha 03xxxxxxxxx (local) format mein convert karta hai,
+// chahe original +92xxxxxxxxxx, 0092xxxxxxxxxx, ya 92xxxxxxxxxx format mein ho
+const normalizePhone = (raw) => {
+  if (!raw) return "";
+  let cleaned = String(raw).trim().replace(/[\s\-()]/g, "");
+  if (cleaned.startsWith("+92")) cleaned = "0" + cleaned.slice(3);
+  else if (cleaned.startsWith("0092")) cleaned = "0" + cleaned.slice(4);
+  else if (cleaned.startsWith("92") && cleaned.length === 12) cleaned = "0" + cleaned.slice(2);
+  return cleaned;
+};
+
 const getDateRange = (type) => {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -231,7 +242,9 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
   const updateField = async (orderId, field, value) => {
     const existing = orders.find(o => o.id === orderId)?.agent_data || {};
-    const updated = { ...existing, [field]: value };
+    // Phone field hamesha normalize karke save hota hai (03xxxxxxxxx format)
+    const finalValue = field === "phone" ? normalizePhone(value) : value;
+    const updated = { ...existing, [field]: finalValue };
     const now = new Date().toISOString();
     const { error } = await supabase.from("order_statuses").upsert({
       order_id: String(orderId),
@@ -262,6 +275,14 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     setSyncingId(order.id);
     const agentData = order.agent_data || {};
     const customerName = agentData.customer_name || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim();
+    const phoneToSync = normalizePhone(agentData.phone || order.customer?.phone || order.shipping_address?.phone || "");
+    const addressPayload = {
+      first_name: customerName.split(" ")[0] || "",
+      last_name: customerName.split(" ").slice(1).join(" ") || "",
+      address1: agentData.address || order.shipping_address?.address1 || "",
+      city: agentData.city || order.shipping_address?.city || "",
+      phone: phoneToSync,
+    };
     try {
       const res = await fetch(`${cfUrl}/shopify-update-order`, {
         method: "POST",
@@ -271,13 +292,9 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           token: storeData.api_token,
           orderId: order.id,
           updates: {
-            shipping_address: {
-              first_name: customerName.split(" ")[0] || "",
-              last_name: customerName.split(" ").slice(1).join(" ") || "",
-              address1: agentData.address || order.shipping_address?.address1 || "",
-              city: agentData.city || order.shipping_address?.city || "",
-              phone: agentData.phone || order.customer?.phone || "",
-            }
+            shipping_address: addressPayload,
+            billing_address: addressPayload,
+            phone: phoneToSync,
           }
         }),
       });
@@ -495,10 +512,6 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
             style={{ padding: "4px 6px", borderRadius: 6, border: "1px solid #334155", background: "#1e293b", color: "#fff", fontSize: 11 }}>
             {PER_PAGE_OPTIONS.map(n => <option key={n} value={n}>{n} / page</option>)}
           </select>
-          <button onClick={handleRefresh}
-            style={{ background: "#1e293b", color: "#94a3b8", border: "1px solid #334155", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer" }}>
-            🔄 Refresh
-          </button>
         </div>
       </div>
 
@@ -649,7 +662,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
               {pagedOrders.map((order, i) => {
                 const source = getSource(order);
                 const status = STATUSES.find(s => s.label === order.agent_status);
-                const phone = order.agent_data?.phone || order.customer?.phone || order.shipping_address?.phone || "";
+                const phone = normalizePhone(order.agent_data?.phone || order.customer?.phone || order.shipping_address?.phone || "");
                 const fullName = order.agent_data?.customer_name || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim();
                 const city = order.agent_data?.city || order.shipping_address?.city || "";
                 const address = order.agent_data?.address || order.shipping_address?.address1 || "";
