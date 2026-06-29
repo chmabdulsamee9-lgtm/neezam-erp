@@ -51,6 +51,13 @@ function PendingApprovalScreen({ onSignOut }) {
 }
 
 function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, onSignOut, userEmail }) {
+  const statCard = (value, label, color) => (
+    <div style={{ flex: 1, background: '#0f172a', borderRadius: 8, padding: '8px 4px', textAlign: 'center' }}>
+      <div style={{ fontSize: 16, fontWeight: 700, color }}>{value}</div>
+      <div style={{ fontSize: 9, color: '#64748b', marginTop: 2 }}>{label}</div>
+    </div>
+  )
+
   return (
     <div style={{ height: '100%', overflow: 'auto', background: '#0f172a', color: '#fff' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: '1px solid #1e293b' }}>
@@ -89,12 +96,18 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
         )}
 
         <h2 style={{ fontSize: 14, color: '#94a3b8', marginBottom: 10 }}>🏪 Saare Brands ({allStores.length})</h2>
-        <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
+        <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
           {allStores.map(s => (
             <div key={s.id} style={{ background: '#1e293b', borderRadius: 12, padding: '16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div>
                 <div style={{ fontWeight: 700, fontSize: 15 }}>{s.store_name}</div>
                 <div style={{ fontSize: 12, color: '#64748b' }}>{s.shopify_url || 'Shopify connected nahi'}</div>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {statCard(s.today_count ?? '—', 'Today', '#16a34a')}
+                {statCard(s.yesterday_count ?? '—', 'Yesterday', '#60a5fa')}
+                {statCard(s.approved_count ?? '—', 'Approved', '#eab308')}
+                {statCard(s.lifetime_count ?? '—', 'Lifetime', '#3b82f6')}
               </div>
               <button onClick={() => onEnterStore(s)}
                 style={{ padding: '8px', borderRadius: 8, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
@@ -124,7 +137,7 @@ function App() {
 
   const [profile, setProfile] = useState(null)
   const [profileLoaded, setProfileLoaded] = useState(false)
-  const [userStoresList, setUserStoresList] = useState([]) // [{store_id, permissions, stores:{store_name, shopify_url}}]
+  const [userStoresList, setUserStoresList] = useState([])
   const [allStores, setAllStores] = useState([])
   const [pendingProfiles, setPendingProfiles] = useState([])
   const [selectedStoreId, setSelectedStoreId] = useState(null)
@@ -177,7 +190,18 @@ function App() {
 
     if (profileData?.role === 'creator') {
       const { data: stores } = await supabase.from('stores').select('*').order('created_at', { ascending: false })
-      setAllStores(stores || [])
+      const storesWithStats = await Promise.all((stores || []).map(async (s) => {
+        const { data: statsRows } = await supabase.rpc('get_store_stats', { p_store_id: s.id })
+        const stats = statsRows && statsRows[0] ? statsRows[0] : {}
+        return {
+          ...s,
+          lifetime_count: stats.lifetime_count ?? 0,
+          today_count: stats.today_count ?? 0,
+          yesterday_count: stats.yesterday_count ?? 0,
+          approved_count: stats.approved_count ?? 0,
+        }
+      }))
+      setAllStores(storesWithStats)
       const { data: pending } = await supabase.from('profiles').select('*').eq('approved', false).neq('role', 'creator')
       setPendingProfiles(pending || [])
       setIsMasterView(true)
@@ -427,7 +451,6 @@ function App() {
   if (!selectedStoreId) return <SplashScreen />
   if (!ordersLoaded) return <SplashScreen />
 
-  // Current store ki staff permissions nikalo (admin/creator ke liye hamesha full access)
   const currentUserStoreEntry = userStoresList.find(us => us.store_id === selectedStoreId)
   const isStaff = profile.role === 'staff'
   const staffPermissions = currentUserStoreEntry?.permissions || []
