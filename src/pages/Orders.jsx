@@ -276,14 +276,25 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     const agentData = order.agent_data || {};
     const customerName = agentData.customer_name || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim();
     const phoneToSync = normalizePhone(agentData.phone || order.customer?.phone || order.shipping_address?.phone || "");
+    const nameParts = customerName.split(" ").filter(Boolean);
+    // Agar sirf ek word ka naam ho (last name missing), Shopify reject karta hai —
+    // is case mein original order ki last name fallback use karte hain
+    const firstName = nameParts[0] || order.customer?.first_name || "";
+    const lastName = nameParts.slice(1).join(" ")
+      || order.customer?.last_name
+      || order.shipping_address?.last_name
+      || "-";
     const addressPayload = {
-      first_name: customerName.split(" ")[0] || "",
-      last_name: customerName.split(" ").slice(1).join(" ") || "",
+      first_name: firstName,
+      last_name: lastName,
       address1: agentData.address || order.shipping_address?.address1 || "",
       city: agentData.city || order.shipping_address?.city || "",
       phone: phoneToSync,
     };
     try {
+      // NOTE: Shopify Orders API billing_address ko order place hone ke baad
+      // update nahi karne deta (platform limitation) — isliye sirf shipping_address
+      // aur order-level phone bhejte hain
       const res = await fetch(`${cfUrl}/shopify-update-order`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -293,7 +304,6 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           orderId: order.id,
           updates: {
             shipping_address: addressPayload,
-            billing_address: addressPayload,
             phone: phoneToSync,
           }
         }),
@@ -849,8 +859,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
             const p = Math.max(1, Math.min(page - 2, totalPages - 4)) + idx;
             return <button key={p} onClick={() => setPage(p)} style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === p ? "#3b82f6" : "#1e293b", color: page === p ? "#fff" : "#94a3b8", fontSize: 11, cursor: "pointer" }}>{p}</button>;
           })}
-          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === totalPages ? "#0f172a" : "#1e293b", color: page === totalPages ? "#334155" : "#94a3b8", fontSize: 11, cursor: page === totalPages ? "default" : "pointer" }}>›</button>
-          <button onClick={() => setPage(totalPages)} disabled={page === totalPages} style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === totalPages ? "#0f172a" : "#1e293b", color: page === totalPages ? "#334155" : "#94a3b8", fontSize: 11, cursor: page === totalPages ? "default" : "pointer" }}>»</button>
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === totalPages ? "#0f172a" : "#1e293b", color: page === totalPages ? "#334155" : "#94a3b8", fontSize: 11, cursor: page === totalPages ? "default" : "pointer" }}>»</button>
         </div>
       </div>
     </div>
