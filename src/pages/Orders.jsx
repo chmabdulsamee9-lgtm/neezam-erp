@@ -20,6 +20,8 @@ const PER_PAGE_OPTIONS = [20, 50, 100];
 const TABS = ["All", "New", "Approved", "Pending", "Cancelled"];
 const CANCEL_REASONS = ["Not Interested", "Wrong Number", "Duplicate Order", "Customer Cancelled", "Out of Stock", "Other"];
 const PAGE_SIZE = 1000;
+const SYNC_CONFIRM_PER_PAGE = 20;
+const HISTORY_VALID_MS = 2 * 24 * 60 * 60 * 1000; // 2 din
 
 const tabFilter = (tab, o) => {
   if (tab === "New") return !o.agent_status;
@@ -61,6 +63,8 @@ const getDateRange = (type) => {
 const toLocalDateStr = (d) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
+const isHistoryValid = (h) => !!(h && h.created_at && (Date.now() - new Date(h.created_at).getTime()) < HISTORY_VALID_MS);
+
 export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrdersLoaded, ordersStore, setOrdersStore, cfUrl }) {
   const orders = ordersData;
   const setOrders = setOrdersData;
@@ -81,8 +85,6 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const [statusMultiOpen, setStatusMultiOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(20);
-  const [syncingId, setSyncingId] = useState(null);
-  const [bulkSyncing, setBulkSyncing] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("All");
@@ -90,6 +92,17 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const [cancelReasonOtherMode, setCancelReasonOtherMode] = useState(false);
   const [cancelReasonCustomText, setCancelReasonCustomText] = useState("");
   const tableRef = useRef(null);
+
+  // --- Sync / Undo / History state ---
+  const [historyMap, setHistoryMap] = useState({});
+  const [syncConfirmModal, setSyncConfirmModal] = useState(null); // { items: [{order, diff}] }
+  const [syncConfirmPage, setSyncConfirmPage] = useState(1);
+  const [syncRunning, setSyncRunning] = useState(false);
+  const [syncProgressCount, setSyncProgressCount] = useState(0);
+  const [syncResultModal, setSyncResultModal] = useState(null); // { title, results: [{id,name,success,error}] }
+  const [undoConfirmModal, setUndoConfirmModal] = useState(null); // { orders: [...] }
+  const [undoRunning, setUndoRunning] = useState(false);
+  const [undoingId, setUndoingId] = useState(null);
 
   useEffect(() => {
     if (!ordersLoaded) loadStore();
@@ -162,13 +175,34 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     return allRows;
   };
 
+  const fetchAllSyncHistory = async () => {
+    let allRows = [];
+    let from = 0;
+    while (true) {
+      const { data, error } = await supabase
+        .from("order_sync_history")
+        .select("*")
+        .range(from, from + PAGE_SIZE - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      allRows = allRows.concat(data);
+      if (data.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+    return allRows;
+  };
+
   const fetchOrders = async (storeData) => {
     setLoading(true);
     try {
       const cachedOrders = await fetchAllCachedOrders(storeData.id);
       const statuses = await fetchAllOrderStatuses();
+      const history = await fetchAllSyncHistory();
       const statusMap = {};
       statuses.forEach(s => { statusMap[s.order_id] = s; });
+      const hMap = {};
+      history.forEach(h => { hMap[h.order_id] = h; });
+      setHistoryMap(hMap);
       const merged = cachedOrders.map(o => ({
         ...o,
         agent_data: statusMap[String(o.id)] || {},
@@ -182,11 +216,6 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       setError("Error: " + err.message);
     }
     setLoading(false);
-  };
-
-  const handleRefresh = () => {
-    const storeData = store || ordersStore;
-    if (storeData) fetchOrders(storeData);
   };
 
   const getSource = (order) => {
@@ -269,17 +298,13 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     setEditingCell(null);
   };
 
-  const syncToShopify = async (order, silent = false) => {
-    const storeData = store || ordersStore;
-    if (!storeData) return false;
-    setSyncingId(order.id);
+  // ---------- SYNC PLAN / DIFF ----------
+  const buildSyncPlan = (order) => {
     const agentData = order.agent_data || {};
     const customerName = agentData.customer_name || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim();
     const phoneToSync = normalizePhone(agentData.phone || order.customer?.phone || order.shipping_address?.phone || "");
     const nameParts = customerName.split(" ").filter(Boolean);
-    // Jo naam Neezam mein likha jaye, usay literally respect karte hain —
-    // purana customer last name khud se add nahi karte. Agar sirf ek word ho,
-    // Shopify ki requirement poori karne ke liye sirf "-" placeholder use karte hain
+    // Jo naam Neezam mein likha jaye, usay literally respect karte hain
     const firstName = nameParts[0] || "";
     const lastName = nameParts.slice(1).join(" ") || "-";
     const addressPayload = {
@@ -289,10 +314,48 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       city: agentData.city || order.shipping_address?.city || "",
       phone: phoneToSync,
     };
+
+    const beforeName = `${order.shipping_address?.first_name || ""} ${order.shipping_address?.last_name || ""}`.trim() || "—";
+    const beforePhone = normalizePhone(order.shipping_address?.phone || order.customer?.phone || "") || "—";
+    const beforeAddress = order.shipping_address?.address1 || "—";
+    const beforeCity = order.shipping_address?.city || "—";
+
+    const afterName = `${firstName} ${lastName}`.trim() || "—";
+    const afterPhone = phoneToSync || "—";
+    const afterAddress = addressPayload.address1 || "—";
+    const afterCity = addressPayload.city || "—";
+
+    const diff = [];
+    if (beforeName !== afterName) diff.push({ label: "Name", before: beforeName, after: afterName });
+    if (beforePhone !== afterPhone) diff.push({ label: "Phone", before: beforePhone, after: afterPhone });
+    if (beforeAddress !== afterAddress) diff.push({ label: "Address", before: beforeAddress, after: afterAddress });
+    if (beforeCity !== afterCity) diff.push({ label: "City", before: beforeCity, after: afterCity });
+
+    return { addressPayload, phoneToSync, diff };
+  };
+
+  const saveHistorySnapshot = async (order) => {
+    const now = new Date().toISOString();
+    const snapshot = {
+      previous_shipping_address: order.shipping_address || null,
+      previous_phone: order.shipping_address?.phone || order.customer?.phone || null,
+      previous_agent_data: order.agent_data || {},
+      previous_status: order.agent_status || null,
+      created_at: now,
+    };
+    await supabase.from("order_sync_history").upsert(
+      { order_id: String(order.id), ...snapshot },
+      { onConflict: "order_id" }
+    );
+    return snapshot;
+  };
+
+  const doSyncOrder = async (order) => {
+    const storeData = store || ordersStore;
+    if (!storeData) return { id: order.id, name: order.name, success: false, error: "Store connected nahi hai" };
+    const { addressPayload, phoneToSync } = buildSyncPlan(order);
     try {
-      // NOTE: Shopify Orders API billing_address ko order place hone ke baad
-      // update nahi karne deta (platform limitation) — isliye sirf shipping_address
-      // aur order-level phone bhejte hain
+      const historySnapshot = await saveHistorySnapshot(order);
       const res = await fetch(`${cfUrl}/shopify-update-order`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -300,10 +363,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           shop: storeData.shopify_url,
           token: storeData.api_token,
           orderId: order.id,
-          updates: {
-            shipping_address: addressPayload,
-            phone: phoneToSync,
-          }
+          updates: { shipping_address: addressPayload, phone: phoneToSync },
         }),
       });
       const data = await res.json();
@@ -314,19 +374,123 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           { onConflict: "order_id" }
         );
         setOrders(prev => prev.map(o => o.id === order.id ? { ...o, synced_at: now } : o));
-        if (!silent) alert("✅ Shopify pe update ho gaya!\nOrder: " + order.name);
-        setSyncingId(null);
-        return true;
-      } else {
-        if (!silent) alert("❌ Shopify Error:\n" + JSON.stringify(data.errors || data.error, null, 2));
-        setSyncingId(null);
-        return false;
+        setHistoryMap(prev => ({ ...prev, [String(order.id)]: historySnapshot }));
+        return { id: order.id, name: order.name, success: true };
       }
+      return { id: order.id, name: order.name, success: false, error: JSON.stringify(data.errors || data.error) };
     } catch (err) {
-      if (!silent) alert("❌ Error: " + err.message);
-      setSyncingId(null);
-      return false;
+      return { id: order.id, name: order.name, success: false, error: err.message };
     }
+  };
+
+  const openSyncConfirm = (ordersToSync) => {
+    if (!ordersToSync.length) return;
+    const items = ordersToSync.map(order => ({ order, ...buildSyncPlan(order) }));
+    setSyncConfirmModal({ items });
+    setSyncConfirmPage(1);
+  };
+
+  const confirmAndSync = async () => {
+    if (!syncConfirmModal) return;
+    setSyncRunning(true);
+    setSyncProgressCount(0);
+    const results = [];
+    for (const item of syncConfirmModal.items) {
+      const r = await doSyncOrder(item.order);
+      results.push(r);
+      setSyncProgressCount(results.length);
+    }
+    setSyncRunning(false);
+    setSyncConfirmModal(null);
+    setSelectedIds(new Set());
+    setSyncResultModal({ title: "Sync Result", results });
+  };
+
+  // ---------- UNDO ----------
+  const doUndoOrder = async (order) => {
+    const storeData = store || ordersStore;
+    const h = historyMap[String(order.id)];
+    if (!storeData || !isHistoryValid(h)) {
+      return { id: order.id, name: order.name, success: false, error: "Undo ke liye valid history nahi mili" };
+    }
+    try {
+      const prevAddr = h.previous_shipping_address || {};
+      const res = await fetch(`${cfUrl}/shopify-update-order`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shop: storeData.shopify_url,
+          token: storeData.api_token,
+          orderId: order.id,
+          updates: {
+            shipping_address: {
+              first_name: prevAddr.first_name || "",
+              last_name: prevAddr.last_name || "-",
+              address1: prevAddr.address1 || "",
+              city: prevAddr.city || "",
+              phone: h.previous_phone || "",
+            },
+            phone: h.previous_phone || "",
+          },
+        }),
+      });
+      const data = await res.json();
+      if (!data.errors && !data.error) {
+        const prevAgent = h.previous_agent_data || {};
+        await supabase.from("order_statuses").upsert({
+          order_id: String(order.id),
+          status: h.previous_status || null,
+          customer_name: prevAgent.customer_name || null,
+          phone: prevAgent.phone || null,
+          address: prevAgent.address || null,
+          city: prevAgent.city || null,
+          discount: prevAgent.discount || null,
+          notes: prevAgent.notes || null,
+          product: prevAgent.product || null,
+          sku: prevAgent.sku || null,
+          shipping: prevAgent.shipping || null,
+          remarks: prevAgent.remarks || null,
+          cancellation_reason: prevAgent.cancellation_reason || null,
+          synced_at: null,
+          last_edited_at: null,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "order_id" });
+        await supabase.from("order_sync_history").delete().eq("order_id", String(order.id));
+        setOrders(prev => prev.map(o => o.id === order.id
+          ? { ...o, agent_data: prevAgent, agent_status: h.previous_status || null, synced_at: null, last_edited_at: null }
+          : o
+        ));
+        setHistoryMap(prev => {
+          const next = { ...prev };
+          delete next[String(order.id)];
+          return next;
+        });
+        return { id: order.id, name: order.name, success: true };
+      }
+      return { id: order.id, name: order.name, success: false, error: JSON.stringify(data.errors || data.error) };
+    } catch (err) {
+      return { id: order.id, name: order.name, success: false, error: err.message };
+    }
+  };
+
+  const openUndoConfirm = (ordersToUndo) => {
+    const valid = ordersToUndo.filter(o => isHistoryValid(historyMap[String(o.id)]));
+    if (!valid.length) return;
+    setUndoConfirmModal({ orders: valid });
+  };
+
+  const confirmUndo = async () => {
+    if (!undoConfirmModal) return;
+    setUndoRunning(true);
+    const results = [];
+    for (const order of undoConfirmModal.orders) {
+      const r = await doUndoOrder(order);
+      results.push(r);
+    }
+    setUndoRunning(false);
+    setUndoConfirmModal(null);
+    setSelectedIds(new Set());
+    setSyncResultModal({ title: "Undo Result", results });
   };
 
   const bulkUpdateStatus = async (status) => {
@@ -341,20 +505,6 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     setOrders(prev => prev.map(o => selectedIds.has(o.id) ? { ...o, agent_status: status, last_edited_at: now } : o));
     setBulkStatusOpen(false);
     setSelectedIds(new Set());
-  };
-
-  const bulkSync = async () => {
-    const ids = [...selectedIds];
-    const ordersToSync = orders.filter(o => ids.includes(o.id));
-    setBulkSyncing(true);
-    let success = 0;
-    for (const order of ordersToSync) {
-      const ok = await syncToShopify(order, true);
-      if (ok) success++;
-    }
-    setBulkSyncing(false);
-    setSelectedIds(new Set());
-    alert(`✅ ${success}/${ordersToSync.length} orders sync ho gaye!`);
   };
 
   const handleStatusBtnClick = (e, orderId) => {
@@ -414,16 +564,13 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   // Step 1: date range only — source of truth for tab counts
   const dateFilteredOrders = orders.filter(order => {
     const orderDate = new Date(order.created_at);
-    // Append time so JS parses as LOCAL midnight, not UTC midnight
     const matchFrom = !dateFrom || orderDate >= new Date(dateFrom + "T00:00:00");
     const matchTo = !dateTo || orderDate <= new Date(dateTo + "T23:59:59");
     return matchFrom && matchTo;
   });
 
-  // Tab counts from date-only set so clicking Today/Yesterday updates all badges
   const tabCounts = Object.fromEntries(TABS.map(t => [t, t === "All" ? dateFilteredOrders.length : dateFilteredOrders.filter(o => tabFilter(t, o)).length]));
 
-  // Step 2: date + search + source + active tab — base for city/sku dropdown options
   const baseFilteredOrders = dateFilteredOrders.filter(order => {
     const name = `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.toLowerCase();
     const phone = order.customer?.phone || order.shipping_address?.phone || "";
@@ -434,11 +581,9 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     return matchSearch && matchSource && matchTab;
   });
 
-  // Dropdown options from the fully active context (date + search + source + tab)
   const availableCities = ["All", ...new Set(baseFilteredOrders.map(o => o.agent_data?.city || o.shipping_address?.city).filter(Boolean))].sort();
   const availableSKUs = [...new Set(baseFilteredOrders.flatMap(o => getSKUs(o)))].filter(Boolean).sort();
 
-  // Step 3: apply status, city, sku filters on top of baseFilteredOrders
   const filteredOrders = baseFilteredOrders.filter(order => {
     const orderCity = order.agent_data?.city || order.shipping_address?.city || "";
     const matchStatus = statusFilters.length === 0 || statusFilters.includes(order.agent_status);
@@ -447,7 +592,6 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     return matchStatus && matchCity && matchSku;
   });
 
-  // Tab already applied in baseFilteredOrders; alias kept for downstream references
   const tabFilteredOrders = filteredOrders;
   const totalPages = Math.ceil(filteredOrders.length / perPage);
   const pagedOrders = filteredOrders.slice((page - 1) * perPage, page * perPage);
@@ -466,6 +610,8 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     const r = getDateRange("7days");
     return new Date(o.created_at) >= r.from && new Date(o.created_at) <= r.to;
   }).length;
+
+  const selectedHaveValidHistory = [...selectedIds].some(id => isHistoryValid(historyMap[String(id)]));
 
   const EditableCell = ({ orderId, field, value, width = 100, maxChars = 20 }) => {
     const cellKey = `${orderId}-${field}`;
@@ -505,6 +651,14 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     color: activeDateBtn === type ? "#fff" : "#94a3b8",
     borderColor: activeDateBtn === type ? "#3b82f6" : "#334155",
   });
+
+  // ---------- Sync Confirm Modal pagination ----------
+  const syncConfirmItems = syncConfirmModal?.items || [];
+  const syncConfirmTotalPages = Math.ceil(syncConfirmItems.length / SYNC_CONFIRM_PER_PAGE) || 1;
+  const syncConfirmPagedItems = syncConfirmItems.slice(
+    (syncConfirmPage - 1) * SYNC_CONFIRM_PER_PAGE,
+    syncConfirmPage * SYNC_CONFIRM_PER_PAGE
+  );
 
   return (
     <div style={{ padding: "0.5rem", height: "100%", display: "flex", flexDirection: "column" }}>
@@ -589,7 +743,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
         {/* Bulk Actions */}
         {selectedIds.size > 0 && (
-          <div style={{ display: "flex", gap: 5, alignItems: "center", marginLeft: "auto" }}>
+          <div style={{ display: "flex", gap: 5, alignItems: "center", marginLeft: "auto", flexWrap: "wrap" }}>
             <span style={{ fontSize: 11, color: "#94a3b8" }}>{selectedIds.size} selected</span>
             <div style={{ position: "relative" }} data-bulk-status>
               <button onClick={() => setBulkStatusOpen(!bulkStatusOpen)}
@@ -609,10 +763,16 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                 </div>
               )}
             </div>
-            <button onClick={bulkSync} disabled={bulkSyncing}
-              style={{ padding: "5px 10px", borderRadius: 6, border: "none", background: bulkSyncing ? "#1e293b" : "#0c4a6e", color: bulkSyncing ? "#64748b" : "#38bdf8", fontSize: 11, cursor: bulkSyncing ? "default" : "pointer", fontWeight: 600 }}>
-              {bulkSyncing ? "Syncing..." : `🔄 Bulk Sync (${selectedIds.size})`}
+            <button onClick={() => openSyncConfirm(orders.filter(o => selectedIds.has(o.id)))}
+              style={{ padding: "5px 10px", borderRadius: 6, border: "none", background: "#0c4a6e", color: "#38bdf8", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
+              🔄 Bulk Sync ({selectedIds.size})
             </button>
+            {selectedHaveValidHistory && (
+              <button onClick={() => openUndoConfirm(orders.filter(o => selectedIds.has(o.id)))}
+                style={{ padding: "5px 10px", borderRadius: 6, border: "none", background: "#451a03", color: "#fb923c", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
+                ↩️ Bulk Undo
+              </button>
+            )}
             <button onClick={() => setSelectedIds(new Set())}
               style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #334155", background: "#1e293b", color: "#94a3b8", fontSize: 11, cursor: "pointer" }}>✕</button>
           </div>
@@ -685,10 +845,11 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                 const time = new Date(order.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" });
                 const shopifyUrl = `https://${currentStore?.shopify_url}/admin/orders/${order.id}`;
                 const rowBg = i % 2 === 0 ? "#0f172a" : "#0a0f1e";
-                const isSyncing = syncingId === order.id;
                 const syncState = getSyncState(order);
                 const isSelected = selectedIds.has(order.id);
                 const isCancelled = order.agent_status === "Cancelled";
+                const hasValidHistory = isHistoryValid(historyMap[String(order.id)]);
+                const isUndoing = undoingId === order.id;
 
                 const syncBtn = () => {
                   if (syncState === "pending") return { bg: "#713f12", color: "#eab308", label: "⚡ Ready to Sync" };
@@ -738,10 +899,16 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                           style={{ padding: "3px 8px", borderRadius: 8, fontSize: 10, background: status?.bg || "#1e293b", color: status?.color || "#64748b", border: "none", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
                           {order.agent_status || "Set ▼"}
                         </button>
-                        <button onClick={() => syncToShopify(order)} disabled={isSyncing}
-                          style={{ padding: "2px 8px", borderRadius: 6, fontSize: 9, background: isSyncing ? "#1e293b" : sb.bg, color: isSyncing ? "#64748b" : sb.color, border: "none", cursor: isSyncing ? "default" : "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
-                          {isSyncing ? "Syncing..." : sb.label}
+                        <button onClick={() => openSyncConfirm([order])}
+                          style={{ padding: "2px 8px", borderRadius: 6, fontSize: 9, background: sb.bg, color: sb.color, border: "none", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
+                          {sb.label}
                         </button>
+                        {hasValidHistory && (
+                          <button onClick={() => openUndoConfirm([order])} disabled={isUndoing}
+                            style={{ padding: "2px 8px", borderRadius: 6, fontSize: 9, background: "#451a03", color: "#fb923c", border: "none", cursor: isUndoing ? "default" : "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
+                            {isUndoing ? "Undoing..." : "↩️ Undo"}
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -845,6 +1012,124 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         </div>
       )}
 
+      {/* ---------- SYNC CONFIRM MODAL ---------- */}
+      {syncConfirmModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
+          <div style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 12, width: 560, maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(0,0,0,0.9)" }}>
+            <div style={{ padding: "14px 18px", borderBottom: "1px solid #334155" }}>
+              <h2 style={{ margin: 0, fontSize: 15, color: "#fff" }}>🔄 Sync Confirm — {syncConfirmItems.length} order{syncConfirmItems.length > 1 ? "s" : ""}</h2>
+              <p style={{ margin: "3px 0 0", fontSize: 11, color: "#64748b" }}>Yeh changes Shopify pe push honge. Confirm karne se pehle review kar lo.</p>
+            </div>
+
+            <div style={{ flex: 1, overflowY: "auto", padding: "10px 18px" }}>
+              {syncConfirmPagedItems.map(({ order, diff }) => (
+                <div key={order.id} style={{ marginBottom: 12, background: "#0f172a", borderRadius: 8, padding: "10px 12px" }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#60a5fa", marginBottom: 6 }}>{order.name}</div>
+                  {diff.length === 0 ? (
+                    <div style={{ fontSize: 11, color: "#64748b" }}>Koi change detect nahi hua.</div>
+                  ) : (
+                    diff.map(d => (
+                      <div key={d.label} style={{ display: "flex", gap: 8, fontSize: 11, marginBottom: 4, alignItems: "baseline" }}>
+                        <span style={{ width: 60, color: "#94a3b8", flexShrink: 0 }}>{d.label}:</span>
+                        <span style={{ color: "#fca5a5", textDecoration: "line-through" }}>{d.before}</span>
+                        <span style={{ color: "#64748b" }}>→</span>
+                        <span style={{ color: "#4ade80", fontWeight: 500 }}>{d.after}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {syncConfirmTotalPages > 1 && (
+              <div style={{ display: "flex", justifyContent: "center", gap: 6, padding: "6px 0", borderTop: "1px solid #334155" }}>
+                <button onClick={() => setSyncConfirmPage(p => Math.max(1, p - 1))} disabled={syncConfirmPage === 1}
+                  style={{ padding: "3px 10px", borderRadius: 5, border: "1px solid #334155", background: "#1e293b", color: "#94a3b8", fontSize: 11, cursor: syncConfirmPage === 1 ? "default" : "pointer" }}>‹ Prev</button>
+                <span style={{ fontSize: 11, color: "#64748b", alignSelf: "center" }}>Page {syncConfirmPage} / {syncConfirmTotalPages}</span>
+                <button onClick={() => setSyncConfirmPage(p => Math.min(syncConfirmTotalPages, p + 1))} disabled={syncConfirmPage === syncConfirmTotalPages}
+                  style={{ padding: "3px 10px", borderRadius: 5, border: "1px solid #334155", background: "#1e293b", color: "#94a3b8", fontSize: 11, cursor: syncConfirmPage === syncConfirmTotalPages ? "default" : "pointer" }}>Next ›</button>
+              </div>
+            )}
+
+            <div style={{ padding: "12px 18px", borderTop: "1px solid #334155", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 11, color: "#64748b" }}>
+                {syncRunning ? `⏳ Syncing... ${syncProgressCount}/${syncConfirmItems.length}` : ""}
+              </span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => setSyncConfirmModal(null)} disabled={syncRunning}
+                  style={{ padding: "7px 14px", borderRadius: 6, border: "1px solid #334155", background: "transparent", color: "#94a3b8", fontSize: 12, cursor: syncRunning ? "default" : "pointer" }}>
+                  Cancel
+                </button>
+                <button onClick={confirmAndSync} disabled={syncRunning}
+                  style={{ padding: "7px 16px", borderRadius: 6, border: "none", background: syncRunning ? "#334155" : "#3b82f6", color: "#fff", fontSize: 12, fontWeight: 600, cursor: syncRunning ? "default" : "pointer" }}>
+                  {syncRunning ? "Syncing..." : "✓ Confirm & Sync"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------- UNDO CONFIRM MODAL ---------- */}
+      {undoConfirmModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
+          <div style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 12, width: 420, boxShadow: "0 12px 40px rgba(0,0,0,0.9)" }}>
+            <div style={{ padding: "14px 18px", borderBottom: "1px solid #334155" }}>
+              <h2 style={{ margin: 0, fontSize: 15, color: "#fff" }}>↩️ Undo — {undoConfirmModal.orders.length} order{undoConfirmModal.orders.length > 1 ? "s" : ""}</h2>
+            </div>
+            <div style={{ padding: "14px 18px", maxHeight: 220, overflowY: "auto" }}>
+              <p style={{ margin: "0 0 8px", fontSize: 12, color: "#94a3b8" }}>
+                In order(s) ki sync se pehli (purani) value Shopify pe wapas chali jayegi:
+              </p>
+              {undoConfirmModal.orders.map(o => (
+                <div key={o.id} style={{ fontSize: 11, color: "#60a5fa", marginBottom: 3 }}>{o.name}</div>
+              ))}
+            </div>
+            <div style={{ padding: "12px 18px", borderTop: "1px solid #334155", display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={() => setUndoConfirmModal(null)} disabled={undoRunning}
+                style={{ padding: "7px 14px", borderRadius: 6, border: "1px solid #334155", background: "transparent", color: "#94a3b8", fontSize: 12, cursor: undoRunning ? "default" : "pointer" }}>
+                Cancel
+              </button>
+              <button onClick={confirmUndo} disabled={undoRunning}
+                style={{ padding: "7px 16px", borderRadius: 6, border: "none", background: undoRunning ? "#334155" : "#ea580c", color: "#fff", fontSize: 12, fontWeight: 600, cursor: undoRunning ? "default" : "pointer" }}>
+                {undoRunning ? "Undoing..." : "↩️ Confirm Undo"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------- SYNC/UNDO RESULT MODAL ---------- */}
+      {syncResultModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
+          <div style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 12, width: 460, maxHeight: "75vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(0,0,0,0.9)" }}>
+            <div style={{ padding: "14px 18px", borderBottom: "1px solid #334155" }}>
+              <h2 style={{ margin: 0, fontSize: 15, color: "#fff" }}>{syncResultModal.title}</h2>
+              <p style={{ margin: "3px 0 0", fontSize: 11, color: "#64748b" }}>
+                ✅ {syncResultModal.results.filter(r => r.success).length} success, ❌ {syncResultModal.results.filter(r => !r.success).length} failed
+              </p>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: "10px 18px" }}>
+              {syncResultModal.results.map(r => (
+                <div key={r.id} style={{ display: "flex", gap: 8, fontSize: 11, marginBottom: 6, alignItems: "flex-start" }}>
+                  <span>{r.success ? "✅" : "❌"}</span>
+                  <div>
+                    <div style={{ color: "#e2e8f0", fontWeight: 500 }}>{r.name}</div>
+                    {!r.success && <div style={{ color: "#fca5a5" }}>{r.error}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ padding: "12px 18px", borderTop: "1px solid #334155", display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={() => setSyncResultModal(null)}
+                style={{ padding: "7px 16px", borderRadius: 6, border: "none", background: "#3b82f6", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Pagination */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.5rem" }}>
         <span style={{ fontSize: 11, color: "#64748b" }}>
@@ -857,7 +1142,8 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
             const p = Math.max(1, Math.min(page - 2, totalPages - 4)) + idx;
             return <button key={p} onClick={() => setPage(p)} style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === p ? "#3b82f6" : "#1e293b", color: page === p ? "#fff" : "#94a3b8", fontSize: 11, cursor: "pointer" }}>{p}</button>;
           })}
-          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === totalPages ? "#0f172a" : "#1e293b", color: page === totalPages ? "#334155" : "#94a3b8", fontSize: 11, cursor: page === totalPages ? "default" : "pointer" }}>»</button>
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === totalPages ? "#0f172a" : "#1e293b", color: page === totalPages ? "#334155" : "#94a3b8", fontSize: 11, cursor: page === totalPages ? "default" : "pointer" }}>›</button>
+          <button onClick={() => setPage(totalPages)} disabled={page === totalPages} style={{ padding: "3px 8px", borderRadius: 5, border: "1px solid #334155", background: page === totalPages ? "#0f172a" : "#1e293b", color: page === totalPages ? "#334155" : "#94a3b8", fontSize: 11, cursor: page === totalPages ? "default" : "pointer" }}>»</button>
         </div>
       </div>
     </div>
