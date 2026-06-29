@@ -899,16 +899,18 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                           style={{ padding: "3px 8px", borderRadius: 8, fontSize: 10, background: status?.bg || "#1e293b", color: status?.color || "#64748b", border: "none", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
                           {order.agent_status || "Set ▼"}
                         </button>
-                        <button onClick={() => openSyncConfirm([order])}
-                          style={{ padding: "2px 8px", borderRadius: 6, fontSize: 9, background: sb.bg, color: sb.color, border: "none", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
-                          {sb.label}
-                        </button>
-                        {hasValidHistory && (
-                          <button onClick={() => openUndoConfirm([order])} disabled={isUndoing}
-                            style={{ padding: "2px 8px", borderRadius: 6, fontSize: 9, background: "#451a03", color: "#fb923c", border: "none", cursor: isUndoing ? "default" : "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
-                            {isUndoing ? "Undoing..." : "↩️ Undo"}
+                        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                          <button onClick={() => openSyncConfirm([order])}
+                            style={{ padding: "2px 8px", borderRadius: 6, fontSize: 9, background: sb.bg, color: sb.color, border: "none", cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
+                            {sb.label}
                           </button>
-                        )}
+                          {hasValidHistory && (
+                            <button onClick={() => openUndoConfirm([order])} disabled={isUndoing} title="Undo"
+                              style={{ padding: "2px 5px", borderRadius: 6, fontSize: 11, lineHeight: 1, background: "#451a03", color: "#fb923c", border: "none", cursor: isUndoing ? "default" : "pointer" }}>
+                              {isUndoing ? "⏳" : "↩️"}
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </td>
                   </tr>
