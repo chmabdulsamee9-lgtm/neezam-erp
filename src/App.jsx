@@ -110,6 +110,7 @@ function App() {
         "postgres_changes",
         { event: "*", schema: "public", table: "shopify_orders_cache", filter: `store_id=eq.${storeId}` },
         (payload) => {
+          console.log("📦 Realtime event received:", payload)
           const row = payload.new
           if (!row || !row.raw_data) return
           const rawOrder = row.raw_data
