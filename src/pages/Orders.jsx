@@ -277,13 +277,11 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     const customerName = agentData.customer_name || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim();
     const phoneToSync = normalizePhone(agentData.phone || order.customer?.phone || order.shipping_address?.phone || "");
     const nameParts = customerName.split(" ").filter(Boolean);
-    // Agar sirf ek word ka naam ho (last name missing), Shopify reject karta hai —
-    // is case mein original order ki last name fallback use karte hain
-    const firstName = nameParts[0] || order.customer?.first_name || "";
-    const lastName = nameParts.slice(1).join(" ")
-      || order.customer?.last_name
-      || order.shipping_address?.last_name
-      || "-";
+    // Jo naam Neezam mein likha jaye, usay literally respect karte hain —
+    // purana customer last name khud se add nahi karte. Agar sirf ek word ho,
+    // Shopify ki requirement poori karne ke liye sirf "-" placeholder use karte hain
+    const firstName = nameParts[0] || "";
+    const lastName = nameParts.slice(1).join(" ") || "-";
     const addressPayload = {
       first_name: firstName,
       last_name: lastName,
