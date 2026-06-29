@@ -44,31 +44,42 @@ function App() {
   const [syncStatusText, setSyncStatusText] = useState("")
 
   const statusMapRef = useRef({})
-  const storeIdRef = useRef(null)
   const realtimeChannelRef = useRef(null)
   const rawOrdersRef = useRef([])
+  const hasStartedLoadRef = useRef(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
       setLoading(false)
     })
-    supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
     })
+    return () => {
+      authListener.subscription.unsubscribe()
+    }
   }, [])
 
+  // Sirf ek baar trigger hota hai jab session pehli baar milta hai —
+  // baad mein token-refresh se session object badle to dobara load nahi hota
   useEffect(() => {
-    if (session && !ordersLoaded && !ordersLoading) {
+    if (session && !hasStartedLoadRef.current) {
+      hasStartedLoadRef.current = true
       autoLoadOrders()
     }
+  }, [session])
+
+  // Realtime channel sirf component unmount par close hota hai —
+  // session/auth refresh isay disturb nahi karta
+  useEffect(() => {
     return () => {
       if (realtimeChannelRef.current) {
         supabase.removeChannel(realtimeChannelRef.current)
         realtimeChannelRef.current = null
       }
     }
-  }, [session])
+  }, [])
 
   const fetchAllOrderStatuses = async () => {
     let allRows = []
@@ -103,6 +114,7 @@ function App() {
   const setupRealtime = (storeId, getRawOrders) => {
     if (realtimeChannelRef.current) {
       supabase.removeChannel(realtimeChannelRef.current)
+      realtimeChannelRef.current = null
     }
     const channel = supabase
       .channel(`orders-changes-${storeId}`)
@@ -110,7 +122,6 @@ function App() {
         "postgres_changes",
         { event: "*", schema: "public", table: "shopify_orders_cache", filter: `store_id=eq.${storeId}` },
         (payload) => {
-          console.log("📦 Realtime event received:", payload)
           const row = payload.new
           if (!row || !row.raw_data) return
           const rawOrder = row.raw_data
@@ -130,6 +141,13 @@ function App() {
       )
       .subscribe((status) => {
         console.log("🔌 Realtime status:", status)
+        // Agar connection kisi wajah se TUT jaye (network blip, server restart),
+        // chhand second baad dobara connect karne ki koshish karo
+        if (status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          setTimeout(() => {
+            setupRealtime(storeId, getRawOrders)
+          }, 3000)
+        }
       })
     realtimeChannelRef.current = channel
   }
@@ -141,7 +159,6 @@ function App() {
       const storeData = result.data
       if (!storeData) { setOrdersLoading(false); return }
       setOrdersStore(storeData)
-      storeIdRef.current = storeData.id
 
       const statuses = await fetchAllOrderStatuses()
       const statusMap = {}
@@ -247,7 +264,7 @@ function App() {
     } catch (err) {
       console.log("Orders load error:", err.message)
       setOrdersLoading(false)
-      setOrdersLoaded(true) // taake splash hamesha ke liye atak na jaye agar error aaye
+      setOrdersLoaded(true)
     }
   }
 
@@ -255,8 +272,6 @@ function App() {
     return <ShopifyCallback />
   }
 
-  // Session check ho rahi ho, ya orders ka pehla batch abhi load ho raha ho —
-  // dono cases mein clean splash dikhao, blank/incomplete UI kabhi nahi
   if (loading) return <SplashScreen />
   if (!session) return <Login />
   if (!ordersLoaded) return <SplashScreen />
