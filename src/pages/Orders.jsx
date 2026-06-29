@@ -17,16 +17,26 @@ const STATUSES = [
 
 const SOURCE_COLORS = { Meta: "#3b82f6", TikTok: "#ec4899", Snapchat: "#eab308", Google: "#10b981", Direct: "#64748b" };
 const PER_PAGE_OPTIONS = [20, 50, 100];
-const TABS = ["All", "New", "Approved", "Pending", "Cancelled"];
+const TABS = ["All", "New", "Approved", "Pending", "Ready to Sync", "Cancelled"];
 const CANCEL_REASONS = ["Not Interested", "Wrong Number", "Duplicate Order", "Customer Cancelled", "Out of Stock", "Other"];
 const PAGE_SIZE = 1000;
 const SYNC_CONFIRM_PER_PAGE = 20;
 const HISTORY_VALID_MS = 2 * 24 * 60 * 60 * 1000; // 2 din
 
+// Pure helper — order ki current sync state nikalta hai (module-level taake
+// tabFilter aur render dono use kar sakein)
+const getSyncState = (order) => {
+  if (!order.synced_at && !order.last_edited_at) return "never";
+  if (!order.synced_at && order.last_edited_at) return "pending";
+  if (order.last_edited_at && order.synced_at && new Date(order.last_edited_at) > new Date(order.synced_at)) return "pending";
+  return "synced";
+};
+
 const tabFilter = (tab, o) => {
   if (tab === "New") return !o.agent_status;
   if (tab === "Approved") return o.agent_status === "Approved";
   if (tab === "Pending") return !!(o.agent_status && o.agent_status !== "Approved" && o.agent_status !== "Cancelled");
+  if (tab === "Ready to Sync") return getSyncState(o) === "pending";
   if (tab === "Cancelled") return o.agent_status === "Cancelled";
   return true;
 };
@@ -234,7 +244,30 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     }) || [];
   };
 
+  // Sirf tab snapshot lete hain jab koi existing valid snapshot na ho —
+  // taake yeh hamesha "edit se PEHLE" wali asal value capture kare,
+  // sync ke waqt ki nahi (warna undo edited value hi wapas la deta hai)
+  const ensureHistorySnapshot = async (order) => {
+    const existing = historyMap[String(order.id)];
+    if (isHistoryValid(existing)) return;
+    const now = new Date().toISOString();
+    const snapshot = {
+      previous_shipping_address: order.shipping_address || null,
+      previous_phone: order.shipping_address?.phone || order.customer?.phone || null,
+      previous_agent_data: order.agent_data || {},
+      previous_status: order.agent_status || null,
+      created_at: now,
+    };
+    await supabase.from("order_sync_history").upsert(
+      { order_id: String(order.id), ...snapshot },
+      { onConflict: "order_id" }
+    );
+    setHistoryMap(prev => ({ ...prev, [String(order.id)]: snapshot }));
+  };
+
   const updateStatus = async (orderId, status) => {
+    const orderForSnapshot = orders.find(o => o.id === orderId);
+    if (orderForSnapshot) await ensureHistorySnapshot(orderForSnapshot);
     const now = new Date().toISOString();
     const { error } = await supabase.from("order_statuses").upsert(
       { order_id: String(orderId), status, updated_at: now, last_edited_at: now },
@@ -258,6 +291,8 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   };
 
   const updateCancellationReason = async (orderId, reason) => {
+    const orderForSnapshot = orders.find(o => o.id === orderId);
+    if (orderForSnapshot) await ensureHistorySnapshot(orderForSnapshot);
     const now = new Date().toISOString();
     await supabase.from("order_statuses").upsert(
       { order_id: String(orderId), cancellation_reason: reason, updated_at: now },
@@ -270,6 +305,8 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   };
 
   const updateField = async (orderId, field, value) => {
+    const orderForSnapshot = orders.find(o => o.id === orderId);
+    if (orderForSnapshot) await ensureHistorySnapshot(orderForSnapshot);
     const existing = orders.find(o => o.id === orderId)?.agent_data || {};
     // Phone field hamesha normalize karke save hota hai (03xxxxxxxxx format)
     const finalValue = field === "phone" ? normalizePhone(value) : value;
@@ -334,28 +371,12 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     return { addressPayload, phoneToSync, diff };
   };
 
-  const saveHistorySnapshot = async (order) => {
-    const now = new Date().toISOString();
-    const snapshot = {
-      previous_shipping_address: order.shipping_address || null,
-      previous_phone: order.shipping_address?.phone || order.customer?.phone || null,
-      previous_agent_data: order.agent_data || {},
-      previous_status: order.agent_status || null,
-      created_at: now,
-    };
-    await supabase.from("order_sync_history").upsert(
-      { order_id: String(order.id), ...snapshot },
-      { onConflict: "order_id" }
-    );
-    return snapshot;
-  };
-
   const doSyncOrder = async (order) => {
     const storeData = store || ordersStore;
     if (!storeData) return { id: order.id, name: order.name, success: false, error: "Store connected nahi hai" };
     const { addressPayload, phoneToSync } = buildSyncPlan(order);
     try {
-      const historySnapshot = await saveHistorySnapshot(order);
+      await ensureHistorySnapshot(order);
       const res = await fetch(`${cfUrl}/shopify-update-order`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -374,7 +395,6 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           { onConflict: "order_id" }
         );
         setOrders(prev => prev.map(o => o.id === order.id ? { ...o, synced_at: now } : o));
-        setHistoryMap(prev => ({ ...prev, [String(order.id)]: historySnapshot }));
         return { id: order.id, name: order.name, success: true };
       }
       return { id: order.id, name: order.name, success: false, error: JSON.stringify(data.errors || data.error) };
@@ -484,9 +504,11 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     setUndoRunning(true);
     const results = [];
     for (const order of undoConfirmModal.orders) {
+      setUndoingId(order.id);
       const r = await doUndoOrder(order);
       results.push(r);
     }
+    setUndoingId(null);
     setUndoRunning(false);
     setUndoConfirmModal(null);
     setSelectedIds(new Set());
@@ -550,13 +572,6 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     } else {
       setSelectedIds(new Set(pagedOrders.map(o => o.id)));
     }
-  };
-
-  const getSyncState = (order) => {
-    if (!order.synced_at && !order.last_edited_at) return "never";
-    if (!order.synced_at && order.last_edited_at) return "pending";
-    if (order.last_edited_at && order.synced_at && new Date(order.last_edited_at) > new Date(order.synced_at)) return "pending";
-    return "synced";
   };
 
   const currentStore = store || ordersStore;
