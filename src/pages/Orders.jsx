@@ -640,7 +640,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
   if (error) return <div style={{ padding: "2rem", color: "var(--ne-danger)" }}>❌ {error}</div>;
 
-  const tdBase = { padding: "7px 6px", verticalAlign: "top", overflow: "hidden" };
+  const tdBase = { padding: "7px 6px", verticalAlign: "top" };
   const thBase = { padding: "7px 6px", textAlign: "left", color: "var(--ne-muted)", whiteSpace: "nowrap", fontWeight: 600, fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".03em", borderBottom: "1px solid var(--ne-border)", background: "var(--ne-surface-2)" };
   const dateBtnStyle = (type) => ({
     padding: "5px 12px", borderRadius: 18, fontSize: 11, cursor: "pointer", fontWeight: 600, border: "1px solid",
@@ -791,33 +791,14 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>Loading orders...</div>
       ) : (
         <div ref={tableRef} style={{ overflowX: "auto", borderRadius: 12, border: "1px solid var(--ne-border)", flex: 1, overflowY: "auto", background: "var(--ne-surface)" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, tableLayout: "fixed" }}>
-            <colgroup>
-              <col style={{ width: 30 }} />
-              <col style={{ width: 85 }} />
-              <col style={{ width: 75 }} />
-              <col style={{ width: 55 }} />
-              <col style={{ width: 115 }} />
-              <col style={{ width: 105 }} />
-              <col style={{ width: 135 }} />
-              <col style={{ width: 85 }} />
-              <col style={{ width: 165 }} />
-              <col style={{ width: 105 }} />
-              <col style={{ width: 75 }} />
-              <col style={{ width: 65 }} />
-              <col style={{ width: 65 }} />
-              <col style={{ width: 95 }} />
-              <col style={{ width: 75 }} />
-              <col style={{ width: 105 }} />
-              <col style={{ width: 125 }} />
-            </colgroup>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
             <thead style={{ position: "sticky", top: 0, zIndex: 15 }}>
               <tr>
                 <th style={{ ...thBase, width: 30 }}>
                   <input type="checkbox" checked={selectedIds.size === pagedOrders.length && pagedOrders.length > 0}
                     onChange={toggleSelectAll} style={{ cursor: "pointer" }} />
                 </th>
-                <th style={{ ...thBase, position: "sticky", left: 0, zIndex: 20, background: "var(--ne-surface-2)" }}>Order#</th>
+                <th style={{ ...thBase, position: "sticky", left: 0, zIndex: 20, background: "var(--ne-surface-2)", minWidth: 85 }}>Order#</th>
                 <th style={thBase}>Date</th>
                 <th style={thBase}>Time</th>
                 <th style={thBase}>Full Name</th>
@@ -832,7 +813,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                 <th style={thBase}>Total</th>
                 <th style={thBase}>Source</th>
                 <th style={thBase}>Remarks</th>
-                <th style={{ ...thBase, position: "sticky", right: 0, zIndex: 20, background: "var(--ne-surface-2)" }}>Status / Sync</th>
+                <th style={{ ...thBase, position: "sticky", right: 0, zIndex: 20, background: "var(--ne-surface-2)", minWidth: 120 }}>Status / Sync</th>
               </tr>
             </thead>
             <tbody>
