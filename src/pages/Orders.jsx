@@ -107,6 +107,22 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const [undoConfirmModal, setUndoConfirmModal] = useState(null);
   const [undoRunning, setUndoRunning] = useState(false);
   const [undoingId, setUndoingId] = useState(null);
+  const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
+  const [expandedIds, setExpandedIds] = useState(new Set());
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 760);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const toggleExpand = (id) => {
+    setExpandedIds(prev => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  };
 
   useEffect(() => {
     if (!ordersLoaded) loadStore();
@@ -790,125 +806,182 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       {loading ? (
         <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>Loading orders...</div>
       ) : (
-        <div ref={tableRef} style={{ overflowX: "auto", borderRadius: 12, border: "1px solid var(--ne-border)", flex: 1, overflowY: "auto", background: "var(--ne-surface)" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-            <thead style={{ position: "sticky", top: 0, zIndex: 15 }}>
-              <tr>
-                <th style={{ ...thBase, width: 30 }}>
-                  <input type="checkbox" checked={selectedIds.size === pagedOrders.length && pagedOrders.length > 0}
-                    onChange={toggleSelectAll} style={{ cursor: "pointer" }} />
-                </th>
-                <th style={{ ...thBase, position: "sticky", left: 0, zIndex: 20, background: "var(--ne-surface-2)", minWidth: 85 }}>Order#</th>
-                <th style={thBase}>Date</th>
-                <th style={thBase}>Time</th>
-                <th style={thBase}>Full Name</th>
-                <th style={thBase}>Phone</th>
-                <th style={thBase}>Address</th>
-                <th style={thBase}>City</th>
-                <th style={thBase}>Products</th>
-                <th style={thBase}>SKU</th>
-                <th style={thBase}>Unit Price</th>
-                <th style={thBase}>Shipping</th>
-                <th style={thBase}>Discount</th>
-                <th style={thBase}>Total</th>
-                <th style={thBase}>Source</th>
-                <th style={thBase}>Remarks</th>
-                <th style={{ ...thBase, position: "sticky", right: 0, zIndex: 20, background: "var(--ne-surface-2)", minWidth: 120 }}>Status / Sync</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pagedOrders.map((order, i) => {
-                const source = getSource(order);
-                const status = STATUSES.find(s => s.label === order.agent_status);
-                const phone = normalizePhone(order.agent_data?.phone || order.customer?.phone || order.shipping_address?.phone || "");
-                const fullName = order.agent_data?.customer_name || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim();
-                const city = order.agent_data?.city || order.shipping_address?.city || "";
-                const address = order.agent_data?.address || order.shipping_address?.address1 || "";
-                const products = order.agent_data?.product || order.line_items?.map(i => `${i.quantity > 1 ? i.quantity + "x " : ""}${i.title}`).join(" + ") || "—";
-                const skus = order.agent_data?.sku || order.line_items?.map(i => `${i.quantity > 1 ? i.quantity : ""}${i.sku || ""}`).join(" + ") || "—";
-                const unitPrices = order.line_items?.map(i => i.price).join(" + ") || "—";
-                const shipping = order.agent_data?.shipping || order.total_shipping_price_set?.presentment_money?.amount || "0";
-                const discount = order.agent_data?.discount || order.total_discounts || "0";
-                const remarks = order.agent_data?.remarks || "";
-                const cancellationReason = order.agent_data?.cancellation_reason || "";
-                const date = new Date(order.created_at).toLocaleDateString("en-PK");
-                const time = new Date(order.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" });
-                const shopifyUrl = `https://${currentStore?.shopify_url}/admin/orders/${order.id}`;
-                const rowBg = isSelectedRow => isSelectedRow ? "var(--ne-accent-soft)" : (i % 2 === 0 ? "transparent" : "rgba(255,255,255,.02)");
-                const syncState = getSyncState(order);
-                const isSelected = selectedIds.has(order.id);
-                const isCancelled = order.agent_status === "Cancelled";
-                const hasValidHistory = isHistoryValid(historyMap[String(order.id)]);
-                const isUndoing = undoingId === order.id;
+        <div ref={tableRef} style={{ flex: 1, overflowY: "auto", overflowX: "auto" }}>
+          {!isMobile && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", position: "sticky", top: 0, zIndex: 15, background: "var(--ne-surface-2)", borderRadius: 10, marginBottom: 8 }}>
+              <input type="checkbox" checked={selectedIds.size === pagedOrders.length && pagedOrders.length > 0}
+                onChange={toggleSelectAll} style={{ cursor: "pointer", flexShrink: 0, width: 28 }} />
+              <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 95, flexShrink: 0 }}>Order#</span>
+              <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 140, flexShrink: 0 }}>Customer</span>
+              <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 190, flexShrink: 0 }}>Address</span>
+              <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 160, flexShrink: 0 }}>Items</span>
+              <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 115, flexShrink: 0 }}>Pricing</span>
+              <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 85, flexShrink: 0 }}>Total</span>
+              <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 75, flexShrink: 0 }}>Source</span>
+              <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 110, flexShrink: 0 }}>Remarks</span>
+              <span style={{ ...thBase, background: "none", border: "none", padding: 0, flex: 1 }}>Status / Sync</span>
+            </div>
+          )}
 
-                const syncBtn = () => {
-                  if (syncState === "pending") return { bg: "var(--ne-warning-soft)", color: "var(--ne-warning)", label: "⚡ Ready to Sync" };
-                  if (syncState === "synced") return { bg: "var(--ne-success-soft)", color: "var(--ne-success)", label: "✓ Synced" };
-                  return { bg: "var(--ne-surface-2)", color: "var(--ne-muted-2)", label: "Sync" };
-                };
-                const sb = syncBtn();
-                const bg = rowBg(isSelected);
+          {pagedOrders.map((order, i) => {
+            const source = getSource(order);
+            const status = STATUSES.find(s => s.label === order.agent_status);
+            const phone = normalizePhone(order.agent_data?.phone || order.customer?.phone || order.shipping_address?.phone || "");
+            const fullName = order.agent_data?.customer_name || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim();
+            const city = order.agent_data?.city || order.shipping_address?.city || "";
+            const address = order.agent_data?.address || order.shipping_address?.address1 || "";
+            const products = order.agent_data?.product || order.line_items?.map(i => `${i.quantity > 1 ? i.quantity + "x " : ""}${i.title}`).join(" + ") || "—";
+            const skus = order.agent_data?.sku || order.line_items?.map(i => `${i.quantity > 1 ? i.quantity : ""}${i.sku || ""}`).join(" + ") || "—";
+            const unitPrices = order.line_items?.map(i => i.price).join(" + ") || "—";
+            const shipping = order.agent_data?.shipping || order.total_shipping_price_set?.presentment_money?.amount || "0";
+            const discount = order.agent_data?.discount || order.total_discounts || "0";
+            const remarks = order.agent_data?.remarks || "";
+            const cancellationReason = order.agent_data?.cancellation_reason || "";
+            const date = new Date(order.created_at).toLocaleDateString("en-PK");
+            const time = new Date(order.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" });
+            const shopifyUrl = `https://${currentStore?.shopify_url}/admin/orders/${order.id}`;
+            const syncState = getSyncState(order);
+            const isSelected = selectedIds.has(order.id);
+            const isCancelled = order.agent_status === "Cancelled";
+            const hasValidHistory = isHistoryValid(historyMap[String(order.id)]);
+            const isUndoing = undoingId === order.id;
+            const isExpanded = expandedIds.has(order.id);
 
-                return (
-                  <tr key={order.id} style={{ background: bg, borderBottom: "1px solid var(--ne-border)" }}>
-                    <td style={{ ...tdBase, textAlign: "center" }}>
-                      <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(order.id)} style={{ cursor: "pointer" }} />
-                    </td>
-                    <td style={{ ...tdBase, position: "sticky", left: 0, zIndex: 4, background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface)", whiteSpace: "nowrap" }}>
-                      <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 11 }}>{order.name}</a>
-                    </td>
-                    <td style={{ ...tdBase, color: "var(--ne-muted)", whiteSpace: "nowrap" }}>{date}</td>
-                    <td style={{ ...tdBase, color: "var(--ne-muted-2)", whiteSpace: "nowrap" }}>{time}</td>
-                    <td style={tdBase}>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                        <EditableCell orderId={order.id} field="customer_name" value={fullName} width={110} maxChars={15} />
-                        {isCancelled && cancellationReason && (
-                          <span style={{ padding: "1px 6px", borderRadius: 6, fontSize: 9, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, whiteSpace: "nowrap", display: "inline-block" }}>
-                            {cancellationReason}
-                          </span>
-                        )}
+            const syncBtn = () => {
+              if (syncState === "pending") return { bg: "var(--ne-warning-soft)", color: "var(--ne-warning)", label: "⚡ Ready to Sync" };
+              if (syncState === "synced") return { bg: "var(--ne-success-soft)", color: "var(--ne-success)", label: "✓ Synced" };
+              return { bg: "var(--ne-surface-2)", color: "var(--ne-muted-2)", label: "Sync" };
+            };
+            const sb = syncBtn();
+
+            const statusBtn = (
+              <button data-order-btn={order.id} onClick={(e) => handleStatusBtnClick(e, order.id)}
+                style={{ padding: "3px 9px", borderRadius: 8, fontSize: 10, background: status?.bg || "var(--ne-surface-2)", color: status?.color || "var(--ne-muted-2)", border: "none", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" }}>
+                {order.agent_status || "Set ▼"}
+              </button>
+            );
+            const syncRow = (
+              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                <button onClick={() => openSyncConfirm([order])}
+                  style={{ padding: "2px 8px", borderRadius: 6, fontSize: 9, background: sb.bg, color: sb.color, border: "none", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" }}>
+                  {sb.label}
+                </button>
+                {hasValidHistory && (
+                  <button onClick={() => openUndoConfirm([order])} disabled={isUndoing} title="Undo"
+                    style={{ padding: "2px 5px", borderRadius: 6, fontSize: 11, lineHeight: 1, background: "var(--ne-warning-soft)", color: "var(--ne-warning)", border: "none", cursor: isUndoing ? "default" : "pointer" }}>
+                    {isUndoing ? "⏳" : "↩️"}
+                  </button>
+                )}
+              </div>
+            );
+
+            if (isMobile) {
+              return (
+                <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "10px 12px", marginBottom: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(order.id)} style={{ cursor: "pointer", flexShrink: 0 }} />
+                    <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 12 }}>{order.name}</a>
+                    <span style={{ marginLeft: "auto" }}>{statusBtn}</span>
+                  </div>
+                  <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)", marginTop: 4 }}>{date} · {time} · {skus}</div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 5 }}>
+                    <div>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ne-text)" }}>{fullName || "—"}</div>
+                      <div style={{ fontSize: 11, color: "var(--ne-muted)" }}>{city || "—"}</div>
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ne-success)" }}>Rs. {Number(order.total_price).toLocaleString()}</div>
+                  </div>
+
+                  <button onClick={() => toggleExpand(order.id)}
+                    style={{ width: "100%", marginTop: 8, padding: "6px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-muted)", fontSize: 10.5, cursor: "pointer", fontWeight: 600 }}>
+                    {isExpanded ? "▲ Kam dikhao" : "▼ Tafseel dikhao"}
+                  </button>
+
+                  {isExpanded && (
+                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--ne-border)", display: "flex", flexDirection: "column", gap: 6 }}>
+                      <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>Phone: </span><EditableCell orderId={order.id} field="phone" value={phone} width={200} /></div>
+                      <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>Address: </span><EditableCell orderId={order.id} field="address" value={address} width={260} /></div>
+                      <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>Product: </span><EditableCell orderId={order.id} field="product" value={products} width={260} /></div>
+                      <div style={{ display: "flex", gap: 14 }}>
+                        <div style={{ fontSize: 10.5, color: "var(--ne-muted)" }}>Unit: {unitPrices}</div>
+                        <div style={{ fontSize: 10.5, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 3 }}>Ship: <EditableCell orderId={order.id} field="shipping" value={String(shipping)} width={50} /></div>
+                        <div style={{ fontSize: 10.5, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 3 }}>Disc: <EditableCell orderId={order.id} field="discount" value={String(discount)} width={50} /></div>
                       </div>
-                    </td>
-                    <td style={tdBase}><EditableCell orderId={order.id} field="phone" value={phone} width={100} maxChars={13} /></td>
-                    <td style={tdBase}><EditableCell orderId={order.id} field="address" value={address} width={130} maxChars={18} /></td>
-                    <td style={tdBase}><EditableCell orderId={order.id} field="city" value={city} width={80} maxChars={10} /></td>
-                    <td style={tdBase}><EditableCell orderId={order.id} field="product" value={products} width={160} maxChars={20} /></td>
-                    <td style={tdBase}><EditableCell orderId={order.id} field="sku" value={skus} width={100} maxChars={12} /></td>
-                    <td style={{ ...tdBase, color: "var(--ne-muted)", whiteSpace: "nowrap" }}>{unitPrices}</td>
-                    <td style={tdBase}><EditableCell orderId={order.id} field="shipping" value={String(shipping)} width={60} maxChars={7} /></td>
-                    <td style={tdBase}><EditableCell orderId={order.id} field="discount" value={String(discount)} width={60} maxChars={7} /></td>
-                    <td style={{ ...tdBase, color: "var(--ne-success)", fontWeight: 700, whiteSpace: "nowrap" }}>Rs. {Number(order.total_price).toLocaleString()}</td>
-                    <td style={tdBase}>
-                      <span style={{ padding: "2px 7px", borderRadius: 8, fontSize: 10, background: "var(--ne-surface-2)", color: SOURCE_COLORS[source], fontWeight: 700 }}>{source}</span>
-                    </td>
-                    <td style={tdBase}>
-                      <EditableCell orderId={order.id} field="remarks" value={remarks} width={100} maxChars={18} />
-                    </td>
-                    <td style={{ ...tdBase, position: "sticky", right: 0, zIndex: 4, background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface)" }}>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start" }}>
-                        <button data-order-btn={order.id} onClick={(e) => handleStatusBtnClick(e, order.id)}
-                          style={{ padding: "3px 9px", borderRadius: 8, fontSize: 10, background: status?.bg || "var(--ne-surface-2)", color: status?.color || "var(--ne-muted-2)", border: "none", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" }}>
-                          {order.agent_status || "Set ▼"}
-                        </button>
-                        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                          <button onClick={() => openSyncConfirm([order])}
-                            style={{ padding: "2px 8px", borderRadius: 6, fontSize: 9, background: sb.bg, color: sb.color, border: "none", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" }}>
-                            {sb.label}
-                          </button>
-                          {hasValidHistory && (
-                            <button onClick={() => openUndoConfirm([order])} disabled={isUndoing} title="Undo"
-                              style={{ padding: "2px 5px", borderRadius: 6, fontSize: 11, lineHeight: 1, background: "var(--ne-warning-soft)", color: "var(--ne-warning)", border: "none", cursor: isUndoing ? "default" : "pointer" }}>
-                              {isUndoing ? "⏳" : "↩️"}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      {isCancelled && cancellationReason && (
+                        <span style={{ padding: "2px 7px", borderRadius: 6, fontSize: 10, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, width: "fit-content" }}>{cancellationReason}</span>
+                      )}
+                      <span style={{ padding: "2px 8px", borderRadius: 8, fontSize: 10, background: "var(--ne-surface-2)", color: SOURCE_COLORS[source], fontWeight: 700, width: "fit-content" }}>{source}</span>
+                      <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>Remarks: </span><EditableCell orderId={order.id} field="remarks" value={remarks} width={260} /></div>
+                      {syncRow}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+            return (
+              <div key={order.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "10px 12px", marginBottom: 8 }}>
+                <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(order.id)} style={{ cursor: "pointer", flexShrink: 0, width: 28, marginTop: 2 }} />
+
+                <div style={{ width: 95, flexShrink: 0 }}>
+                  <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 11.5 }}>{order.name}</a>
+                  <div style={{ fontSize: 10.5, color: "var(--ne-muted)", marginTop: 2 }}>{date}</div>
+                  <div style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{time}</div>
+                </div>
+
+                <div style={{ width: 140, flexShrink: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                  <EditableCell orderId={order.id} field="customer_name" value={fullName} width={130} />
+                  <EditableCell orderId={order.id} field="phone" value={phone} width={130} />
+                  <EditableCell orderId={order.id} field="city" value={city} width={130} />
+                  {isCancelled && cancellationReason && (
+                    <span style={{ padding: "1px 6px", borderRadius: 6, fontSize: 9, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, width: "fit-content" }}>{cancellationReason}</span>
+                  )}
+                </div>
+
+                <div style={{ width: 190, flexShrink: 0 }}>
+                  <EditableCell orderId={order.id} field="address" value={address} width={180} />
+                </div>
+
+                <div style={{ width: 160, flexShrink: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                  <EditableCell orderId={order.id} field="sku" value={skus} width={150} />
+                  <EditableCell orderId={order.id} field="product" value={products} width={150} />
+                </div>
+
+                <div style={{ width: 115, flexShrink: 0, display: "flex", flexDirection: "column", gap: 3 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}>
+                    <span style={{ color: "var(--ne-muted-2)" }}>Unit</span>
+                    <span style={{ color: "var(--ne-muted)" }}>{unitPrices}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
+                    <span style={{ color: "var(--ne-muted-2)" }}>Ship</span>
+                    <EditableCell orderId={order.id} field="shipping" value={String(shipping)} width={55} />
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
+                    <span style={{ color: "var(--ne-muted-2)" }}>Disc</span>
+                    <EditableCell orderId={order.id} field="discount" value={String(discount)} width={55} />
+                  </div>
+                </div>
+
+                <div style={{ width: 85, flexShrink: 0, color: "var(--ne-success)", fontWeight: 700, fontSize: 12 }}>
+                  Rs. {Number(order.total_price).toLocaleString()}
+                </div>
+
+                <div style={{ width: 75, flexShrink: 0 }}>
+                  <span style={{ padding: "2px 7px", borderRadius: 8, fontSize: 10, background: "var(--ne-surface-2)", color: SOURCE_COLORS[source], fontWeight: 700 }}>{source}</span>
+                </div>
+
+                <div style={{ width: 110, flexShrink: 0 }}>
+                  <EditableCell orderId={order.id} field="remarks" value={remarks} width={100} />
+                </div>
+
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start" }}>
+                  {statusBtn}
+                  {syncRow}
+                </div>
+              </div>
+            );
+          })}
+
           {pagedOrders.length === 0 && (
             <div style={{ textAlign: "center", padding: "3rem", color: "var(--ne-muted)" }}>Koi order nahi mila!</div>
           )}
