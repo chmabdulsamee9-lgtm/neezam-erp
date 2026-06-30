@@ -12,38 +12,125 @@ import Team from './pages/Team'
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev"
 const BATCH_SIZE = 1000
 
+// ---------- Aurora Ledger theme: global styles + icon set ----------
+function AuroraStyles() {
+  return (
+    <style>{`
+      :root{
+        --ne-bg:#070A1A;
+        --ne-bg-glow: radial-gradient(60% 50% at 85% -10%, rgba(92,124,250,.18), transparent 60%),
+                      radial-gradient(50% 40% at 0% 100%, rgba(168,85,247,.12), transparent 60%);
+        --ne-sidebar-bg:#0A0E26; --ne-surface:#11163A; --ne-surface-2:#161B45; --ne-border:#232A52;
+        --ne-text:#EEF0FF; --ne-muted:#8C93C4; --ne-muted-2:#4F567E;
+        --ne-accent:#5C7CFA; --ne-accent2:#A855F7; --ne-accent-soft:#1C2356;
+        --ne-grad: linear-gradient(120deg, #5C7CFA 0%, #A855F7 100%);
+        --ne-success:#34D88E; --ne-success-soft:#11402A;
+        --ne-warning:#F2A83E; --ne-warning-soft:#3A2A0D;
+        --ne-danger:#F26D6D; --ne-danger-soft:#3A1414;
+      }
+      .ne-app-shell{font-family:'Inter',system-ui,sans-serif; min-height:100vh; background:var(--ne-bg-glow), var(--ne-bg); color:var(--ne-text); -webkit-font-smoothing:antialiased;}
+      .ne-app{display:flex; height:100%; width:100%; overflow:hidden;}
+
+      .ne-sidebar{width:240px; flex-shrink:0; background:var(--ne-sidebar-bg); padding:20px 14px; display:flex; flex-direction:column; height:100%; overflow-y:auto;}
+      .ne-sidebar.collapsed{width:64px; align-items:center; padding:20px 8px;}
+      .ne-brand-row{display:flex; align-items:center; gap:9px; padding:6px 8px 18px;}
+      .ne-sidebar.collapsed .ne-brand-row{padding:6px 0 18px; justify-content:center;}
+      .ne-brand{font-size:18px; font-weight:800; color:#fff;}
+      .ne-live-dot{width:7px; height:7px; border-radius:50%; background:var(--ne-success); box-shadow:0 0 0 0 rgba(52,216,142,.6); animation:ne-pulse 2s infinite; flex-shrink:0;}
+      @keyframes ne-pulse{0%{box-shadow:0 0 0 0 rgba(52,216,142,.5);} 70%{box-shadow:0 0 0 6px rgba(52,216,142,0);} 100%{box-shadow:0 0 0 0 rgba(52,216,142,0);}}
+
+      .ne-navlabel{font-size:10px; font-weight:700; color:rgba(255,255,255,.35); text-transform:uppercase; letter-spacing:.07em; padding:14px 8px 5px;}
+      .ne-navitem{display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:10px; font-size:13px; color:rgba(255,255,255,.65); cursor:pointer; font-weight:500; white-space:nowrap;}
+      .ne-sidebar.collapsed .ne-navitem{justify-content:center; padding:9px;}
+      .ne-navitem .ne-ic{width:26px; height:26px; border-radius:8px; background:rgba(255,255,255,.05); display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+      .ne-navitem .ne-ic svg{width:14px; height:14px; stroke:rgba(255,255,255,.65); fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round;}
+      .ne-navitem.active{color:#fff; font-weight:700; background:rgba(255,255,255,.04);}
+      .ne-navitem.active .ne-ic{background:var(--ne-grad);}
+      .ne-navitem.active .ne-ic svg{stroke:#fff;}
+      .ne-navitem:hover:not(.active){background:rgba(255,255,255,.04);}
+
+      .ne-collapse-btn{background:none; border:none; color:rgba(255,255,255,.5); cursor:pointer; font-size:14px; padding:4px;}
+
+      .ne-main{flex:1; display:flex; flex-direction:column; height:100%; overflow:hidden; min-width:0; background:var(--ne-surface);}
+      .ne-topbar{display:flex; align-items:center; gap:14px; padding:14px 24px; border-bottom:1px solid var(--ne-border); flex-shrink:0;}
+      .ne-hamburger{display:none; width:34px; height:34px; border-radius:9px; flex-shrink:0; background:var(--ne-surface-2); border:1px solid var(--ne-border); color:var(--ne-text); align-items:center; justify-content:center; cursor:pointer; font-size:15px;}
+      .ne-page-title{font-size:15px; font-weight:700; margin:0;}
+      .ne-sync-status{font-size:11px; color:var(--ne-muted-2); font-weight:400; margin-left:8px;}
+      .ne-userchip{display:flex; align-items:center; gap:9px; font-size:12.5px; color:var(--ne-muted); margin-left:auto; font-weight:600;}
+      .ne-avatar{width:28px; height:28px; border-radius:50%; background:var(--ne-grad); color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:800; flex-shrink:0;}
+
+      .ne-content{flex:1; overflow:auto; min-width:0; width:100%;}
+
+      .ne-drawer-backdrop{display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:998;}
+      .ne-drawer-backdrop.open{display:block;}
+
+      @media (max-width: 760px){
+        .ne-hamburger{display:flex;}
+        .ne-sidebar{
+          position:fixed; top:0; left:0; bottom:0; z-index:999; width:250px !important;
+          transform:translateX(-100%); transition:transform .25s ease; box-shadow:24px 0 50px rgba(0,0,0,.45);
+          align-items:stretch !important; padding:20px 14px !important;
+        }
+        .ne-sidebar.open{transform:translateX(0);}
+        .ne-sidebar .ne-navitem{justify-content:flex-start !important; padding:8px 10px !important;}
+        .ne-sidebar .ne-brand-row{justify-content:flex-start !important; padding:6px 8px 18px !important;}
+        .ne-collapse-btn{display:none;}
+      }
+
+      /* Scrollbar theming */
+      .ne-app-shell ::-webkit-scrollbar{width:9px; height:9px;}
+      .ne-app-shell ::-webkit-scrollbar-track{background:transparent;}
+      .ne-app-shell ::-webkit-scrollbar-thumb{background:var(--ne-border); border-radius:6px;}
+      .ne-app-shell ::-webkit-scrollbar-thumb:hover{background:var(--ne-muted-2);}
+    `}</style>
+  )
+}
+
+const NAV_ICONS = {
+  dashboard: <svg viewBox="0 0 20 20"><rect x="2.5" y="2.5" width="6.5" height="6.5" rx="1.5"/><rect x="11" y="2.5" width="6.5" height="6.5" rx="1.5"/><rect x="2.5" y="11" width="6.5" height="6.5" rx="1.5"/><rect x="11" y="11" width="6.5" height="6.5" rx="1.5"/></svg>,
+  orders: <svg viewBox="0 0 20 20"><path d="M10 2.5 17 6.5v7L10 17.5 3 13.5v-7Z"/><path d="M3 6.5 10 10.5 17 6.5"/><path d="M10 10.5v7"/></svg>,
+  courier: <svg viewBox="0 0 20 20"><rect x="2" y="6" width="9" height="7" rx="1"/><path d="M11 9h3.5L17 11.5V13h-6"/><circle cx="6" cy="15.5" r="1.6"/><circle cx="14.5" cy="15.5" r="1.6"/></svg>,
+  ads: <svg viewBox="0 0 20 20"><path d="M3 17V9"/><path d="M9 17V3"/><path d="M15 17v-6"/></svg>,
+  pnl: <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><path d="M10 6.5v7M7.5 8.3c0-1.1 1.1-1.8 2.5-1.8s2.5.6 2.5 1.6c0 2.2-5 1-5 3.2 0 1 1.1 1.6 2.5 1.6s2.5-.7 2.5-1.8"/></svg>,
+  ledger: <svg viewBox="0 0 20 20"><rect x="3" y="3" width="14" height="14" rx="2"/><path d="M6 8h8M6 11h8M6 14h5"/></svg>,
+  returns: <svg viewBox="0 0 20 20"><path d="M7 5 3 9l4 4"/><path d="M3 9h9a4 4 0 0 1 4 4v1"/></svg>,
+  cities: <svg viewBox="0 0 20 20"><path d="M10 18s6-5.5 6-10a6 6 0 1 0-12 0c0 4.5 6 10 6 10Z"/><circle cx="10" cy="8" r="2"/></svg>,
+  products: <svg viewBox="0 0 20 20"><path d="M3 3h6l8 8-6 6-8-8Z"/><circle cx="7" cy="7" r="1.3" fill="currentColor" stroke="none"/></svg>,
+  budget: <svg viewBox="0 0 20 20"><rect x="2.5" y="3.5" width="15" height="13" rx="2"/><path d="M2.5 8h15M6 12h2M11 12h3"/></svg>,
+  suggestions: <svg viewBox="0 0 20 20"><path d="M10 2.5a5.5 5.5 0 0 0-3 10.1V14h6v-1.4A5.5 5.5 0 0 0 10 2.5Z"/><path d="M8 17h4"/></svg>,
+  whatsapp: <svg viewBox="0 0 20 20"><path d="M5 17l1-3.2A6.5 6.5 0 1 1 9.5 16L5 17Z"/><path d="M7.2 8c0 2.5 2.3 4.8 4.8 4.8"/></svg>,
+  'store-connect': <svg viewBox="0 0 20 20"><path d="M8 12 12 8"/><rect x="2" y="9" width="6" height="6" rx="3" transform="rotate(-45 5 12)"/><rect x="12" y="5" width="6" height="6" rx="3" transform="rotate(-45 15 8)"/></svg>,
+  team: <svg viewBox="0 0 20 20"><circle cx="7" cy="7" r="2.6"/><circle cx="14" cy="8" r="2"/><path d="M2.5 17c.5-3 2.2-4.5 4.5-4.5s4 1.5 4.5 4.5"/><path d="M12 17c.4-2.3 1.6-3.7 3.5-3.7s2.7 1.1 3 3.2"/></svg>,
+}
+
 function SplashScreen() {
   return (
-    <div style={{
-      height: '100%', width: '100%', background: '#0f172a',
-      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      gap: 18,
-    }}>
+    <div className="ne-app-shell" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18 }}>
+      <AuroraStyles />
       <div style={{ fontSize: '2.8rem', fontWeight: 700, color: '#fff' }}>نظام</div>
       <div style={{
         width: 36, height: 36, borderRadius: '50%',
-        border: '3px solid #1e293b', borderTopColor: '#3b82f6',
+        border: '3px solid #232A52', borderTopColor: '#5C7CFA',
         animation: 'neezam-spin 0.8s linear infinite',
       }} />
-      <div style={{ fontSize: 13, color: '#64748b' }}>Tayar ho raha hai...</div>
-      <style>{`
-        @keyframes neezam-spin { to { transform: rotate(360deg); } }
-      `}</style>
+      <div style={{ fontSize: 13, color: '#8C93C4' }}>Tayar ho raha hai...</div>
+      <style>{`@keyframes neezam-spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   )
 }
 
 function PendingApprovalScreen({ onSignOut }) {
   return (
-    <div style={{ height: '100%', background: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: '#1e293b', borderRadius: 16, padding: '2.5rem', maxWidth: 380, textAlign: 'center' }}>
+    <div className="ne-app-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <AuroraStyles />
+      <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 18, padding: '2.5rem', maxWidth: 380, textAlign: 'center' }}>
         <div style={{ fontSize: 40, marginBottom: 12 }}>⏳</div>
         <h2 style={{ color: '#fff', margin: '0 0 8px', fontSize: 18 }}>Approval ka wait hai</h2>
-        <p style={{ color: '#94a3b8', fontSize: 13, lineHeight: 1.6 }}>
+        <p style={{ color: 'var(--ne-muted)', fontSize: 13, lineHeight: 1.6 }}>
           Aapka account abhi approve nahi hua. Jaise hi admin approve karega, aap Neezam use kar sakenge.
         </p>
         <button onClick={onSignOut}
-          style={{ marginTop: 16, padding: '9px 20px', borderRadius: 8, border: '1px solid #334155', background: 'transparent', color: '#94a3b8', fontSize: 13, cursor: 'pointer' }}>
+          style={{ marginTop: 16, padding: '9px 20px', borderRadius: 10, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-muted)', fontSize: 13, cursor: 'pointer' }}>
           🚪 Logout
         </button>
       </div>
@@ -53,23 +140,24 @@ function PendingApprovalScreen({ onSignOut }) {
 
 function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, onSignOut, userEmail }) {
   const statCard = (value, label, color) => (
-    <div style={{ flex: 1, background: '#0f172a', borderRadius: 8, padding: '8px 4px', textAlign: 'center' }}>
+    <div style={{ flex: 1, background: 'var(--ne-surface)', borderRadius: 8, padding: '8px 4px', textAlign: 'center' }}>
       <div style={{ fontSize: 16, fontWeight: 700, color }}>{value}</div>
-      <div style={{ fontSize: 9, color: '#64748b', marginTop: 2 }}>{label}</div>
+      <div style={{ fontSize: 9, color: 'var(--ne-muted)', marginTop: 2 }}>{label}</div>
     </div>
   )
 
   return (
-    <div style={{ height: '100%', overflow: 'auto', background: '#0f172a', color: '#fff' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: '1px solid #1e293b' }}>
+    <div className="ne-app-shell" style={{ height: '100%', overflow: 'auto' }}>
+      <AuroraStyles />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: '1px solid var(--ne-border)' }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>نظام — Master Dashboard</h1>
-          <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>Creator view — saare brands</p>
+          <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--ne-muted)' }}>Creator view — saare brands</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 12, color: '#94a3b8' }}>{userEmail}</span>
+          <span style={{ fontSize: 12, color: 'var(--ne-muted)' }}>{userEmail}</span>
           <button onClick={onSignOut}
-            style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #334155', background: 'transparent', color: '#dc2626', fontSize: 12, cursor: 'pointer' }}>
+            style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid var(--ne-border)', background: 'transparent', color: '#F26D6D', fontSize: 12, cursor: 'pointer' }}>
             🚪 Logout
           </button>
         </div>
@@ -78,16 +166,16 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
       <div style={{ padding: '1.5rem' }}>
         {pendingProfiles.length > 0 && (
           <div style={{ marginBottom: '2rem' }}>
-            <h2 style={{ fontSize: 14, color: '#eab308', marginBottom: 10 }}>⏳ Pending Approvals ({pendingProfiles.length})</h2>
+            <h2 style={{ fontSize: 14, color: '#F2A83E', marginBottom: 10 }}>⏳ Pending Approvals ({pendingProfiles.length})</h2>
             <div style={{ display: 'grid', gap: 8 }}>
               {pendingProfiles.map(p => (
-                <div key={p.id} style={{ background: '#1e293b', borderRadius: 10, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div key={p.id} style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 12, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <div style={{ fontWeight: 600, fontSize: 14 }}>{p.full_name || '—'}</div>
-                    <div style={{ fontSize: 12, color: '#64748b' }}>{p.email} · {p.phone || 'no phone'} · {p.role}</div>
+                    <div style={{ fontSize: 12, color: 'var(--ne-muted)' }}>{p.email} · {p.phone || 'no phone'} · {p.role}</div>
                   </div>
                   <button onClick={() => onApprove(p.id)}
-                    style={{ padding: '7px 16px', borderRadius: 7, border: 'none', background: '#16a34a', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                    style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: 'var(--ne-grad)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
                     ✓ Approve
                   </button>
                 </div>
@@ -96,28 +184,28 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
           </div>
         )}
 
-        <h2 style={{ fontSize: 14, color: '#94a3b8', marginBottom: 10 }}>🏪 Saare Brands ({allStores.length})</h2>
+        <h2 style={{ fontSize: 14, color: 'var(--ne-muted)', marginBottom: 10 }}>🏪 Saare Brands ({allStores.length})</h2>
         <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
           {allStores.map(s => (
-            <div key={s.id} style={{ background: '#1e293b', borderRadius: 12, padding: '16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div key={s.id} style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div>
                 <div style={{ fontWeight: 700, fontSize: 15 }}>{s.store_name}</div>
-                <div style={{ fontSize: 12, color: '#64748b' }}>{s.shopify_url || 'Shopify connected nahi'}</div>
+                <div style={{ fontSize: 12, color: 'var(--ne-muted)' }}>{s.shopify_url || 'Shopify connected nahi'}</div>
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
-                {statCard(s.today_count ?? '—', 'Today', '#16a34a')}
-                {statCard(s.yesterday_count ?? '—', 'Yesterday', '#60a5fa')}
-                {statCard(s.approved_count ?? '—', 'Approved', '#eab308')}
-                {statCard(s.lifetime_count ?? '—', 'Lifetime', '#3b82f6')}
+                {statCard(s.today_count ?? '—', 'Today', '#34D88E')}
+                {statCard(s.yesterday_count ?? '—', 'Yesterday', '#5C7CFA')}
+                {statCard(s.approved_count ?? '—', 'Approved', '#F2A83E')}
+                {statCard(s.lifetime_count ?? '—', 'Lifetime', '#A855F7')}
               </div>
               <button onClick={() => onEnterStore(s)}
-                style={{ padding: '8px', borderRadius: 8, border: 'none', background: '#3b82f6', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                style={{ padding: '9px', borderRadius: 10, border: 'none', background: 'var(--ne-grad)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
                 → Enter
               </button>
             </div>
           ))}
           {allStores.length === 0 && (
-            <div style={{ color: '#64748b', fontSize: 13 }}>Abhi koi brand register nahi hua.</div>
+            <div style={{ color: 'var(--ne-muted)', fontSize: 13 }}>Abhi koi brand register nahi hua.</div>
           )}
         </div>
       </div>
@@ -130,6 +218,7 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [activeMenu, setActiveMenu] = useState('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
   const [ordersData, setOrdersData] = useState([])
   const [ordersLoaded, setOrdersLoaded] = useState(false)
   const [ordersStore, setOrdersStore] = useState(null)
@@ -501,124 +590,151 @@ function App() {
   const hasAccess = (moduleId) => !isStaff || staffPermissions.includes(moduleId)
 
   const allMenuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: '📊' },
-    { id: 'orders', label: 'Orders', icon: '📦' },
-    { id: 'courier', label: 'Courier Tracking', icon: '🚚' },
-    { id: 'ads', label: 'Ads Analytics', icon: '📈' },
-    { id: 'pnl', label: 'Profit & Loss', icon: '💰' },
-    { id: 'ledger', label: 'Supplier Ledger', icon: '🏪' },
-    { id: 'returns', label: 'Returns', icon: '↩️' },
-    { id: 'cities', label: 'City Performance', icon: '🗺️' },
-    { id: 'products', label: 'Products', icon: '🛍️' },
-    { id: 'budget', label: 'Budget Calculator', icon: '🧮' },
-    { id: 'suggestions', label: 'Suggestions', icon: '💡' },
-    { id: 'whatsapp', label: 'WhatsApp', icon: '💬' },
-    { id: 'store-connect', label: 'Store Connect', icon: '🔗' },
+    { id: 'dashboard', label: 'Dashboard', group: 'Overview' },
+    { id: 'orders', label: 'Orders', group: 'Overview' },
+    { id: 'courier', label: 'Courier Tracking', group: 'Operations' },
+    { id: 'returns', label: 'Returns', group: 'Operations' },
+    { id: 'products', label: 'Products', group: 'Operations' },
+    { id: 'ads', label: 'Ads Analytics', group: 'Insights' },
+    { id: 'pnl', label: 'Profit & Loss', group: 'Insights' },
+    { id: 'ledger', label: 'Supplier Ledger', group: 'Insights' },
+    { id: 'cities', label: 'City Performance', group: 'Insights' },
+    { id: 'budget', label: 'Budget Calculator', group: 'Insights' },
+    { id: 'suggestions', label: 'Suggestions', group: 'Insights' },
+    { id: 'whatsapp', label: 'WhatsApp', group: 'Channels' },
+    { id: 'store-connect', label: 'Store Connect', group: 'Channels' },
   ]
 
   const menuItemsWithTeam = (profile.role === 'admin' || profile.role === 'creator')
-    ? [...allMenuItems, { id: 'team', label: 'Team', icon: '👥' }]
+    ? [...allMenuItems, { id: 'team', label: 'Team', group: 'Channels' }]
     : allMenuItems
 
   const menuItems = menuItemsWithTeam.filter(m => hasAccess(m.id) || m.id === 'team')
   const fullScreenModules = ['orders']
   const currentStoreInfo = userStoresList.find(us => us.store_id === selectedStoreId)?.stores
 
-  return (
-    <div style={{display:'flex',height:'100%',width:'100%',overflow:'hidden',background:'#0f172a',color:'#fff'}}>
-      <div style={{width:sidebarOpen?'240px':'60px',minWidth:sidebarOpen?'240px':'60px',background:'#1e293b',padding:'1rem 0',transition:'width 0.3s, min-width 0.3s',display:'flex',flexDirection:'column',height:'100%',overflowY:'auto',overflowX:'hidden',flexShrink:0}}>
-        <div style={{padding:'0 1rem',marginBottom:'1rem',display:'flex',alignItems:'center',justifyContent:sidebarOpen?'space-between':'center'}}>
-          {sidebarOpen && <span style={{fontSize:'1.4rem',fontWeight:'700',color:'#fff'}}>نظام</span>}
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} style={{background:'none',border:'none',color:'#94a3b8',cursor:'pointer',fontSize:'18px',padding:'4px',flexShrink:0}}>
-            {sidebarOpen ? '◀' : '▶'}
-          </button>
-        </div>
+  // Group nav items in original order, preserving group sequence
+  const groupOrder = ['Overview', 'Operations', 'Insights', 'Channels']
+  const groupedMenu = groupOrder.map(g => ({ group: g, items: menuItems.filter(m => m.group === g) })).filter(g => g.items.length > 0)
 
-        {sidebarOpen && currentStoreInfo && (
-          <div style={{ padding: '0 1rem', marginBottom: '1rem' }}>
-            <div style={{ background: '#0f172a', borderRadius: 8, padding: '8px 10px', fontSize: 12, color: '#94a3b8' }}>
+  const closeDrawer = () => setMobileDrawerOpen(false)
+
+  const renderNavItem = (item) => (
+    <div key={item.id}
+      onClick={() => { setActiveMenu(item.id); closeDrawer() }}
+      title={!sidebarOpen ? item.label : ''}
+      className={`ne-navitem${activeMenu === item.id ? ' active' : ''}`}>
+      <span className="ne-ic">{NAV_ICONS[item.id]}</span>
+      {(sidebarOpen || mobileDrawerOpen) && <span>{item.label}</span>}
+    </div>
+  )
+
+  return (
+    <div className="ne-app-shell">
+      <AuroraStyles />
+      <div className="ne-app">
+
+        {mobileDrawerOpen && <div className="ne-drawer-backdrop open" onClick={closeDrawer} />}
+
+        <div className={`ne-sidebar${sidebarOpen ? '' : ' collapsed'}${mobileDrawerOpen ? ' open' : ''}`}>
+          <div className="ne-brand-row">
+            <span className="ne-brand">نظام</span>
+            <span className="ne-live-dot" title="Realtime connected" />
+            {(sidebarOpen || mobileDrawerOpen) && (
+              <button className="ne-collapse-btn" onClick={() => setSidebarOpen(!sidebarOpen)} style={{ marginLeft: 'auto' }}>◀</button>
+            )}
+            {!sidebarOpen && !mobileDrawerOpen && (
+              <button className="ne-collapse-btn" onClick={() => setSidebarOpen(!sidebarOpen)}>▶</button>
+            )}
+          </div>
+
+          {currentStoreInfo && (sidebarOpen || mobileDrawerOpen) && (
+            <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: 8, padding: '8px 10px', fontSize: 11.5, color: 'var(--ne-muted)', marginBottom: 10 }}>
               🏪 {currentStoreInfo.store_name}
             </div>
-          </div>
-        )}
+          )}
 
-        {profile.role === 'creator' && sidebarOpen && (
-          <div style={{ padding: '0 1rem', marginBottom: '0.5rem' }}>
-            <button onClick={() => { setIsMasterView(true); setSelectedStoreId(null); setOrdersLoaded(false); hasStartedLoadRef.current = false }}
-              style={{ width: '100%', padding: '7px', borderRadius: 8, border: '1px solid #334155', background: 'transparent', color: '#94a3b8', fontSize: 12, cursor: 'pointer' }}>
+          {profile.role === 'creator' && (sidebarOpen || mobileDrawerOpen) && (
+            <button onClick={() => { setIsMasterView(true); setSelectedStoreId(null); setOrdersLoaded(false); hasStartedLoadRef.current = false; closeDrawer() }}
+              style={{ width: '100%', padding: '7px', borderRadius: 8, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-muted)', fontSize: 11.5, cursor: 'pointer', marginBottom: 8 }}>
               ← Master Dashboard
             </button>
-          </div>
-        )}
+          )}
 
-        {menuItems.map(item => (
-          <div key={item.id} onClick={() => setActiveMenu(item.id)} title={!sidebarOpen?item.label:''}
-            style={{display:'flex',alignItems:'center',gap:'10px',padding:sidebarOpen?'9px 1rem':'9px 0',justifyContent:sidebarOpen?'flex-start':'center',cursor:'pointer',background:activeMenu===item.id?'#3b82f6':'transparent',borderRadius:'8px',margin:'2px 8px',transition:'background 0.2s'}}>
-            <span style={{fontSize:'17px',flexShrink:0}}>{item.icon}</span>
-            {sidebarOpen && <span style={{fontSize:'13px',color:activeMenu===item.id?'#fff':'#94a3b8',whiteSpace:'nowrap'}}>{item.label}</span>}
-          </div>
-        ))}
-        <div style={{marginTop:'auto',padding:'1rem'}}>
-          <div onClick={() => supabase.auth.signOut()} style={{display:'flex',alignItems:'center',gap:'10px',padding:'9px',justifyContent:sidebarOpen?'flex-start':'center',cursor:'pointer',borderRadius:'8px',background:'#dc262620'}}>
-            <span>🚪</span>
-            {sidebarOpen && <span style={{fontSize:'13px',color:'#dc2626'}}>Logout</span>}
-          </div>
-        </div>
-      </div>
+          {groupedMenu.map(g => (
+            <div key={g.group}>
+              {(sidebarOpen || mobileDrawerOpen) && <div className="ne-navlabel">{g.group}</div>}
+              {g.items.map(renderNavItem)}
+            </div>
+          ))}
 
-      <div style={{flex:1,display:'flex',flexDirection:'column',height:'100%',overflow:'hidden',minWidth:0}}>
-        {!fullScreenModules.includes(activeMenu) && (
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.75rem 1.25rem',background:'#1e293b',borderBottom:'1px solid #334155',flexShrink:0}}>
-            <h1 style={{fontSize:'16px',fontWeight:'600',color:'#fff',margin:0}}>
-              {menuItems.find(m=>m.id===activeMenu)?.icon} {menuItems.find(m=>m.id===activeMenu)?.label}
-              {syncStatusText && <span style={{fontSize:'11px',color:'#64748b',fontWeight:400,marginLeft:10}}>{syncStatusText}</span>}
-            </h1>
-            <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
-              <span style={{fontSize:'12px',color:'#94a3b8'}}>{session.user.email}</span>
-              <div style={{width:'30px',height:'30px',borderRadius:'50%',background:'#3b82f6',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'13px',fontWeight:'600'}}>
-                {session.user.email[0].toUpperCase()}
-              </div>
+          <div style={{ marginTop: 'auto', paddingTop: 16 }}>
+            <div onClick={() => supabase.auth.signOut()} className="ne-navitem" style={{ color: '#F26D6D' }}>
+              <span className="ne-ic" style={{ background: 'rgba(242,109,109,.1)' }}>
+                <svg viewBox="0 0 20 20" stroke="#F26D6D"><path d="M7 17H4.5a1.5 1.5 0 0 1-1.5-1.5v-11A1.5 1.5 0 0 1 4.5 3H7"/><path d="M13 14l4-4-4-4"/><path d="M17 10H7"/></svg>
+              </span>
+              {(sidebarOpen || mobileDrawerOpen) && <span>Logout</span>}
             </div>
           </div>
-        )}
+        </div>
 
-        <div style={{flex:1,overflow:'auto',minWidth:0,width:'100%'}}>
-          {activeMenu === 'orders' && hasAccess('orders') && (
-            <Orders
-              ordersData={ordersData} setOrdersData={setOrdersData}
-              ordersLoaded={ordersLoaded} setOrdersLoaded={setOrdersLoaded}
-              ordersStore={ordersStore} setOrdersStore={setOrdersStore}
-              cfUrl={CF_URL}
-            />
-          )}
-          {activeMenu === 'dashboard' && hasAccess('dashboard') && (
-            ordersData.length === 0 ? (
-              <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'300px',color:'#94a3b8',fontSize:14,gap:8}}>
-                <div style={{fontSize:32}}>📦</div>
-                <div>Koi orders nahi mile</div>
-                <button onClick={() => autoLoadOrders(selectedStoreId)} style={{padding:'6px 16px',borderRadius:6,background:'#3b82f6',color:'#fff',border:'none',cursor:'pointer',fontSize:12,marginTop:8}}>
-                  🔄 Retry Load
-                </button>
-              </div>
-            ) : (
-              <Dashboard ordersData={ordersData} />
-            )
-          )}
-          {activeMenu === 'store-connect' && hasAccess('store-connect') && <StoreConnect />}
-          {activeMenu === 'whatsapp' && hasAccess('whatsapp') && <WhatsApp />}
-          {activeMenu === 'team' && (profile.role === 'admin' || profile.role === 'creator') && (
-            <Team storeId={selectedStoreId} storeName={currentStoreInfo?.store_name || ordersStore?.store_name} cfUrl={CF_URL} />
-          )}
-          {!['dashboard','store-connect','orders','whatsapp','team'].includes(activeMenu) && (
-            <div style={{padding:'1.25rem'}}>
-              <div style={{background:'#1e293b',borderRadius:'10px',padding:'2rem',textAlign:'center'}}>
-                <div style={{fontSize:'48px',marginBottom:'1rem'}}>{menuItems.find(m=>m.id===activeMenu)?.icon}</div>
-                <h2 style={{color:'#fff',marginBottom:'8px'}}>{menuItems.find(m=>m.id===activeMenu)?.label}</h2>
-                <p style={{color:'#94a3b8',fontSize:'14px'}}>Ye module jald aa raha hai!</p>
+        <div className="ne-main">
+          {!fullScreenModules.includes(activeMenu) && (
+            <div className="ne-topbar">
+              <button className="ne-hamburger" onClick={() => setMobileDrawerOpen(true)}>☰</button>
+              <h1 className="ne-page-title">
+                {menuItems.find(m => m.id === activeMenu)?.label}
+                {syncStatusText && <span className="ne-sync-status">{syncStatusText}</span>}
+              </h1>
+              <div className="ne-userchip">
+                <div className="ne-avatar">{session.user.email[0].toUpperCase()}</div>
+                <span>{session.user.email}</span>
               </div>
             </div>
           )}
+
+          {fullScreenModules.includes(activeMenu) && (
+            <button className="ne-hamburger" onClick={() => setMobileDrawerOpen(true)} style={{ position: 'absolute', top: 10, left: 10, zIndex: 50 }}>☰</button>
+          )}
+
+          <div className="ne-content">
+            {activeMenu === 'orders' && hasAccess('orders') && (
+              <Orders
+                ordersData={ordersData} setOrdersData={setOrdersData}
+                ordersLoaded={ordersLoaded} setOrdersLoaded={setOrdersLoaded}
+                ordersStore={ordersStore} setOrdersStore={setOrdersStore}
+                cfUrl={CF_URL}
+              />
+            )}
+            {activeMenu === 'dashboard' && hasAccess('dashboard') && (
+              ordersData.length === 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '300px', color: 'var(--ne-muted)', fontSize: 14, gap: 8 }}>
+                  <div style={{ fontSize: 32 }}>📦</div>
+                  <div>Koi orders nahi mile</div>
+                  <button onClick={() => autoLoadOrders(selectedStoreId)} style={{ padding: '6px 16px', borderRadius: 8, background: 'var(--ne-grad)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, marginTop: 8 }}>
+                    🔄 Retry Load
+                  </button>
+                </div>
+              ) : (
+                <Dashboard ordersData={ordersData} />
+              )
+            )}
+            {activeMenu === 'store-connect' && hasAccess('store-connect') && <StoreConnect storeId={selectedStoreId} />}
+            {activeMenu === 'whatsapp' && hasAccess('whatsapp') && <WhatsApp />}
+            {activeMenu === 'team' && (profile.role === 'admin' || profile.role === 'creator') && (
+              <Team storeId={selectedStoreId} storeName={currentStoreInfo?.store_name || ordersStore?.store_name} cfUrl={CF_URL} />
+            )}
+            {!['dashboard', 'store-connect', 'orders', 'whatsapp', 'team'].includes(activeMenu) && (
+              <div style={{ padding: '1.25rem' }}>
+                <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
+                  <h2 style={{ color: '#fff', marginBottom: 8 }}>{menuItems.find(m => m.id === activeMenu)?.label}</h2>
+                  <p style={{ color: 'var(--ne-muted)', fontSize: 14 }}>Ye module jald aa raha hai!</p>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
+
       </div>
     </div>
   )
