@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import './theme.css'
 import { supabase } from './supabase'
 import { getCachedOrders, saveOrdersBulk, upsertOrder, getMeta, setMeta, clearCache } from './ordersCache'
 import Login from './pages/Login'
@@ -11,80 +12,6 @@ import Team from './pages/Team'
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev"
 const BATCH_SIZE = 1000
-
-// ---------- Aurora Ledger theme: global styles + icon set ----------
-function AuroraStyles() {
-  return (
-    <style>{`
-      :root{
-        --ne-bg:#070A1A;
-        --ne-bg-glow: radial-gradient(60% 50% at 85% -10%, rgba(92,124,250,.18), transparent 60%),
-                      radial-gradient(50% 40% at 0% 100%, rgba(168,85,247,.12), transparent 60%);
-        --ne-sidebar-bg:#0A0E26; --ne-surface:#11163A; --ne-surface-2:#161B45; --ne-border:#232A52;
-        --ne-text:#EEF0FF; --ne-muted:#8C93C4; --ne-muted-2:#4F567E;
-        --ne-accent:#5C7CFA; --ne-accent2:#A855F7; --ne-accent-soft:#1C2356;
-        --ne-grad: linear-gradient(120deg, #5C7CFA 0%, #A855F7 100%);
-        --ne-success:#34D88E; --ne-success-soft:#11402A;
-        --ne-warning:#F2A83E; --ne-warning-soft:#3A2A0D;
-        --ne-danger:#F26D6D; --ne-danger-soft:#3A1414;
-      }
-      .ne-app-shell{font-family:'Inter',system-ui,sans-serif; min-height:100vh; background:var(--ne-bg-glow), var(--ne-bg); color:var(--ne-text); -webkit-font-smoothing:antialiased;}
-      .ne-app{display:flex; height:100%; width:100%; overflow:hidden;}
-
-      .ne-sidebar{width:240px; flex-shrink:0; background:var(--ne-sidebar-bg); padding:20px 14px; display:flex; flex-direction:column; height:100%; overflow-y:auto;}
-      .ne-sidebar.collapsed{width:64px; align-items:center; padding:20px 8px;}
-      .ne-brand-row{display:flex; align-items:center; gap:9px; padding:6px 8px 18px;}
-      .ne-sidebar.collapsed .ne-brand-row{padding:6px 0 18px; justify-content:center;}
-      .ne-brand{font-size:18px; font-weight:800; color:#fff;}
-      .ne-live-dot{width:7px; height:7px; border-radius:50%; background:var(--ne-success); box-shadow:0 0 0 0 rgba(52,216,142,.6); animation:ne-pulse 2s infinite; flex-shrink:0;}
-      @keyframes ne-pulse{0%{box-shadow:0 0 0 0 rgba(52,216,142,.5);} 70%{box-shadow:0 0 0 6px rgba(52,216,142,0);} 100%{box-shadow:0 0 0 0 rgba(52,216,142,0);}}
-
-      .ne-navlabel{font-size:10px; font-weight:700; color:rgba(255,255,255,.35); text-transform:uppercase; letter-spacing:.07em; padding:14px 8px 5px;}
-      .ne-navitem{display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:10px; font-size:13px; color:rgba(255,255,255,.65); cursor:pointer; font-weight:500; white-space:nowrap;}
-      .ne-sidebar.collapsed .ne-navitem{justify-content:center; padding:9px;}
-      .ne-navitem .ne-ic{width:26px; height:26px; border-radius:8px; background:rgba(255,255,255,.05); display:flex; align-items:center; justify-content:center; flex-shrink:0;}
-      .ne-navitem .ne-ic svg{width:14px; height:14px; stroke:rgba(255,255,255,.65); fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round;}
-      .ne-navitem.active{color:#fff; font-weight:700; background:rgba(255,255,255,.04);}
-      .ne-navitem.active .ne-ic{background:var(--ne-grad);}
-      .ne-navitem.active .ne-ic svg{stroke:#fff;}
-      .ne-navitem:hover:not(.active){background:rgba(255,255,255,.04);}
-
-      .ne-collapse-btn{background:none; border:none; color:rgba(255,255,255,.5); cursor:pointer; font-size:14px; padding:4px;}
-
-      .ne-main{flex:1; display:flex; flex-direction:column; height:100%; overflow:hidden; min-width:0; background:var(--ne-surface);}
-      .ne-topbar{display:flex; align-items:center; gap:14px; padding:14px 24px; border-bottom:1px solid var(--ne-border); flex-shrink:0;}
-      .ne-hamburger{display:none; width:34px; height:34px; border-radius:9px; flex-shrink:0; background:var(--ne-surface-2); border:1px solid var(--ne-border); color:var(--ne-text); align-items:center; justify-content:center; cursor:pointer; font-size:15px;}
-      .ne-page-title{font-size:15px; font-weight:700; margin:0;}
-      .ne-sync-status{font-size:11px; color:var(--ne-muted-2); font-weight:400; margin-left:8px;}
-      .ne-userchip{display:flex; align-items:center; gap:9px; font-size:12.5px; color:var(--ne-muted); margin-left:auto; font-weight:600;}
-      .ne-avatar{width:28px; height:28px; border-radius:50%; background:var(--ne-grad); color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:800; flex-shrink:0;}
-
-      .ne-content{flex:1; overflow:auto; min-width:0; width:100%;}
-
-      .ne-drawer-backdrop{display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:998;}
-      .ne-drawer-backdrop.open{display:block;}
-
-      @media (max-width: 760px){
-        .ne-hamburger{display:flex;}
-        .ne-sidebar{
-          position:fixed; top:0; left:0; bottom:0; z-index:999; width:250px !important;
-          transform:translateX(-100%); transition:transform .25s ease; box-shadow:24px 0 50px rgba(0,0,0,.45);
-          align-items:stretch !important; padding:20px 14px !important;
-        }
-        .ne-sidebar.open{transform:translateX(0);}
-        .ne-sidebar .ne-navitem{justify-content:flex-start !important; padding:8px 10px !important;}
-        .ne-sidebar .ne-brand-row{justify-content:flex-start !important; padding:6px 8px 18px !important;}
-        .ne-collapse-btn{display:none;}
-      }
-
-      /* Scrollbar theming */
-      .ne-app-shell ::-webkit-scrollbar{width:9px; height:9px;}
-      .ne-app-shell ::-webkit-scrollbar-track{background:transparent;}
-      .ne-app-shell ::-webkit-scrollbar-thumb{background:var(--ne-border); border-radius:6px;}
-      .ne-app-shell ::-webkit-scrollbar-thumb:hover{background:var(--ne-muted-2);}
-    `}</style>
-  )
-}
 
 const NAV_ICONS = {
   dashboard: <svg viewBox="0 0 20 20"><rect x="2.5" y="2.5" width="6.5" height="6.5" rx="1.5"/><rect x="11" y="2.5" width="6.5" height="6.5" rx="1.5"/><rect x="2.5" y="11" width="6.5" height="6.5" rx="1.5"/><rect x="11" y="11" width="6.5" height="6.5" rx="1.5"/></svg>,
@@ -106,7 +33,6 @@ const NAV_ICONS = {
 function SplashScreen() {
   return (
     <div className="ne-app-shell" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18 }}>
-      <AuroraStyles />
       <div style={{ fontSize: '2.8rem', fontWeight: 700, color: '#fff' }}>نظام</div>
       <div style={{
         width: 36, height: 36, borderRadius: '50%',
@@ -122,7 +48,6 @@ function SplashScreen() {
 function PendingApprovalScreen({ onSignOut }) {
   return (
     <div className="ne-app-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <AuroraStyles />
       <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 18, padding: '2.5rem', maxWidth: 380, textAlign: 'center' }}>
         <div style={{ fontSize: 40, marginBottom: 12 }}>⏳</div>
         <h2 style={{ color: '#fff', margin: '0 0 8px', fontSize: 18 }}>Approval ka wait hai</h2>
@@ -148,7 +73,6 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
 
   return (
     <div className="ne-app-shell" style={{ height: '100%', overflow: 'auto' }}>
-      <AuroraStyles />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: '1px solid var(--ne-border)' }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>نظام — Master Dashboard</h1>
@@ -216,6 +140,13 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
 function App() {
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [theme, setTheme] = useState(() => (typeof localStorage !== 'undefined' && localStorage.getItem('neezam_theme')) || 'dark')
+  const [forceMobile, setForceMobile] = useState(false)
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('neezam_theme', theme)
+  }, [theme])
   const [activeMenu, setActiveMenu] = useState('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
@@ -631,7 +562,6 @@ function App() {
 
   return (
     <div className="ne-app-shell">
-      <AuroraStyles />
       <div className="ne-app">
 
         {mobileDrawerOpen && <div className="ne-drawer-backdrop open" onClick={closeDrawer} />}
@@ -687,6 +617,14 @@ function App() {
                 {syncStatusText && <span className="ne-sync-status">{syncStatusText}</span>}
               </h1>
               <div className="ne-userchip">
+                {profile.role === 'creator' && (
+                  <button className={`ne-mobile-preview-btn${forceMobile ? ' active' : ''}`} onClick={() => setForceMobile(!forceMobile)} title="Mobile view preview">
+                    📱 {forceMobile ? 'Mobile ON' : 'Mobile Preview'}
+                  </button>
+                )}
+                <button className="ne-theme-toggle" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} title="Theme switch karo">
+                  {theme === 'dark' ? '☀️' : '🌙'}
+                </button>
                 <div className="ne-avatar">{session.user.email[0].toUpperCase()}</div>
                 <span>{session.user.email}</span>
               </div>
@@ -739,5 +677,30 @@ function App() {
     </div>
   )
 }
+/* ===== LIGHT MODE ===== */
+:root[data-theme="light"]{
+  --ne-bg:#F4F5FB;
+  --ne-bg-glow: radial-gradient(60% 50% at 85% -10%, rgba(92,124,250,.08), transparent 60%),
+                radial-gradient(50% 40% at 0% 100%, rgba(168,85,247,.06), transparent 60%);
+  --ne-sidebar-bg:#FFFFFF; --ne-surface:#FFFFFF; --ne-surface-2:#F1F2FA; --ne-border:#E1E4F0;
+  --ne-text:#1A1F36; --ne-muted:#6B7280; --ne-muted-2:#9CA3AF;
+  --ne-accent:#5C7CFA; --ne-accent2:#A855F7; --ne-accent-soft:#EDEFFE;
+  --ne-grad: linear-gradient(120deg, #5C7CFA 0%, #A855F7 100%);
+  --ne-success:#16A34A; --ne-success-soft:#DCFCE7;
+  --ne-warning:#D97706; --ne-warning-soft:#FEF3C7;
+  --ne-danger:#DC2626; --ne-danger-soft:#FEE2E2;
+}
+:root[data-theme="light"] .ne-brand{ color:#1A1F36; }
+:root[data-theme="light"] .ne-navitem{ color:rgba(26,31,54,.6); }
+:root[data-theme="light"] .ne-navitem .ne-ic{ background:rgba(26,31,54,.05); }
+:root[data-theme="light"] .ne-navitem .ne-ic svg{ stroke:rgba(26,31,54,.6); }
+:root[data-theme="light"] .ne-navitem.active{ color:#1A1F36; background:rgba(92,124,250,.08); }
+:root[data-theme="light"] .ne-navitem:hover:not(.active){ background:rgba(26,31,54,.04); }
+:root[data-theme="light"] .ne-navlabel{ color:rgba(26,31,54,.35); }
+:root[data-theme="light"] .ne-collapse-btn{ color:rgba(26,31,54,.5); }
+:root[data-theme="light"] .ne-hamburger{ color:var(--ne-text); }
 
+.ne-theme-toggle{ background:var(--ne-surface-2); border:1px solid var(--ne-border); color:var(--ne-text); border-radius:9px; width:34px; height:34px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:15px; flex-shrink:0; }
+.ne-mobile-preview-btn{ background:var(--ne-surface-2); border:1px solid var(--ne-border); color:var(--ne-text); border-radius:9px; padding:0 12px; height:34px; display:flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; font-weight:600; flex-shrink:0; white-space:nowrap; }
+.ne-mobile-preview-btn.active{ background:var(--ne-grad); color:#fff; border-color:transparent; }
 export default App
