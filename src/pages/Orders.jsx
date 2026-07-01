@@ -628,27 +628,36 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
   const selectedHaveValidHistory = [...selectedIds].some(id => isHistoryValid(historyMap[String(id)]));
 
-  const EditableCell = ({ orderId, field, value, width = 100, maxChars = 20 }) => {
+  const EditableCell = ({ orderId, field, value, width = 100, multiline = false, clampLines = 2 }) => {
     const cellKey = `${orderId}-${field}`;
     const isEditing = editingCell === cellKey;
     const [val, setVal] = useState(value || "");
     useEffect(() => { setVal(value || ""); }, [value]);
 
     if (isEditing) return (
-      <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
-        <input autoFocus value={val} onChange={e => setVal(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter") updateField(orderId, field, val); if (e.key === "Escape") setEditingCell(null); }}
-          style={{ width, padding: "2px 5px", borderRadius: 5, border: "1px solid var(--ne-accent)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11 }} />
-        <button onClick={() => updateField(orderId, field, val)}
-          style={{ background: "var(--ne-grad)", border: "none", borderRadius: 5, color: "#fff", padding: "2px 5px", cursor: "pointer", fontSize: 10 }}>✓</button>
-        <button onClick={() => setEditingCell(null)}
-          style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 5, color: "var(--ne-text)", padding: "2px 5px", cursor: "pointer", fontSize: 10 }}>✕</button>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, width }}>
+        {multiline ? (
+          <textarea autoFocus value={val} onChange={e => setVal(e.target.value)}
+            onKeyDown={e => { if (e.key === "Escape") setEditingCell(null); }}
+            rows={3}
+            style={{ width: "100%", padding: "4px 6px", borderRadius: 5, border: "1px solid var(--ne-accent)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11, resize: "vertical", boxSizing: "border-box", fontFamily: "inherit" }} />
+        ) : (
+          <input autoFocus value={val} onChange={e => setVal(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") updateField(orderId, field, val); if (e.key === "Escape") setEditingCell(null); }}
+            style={{ width: "100%", padding: "3px 6px", borderRadius: 5, border: "1px solid var(--ne-accent)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11, boxSizing: "border-box" }} />
+        )}
+        <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+          <button onClick={() => updateField(orderId, field, val)}
+            style={{ background: "var(--ne-grad)", border: "none", borderRadius: 5, color: "#fff", padding: "2px 8px", cursor: "pointer", fontSize: 10 }}>✓</button>
+          <button onClick={() => setEditingCell(null)}
+            style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 5, color: "var(--ne-text)", padding: "2px 8px", cursor: "pointer", fontSize: 10 }}>✕</button>
+        </div>
       </div>
     );
 
     return (
       <span onClick={() => setEditingCell(cellKey)}
-        style={{ cursor: "pointer", color: value ? "var(--ne-text)" : "var(--ne-muted-2)", fontSize: 11, display: "block", whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.35, maxWidth: width }}>
+        style={{ cursor: "pointer", color: value ? "var(--ne-text)" : "var(--ne-muted-2)", fontSize: 11, display: "-webkit-box", WebkitLineClamp: clampLines, WebkitBoxOrient: "vertical", overflow: "hidden", textOverflow: "ellipsis", wordBreak: "break-word", lineHeight: 1.35, maxWidth: width }}>
         {value || "—"}
       </span>
     );
@@ -810,8 +819,8 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           {!isMobile && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", position: "sticky", top: 0, zIndex: 15, background: "var(--ne-surface-2)", borderRadius: 10, marginBottom: 8 }}>
               <input type="checkbox" checked={selectedIds.size === pagedOrders.length && pagedOrders.length > 0}
-                onChange={toggleSelectAll} style={{ cursor: "pointer", flexShrink: 0, width: 28 }} />
-              <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 95, flexShrink: 0 }}>Order#</span>
+                onChange={toggleSelectAll} style={{ cursor: "pointer", flexShrink: 0, width: 28, position: "sticky", left: 0, zIndex: 3 }} />
+              <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 95, minWidth: 95, flexShrink: 0, position: "sticky", left: 38, zIndex: 3 }}>Order#</span>
               <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 140, flexShrink: 0 }}>Customer</span>
               <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 190, flexShrink: 0 }}>Address</span>
               <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 160, flexShrink: 0 }}>Items</span>
@@ -819,7 +828,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
               <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 85, flexShrink: 0 }}>Total</span>
               <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 75, flexShrink: 0 }}>Source</span>
               <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 110, flexShrink: 0 }}>Remarks</span>
-              <span style={{ ...thBase, background: "none", border: "none", padding: 0, flex: 1 }}>Status / Sync</span>
+              <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 145, minWidth: 145, flexShrink: 0, position: "sticky", right: 0, zIndex: 3 }}>Status / Sync</span>
             </div>
           )}
 
@@ -920,61 +929,61 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
             }
 
             return (
-              <div key={order.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "10px 12px", marginBottom: 8 }}>
-                <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(order.id)} style={{ cursor: "pointer", flexShrink: 0, width: 28, marginTop: 2 }} />
+              <div key={order.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "10px 12px", marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,.18)" }}>
+                <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(order.id)} style={{ cursor: "pointer", flexShrink: 0, width: 28, marginTop: 2, position: "sticky", left: 0, zIndex: 3 }} />
 
-                <div style={{ width: 95, flexShrink: 0 }}>
+                <div style={{ width: 95, minWidth: 95, flexShrink: 0, position: "sticky", left: 38, zIndex: 3, background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)" }}>
                   <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 11.5 }}>{order.name}</a>
                   <div style={{ fontSize: 10.5, color: "var(--ne-muted)", marginTop: 2 }}>{date}</div>
                   <div style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{time}</div>
                 </div>
 
-                <div style={{ width: 140, flexShrink: 0, display: "flex", flexDirection: "column", gap: 2 }}>
-                  <EditableCell orderId={order.id} field="customer_name" value={fullName} width={130} />
-                  <EditableCell orderId={order.id} field="phone" value={phone} width={130} />
-                  <EditableCell orderId={order.id} field="city" value={city} width={130} />
+                <div style={{ width: 140, minWidth: 0, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 2 }}>
+                  <EditableCell orderId={order.id} field="customer_name" value={fullName} width={130} clampLines={2} />
+                  <EditableCell orderId={order.id} field="phone" value={phone} width={130} clampLines={1} />
+                  <EditableCell orderId={order.id} field="city" value={city} width={130} clampLines={1} />
                   {isCancelled && cancellationReason && (
                     <span style={{ padding: "1px 6px", borderRadius: 6, fontSize: 9, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, width: "fit-content" }}>{cancellationReason}</span>
                   )}
                 </div>
 
-                <div style={{ width: 190, flexShrink: 0 }}>
-                  <EditableCell orderId={order.id} field="address" value={address} width={180} />
+                <div style={{ width: 190, minWidth: 0, flexShrink: 0, overflow: "hidden" }}>
+                  <EditableCell orderId={order.id} field="address" value={address} width={180} multiline clampLines={3} />
                 </div>
 
-                <div style={{ width: 160, flexShrink: 0, display: "flex", flexDirection: "column", gap: 2 }}>
-                  <EditableCell orderId={order.id} field="sku" value={skus} width={150} />
-                  <EditableCell orderId={order.id} field="product" value={products} width={150} />
+                <div style={{ width: 160, minWidth: 0, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 2 }}>
+                  <EditableCell orderId={order.id} field="sku" value={skus} width={150} clampLines={1} />
+                  <EditableCell orderId={order.id} field="product" value={products} width={150} multiline clampLines={2} />
                 </div>
 
-                <div style={{ width: 115, flexShrink: 0, display: "flex", flexDirection: "column", gap: 3 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}>
-                    <span style={{ color: "var(--ne-muted-2)" }}>Unit</span>
-                    <span style={{ color: "var(--ne-muted)" }}>{unitPrices}</span>
+                <div style={{ width: 115, minWidth: 0, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 3 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 4, fontSize: 10 }}>
+                    <span style={{ color: "var(--ne-muted-2)", flexShrink: 0 }}>Unit</span>
+                    <span style={{ color: "var(--ne-muted)", display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden", textOverflow: "ellipsis", textAlign: "right" }}>{unitPrices}</span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
                     <span style={{ color: "var(--ne-muted-2)" }}>Ship</span>
-                    <EditableCell orderId={order.id} field="shipping" value={String(shipping)} width={55} />
+                    <EditableCell orderId={order.id} field="shipping" value={String(shipping)} width={55} clampLines={1} />
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
                     <span style={{ color: "var(--ne-muted-2)" }}>Disc</span>
-                    <EditableCell orderId={order.id} field="discount" value={String(discount)} width={55} />
+                    <EditableCell orderId={order.id} field="discount" value={String(discount)} width={55} clampLines={1} />
                   </div>
                 </div>
 
-                <div style={{ width: 85, flexShrink: 0, color: "var(--ne-success)", fontWeight: 700, fontSize: 12 }}>
+                <div style={{ width: 85, minWidth: 0, flexShrink: 0, overflow: "hidden", color: "var(--ne-success)", fontWeight: 700, fontSize: 12 }}>
                   Rs. {Number(order.total_price).toLocaleString()}
                 </div>
 
-                <div style={{ width: 75, flexShrink: 0 }}>
-                  <span style={{ padding: "2px 7px", borderRadius: 8, fontSize: 10, background: "var(--ne-surface-2)", color: SOURCE_COLORS[source], fontWeight: 700 }}>{source}</span>
+                <div style={{ width: 75, minWidth: 0, flexShrink: 0, overflow: "hidden" }}>
+                  <span style={{ padding: "2px 7px", borderRadius: 8, fontSize: 10, background: "var(--ne-surface)", color: SOURCE_COLORS[source], fontWeight: 700 }}>{source}</span>
                 </div>
 
-                <div style={{ width: 110, flexShrink: 0 }}>
-                  <EditableCell orderId={order.id} field="remarks" value={remarks} width={100} />
+                <div style={{ width: 110, minWidth: 0, flexShrink: 0, overflow: "hidden" }}>
+                  <EditableCell orderId={order.id} field="remarks" value={remarks} width={100} multiline clampLines={2} />
                 </div>
 
-                <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start" }}>
+                <div style={{ width: 145, minWidth: 145, flexShrink: 0, display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start", position: "sticky", right: 0, zIndex: 3, background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)" }}>
                   {statusBtn}
                   {syncRow}
                 </div>
