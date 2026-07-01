@@ -21,8 +21,10 @@ const TABS = ["All", "New", "Approved", "Pending", "Ready to Sync", "Cancelled"]
 const CANCEL_REASONS = ["Not Interested", "Wrong Number", "Duplicate Order", "Customer Cancelled", "Out of Stock", "Other"];
 const PAGE_SIZE = 1000;
 const SYNC_CONFIRM_PER_PAGE = 20;
-const HISTORY_VALID_MS = 2 * 24 * 60 * 60 * 1000;
+const HISTORY_VALID_MS = 2 * 24 * 60 * 60 * 1000; // 2 din
 
+// Pure helper — order ki current sync state nikalta hai (module-level taake
+// tabFilter aur render dono use kar sakein)
 const getSyncState = (order) => {
   if (!order.synced_at && !order.last_edited_at) return "never";
   if (!order.synced_at && order.last_edited_at) return "pending";
@@ -44,6 +46,8 @@ const truncate = (str, max = 25) => {
   return str.length > max ? str.slice(0, max) + "…" : str;
 };
 
+// Pakistani phone numbers ko hamesha 03xxxxxxxxx (local) format mein convert karta hai,
+// chahe original +92xxxxxxxxxx, 0092xxxxxxxxxx, ya 92xxxxxxxxxx format mein ho
 const normalizePhone = (raw) => {
   if (!raw) return "";
   let cleaned = String(raw).trim().replace(/[\s\-()]/g, "");
@@ -65,6 +69,7 @@ const getDateRange = (type) => {
   return null;
 };
 
+// Format a local Date as YYYY-MM-DD without UTC conversion
 const toLocalDateStr = (d) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
@@ -98,13 +103,14 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const [cancelReasonCustomText, setCancelReasonCustomText] = useState("");
   const tableRef = useRef(null);
 
+  // --- Sync / Undo / History state ---
   const [historyMap, setHistoryMap] = useState({});
-  const [syncConfirmModal, setSyncConfirmModal] = useState(null);
+  const [syncConfirmModal, setSyncConfirmModal] = useState(null); // { items: [{order, diff}] }
   const [syncConfirmPage, setSyncConfirmPage] = useState(1);
   const [syncRunning, setSyncRunning] = useState(false);
   const [syncProgressCount, setSyncProgressCount] = useState(0);
-  const [syncResultModal, setSyncResultModal] = useState(null);
-  const [undoConfirmModal, setUndoConfirmModal] = useState(null);
+  const [syncResultModal, setSyncResultModal] = useState(null); // { title, results: [{id,name,success,error}] }
+  const [undoConfirmModal, setUndoConfirmModal] = useState(null); // { orders: [...] }
   const [undoRunning, setUndoRunning] = useState(false);
   const [undoingId, setUndoingId] = useState(null);
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
@@ -157,6 +163,8 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     }
   };
 
+  // Saari cached orders Supabase se paginate karke laata hai (1000 per page,
+  // PostgREST ki default row limit se bachne ke liye)
   const fetchAllCachedOrders = async (storeId) => {
     let allRows = [];
     let from = 0;
@@ -252,6 +260,9 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     }) || [];
   };
 
+  // Sirf tab snapshot lete hain jab koi existing valid snapshot na ho —
+  // taake yeh hamesha "edit se PEHLE" wali asal value capture kare,
+  // sync ke waqt ki nahi (warna undo edited value hi wapas la deta hai)
   const ensureHistorySnapshot = async (order) => {
     const existing = historyMap[String(order.id)];
     if (isHistoryValid(existing)) return;
@@ -313,6 +324,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     const orderForSnapshot = orders.find(o => o.id === orderId);
     if (orderForSnapshot) await ensureHistorySnapshot(orderForSnapshot);
     const existing = orders.find(o => o.id === orderId)?.agent_data || {};
+    // Phone field hamesha normalize karke save hota hai (03xxxxxxxxx format)
     const finalValue = field === "phone" ? normalizePhone(value) : value;
     const updated = { ...existing, [field]: finalValue };
     const now = new Date().toISOString();
@@ -339,11 +351,13 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     setEditingCell(null);
   };
 
+  // ---------- SYNC PLAN / DIFF ----------
   const buildSyncPlan = (order) => {
     const agentData = order.agent_data || {};
     const customerName = agentData.customer_name || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim();
     const phoneToSync = normalizePhone(agentData.phone || order.customer?.phone || order.shipping_address?.phone || "");
     const nameParts = customerName.split(" ").filter(Boolean);
+    // Jo naam Neezam mein likha jaye, usay literally respect karte hain
     const firstName = nameParts[0] || "";
     const lastName = nameParts.slice(1).join(" ") || "-";
     const addressPayload = {
@@ -428,6 +442,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     setSyncResultModal({ title: "Sync Result", results });
   };
 
+  // ---------- UNDO ----------
   const doUndoOrder = async (order) => {
     const storeData = store || ordersStore;
     const h = historyMap[String(order.id)];
@@ -577,6 +592,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
   const currentStore = store || ordersStore;
 
+  // Step 1: date range only — source of truth for tab counts
   const dateFilteredOrders = orders.filter(order => {
     const orderDate = new Date(order.created_at);
     const matchFrom = !dateFrom || orderDate >= new Date(dateFrom + "T00:00:00");
@@ -674,6 +690,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     borderColor: activeDateBtn === type ? "transparent" : "var(--ne-border)",
   });
 
+  // ---------- Sync Confirm Modal pagination ----------
   const syncConfirmItems = syncConfirmModal?.items || [];
   const syncConfirmTotalPages = Math.ceil(syncConfirmItems.length / SYNC_CONFIRM_PER_PAGE) || 1;
   const syncConfirmPagedItems = syncConfirmItems.slice(
@@ -681,9 +698,62 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     syncConfirmPage * SYNC_CONFIRM_PER_PAGE
   );
 
+  const orderRows = pagedOrders.map((order) => {
+    const source = getSource(order);
+    const status = STATUSES.find(s => s.label === order.agent_status);
+    const phone = normalizePhone(order.agent_data?.phone || order.customer?.phone || order.shipping_address?.phone || "");
+    const fullName = order.agent_data?.customer_name || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim();
+    const city = order.agent_data?.city || order.shipping_address?.city || "";
+    const address = order.agent_data?.address || order.shipping_address?.address1 || "";
+    const products = order.agent_data?.product || order.line_items?.map(i => `${i.quantity > 1 ? i.quantity + "x " : ""}${i.title}`).join(" + ") || "—";
+    const skus = order.agent_data?.sku || order.line_items?.map(i => `${i.quantity > 1 ? i.quantity : ""}${i.sku || ""}`).join(" + ") || "—";
+    const unitPrices = order.line_items?.map(i => i.price).join(" + ") || "—";
+    const shipping = order.agent_data?.shipping || order.total_shipping_price_set?.presentment_money?.amount || "0";
+    const discount = order.agent_data?.discount || order.total_discounts || "0";
+    const remarks = order.agent_data?.remarks || "";
+    const cancellationReason = order.agent_data?.cancellation_reason || "";
+    const date = new Date(order.created_at).toLocaleDateString("en-PK");
+    const time = new Date(order.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" });
+    const shopifyUrl = `https://${currentStore?.shopify_url}/admin/orders/${order.id}`;
+    const syncState = getSyncState(order);
+    const isSelected = selectedIds.has(order.id);
+    const isCancelled = order.agent_status === "Cancelled";
+    const hasValidHistory = isHistoryValid(historyMap[String(order.id)]);
+    const isUndoing = undoingId === order.id;
+    const isExpanded = expandedIds.has(order.id);
+
+    const sb = syncState === "pending" ? { bg: "var(--ne-warning-soft)", color: "var(--ne-warning)", label: "⚡ Ready to Sync" }
+      : syncState === "synced" ? { bg: "var(--ne-success-soft)", color: "var(--ne-success)", label: "✓ Synced" }
+      : { bg: "var(--ne-surface-2)", color: "var(--ne-muted-2)", label: "Sync" };
+
+    const statusBtn = (
+      <button data-order-btn={order.id} onClick={(e) => handleStatusBtnClick(e, order.id)}
+        style={{ padding: "3px 9px", borderRadius: 8, fontSize: 10, background: status?.bg || "var(--ne-surface-2)", color: status?.color || "var(--ne-muted-2)", border: "none", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" }}>
+        {order.agent_status || "Set ▼"}
+      </button>
+    );
+    const syncRow = (
+      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+        <button onClick={() => openSyncConfirm([order])}
+          style={{ padding: "2px 8px", borderRadius: 6, fontSize: 9, background: sb.bg, color: sb.color, border: "none", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" }}>
+          {sb.label}
+        </button>
+        {hasValidHistory && (
+          <button onClick={() => openUndoConfirm([order])} disabled={isUndoing} title="Undo"
+            style={{ padding: "2px 5px", borderRadius: 6, fontSize: 11, lineHeight: 1, background: "var(--ne-warning-soft)", color: "var(--ne-warning)", border: "none", cursor: isUndoing ? "default" : "pointer" }}>
+            {isUndoing ? "⏳" : "↩️"}
+          </button>
+        )}
+      </div>
+    );
+
+    return { order, source, phone, fullName, city, address, products, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, hasValidHistory, isUndoing, isExpanded, statusBtn, syncRow };
+  });
+
   return (
     <div style={{ padding: "0.75rem", height: "100%", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
 
+      {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem", flexWrap: "wrap", gap: 8 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "var(--ne-text)" }}>📦 Orders</h1>
@@ -697,6 +767,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         </div>
       </div>
 
+      {/* Date Quick Buttons */}
       <div style={{ display: "flex", gap: 6, marginBottom: "8px", alignItems: "center", flexWrap: "wrap" }}>
         <button style={dateBtnStyle("today")} onClick={() => handleDateBtn("today")}>
           Today <span style={{ opacity: 0.85, fontWeight: 500 }}>({todayCount})</span>
@@ -713,6 +784,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         )}
       </div>
 
+      {/* Search + Date Range */}
       <div style={{ display: "flex", gap: 6, marginBottom: "6px", flexWrap: "wrap" }}>
         <input type="text" placeholder="🔍 Name, phone, order#..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
           style={{ flex: 1, minWidth: 130, padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
@@ -722,6 +794,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           style={{ padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
       </div>
 
+      {/* Filters + Bulk Actions */}
       <div style={{ display: "flex", gap: 6, marginBottom: "0.6rem", flexWrap: "wrap", alignItems: "center" }}>
         <div style={{ position: "relative" }} data-status-multi>
           <button onClick={() => setStatusMultiOpen(!statusMultiOpen)}
@@ -758,6 +831,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           {availableSKUs.map(s => <option key={s}>{s}</option>)}
         </select>
 
+        {/* Bulk Actions */}
         {selectedIds.size > 0 && (
           <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: "auto", flexWrap: "wrap" }}>
             <span style={{ fontSize: 11, color: "var(--ne-muted)", fontWeight: 600 }}>{selectedIds.size} selected</span>
@@ -795,6 +869,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         )}
       </div>
 
+      {/* Tab Navigation — har tab apni alag pill hai (theme reference jaisa), shared box nahi */}
       <div style={{ display: "flex", gap: 7, marginBottom: "0.6rem", flexWrap: "wrap" }}>
         {TABS.map(tab => (
           <button key={tab} onClick={() => { setActiveTab(tab); setPage(1); }}
@@ -814,16 +889,79 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
       {loading ? (
         <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>Loading orders...</div>
-      ) : (
+      ) : isMobile ? (
         <div ref={tableRef} style={{ flex: 1, overflowY: "auto" }}>
-          {!isMobile && (
-            <div style={{ display: "flex", alignItems: "stretch", gap: 0, marginBottom: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 8px 8px 12px", flexShrink: 0 }}>
-                <input type="checkbox" checked={selectedIds.size === pagedOrders.length && pagedOrders.length > 0}
-                  onChange={toggleSelectAll} style={{ cursor: "pointer", flexShrink: 0, width: 28 }} />
-                <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 95, minWidth: 95, flexShrink: 0 }}>Order#</span>
+          {orderRows.map(({ order, source, phone, fullName, city, address, products, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, isExpanded, statusBtn, syncRow }) => (
+            <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "10px 12px", marginBottom: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(order.id)} style={{ cursor: "pointer", flexShrink: 0 }} />
+                <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 12 }}>{order.name}</a>
+                <span style={{ marginLeft: "auto" }}>{statusBtn}</span>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", overflow: "hidden", flex: "1 1 auto", minWidth: 0 }}>
+              <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)", marginTop: 4 }}>{date} · {time} · {skus}</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 5 }}>
+                <div>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ne-text)" }}>{fullName || "—"}</div>
+                  <div style={{ fontSize: 11, color: "var(--ne-muted)" }}>{city || "—"}</div>
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ne-success)" }}>Rs. {Number(order.total_price).toLocaleString()}</div>
+              </div>
+
+              <button onClick={() => toggleExpand(order.id)}
+                style={{ width: "100%", marginTop: 8, padding: "6px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-muted)", fontSize: 10.5, cursor: "pointer", fontWeight: 600 }}>
+                {isExpanded ? "▲ Kam dikhao" : "▼ Tafseel dikhao"}
+              </button>
+
+              {isExpanded && (
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--ne-border)", display: "flex", flexDirection: "column", gap: 6 }}>
+                  <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>Phone: </span><EditableCell orderId={order.id} field="phone" value={phone} width={200} /></div>
+                  <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>Address: </span><EditableCell orderId={order.id} field="address" value={address} width={260} /></div>
+                  <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>Product: </span><EditableCell orderId={order.id} field="product" value={products} width={260} /></div>
+                  <div style={{ display: "flex", gap: 14 }}>
+                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)" }}>Unit: {unitPrices}</div>
+                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 3 }}>Ship: <EditableCell orderId={order.id} field="shipping" value={String(shipping)} width={50} /></div>
+                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 3 }}>Disc: <EditableCell orderId={order.id} field="discount" value={String(discount)} width={50} /></div>
+                  </div>
+                  {isCancelled && cancellationReason && (
+                    <span style={{ padding: "2px 7px", borderRadius: 6, fontSize: 10, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, width: "fit-content" }}>{cancellationReason}</span>
+                  )}
+                  <span style={{ padding: "2px 8px", borderRadius: 8, fontSize: 10, background: "var(--ne-surface-2)", color: SOURCE_COLORS[source], fontWeight: 700, width: "fit-content" }}>{source}</span>
+                  <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>Remarks: </span><EditableCell orderId={order.id} field="remarks" value={remarks} width={260} /></div>
+                  {syncRow}
+                </div>
+              )}
+            </div>
+          ))}
+          {orderRows.length === 0 && (
+            <div style={{ textAlign: "center", padding: "3rem", color: "var(--ne-muted)" }}>Koi order nahi mila!</div>
+          )}
+        </div>
+      ) : (
+        <div ref={tableRef} style={{ flex: 1, overflowY: "auto", display: "flex", gap: 8, alignItems: "flex-start" }}>
+
+          {/* LEFT LANE — checkbox + Order# (fixed, never scrolls) */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
+            <div style={{ height: 36, display: "flex", alignItems: "center", gap: 8 }}>
+              <input type="checkbox" checked={selectedIds.size === pagedOrders.length && pagedOrders.length > 0}
+                onChange={toggleSelectAll} style={{ cursor: "pointer" }} />
+              <span style={{ ...thBase, background: "none", border: "none", padding: 0 }}>Order#</span>
+            </div>
+            {orderRows.map(({ order, isSelected, date, time, shopifyUrl }) => (
+              <div key={order.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "10px 10px", boxShadow: "0 2px 8px rgba(0,0,0,.18)", minHeight: 84, boxSizing: "border-box" }}>
+                <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(order.id)} style={{ cursor: "pointer", flexShrink: 0, marginTop: 2 }} />
+                <div style={{ width: 90, minWidth: 90 }}>
+                  <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 11.5 }}>{order.name}</a>
+                  <div style={{ fontSize: 10.5, color: "var(--ne-muted)", marginTop: 2 }}>{date}</div>
+                  <div style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{time}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* MIDDLE LANE — everything else, ONE shared scrollbar (header scrolls with it) */}
+          <div style={{ flex: "1 1 auto", minWidth: 0, overflowX: "auto" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "max-content" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, height: 36 }}>
                 <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 140, flexShrink: 0 }}>Customer</span>
                 <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 190, flexShrink: 0 }}>Address</span>
                 <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 160, flexShrink: 0 }}>Items</span>
@@ -832,121 +970,9 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                 <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 75, flexShrink: 0 }}>Source</span>
                 <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 110, flexShrink: 0 }}>Remarks</span>
               </div>
-              <div style={{ padding: "8px 12px 8px 0", flexShrink: 0, width: 145, minWidth: 145 }}>
-                <span style={{ ...thBase, background: "none", border: "none", padding: 0 }}>Status / Sync</span>
-              </div>
-            </div>
-          )}
 
-          {pagedOrders.map((order, i) => {
-            const source = getSource(order);
-            const status = STATUSES.find(s => s.label === order.agent_status);
-            const phone = normalizePhone(order.agent_data?.phone || order.customer?.phone || order.shipping_address?.phone || "");
-            const fullName = order.agent_data?.customer_name || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim();
-            const city = order.agent_data?.city || order.shipping_address?.city || "";
-            const address = order.agent_data?.address || order.shipping_address?.address1 || "";
-            const products = order.agent_data?.product || order.line_items?.map(i => `${i.quantity > 1 ? i.quantity + "x " : ""}${i.title}`).join(" + ") || "—";
-            const skus = order.agent_data?.sku || order.line_items?.map(i => `${i.quantity > 1 ? i.quantity : ""}${i.sku || ""}`).join(" + ") || "—";
-            const unitPrices = order.line_items?.map(i => i.price).join(" + ") || "—";
-            const shipping = order.agent_data?.shipping || order.total_shipping_price_set?.presentment_money?.amount || "0";
-            const discount = order.agent_data?.discount || order.total_discounts || "0";
-            const remarks = order.agent_data?.remarks || "";
-            const cancellationReason = order.agent_data?.cancellation_reason || "";
-            const date = new Date(order.created_at).toLocaleDateString("en-PK");
-            const time = new Date(order.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" });
-            const shopifyUrl = `https://${currentStore?.shopify_url}/admin/orders/${order.id}`;
-            const syncState = getSyncState(order);
-            const isSelected = selectedIds.has(order.id);
-            const isCancelled = order.agent_status === "Cancelled";
-            const hasValidHistory = isHistoryValid(historyMap[String(order.id)]);
-            const isUndoing = undoingId === order.id;
-            const isExpanded = expandedIds.has(order.id);
-
-            const syncBtn = () => {
-              if (syncState === "pending") return { bg: "var(--ne-warning-soft)", color: "var(--ne-warning)", label: "⚡ Ready to Sync" };
-              if (syncState === "synced") return { bg: "var(--ne-success-soft)", color: "var(--ne-success)", label: "✓ Synced" };
-              return { bg: "var(--ne-surface-2)", color: "var(--ne-muted-2)", label: "Sync" };
-            };
-            const sb = syncBtn();
-
-            const statusBtn = (
-              <button data-order-btn={order.id} onClick={(e) => handleStatusBtnClick(e, order.id)}
-                style={{ padding: "3px 9px", borderRadius: 8, fontSize: 10, background: status?.bg || "var(--ne-surface-2)", color: status?.color || "var(--ne-muted-2)", border: "none", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" }}>
-                {order.agent_status || "Set ▼"}
-              </button>
-            );
-            const syncRow = (
-              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                <button onClick={() => openSyncConfirm([order])}
-                  style={{ padding: "2px 8px", borderRadius: 6, fontSize: 9, background: sb.bg, color: sb.color, border: "none", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" }}>
-                  {sb.label}
-                </button>
-                {hasValidHistory && (
-                  <button onClick={() => openUndoConfirm([order])} disabled={isUndoing} title="Undo"
-                    style={{ padding: "2px 5px", borderRadius: 6, fontSize: 11, lineHeight: 1, background: "var(--ne-warning-soft)", color: "var(--ne-warning)", border: "none", cursor: isUndoing ? "default" : "pointer" }}>
-                    {isUndoing ? "⏳" : "↩️"}
-                  </button>
-                )}
-              </div>
-            );
-
-            if (isMobile) {
-              return (
-                <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "10px 12px", marginBottom: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(order.id)} style={{ cursor: "pointer", flexShrink: 0 }} />
-                    <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 12 }}>{order.name}</a>
-                    <span style={{ marginLeft: "auto" }}>{statusBtn}</span>
-                  </div>
-                  <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)", marginTop: 4 }}>{date} · {time} · {skus}</div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 5 }}>
-                    <div>
-                      <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ne-text)" }}>{fullName || "—"}</div>
-                      <div style={{ fontSize: 11, color: "var(--ne-muted)" }}>{city || "—"}</div>
-                    </div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ne-success)" }}>Rs. {Number(order.total_price).toLocaleString()}</div>
-                  </div>
-
-                  <button onClick={() => toggleExpand(order.id)}
-                    style={{ width: "100%", marginTop: 8, padding: "6px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-muted)", fontSize: 10.5, cursor: "pointer", fontWeight: 600 }}>
-                    {isExpanded ? "▲ Kam dikhao" : "▼ Tafseel dikhao"}
-                  </button>
-
-                  {isExpanded && (
-                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--ne-border)", display: "flex", flexDirection: "column", gap: 6 }}>
-                      <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>Phone: </span><EditableCell orderId={order.id} field="phone" value={phone} width={200} /></div>
-                      <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>Address: </span><EditableCell orderId={order.id} field="address" value={address} width={260} /></div>
-                      <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>Product: </span><EditableCell orderId={order.id} field="product" value={products} width={260} /></div>
-                      <div style={{ display: "flex", gap: 14 }}>
-                        <div style={{ fontSize: 10.5, color: "var(--ne-muted)" }}>Unit: {unitPrices}</div>
-                        <div style={{ fontSize: 10.5, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 3 }}>Ship: <EditableCell orderId={order.id} field="shipping" value={String(shipping)} width={50} /></div>
-                        <div style={{ fontSize: 10.5, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 3 }}>Disc: <EditableCell orderId={order.id} field="discount" value={String(discount)} width={50} /></div>
-                      </div>
-                      {isCancelled && cancellationReason && (
-                        <span style={{ padding: "2px 7px", borderRadius: 6, fontSize: 10, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, width: "fit-content" }}>{cancellationReason}</span>
-                      )}
-                      <span style={{ padding: "2px 8px", borderRadius: 8, fontSize: 10, background: "var(--ne-surface-2)", color: SOURCE_COLORS[source], fontWeight: 700, width: "fit-content" }}>{source}</span>
-                      <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>Remarks: </span><EditableCell orderId={order.id} field="remarks" value={remarks} width={260} /></div>
-                      {syncRow}
-                    </div>
-                  )}
-                </div>
-              );
-            }
-
-            return (
-              <div key={order.id} style={{ display: "flex", alignItems: "stretch", gap: 0, background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "hidden" }}>
-
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 8px 10px 12px", flexShrink: 0 }}>
-                  <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(order.id)} style={{ cursor: "pointer", flexShrink: 0, width: 28, marginTop: 2 }} />
-                  <div style={{ width: 95, minWidth: 95, flexShrink: 0 }}>
-                    <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 11.5 }}>{order.name}</a>
-                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", marginTop: 2 }}>{date}</div>
-                    <div style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{time}</div>
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 0", overflowX: "auto", flex: "1 1 auto", minWidth: 0 }}>
+              {orderRows.map(({ order, source, phone, fullName, city, address, products, skus, unitPrices, shipping, discount, remarks, cancellationReason, isSelected, isCancelled }) => (
+                <div key={order.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "10px 12px", boxShadow: "0 2px 8px rgba(0,0,0,.18)", minHeight: 84, boxSizing: "border-box" }}>
                   <div style={{ width: 140, minWidth: 140, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 2 }}>
                     <EditableCell orderId={order.id} field="customer_name" value={fullName} width={130} clampLines={1} />
                     <EditableCell orderId={order.id} field="phone" value={phone} width={130} clampLines={1} />
@@ -992,21 +1018,30 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                     <EditableCell orderId={order.id} field="remarks" value={remarks} width={100} multiline clampLines={2} />
                   </div>
                 </div>
+              ))}
+            </div>
+          </div>
 
-                <div style={{ width: 145, minWidth: 145, flexShrink: 0, display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start", padding: "10px 12px 10px 0" }}>
-                  {statusBtn}
-                  {syncRow}
-                </div>
+          {/* RIGHT LANE — Status/Sync (fixed, never scrolls) */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
+            <div style={{ height: 36, display: "flex", alignItems: "center" }}>
+              <span style={{ ...thBase, background: "none", border: "none", padding: 0 }}>Status / Sync</span>
+            </div>
+            {orderRows.map(({ order, isSelected, statusBtn, syncRow }) => (
+              <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "10px 12px", boxShadow: "0 2px 8px rgba(0,0,0,.18)", minHeight: 84, boxSizing: "border-box", width: 130, display: "flex", flexDirection: "column", gap: 3, justifyContent: "center" }}>
+                {statusBtn}
+                {syncRow}
               </div>
-            );
-          })}
+            ))}
+          </div>
 
-          {pagedOrders.length === 0 && (
-            <div style={{ textAlign: "center", padding: "3rem", color: "var(--ne-muted)" }}>Koi order nahi mila!</div>
+          {orderRows.length === 0 && (
+            <div style={{ textAlign: "center", padding: "3rem", color: "var(--ne-muted)", width: "100%" }}>Koi order nahi mila!</div>
           )}
         </div>
       )}
 
+      {/* Status Dropdown Portal */}
       {statusDropdown && (
         <div data-status-dropdown style={{ position: "fixed", top: dropdownPos.top, left: dropdownPos.left, zIndex: 999999, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "4px", minWidth: 175, boxShadow: "0 8px 30px rgba(0,0,0,0.6)" }}>
           {STATUSES.map(s => (
@@ -1020,6 +1055,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         </div>
       )}
 
+      {/* Cancellation Reason Modal */}
       {cancelReasonModal && (
         <div data-cancel-modal style={{ position: "fixed", top: dropdownPos.top, left: dropdownPos.left, zIndex: 999999, background: "var(--ne-surface-2)", border: "1px solid var(--ne-danger)", borderRadius: 10, padding: "8px", minWidth: 190, boxShadow: "0 8px 30px rgba(0,0,0,0.6)" }}>
           <div style={{ fontSize: 10, color: "var(--ne-danger)", fontWeight: 700, marginBottom: 6, paddingLeft: 4 }}>
@@ -1095,6 +1131,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         </div>
       )}
 
+      {/* ---------- SYNC CONFIRM MODAL ---------- */}
       {syncConfirmModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
           <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 560, maxWidth: "94vw", maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
@@ -1152,6 +1189,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         </div>
       )}
 
+      {/* ---------- UNDO CONFIRM MODAL ---------- */}
       {undoConfirmModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
           <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 420, maxWidth: "94vw", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
@@ -1180,6 +1218,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         </div>
       )}
 
+      {/* ---------- SYNC/UNDO RESULT MODAL ---------- */}
       {syncResultModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
           <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 460, maxWidth: "94vw", maxHeight: "75vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
@@ -1210,6 +1249,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         </div>
       )}
 
+      {/* Pagination */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.6rem", flexWrap: "wrap", gap: 8 }}>
         <span style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>
           Showing {((page - 1) * perPage) + 1}–{Math.min(page * perPage, tabFilteredOrders.length)} of {tabFilteredOrders.length}
