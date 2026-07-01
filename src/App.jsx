@@ -677,30 +677,5 @@ function App() {
     </div>
   )
 }
-/* ===== LIGHT MODE ===== */
-:root[data-theme="light"]{
-  --ne-bg:#F4F5FB;
-  --ne-bg-glow: radial-gradient(60% 50% at 85% -10%, rgba(92,124,250,.08), transparent 60%),
-                radial-gradient(50% 40% at 0% 100%, rgba(168,85,247,.06), transparent 60%);
-  --ne-sidebar-bg:#FFFFFF; --ne-surface:#FFFFFF; --ne-surface-2:#F1F2FA; --ne-border:#E1E4F0;
-  --ne-text:#1A1F36; --ne-muted:#6B7280; --ne-muted-2:#9CA3AF;
-  --ne-accent:#5C7CFA; --ne-accent2:#A855F7; --ne-accent-soft:#EDEFFE;
-  --ne-grad: linear-gradient(120deg, #5C7CFA 0%, #A855F7 100%);
-  --ne-success:#16A34A; --ne-success-soft:#DCFCE7;
-  --ne-warning:#D97706; --ne-warning-soft:#FEF3C7;
-  --ne-danger:#DC2626; --ne-danger-soft:#FEE2E2;
-}
-:root[data-theme="light"] .ne-brand{ color:#1A1F36; }
-:root[data-theme="light"] .ne-navitem{ color:rgba(26,31,54,.6); }
-:root[data-theme="light"] .ne-navitem .ne-ic{ background:rgba(26,31,54,.05); }
-:root[data-theme="light"] .ne-navitem .ne-ic svg{ stroke:rgba(26,31,54,.6); }
-:root[data-theme="light"] .ne-navitem.active{ color:#1A1F36; background:rgba(92,124,250,.08); }
-:root[data-theme="light"] .ne-navitem:hover:not(.active){ background:rgba(26,31,54,.04); }
-:root[data-theme="light"] .ne-navlabel{ color:rgba(26,31,54,.35); }
-:root[data-theme="light"] .ne-collapse-btn{ color:rgba(26,31,54,.5); }
-:root[data-theme="light"] .ne-hamburger{ color:var(--ne-text); }
 
-.ne-theme-toggle{ background:var(--ne-surface-2); border:1px solid var(--ne-border); color:var(--ne-text); border-radius:9px; width:34px; height:34px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:15px; flex-shrink:0; }
-.ne-mobile-preview-btn{ background:var(--ne-surface-2); border:1px solid var(--ne-border); color:var(--ne-text); border-radius:9px; padding:0 12px; height:34px; display:flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; font-weight:600; flex-shrink:0; white-space:nowrap; }
-.ne-mobile-preview-btn.active{ background:var(--ne-grad); color:#fff; border-color:transparent; }
 export default App
