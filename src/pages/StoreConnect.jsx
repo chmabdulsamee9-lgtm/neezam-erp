@@ -164,13 +164,13 @@ export default function StoreConnect({ storeId }) {
 
   return (
     <div style={{ padding: "2rem", maxWidth: 800, margin: "0 auto" }}>
-      
+
       {/* Header */}
       <div style={{ marginBottom: "2rem" }}>
-        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 600, color: "#fff" }}>
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "var(--ne-text)" }}>
           🔗 Store Connect
         </h1>
-        <p style={{ margin: "4px 0 0", fontSize: 14, color: "#94a3b8" }}>
+        <p style={{ margin: "4px 0 0", fontSize: 14, color: "var(--ne-muted)" }}>
           Apna Shopify store connect karo
         </p>
       </div>
@@ -183,18 +183,19 @@ export default function StoreConnect({ storeId }) {
             style={{
               width: "100%",
               padding: "16px",
-              background: "#3b82f6",
+              background: "var(--ne-grad)",
               color: "#fff",
               border: "none",
-              borderRadius: 12,
+              borderRadius: 14,
               fontSize: 16,
-              fontWeight: 600,
+              fontWeight: 700,
               cursor: "pointer",
               marginBottom: "1.5rem",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               gap: 10,
+              boxShadow: "0 6px 20px rgba(92,124,250,.25)",
             }}
           >
             <span style={{ fontSize: 20 }}>🛍️</span>
@@ -202,12 +203,13 @@ export default function StoreConnect({ storeId }) {
           </button>
         ) : (
           <div style={{
-            background: "#1e293b",
-            borderRadius: 12,
+            background: "var(--ne-surface-2)",
+            border: "1px solid var(--ne-border)",
+            borderRadius: 14,
             padding: "1.5rem",
             marginBottom: "1.5rem",
           }}>
-            <h2 style={{ margin: "0 0 1rem", fontSize: 16, color: "#fff" }}>
+            <h2 style={{ margin: "0 0 1rem", fontSize: 16, color: "var(--ne-text)", fontWeight: 700 }}>
               Store URL daalo
             </h2>
             <div style={{ display: "flex", gap: 10 }}>
@@ -220,22 +222,23 @@ export default function StoreConnect({ storeId }) {
                 style={{
                   flex: 1,
                   padding: "10px 14px",
-                  borderRadius: 8,
-                  border: "1px solid #334155",
-                  background: "#0f172a",
-                  color: "#fff",
+                  borderRadius: 9,
+                  border: "1px solid var(--ne-border)",
+                  background: "var(--ne-bg)",
+                  color: "var(--ne-text)",
                   fontSize: 14,
                 }}
               />
               <button
                 onClick={handleConnect}
                 style={{
-                  background: "#3b82f6",
+                  background: "var(--ne-grad)",
                   color: "#fff",
                   border: "none",
-                  borderRadius: 8,
+                  borderRadius: 9,
                   padding: "10px 20px",
                   fontSize: 14,
+                  fontWeight: 700,
                   cursor: "pointer",
                   whiteSpace: "nowrap",
                 }}
@@ -245,10 +248,10 @@ export default function StoreConnect({ storeId }) {
               <button
                 onClick={() => { setShowInput(false); setError(""); }}
                 style={{
-                  background: "#334155",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 8,
+                  background: "var(--ne-surface)",
+                  border: "1px solid var(--ne-border)",
+                  color: "var(--ne-text)",
+                  borderRadius: 9,
                   padding: "10px 14px",
                   fontSize: 14,
                   cursor: "pointer",
@@ -258,9 +261,9 @@ export default function StoreConnect({ storeId }) {
               </button>
             </div>
             {error && (
-              <p style={{ color: "#ef4444", fontSize: 13, marginTop: 8 }}>{error}</p>
+              <p style={{ color: "var(--ne-danger)", fontSize: 13, marginTop: 8 }}>{error}</p>
             )}
-            <p style={{ fontSize: 12, color: "#64748b", marginTop: 8 }}>
+            <p style={{ fontSize: 12, color: "var(--ne-muted-2)", marginTop: 8 }}>
               Store URL daalo — Shopify login page khulega — Allow karo — automatically connect!
             </p>
           </div>
@@ -268,18 +271,18 @@ export default function StoreConnect({ storeId }) {
       )}
 
       {/* Connected Store */}
-      <h2 style={{ fontSize: 15, color: "#94a3b8", marginBottom: 12, fontWeight: 400 }}>
+      <h2 style={{ fontSize: 15, color: "var(--ne-muted)", marginBottom: 12, fontWeight: 600 }}>
         Aapka Store
       </h2>
 
       {loading ? (
-        <div style={{ textAlign: "center", padding: "2rem", color: "#94a3b8" }}>
+        <div style={{ textAlign: "center", padding: "2rem", color: "var(--ne-muted)" }}>
           Loading...
         </div>
       ) : stores.length === 0 ? (
         <div style={{
           textAlign: "center", padding: "3rem",
-          background: "#1e293b", borderRadius: 12, color: "#94a3b8",
+          background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, color: "var(--ne-muted)",
         }}>
           <p style={{ margin: 0, fontSize: 14 }}>Abhi koi store connected nahi!</p>
         </div>
@@ -287,9 +290,11 @@ export default function StoreConnect({ storeId }) {
         <div style={{ display: "grid", gap: 12 }}>
           {stores.map((store) => (
             <div key={store.id} style={{
-              background: "#1e293b",
-              borderRadius: 12,
+              background: "var(--ne-surface-2)",
+              border: "1px solid var(--ne-border)",
+              borderRadius: 14,
               padding: "1rem 1.25rem",
+              boxShadow: "0 2px 8px rgba(0,0,0,.18)",
             }}>
               <div style={{
                 display: "flex",
@@ -299,18 +304,18 @@ export default function StoreConnect({ storeId }) {
               }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                   <div style={{
-                    width: 44, height: 44, borderRadius: 10,
-                    background: "#0f172a", display: "flex",
+                    width: 44, height: 44, borderRadius: 12,
+                    background: "var(--ne-surface)", display: "flex",
                     alignItems: "center", justifyContent: "center",
-                    fontSize: 22, border: "1px solid #1e293b"
+                    fontSize: 22, border: "1px solid var(--ne-border)"
                   }}>
                     🛍️
                   </div>
                   <div>
-                    <p style={{ margin: 0, fontWeight: 600, fontSize: 15, color: "#fff" }}>
+                    <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: "var(--ne-text)" }}>
                       {store.store_name}
                     </p>
-                    <p style={{ margin: "2px 0 0", fontSize: 12, color: "#64748b" }}>
+                    <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--ne-muted-2)" }}>
                       {store.shopify_url || "Shopify connect nahi hua abhi"}
                     </p>
                   </div>
@@ -318,17 +323,17 @@ export default function StoreConnect({ storeId }) {
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   {store.shopify_url ? (
                     <span style={{
-                      fontSize: 12, padding: "4px 12px",
-                      background: "#14532d", color: "#4ade80",
-                      borderRadius: 20, fontWeight: 500,
+                      fontSize: 11, padding: "4px 12px",
+                      background: "var(--ne-success-soft)", color: "var(--ne-success)",
+                      borderRadius: 20, fontWeight: 700,
                     }}>
                       ✅ Connected
                     </span>
                   ) : (
                     <span style={{
-                      fontSize: 12, padding: "4px 12px",
-                      background: "#713f12", color: "#eab308",
-                      borderRadius: 20, fontWeight: 500,
+                      fontSize: 11, padding: "4px 12px",
+                      background: "var(--ne-warning-soft)", color: "var(--ne-warning)",
+                      borderRadius: 20, fontWeight: 700,
                     }}>
                       ⏳ Not Connected
                     </span>
@@ -342,14 +347,15 @@ export default function StoreConnect({ storeId }) {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
-                  background: "#0f172a",
-                  borderRadius: 8,
+                  background: "var(--ne-surface)",
+                  border: "1px solid var(--ne-border)",
+                  borderRadius: 10,
                   padding: "10px 14px",
                 }}>
-                  <div style={{ fontSize: 13, color: "#94a3b8" }}>
-                    🗄️ <strong style={{ color: "#fff" }}>{cacheCounts[store.id] ?? "..."}</strong> orders cached
+                  <div style={{ fontSize: 13, color: "var(--ne-muted)" }}>
+                    🗄️ <strong style={{ color: "var(--ne-text)" }}>{cacheCounts[store.id] ?? "..."}</strong> orders cached
                     {syncingStoreId === store.id && (
-                      <span style={{ color: "#3b82f6", marginLeft: 10 }}>
+                      <span style={{ color: "var(--ne-accent)", marginLeft: 10, fontWeight: 600 }}>
                         ⏳ Syncing... {syncProgress} orders so far
                       </span>
                     )}
@@ -358,13 +364,13 @@ export default function StoreConnect({ storeId }) {
                     onClick={() => handleSync(store)}
                     disabled={syncingStoreId === store.id}
                     style={{
-                      background: syncingStoreId === store.id ? "#334155" : "#3b82f6",
+                      background: syncingStoreId === store.id ? "var(--ne-border)" : "var(--ne-grad)",
                       color: "#fff",
                       border: "none",
-                      borderRadius: 8,
+                      borderRadius: 9,
                       padding: "8px 16px",
                       fontSize: 13,
-                      fontWeight: 500,
+                      fontWeight: 700,
                       cursor: syncingStoreId === store.id ? "not-allowed" : "pointer",
                       whiteSpace: "nowrap",
                     }}
@@ -374,7 +380,7 @@ export default function StoreConnect({ storeId }) {
                 </div>
               )}
               {syncError && syncingStoreId === null && (
-                <p style={{ color: "#ef4444", fontSize: 12, marginTop: 8 }}>
+                <p style={{ color: "var(--ne-danger)", fontSize: 12, marginTop: 8 }}>
                   ❌ {syncError}
                 </p>
               )}
