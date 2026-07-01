@@ -656,7 +656,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     );
 
     return (
-      <span onClick={() => setEditingCell(cellKey)}
+      <span onClick={() => setEditingCell(cellKey)} title={value || ""}
         style={{ cursor: "pointer", color: value ? "var(--ne-text)" : "var(--ne-muted-2)", fontSize: 11, display: "-webkit-box", WebkitLineClamp: clampLines, WebkitBoxOrient: "vertical", overflow: "hidden", textOverflow: "ellipsis", wordBreak: "break-word", lineHeight: 1.35, maxWidth: width }}>
         {value || "—"}
       </span>
@@ -815,20 +815,26 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       {loading ? (
         <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>Loading orders...</div>
       ) : (
-        <div ref={tableRef} style={{ flex: 1, overflowY: "auto", overflowX: "auto" }}>
+        <div ref={tableRef} style={{ flex: 1, overflowY: "auto" }}>
           {!isMobile && (
-            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", position: "sticky", top: 0, zIndex: 15, background: "var(--ne-surface-2)", borderRadius: 10, marginBottom: 8 }}>
-              <input type="checkbox" checked={selectedIds.size === pagedOrders.length && pagedOrders.length > 0}
-                onChange={toggleSelectAll} style={{ cursor: "pointer", flexShrink: 0, width: 28, position: "sticky", left: 0, zIndex: 3 }} />
-              <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 95, minWidth: 95, flexShrink: 0, position: "sticky", left: 38, zIndex: 3 }}>Order#</span>
-              <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 140, flexShrink: 0 }}>Customer</span>
-              <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 190, flexShrink: 0 }}>Address</span>
-              <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 160, flexShrink: 0 }}>Items</span>
-              <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 115, flexShrink: 0 }}>Pricing</span>
-              <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 85, flexShrink: 0 }}>Total</span>
-              <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 75, flexShrink: 0 }}>Source</span>
-              <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 110, flexShrink: 0 }}>Remarks</span>
-              <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 145, minWidth: 145, flexShrink: 0, position: "sticky", right: 0, zIndex: 3 }}>Status / Sync</span>
+            <div style={{ display: "flex", alignItems: "stretch", gap: 0, marginBottom: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 8px 8px 12px", flexShrink: 0 }}>
+                <input type="checkbox" checked={selectedIds.size === pagedOrders.length && pagedOrders.length > 0}
+                  onChange={toggleSelectAll} style={{ cursor: "pointer", flexShrink: 0, width: 28 }} />
+                <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 95, minWidth: 95, flexShrink: 0 }}>Order#</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", overflow: "hidden", flex: "1 1 auto", minWidth: 0 }}>
+                <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 140, flexShrink: 0 }}>Customer</span>
+                <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 190, flexShrink: 0 }}>Address</span>
+                <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 160, flexShrink: 0 }}>Items</span>
+                <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 115, flexShrink: 0 }}>Pricing</span>
+                <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 85, flexShrink: 0 }}>Total</span>
+                <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 75, flexShrink: 0 }}>Source</span>
+                <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 110, flexShrink: 0 }}>Remarks</span>
+              </div>
+              <div style={{ padding: "8px 12px 8px 0", flexShrink: 0, width: 145, minWidth: 145 }}>
+                <span style={{ ...thBase, background: "none", border: "none", padding: 0 }}>Status / Sync</span>
+              </div>
             </div>
           )}
 
@@ -929,61 +935,65 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
             }
 
             return (
-              <div key={order.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "10px 12px", marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,.18)" }}>
-                <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(order.id)} style={{ cursor: "pointer", flexShrink: 0, width: 28, marginTop: 2, position: "sticky", left: 0, zIndex: 3 }} />
+              <div key={order.id} style={{ display: "flex", alignItems: "stretch", gap: 0, background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "hidden" }}>
 
-                <div style={{ width: 95, minWidth: 95, flexShrink: 0, position: "sticky", left: 38, zIndex: 3, background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)" }}>
-                  <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 11.5 }}>{order.name}</a>
-                  <div style={{ fontSize: 10.5, color: "var(--ne-muted)", marginTop: 2 }}>{date}</div>
-                  <div style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{time}</div>
-                </div>
-
-                <div style={{ width: 140, minWidth: 0, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 2 }}>
-                  <EditableCell orderId={order.id} field="customer_name" value={fullName} width={130} clampLines={2} />
-                  <EditableCell orderId={order.id} field="phone" value={phone} width={130} clampLines={1} />
-                  <EditableCell orderId={order.id} field="city" value={city} width={130} clampLines={1} />
-                  {isCancelled && cancellationReason && (
-                    <span style={{ padding: "1px 6px", borderRadius: 6, fontSize: 9, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, width: "fit-content" }}>{cancellationReason}</span>
-                  )}
-                </div>
-
-                <div style={{ width: 190, minWidth: 0, flexShrink: 0, overflow: "hidden" }}>
-                  <EditableCell orderId={order.id} field="address" value={address} width={180} multiline clampLines={3} />
-                </div>
-
-                <div style={{ width: 160, minWidth: 0, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 2 }}>
-                  <EditableCell orderId={order.id} field="sku" value={skus} width={150} clampLines={1} />
-                  <EditableCell orderId={order.id} field="product" value={products} width={150} multiline clampLines={2} />
-                </div>
-
-                <div style={{ width: 115, minWidth: 0, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 3 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 4, fontSize: 10 }}>
-                    <span style={{ color: "var(--ne-muted-2)", flexShrink: 0 }}>Unit</span>
-                    <span style={{ color: "var(--ne-muted)", display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden", textOverflow: "ellipsis", textAlign: "right" }}>{unitPrices}</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
-                    <span style={{ color: "var(--ne-muted-2)" }}>Ship</span>
-                    <EditableCell orderId={order.id} field="shipping" value={String(shipping)} width={55} clampLines={1} />
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
-                    <span style={{ color: "var(--ne-muted-2)" }}>Disc</span>
-                    <EditableCell orderId={order.id} field="discount" value={String(discount)} width={55} clampLines={1} />
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 8px 10px 12px", flexShrink: 0 }}>
+                  <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(order.id)} style={{ cursor: "pointer", flexShrink: 0, width: 28, marginTop: 2 }} />
+                  <div style={{ width: 95, minWidth: 95, flexShrink: 0 }}>
+                    <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 11.5 }}>{order.name}</a>
+                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", marginTop: 2 }}>{date}</div>
+                    <div style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{time}</div>
                   </div>
                 </div>
 
-                <div style={{ width: 85, minWidth: 0, flexShrink: 0, overflow: "hidden", color: "var(--ne-success)", fontWeight: 700, fontSize: 12 }}>
-                  Rs. {Number(order.total_price).toLocaleString()}
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 0", overflowX: "auto", flex: "1 1 auto", minWidth: 0 }}>
+                  <div style={{ width: 140, minWidth: 140, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 2 }}>
+                    <EditableCell orderId={order.id} field="customer_name" value={fullName} width={130} clampLines={1} />
+                    <EditableCell orderId={order.id} field="phone" value={phone} width={130} clampLines={1} />
+                    <EditableCell orderId={order.id} field="city" value={city} width={130} clampLines={1} />
+                    {isCancelled && cancellationReason && (
+                      <span style={{ padding: "1px 6px", borderRadius: 6, fontSize: 9, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, width: "fit-content" }}>{cancellationReason}</span>
+                    )}
+                  </div>
+
+                  <div style={{ width: 190, minWidth: 190, flexShrink: 0, overflow: "hidden" }}>
+                    <EditableCell orderId={order.id} field="address" value={address} width={180} multiline clampLines={3} />
+                  </div>
+
+                  <div style={{ width: 160, minWidth: 160, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 2 }}>
+                    <EditableCell orderId={order.id} field="sku" value={skus} width={150} clampLines={1} />
+                    <EditableCell orderId={order.id} field="product" value={products} width={150} multiline clampLines={2} />
+                  </div>
+
+                  <div style={{ width: 115, minWidth: 115, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 3 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 4, fontSize: 10 }}>
+                      <span style={{ color: "var(--ne-muted-2)", flexShrink: 0 }}>Unit</span>
+                      <span title={unitPrices} style={{ color: "var(--ne-muted)", display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden", textOverflow: "ellipsis", textAlign: "right" }}>{unitPrices}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
+                      <span style={{ color: "var(--ne-muted-2)" }}>Ship</span>
+                      <EditableCell orderId={order.id} field="shipping" value={String(shipping)} width={55} clampLines={1} />
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
+                      <span style={{ color: "var(--ne-muted-2)" }}>Disc</span>
+                      <EditableCell orderId={order.id} field="discount" value={String(discount)} width={55} clampLines={1} />
+                    </div>
+                  </div>
+
+                  <div style={{ width: 85, minWidth: 85, flexShrink: 0, overflow: "hidden", color: "var(--ne-success)", fontWeight: 700, fontSize: 12 }}>
+                    Rs. {Number(order.total_price).toLocaleString()}
+                  </div>
+
+                  <div style={{ width: 75, minWidth: 75, flexShrink: 0, overflow: "hidden" }}>
+                    <span style={{ padding: "2px 7px", borderRadius: 8, fontSize: 10, background: "var(--ne-surface)", color: SOURCE_COLORS[source], fontWeight: 700 }}>{source}</span>
+                  </div>
+
+                  <div style={{ width: 110, minWidth: 110, flexShrink: 0, overflow: "hidden" }}>
+                    <EditableCell orderId={order.id} field="remarks" value={remarks} width={100} multiline clampLines={2} />
+                  </div>
                 </div>
 
-                <div style={{ width: 75, minWidth: 0, flexShrink: 0, overflow: "hidden" }}>
-                  <span style={{ padding: "2px 7px", borderRadius: 8, fontSize: 10, background: "var(--ne-surface)", color: SOURCE_COLORS[source], fontWeight: 700 }}>{source}</span>
-                </div>
-
-                <div style={{ width: 110, minWidth: 0, flexShrink: 0, overflow: "hidden" }}>
-                  <EditableCell orderId={order.id} field="remarks" value={remarks} width={100} multiline clampLines={2} />
-                </div>
-
-                <div style={{ width: 145, minWidth: 145, flexShrink: 0, display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start", position: "sticky", right: 0, zIndex: 3, background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)" }}>
+                <div style={{ width: 145, minWidth: 145, flexShrink: 0, display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start", padding: "10px 12px 10px 0" }}>
                   {statusBtn}
                   {syncRow}
                 </div>
