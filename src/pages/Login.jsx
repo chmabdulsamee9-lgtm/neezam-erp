@@ -113,23 +113,23 @@ export default function Login() {
   }
 
   const inputBoxStyle = {
-    width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #334155',
-    background: '#0f172a', color: '#fff', boxSizing: 'border-box', fontSize: '14px', outline: 'none',
+    width: '100%', padding: '10px', borderRadius: '9px', border: '1px solid var(--ne-border)',
+    background: 'var(--ne-bg)', color: 'var(--ne-text)', boxSizing: 'border-box', fontSize: '14px', outline: 'none',
   }
 
   if (signupDone) {
     return (
-      <div style={{ minHeight: '100vh', background: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-        <div style={{ background: '#1e293b', borderRadius: '12px', padding: '2rem', width: '100%', maxWidth: '400px', textAlign: 'center' }}>
+      <div className="ne-app-shell" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+        <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: '16px', padding: '2rem', width: '100%', maxWidth: '400px', textAlign: 'center' }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>⏳</div>
-          <h2 style={{ color: '#fff', margin: '0 0 8px', fontSize: 18 }}>Account ban gaya!</h2>
-          <p style={{ color: '#94a3b8', fontSize: 13, lineHeight: 1.6 }}>
-            Aapka account abhi <strong style={{ color: '#eab308' }}>approval ke liye pending</strong> hai.
+          <h2 style={{ color: 'var(--ne-text)', margin: '0 0 8px', fontSize: 18 }}>Account ban gaya!</h2>
+          <p style={{ color: 'var(--ne-muted)', fontSize: 13, lineHeight: 1.6 }}>
+            Aapka account abhi <strong style={{ color: 'var(--ne-warning)' }}>approval ke liye pending</strong> hai.
             Jaise hi admin approve karega, aap login karke Neezam use kar sakenge.
           </p>
           <button
             onClick={() => { setSignupDone(false); setMode('login'); setEmail(''); setPassword(''); setBrandName(''); setFullName(''); setPhone('') }}
-            style={{ marginTop: 16, padding: '9px 20px', borderRadius: 8, border: '1px solid #334155', background: 'transparent', color: '#94a3b8', fontSize: 13, cursor: 'pointer' }}>
+            style={{ marginTop: 16, padding: '9px 20px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-muted)', fontSize: 13, cursor: 'pointer' }}>
             ← Login page pe jao
           </button>
         </div>
@@ -138,35 +138,35 @@ export default function Login() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-      <div style={{ background: '#1e293b', padding: '2rem', borderRadius: '12px', width: '100%', maxWidth: '400px' }}>
+    <div className="ne-app-shell" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+      <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', padding: '2rem', borderRadius: '16px', width: '100%', maxWidth: '400px', boxShadow: '0 12px 40px rgba(0,0,0,.35)' }}>
 
-        <h1 style={{ color: '#fff', textAlign: 'center', marginBottom: '4px', fontSize: '2.5rem' }}>نظام</h1>
-        <p style={{ color: '#94a3b8', textAlign: 'center', marginBottom: '1.5rem', fontSize: '14px' }}>Neezam ERP</p>
+        <h1 style={{ color: '#fff', textAlign: 'center', marginBottom: '4px', fontSize: '2.5rem', fontWeight: 700 }}>نظام</h1>
+        <p style={{ color: 'var(--ne-muted)', textAlign: 'center', marginBottom: '1.5rem', fontSize: '14px' }}>Neezam ERP</p>
 
-        <div style={{ display: 'flex', gap: 6, marginBottom: 20, background: '#0f172a', borderRadius: 10, padding: 4 }}>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 20, background: 'var(--ne-bg)', border: '1px solid var(--ne-border)', borderRadius: 12, padding: 4 }}>
           <button
             onClick={() => { setMode('login'); setError('') }}
             style={{
-              flex: 1, padding: '8px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
-              background: mode === 'login' ? '#3b82f6' : 'transparent',
-              color: mode === 'login' ? '#fff' : '#94a3b8',
+              flex: 1, padding: '8px', borderRadius: 9, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700,
+              background: mode === 'login' ? 'var(--ne-grad)' : 'transparent',
+              color: mode === 'login' ? '#fff' : 'var(--ne-muted)',
             }}>
             Login
           </button>
           <button
             onClick={() => { setMode('signup'); setError('') }}
             style={{
-              flex: 1, padding: '8px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
-              background: mode === 'signup' ? '#3b82f6' : 'transparent',
-              color: mode === 'signup' ? '#fff' : '#94a3b8',
+              flex: 1, padding: '8px', borderRadius: 9, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700,
+              background: mode === 'signup' ? 'var(--ne-grad)' : 'transparent',
+              color: mode === 'signup' ? '#fff' : 'var(--ne-muted)',
             }}>
             Sign Up
           </button>
         </div>
 
         {error && (
-          <div style={{ background: '#dc2626', color: '#fff', padding: '10px', borderRadius: '8px', marginBottom: '1rem', fontSize: '14px' }}>
+          <div style={{ background: 'var(--ne-danger-soft)', border: '1px solid var(--ne-danger)', color: 'var(--ne-danger)', padding: '10px', borderRadius: '9px', marginBottom: '1rem', fontSize: '14px' }}>
             {error}
           </div>
         )}
@@ -174,7 +174,7 @@ export default function Login() {
         {mode === 'login' ? (
           <form onSubmit={handleLogin}>
             <div style={{ marginBottom: '1rem' }}>
-              <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Email</label>
+              <label style={{ color: 'var(--ne-muted)', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Email</label>
               <input
                 type="email"
                 value={email}
@@ -186,7 +186,7 @@ export default function Login() {
             </div>
 
             <div style={{ marginBottom: '1rem' }}>
-              <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Password</label>
+              <label style={{ color: 'var(--ne-muted)', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Password</label>
               <div style={{ position: 'relative' }}>
                 <input
                   type={showPassword ? 'text' : 'password'}
@@ -198,7 +198,7 @@ export default function Login() {
                 />
                 <span
                   onClick={() => setShowPassword(!showPassword)}
-                  style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', cursor: 'pointer', fontSize: '12px', userSelect: 'none' }}
+                  style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--ne-muted)', cursor: 'pointer', fontSize: '12px', userSelect: 'none' }}
                 >
                   {showPassword ? 'Hide' : 'Show'}
                 </span>
@@ -211,9 +211,9 @@ export default function Login() {
                 id="remember"
                 checked={rememberMe}
                 onChange={(e) => setRememberMe(e.target.checked)}
-                style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#3b82f6' }}
+                style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#5C7CFA' }}
               />
-              <label htmlFor="remember" style={{ color: '#94a3b8', fontSize: '13px', cursor: 'pointer' }}>
+              <label htmlFor="remember" style={{ color: 'var(--ne-muted)', fontSize: '13px', cursor: 'pointer' }}>
                 Remember me
               </label>
             </div>
@@ -221,7 +221,7 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              style={{ width: '100%', padding: '12px', background: loading ? '#1d4ed8' : '#3b82f6', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '16px', cursor: 'pointer', fontWeight: '500' }}
+              style={{ width: '100%', padding: '12px', background: loading ? 'var(--ne-border)' : 'var(--ne-grad)', color: '#fff', border: 'none', borderRadius: '10px', fontSize: '16px', cursor: 'pointer', fontWeight: '700' }}
             >
               {loading ? 'Login ho raha hai...' : 'Login'}
             </button>
@@ -229,7 +229,7 @@ export default function Login() {
         ) : (
           <form onSubmit={handleSignup}>
             <div style={{ marginBottom: '1rem' }}>
-              <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Apna Naam</label>
+              <label style={{ color: 'var(--ne-muted)', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Apna Naam</label>
               <input
                 type="text"
                 value={fullName}
@@ -241,7 +241,7 @@ export default function Login() {
             </div>
 
             <div style={{ marginBottom: '1rem' }}>
-              <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Phone Number</label>
+              <label style={{ color: 'var(--ne-muted)', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Phone Number</label>
               <input
                 type="tel"
                 value={phone}
@@ -253,7 +253,7 @@ export default function Login() {
             </div>
 
             <div style={{ marginBottom: '1rem' }}>
-              <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Brand / Store Name</label>
+              <label style={{ color: 'var(--ne-muted)', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Brand / Store Name</label>
               <input
                 type="text"
                 value={brandName}
@@ -265,7 +265,7 @@ export default function Login() {
             </div>
 
             <div style={{ marginBottom: '1rem' }}>
-              <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Email</label>
+              <label style={{ color: 'var(--ne-muted)', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Email</label>
               <input
                 type="email"
                 value={email}
@@ -277,7 +277,7 @@ export default function Login() {
             </div>
 
             <div style={{ marginBottom: '1rem' }}>
-              <label style={{ color: '#94a3b8', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Password</label>
+              <label style={{ color: 'var(--ne-muted)', fontSize: '13px', display: 'block', marginBottom: '4px' }}>Password</label>
               <div style={{ position: 'relative' }}>
                 <input
                   type={showPassword ? 'text' : 'password'}
@@ -289,7 +289,7 @@ export default function Login() {
                 />
                 <span
                   onClick={() => setShowPassword(!showPassword)}
-                  style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', cursor: 'pointer', fontSize: '12px', userSelect: 'none' }}
+                  style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--ne-muted)', cursor: 'pointer', fontSize: '12px', userSelect: 'none' }}
                 >
                   {showPassword ? 'Hide' : 'Show'}
                 </span>
@@ -299,11 +299,11 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              style={{ width: '100%', padding: '12px', background: loading ? '#15803d' : '#16a34a', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '16px', cursor: 'pointer', fontWeight: '500' }}
+              style={{ width: '100%', padding: '12px', background: loading ? 'var(--ne-border)' : 'var(--ne-success)', color: loading ? 'var(--ne-muted)' : '#0A2E1A', border: 'none', borderRadius: '10px', fontSize: '16px', cursor: 'pointer', fontWeight: '700' }}
             >
               {loading ? 'Account ban raha hai...' : 'Sign Up'}
             </button>
-            <p style={{ color: '#64748b', fontSize: '11px', marginTop: '10px', textAlign: 'center' }}>
+            <p style={{ color: 'var(--ne-muted-2)', fontSize: '11px', marginTop: '10px', textAlign: 'center' }}>
               Account banane ke baad admin approval ka wait karna hoga.
             </p>
           </form>
