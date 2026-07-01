@@ -977,7 +977,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                   <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 110, flexShrink: 0 }}>Remarks</span>
                 </div>
               </div>
-              <div style={{ width: 130, flexShrink: 0, padding: "0 12px 0 0", boxSizing: "border-box" }}>
+              <div style={{ width: 130, flexShrink: 0, padding: "0 12px 0 14px", boxSizing: "border-box", borderLeft: "1px solid var(--ne-border)" }}>
                 <span style={{ ...thBase, background: "none", border: "none", padding: 0 }}>Status / Sync</span>
               </div>
             </div>
@@ -1044,7 +1044,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                   </div>
                 </div>
 
-                <div style={{ width: 130, minWidth: 130, flexShrink: 0, display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start", padding: "10px 12px 10px 0", justifyContent: "center", boxSizing: "border-box" }}>
+                <div style={{ width: 130, minWidth: 130, flexShrink: 0, display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start", padding: "10px 12px 10px 14px", justifyContent: "center", boxSizing: "border-box", borderLeft: "1px solid var(--ne-border)" }}>
                   {statusBtn}
                   {syncRow}
                 </div>
