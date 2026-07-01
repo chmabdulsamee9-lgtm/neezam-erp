@@ -959,7 +959,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           <div ref={tableRef} style={{ flex: 1, overflowY: "auto" }}>
 
             {/* Header row */}
-            <div style={{ display: "flex", alignItems: "center", gap: 0, marginBottom: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 0, marginBottom: 8, position: "sticky", top: 0, zIndex: 5, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, boxShadow: "0 2px 8px rgba(0,0,0,.18)", padding: "10px 0" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, width: 136, padding: "0 8px 0 12px", boxSizing: "border-box" }}>
                 <input type="checkbox" checked={selectedIds.size === pagedOrders.length && pagedOrders.length > 0}
                   onChange={toggleSelectAll} style={{ cursor: "pointer" }} />
@@ -977,7 +977,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                   <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 110, flexShrink: 0 }}>Remarks</span>
                 </div>
               </div>
-              <div style={{ width: 130, flexShrink: 0, padding: "0 12px 0 14px", boxSizing: "border-box", borderLeft: "1px solid var(--ne-border)" }}>
+              <div style={{ width: 130, flexShrink: 0, padding: "0 12px 0 14px", boxSizing: "border-box" }}>
                 <span style={{ ...thBase, background: "none", border: "none", padding: 0 }}>Status / Sync</span>
               </div>
             </div>
@@ -1044,7 +1044,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                   </div>
                 </div>
 
-                <div style={{ width: 130, minWidth: 130, flexShrink: 0, display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start", padding: "10px 12px 10px 14px", justifyContent: "center", boxSizing: "border-box", borderLeft: "1px solid var(--ne-border)" }}>
+                <div style={{ width: 130, minWidth: 130, flexShrink: 0, display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start", padding: "10px 12px 10px 14px", justifyContent: "center", boxSizing: "border-box" }}>
                   {statusBtn}
                   {syncRow}
                 </div>
