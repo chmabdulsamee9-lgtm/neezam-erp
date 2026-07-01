@@ -20,6 +20,7 @@ const PER_PAGE_OPTIONS = [20, 50, 100];
 const TABS = ["All", "New", "Approved", "Pending", "Ready to Sync", "Cancelled"];
 const CANCEL_REASONS = ["Not Interested", "Wrong Number", "Duplicate Order", "Customer Cancelled", "Out of Stock", "Other"];
 const PAGE_SIZE = 1000;
+const MIDDLE_CONTENT_WIDTH = 935; // Customer+Address+Items+Pricing+Total+Source+Remarks + gaps — single source of truth so header/rows/scrollbar always match
 const SYNC_CONFIRM_PER_PAGE = 20;
 const HISTORY_VALID_MS = 2 * 24 * 60 * 60 * 1000; // 2 din
 
@@ -115,6 +116,23 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const [undoingId, setUndoingId] = useState(null);
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
   const [expandedIds, setExpandedIds] = useState(new Set());
+  const middleRefs = useRef({});
+  const isSyncingScroll = useRef(false);
+
+  const registerMiddleRef = (key) => (el) => {
+    if (el) middleRefs.current[key] = el;
+    else delete middleRefs.current[key];
+  };
+
+  const handleMiddleScroll = (key) => (e) => {
+    if (isSyncingScroll.current) return;
+    isSyncingScroll.current = true;
+    const val = e.target.scrollLeft;
+    Object.entries(middleRefs.current).forEach(([k, el]) => {
+      if (el && k !== key) el.scrollLeft = val;
+    });
+    requestAnimationFrame(() => { isSyncingScroll.current = false; });
+  };
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
@@ -163,8 +181,6 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     }
   };
 
-  // Saari cached orders Supabase se paginate karke laata hai (1000 per page,
-  // PostgREST ki default row limit se bachne ke liye)
   const fetchAllCachedOrders = async (storeId) => {
     let allRows = [];
     let from = 0;
@@ -656,11 +672,11 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           <textarea autoFocus value={val} onChange={e => setVal(e.target.value)}
             onKeyDown={e => { if (e.key === "Escape") setEditingCell(null); }}
             rows={3}
-            style={{ width: "100%", padding: "4px 6px", borderRadius: 5, border: "1px solid var(--ne-accent)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11, resize: "vertical", boxSizing: "border-box", fontFamily: "inherit" }} />
+            style={{ width: "100%", padding: "4px 6px", borderRadius: 5, border: "1px solid var(--ne-accent)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11, resize: "vertical", boxSizing: "border-box", fontFamily: "inherit", outline: "none" }} />
         ) : (
           <input autoFocus value={val} onChange={e => setVal(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") updateField(orderId, field, val); if (e.key === "Escape") setEditingCell(null); }}
-            style={{ width: "100%", padding: "3px 6px", borderRadius: 5, border: "1px solid var(--ne-accent)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11, boxSizing: "border-box" }} />
+            style={{ width: "100%", padding: "3px 6px", borderRadius: 5, border: "1px solid var(--ne-accent)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11, boxSizing: "border-box", outline: "none" }} />
         )}
         <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
           <button onClick={() => updateField(orderId, field, val)}
@@ -937,107 +953,114 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           )}
         </div>
       ) : (
-        <div ref={tableRef} style={{ flex: 1, overflowY: "auto", display: "flex", gap: 8, alignItems: "flex-start" }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <style>{`.ne-hide-scroll::-webkit-scrollbar{display:none} .ne-hide-scroll{scrollbar-width:none; -ms-overflow-style:none;}`}</style>
 
-          {/* LEFT LANE — checkbox + Order# (fixed, never scrolls) */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
-            <div style={{ height: 36, display: "flex", alignItems: "center", gap: 8 }}>
-              <input type="checkbox" checked={selectedIds.size === pagedOrders.length && pagedOrders.length > 0}
-                onChange={toggleSelectAll} style={{ cursor: "pointer" }} />
-              <span style={{ ...thBase, background: "none", border: "none", padding: 0 }}>Order#</span>
+          <div ref={tableRef} style={{ flex: 1, overflowY: "auto" }}>
+
+            {/* Header row */}
+            <div style={{ display: "flex", alignItems: "center", gap: 0, marginBottom: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, width: 136, padding: "0 8px 0 12px", boxSizing: "border-box" }}>
+                <input type="checkbox" checked={selectedIds.size === pagedOrders.length && pagedOrders.length > 0}
+                  onChange={toggleSelectAll} style={{ cursor: "pointer" }} />
+                <span style={{ ...thBase, background: "none", border: "none", padding: 0 }}>Order#</span>
+              </div>
+              <div ref={registerMiddleRef("header")} onScroll={handleMiddleScroll("header")} className="ne-hide-scroll"
+                style={{ overflowX: "auto", flex: "1 1 auto", minWidth: 0 }}>
+                <div style={{ display: "flex", gap: 10, width: MIDDLE_CONTENT_WIDTH }}>
+                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 140, flexShrink: 0 }}>Customer</span>
+                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 190, flexShrink: 0 }}>Address</span>
+                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 160, flexShrink: 0 }}>Items</span>
+                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 115, flexShrink: 0 }}>Pricing</span>
+                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 85, flexShrink: 0 }}>Total</span>
+                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 75, flexShrink: 0 }}>Source</span>
+                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 110, flexShrink: 0 }}>Remarks</span>
+                </div>
+              </div>
+              <div style={{ width: 130, flexShrink: 0, padding: "0 12px 0 0", boxSizing: "border-box" }}>
+                <span style={{ ...thBase, background: "none", border: "none", padding: 0 }}>Status / Sync</span>
+              </div>
             </div>
-            {orderRows.map(({ order, isSelected, date, time, shopifyUrl }) => (
-              <div key={order.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "10px 10px", boxShadow: "0 2px 8px rgba(0,0,0,.18)", minHeight: 84, boxSizing: "border-box" }}>
-                <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(order.id)} style={{ cursor: "pointer", flexShrink: 0, marginTop: 2 }} />
-                <div style={{ width: 90, minWidth: 90 }}>
-                  <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 11.5 }}>{order.name}</a>
-                  <div style={{ fontSize: 10.5, color: "var(--ne-muted)", marginTop: 2 }}>{date}</div>
-                  <div style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{time}</div>
+
+            {orderRows.map(({ order, source, phone, fullName, city, address, products, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, statusBtn, syncRow }) => (
+              <div key={order.id} style={{ display: "flex", alignItems: "stretch", gap: 0, background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "hidden" }}>
+
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 8px 10px 12px", flexShrink: 0, width: 136, boxSizing: "border-box" }}>
+                  <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(order.id)} style={{ cursor: "pointer", flexShrink: 0, marginTop: 2 }} />
+                  <div style={{ width: 90, minWidth: 90 }}>
+                    <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 11.5 }}>{order.name}</a>
+                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", marginTop: 2 }}>{date}</div>
+                    <div style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{time}</div>
+                  </div>
+                </div>
+
+                <div ref={registerMiddleRef(order.id)} onScroll={handleMiddleScroll(order.id)} className="ne-hide-scroll"
+                  style={{ overflowX: "auto", flex: "1 1 auto", minWidth: 0, padding: "10px 0" }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 10, width: MIDDLE_CONTENT_WIDTH }}>
+                    <div style={{ width: 140, minWidth: 140, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 2 }}>
+                      <EditableCell orderId={order.id} field="customer_name" value={fullName} width={130} clampLines={1} />
+                      <EditableCell orderId={order.id} field="phone" value={phone} width={130} clampLines={1} />
+                      <EditableCell orderId={order.id} field="city" value={city} width={130} clampLines={1} />
+                      {isCancelled && cancellationReason && (
+                        <span style={{ padding: "1px 6px", borderRadius: 6, fontSize: 9, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, width: "fit-content" }}>{cancellationReason}</span>
+                      )}
+                    </div>
+
+                    <div style={{ width: 190, minWidth: 190, flexShrink: 0, overflow: "hidden" }}>
+                      <EditableCell orderId={order.id} field="address" value={address} width={180} multiline clampLines={3} />
+                    </div>
+
+                    <div style={{ width: 160, minWidth: 160, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 2 }}>
+                      <EditableCell orderId={order.id} field="sku" value={skus} width={150} clampLines={1} />
+                      <EditableCell orderId={order.id} field="product" value={products} width={150} multiline clampLines={2} />
+                    </div>
+
+                    <div style={{ width: 115, minWidth: 115, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 3 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 4, fontSize: 10 }}>
+                        <span style={{ color: "var(--ne-muted-2)", flexShrink: 0 }}>Unit</span>
+                        <span title={unitPrices} style={{ color: "var(--ne-muted)", display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden", textOverflow: "ellipsis", textAlign: "right" }}>{unitPrices}</span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
+                        <span style={{ color: "var(--ne-muted-2)" }}>Ship</span>
+                        <EditableCell orderId={order.id} field="shipping" value={String(shipping)} width={55} clampLines={1} />
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
+                        <span style={{ color: "var(--ne-muted-2)" }}>Disc</span>
+                        <EditableCell orderId={order.id} field="discount" value={String(discount)} width={55} clampLines={1} />
+                      </div>
+                    </div>
+
+                    <div style={{ width: 85, minWidth: 85, flexShrink: 0, overflow: "hidden", color: "var(--ne-success)", fontWeight: 700, fontSize: 12 }}>
+                      Rs. {Number(order.total_price).toLocaleString()}
+                    </div>
+
+                    <div style={{ width: 75, minWidth: 75, flexShrink: 0, overflow: "hidden" }}>
+                      <span style={{ padding: "2px 7px", borderRadius: 8, fontSize: 10, background: "var(--ne-surface)", color: SOURCE_COLORS[source], fontWeight: 700 }}>{source}</span>
+                    </div>
+
+                    <div style={{ width: 110, minWidth: 110, flexShrink: 0, overflow: "hidden" }}>
+                      <EditableCell orderId={order.id} field="remarks" value={remarks} width={100} multiline clampLines={2} />
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ width: 130, minWidth: 130, flexShrink: 0, display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start", padding: "10px 12px 10px 0", justifyContent: "center", boxSizing: "border-box" }}>
+                  {statusBtn}
+                  {syncRow}
                 </div>
               </div>
             ))}
+
+            {orderRows.length === 0 && (
+              <div style={{ textAlign: "center", padding: "3rem", color: "var(--ne-muted)" }}>Koi order nahi mila!</div>
+            )}
           </div>
 
-          {/* MIDDLE LANE — everything else, ONE shared scrollbar (header scrolls with it) */}
-          <div style={{ flex: "1 1 auto", minWidth: 0, overflowX: "auto" }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "max-content" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, height: 36 }}>
-                <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 140, flexShrink: 0 }}>Customer</span>
-                <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 190, flexShrink: 0 }}>Address</span>
-                <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 160, flexShrink: 0 }}>Items</span>
-                <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 115, flexShrink: 0 }}>Pricing</span>
-                <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 85, flexShrink: 0 }}>Total</span>
-                <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 75, flexShrink: 0 }}>Source</span>
-                <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 110, flexShrink: 0 }}>Remarks</span>
-              </div>
-
-              {orderRows.map(({ order, source, phone, fullName, city, address, products, skus, unitPrices, shipping, discount, remarks, cancellationReason, isSelected, isCancelled }) => (
-                <div key={order.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "10px 12px", boxShadow: "0 2px 8px rgba(0,0,0,.18)", minHeight: 84, boxSizing: "border-box" }}>
-                  <div style={{ width: 140, minWidth: 140, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 2 }}>
-                    <EditableCell orderId={order.id} field="customer_name" value={fullName} width={130} clampLines={1} />
-                    <EditableCell orderId={order.id} field="phone" value={phone} width={130} clampLines={1} />
-                    <EditableCell orderId={order.id} field="city" value={city} width={130} clampLines={1} />
-                    {isCancelled && cancellationReason && (
-                      <span style={{ padding: "1px 6px", borderRadius: 6, fontSize: 9, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, width: "fit-content" }}>{cancellationReason}</span>
-                    )}
-                  </div>
-
-                  <div style={{ width: 190, minWidth: 190, flexShrink: 0, overflow: "hidden" }}>
-                    <EditableCell orderId={order.id} field="address" value={address} width={180} multiline clampLines={3} />
-                  </div>
-
-                  <div style={{ width: 160, minWidth: 160, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 2 }}>
-                    <EditableCell orderId={order.id} field="sku" value={skus} width={150} clampLines={1} />
-                    <EditableCell orderId={order.id} field="product" value={products} width={150} multiline clampLines={2} />
-                  </div>
-
-                  <div style={{ width: 115, minWidth: 115, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 3 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 4, fontSize: 10 }}>
-                      <span style={{ color: "var(--ne-muted-2)", flexShrink: 0 }}>Unit</span>
-                      <span title={unitPrices} style={{ color: "var(--ne-muted)", display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden", textOverflow: "ellipsis", textAlign: "right" }}>{unitPrices}</span>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
-                      <span style={{ color: "var(--ne-muted-2)" }}>Ship</span>
-                      <EditableCell orderId={order.id} field="shipping" value={String(shipping)} width={55} clampLines={1} />
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
-                      <span style={{ color: "var(--ne-muted-2)" }}>Disc</span>
-                      <EditableCell orderId={order.id} field="discount" value={String(discount)} width={55} clampLines={1} />
-                    </div>
-                  </div>
-
-                  <div style={{ width: 85, minWidth: 85, flexShrink: 0, overflow: "hidden", color: "var(--ne-success)", fontWeight: 700, fontSize: 12 }}>
-                    Rs. {Number(order.total_price).toLocaleString()}
-                  </div>
-
-                  <div style={{ width: 75, minWidth: 75, flexShrink: 0, overflow: "hidden" }}>
-                    <span style={{ padding: "2px 7px", borderRadius: 8, fontSize: 10, background: "var(--ne-surface)", color: SOURCE_COLORS[source], fontWeight: 700 }}>{source}</span>
-                  </div>
-
-                  <div style={{ width: 110, minWidth: 110, flexShrink: 0, overflow: "hidden" }}>
-                    <EditableCell orderId={order.id} field="remarks" value={remarks} width={100} multiline clampLines={2} />
-                  </div>
-                </div>
-              ))}
-            </div>
+          {/* Master horizontal scrollbar — hamesha yahin fixed rehta hai (page ke sath scroll nahi hota), sabko control karta hai */}
+          <div ref={registerMiddleRef("master")} onScroll={handleMiddleScroll("master")}
+            style={{ overflowX: "auto", overflowY: "hidden", height: 14, flexShrink: 0, marginLeft: 136, marginRight: 130 }}>
+            <div style={{ width: MIDDLE_CONTENT_WIDTH, height: 1 }} />
           </div>
-
-          {/* RIGHT LANE — Status/Sync (fixed, never scrolls) */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
-            <div style={{ height: 36, display: "flex", alignItems: "center" }}>
-              <span style={{ ...thBase, background: "none", border: "none", padding: 0 }}>Status / Sync</span>
-            </div>
-            {orderRows.map(({ order, isSelected, statusBtn, syncRow }) => (
-              <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "10px 12px", boxShadow: "0 2px 8px rgba(0,0,0,.18)", minHeight: 84, boxSizing: "border-box", width: 130, display: "flex", flexDirection: "column", gap: 3, justifyContent: "center" }}>
-                {statusBtn}
-                {syncRow}
-              </div>
-            ))}
-          </div>
-
-          {orderRows.length === 0 && (
-            <div style={{ textAlign: "center", padding: "3rem", color: "var(--ne-muted)", width: "100%" }}>Koi order nahi mila!</div>
-          )}
         </div>
       )}
 
