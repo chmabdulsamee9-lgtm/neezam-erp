@@ -926,8 +926,11 @@ function App() {
             )}
           </div>
 
+          {/* Sidebar hamesha dark hai (light mode mein bhi), isliye yahan theme-var ke bajaye
+              dark-mode ke fixed colors use karte hain — warna light mode mein dark text
+              dark sidebar ke upar illegible ho jata */}
           {currentStoreInfo && (sidebarOpen || mobileDrawerOpen) && (
-            <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: 8, padding: '8px 10px', fontSize: 11.5, color: 'var(--ne-muted)', marginBottom: 10 }}>
+            <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: 8, padding: '8px 10px', fontSize: 11.5, color: '#8C93C4', marginBottom: 10 }}>
               🏪 {currentStoreInfo.store_name}
             </div>
           )}
@@ -935,7 +938,7 @@ function App() {
           {/* TASK 14: Brand Switcher — 2+ brands ho tabhi dikhega */}
           {userStoresList.length > 1 && (sidebarOpen || mobileDrawerOpen) && (
             <select value={selectedStoreId || ''} onChange={e => handleSwitchStore(e.target.value)}
-              style={{ width: '100%', padding: '7px 8px', borderRadius: 8, border: '1px solid var(--ne-border)', background: 'var(--ne-surface-2)', color: 'var(--ne-text)', fontSize: 11.5, marginBottom: 8, cursor: 'pointer' }}>
+              style={{ width: '100%', padding: '7px 8px', borderRadius: 8, border: '1px solid #232A52', background: '#161B45', color: '#EEF0FF', fontSize: 11.5, marginBottom: 8, cursor: 'pointer' }}>
               {userStoresList.map(us => (
                 <option key={us.store_id} value={us.store_id}>{us.stores?.store_name}</option>
               ))}
@@ -944,7 +947,7 @@ function App() {
 
           {profile.role === 'creator' && (sidebarOpen || mobileDrawerOpen) && (
             <button onClick={() => { setIsMasterView(true); setSelectedStoreId(null); setOrdersLoaded(false); hasStartedLoadRef.current = false; closeDrawer() }}
-              style={{ width: '100%', padding: '7px', borderRadius: 8, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-muted)', fontSize: 11.5, cursor: 'pointer', marginBottom: 8 }}>
+              style={{ width: '100%', padding: '7px', borderRadius: 8, border: '1px solid #232A52', background: 'transparent', color: '#8C93C4', fontSize: 11.5, cursor: 'pointer', marginBottom: 8 }}>
               ← Master Dashboard
             </button>
           )}
@@ -952,7 +955,7 @@ function App() {
           {/* TASK 15: admin ke apne 2+ brands hon to mini master dashboard ka rasta */}
           {profile.role === 'admin' && userStoresList.length > 1 && (sidebarOpen || mobileDrawerOpen) && (
             <button onClick={() => { setIsAdminMasterView(true); closeDrawer() }}
-              style={{ width: '100%', padding: '7px', borderRadius: 8, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-muted)', fontSize: 11.5, cursor: 'pointer', marginBottom: 8 }}>
+              style={{ width: '100%', padding: '7px', borderRadius: 8, border: '1px solid #232A52', background: 'transparent', color: '#8C93C4', fontSize: 11.5, cursor: 'pointer', marginBottom: 8 }}>
               🏪 Meri Brands
             </button>
           )}
