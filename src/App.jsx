@@ -5,6 +5,7 @@ import { getCachedOrders, saveOrdersBulk, upsertOrder, getMeta, setMeta, clearCa
 import Login from './pages/Login'
 import StoreConnect from './pages/StoreConnect'
 import ShopifyCallback from './pages/ShopifyCallback'
+import DexCallback from './pages/DexCallback'
 import Orders from './pages/Orders'
 import Dashboard from './pages/Dashboard'
 import WhatsApp from './pages/WhatsApp'
@@ -14,6 +15,7 @@ import ActivityLog from './pages/ActivityLog'
 import ProfitLoss from './pages/ProfitLoss'
 import SupplierLedger from './pages/SupplierLedger'
 import BudgetCalculator from './pages/BudgetCalculator'
+import CourierTracking from './pages/CourierTracking'
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev"
 const BATCH_SIZE = 1000
@@ -773,6 +775,10 @@ function App() {
     return <ShopifyCallback />
   }
 
+  if (window.location.pathname === '/auth/dex-callback') {
+    return <DexCallback />
+  }
+
   if (loading) return <SplashScreen />
   if (!session) return <Login />
   if (!profileLoaded) return <SplashScreen />
@@ -1030,6 +1036,9 @@ function App() {
               )
             )}
             {activeMenu === 'store-connect' && hasAccess('store-connect') && <StoreConnect storeId={selectedStoreId} />}
+            {activeMenu === 'courier' && hasAccess('courier') && (
+              <CourierTracking ordersData={ordersData} setOrdersData={setOrdersData} storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
+            )}
             {activeMenu === 'whatsapp' && hasAccess('whatsapp') && <WhatsApp />}
             {activeMenu === 'team' && (profile.role === 'admin' || profile.role === 'creator') && (
               <Team storeId={selectedStoreId} storeName={currentStoreInfo?.store_name || ordersStore?.store_name} cfUrl={CF_URL} />
@@ -1049,7 +1058,7 @@ function App() {
             {activeMenu === 'budget' && hasAccess('budget') && (
               <BudgetCalculator ordersData={ordersData} />
             )}
-            {!['dashboard', 'store-connect', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget'].includes(activeMenu) && (
+            {!['dashboard', 'store-connect', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier'].includes(activeMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{menuItems.find(m => m.id === activeMenu)?.label}</h2>
