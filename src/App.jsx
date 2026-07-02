@@ -11,6 +11,9 @@ import WhatsApp from './pages/WhatsApp'
 import Team from './pages/Team'
 import Settings from './pages/Settings'
 import ActivityLog from './pages/ActivityLog'
+import ProfitLoss from './pages/ProfitLoss'
+import SupplierLedger from './pages/SupplierLedger'
+import BudgetCalculator from './pages/BudgetCalculator'
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev"
 const BATCH_SIZE = 1000
@@ -1037,7 +1040,16 @@ function App() {
             {activeMenu === 'settings' && (
               <Settings profile={profile} onProfileUpdated={(updated) => setProfile(updated)} />
             )}
-            {!['dashboard', 'store-connect', 'orders', 'whatsapp', 'team', 'activity-log', 'settings'].includes(activeMenu) && (
+            {activeMenu === 'pnl' && hasAccess('pnl') && (
+              <ProfitLoss ordersData={ordersData} storeId={selectedStoreId} />
+            )}
+            {activeMenu === 'ledger' && hasAccess('ledger') && (
+              <SupplierLedger storeId={selectedStoreId} />
+            )}
+            {activeMenu === 'budget' && hasAccess('budget') && (
+              <BudgetCalculator ordersData={ordersData} />
+            )}
+            {!['dashboard', 'store-connect', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget'].includes(activeMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{menuItems.find(m => m.id === activeMenu)?.label}</h2>
