@@ -2,8 +2,6 @@ import { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev"
-const CLIENT_ID = import.meta.env.VITE_SHOPIFY_CLIENT_ID;
-const CLIENT_SECRET = import.meta.env.VITE_SHOPIFY_CLIENT_SECRET;
 
 export default function ShopifyCallback() {
   const [status, setStatus] = useState("🔄 Processing...");
@@ -28,10 +26,7 @@ export default function ShopifyCallback() {
       const res = await fetch(`${CF_URL}/shopify-token`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, shop,
-          client_id: CLIENT_ID,
-          client_secret: CLIENT_SECRET
-        }),
+        body: JSON.stringify({ code, shop }),
       });
 
       const data = await res.json();

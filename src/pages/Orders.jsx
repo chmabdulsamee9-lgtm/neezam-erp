@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import Papa from "papaparse";
 import { supabase } from "../supabase";
 
 const STATUSES = [
@@ -23,6 +24,7 @@ const PAGE_SIZE = 1000;
 const MIDDLE_CONTENT_WIDTH = 935; // Customer+Address+Items+Pricing+Total+Source+Remarks + gaps — single source of truth so header/rows/scrollbar always match
 const SYNC_CONFIRM_PER_PAGE = 20;
 const HISTORY_VALID_MS = 2 * 24 * 60 * 60 * 1000; // 2 din
+const BULK_PREVIEW_PER_PAGE = 20;
 
 // Pure helper — order ki current sync state nikalta hai (module-level taake
 // tabFilter aur render dono use kar sakein)
@@ -118,6 +120,26 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const [expandedIds, setExpandedIds] = useState(new Set());
   const middleRefs = useRef({});
   const isSyncingScroll = useRef(false);
+  const undoInFlightRef = useRef(new Set()); // order ids jinke liye undo abhi process ho raha hai — double-click race guard
+
+  // --- Current user profile (activity log ke user_name/user_id ke liye) ---
+  const [currentProfile, setCurrentProfile] = useState(null);
+
+  // --- Create New Order (TASK 10) ---
+  const [showNewOrderModal, setShowNewOrderModal] = useState(false);
+  const [newOrderForm, setNewOrderForm] = useState({ name: "", phone: "", address: "", city: "", product: "", sku: "", price: "" });
+  const [newOrderCreateOnShopify, setNewOrderCreateOnShopify] = useState(false);
+  const [newOrderSaving, setNewOrderSaving] = useState(false);
+  const [newOrderError, setNewOrderError] = useState("");
+
+  // --- Bulk Order Upload (TASK 11) ---
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkRows, setBulkRows] = useState([]);
+  const [bulkPage, setBulkPage] = useState(1);
+  const [bulkImporting, setBulkImporting] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState(0);
+  const [bulkResult, setBulkResult] = useState(null); // { success, fail }
+  const fileInputRef = useRef(null);
 
   const registerMiddleRef = (key) => (el) => {
     if (el) middleRefs.current[key] = el;
@@ -151,6 +173,29 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   useEffect(() => {
     if (!ordersLoaded) loadStore();
   }, []);
+
+  // Activity log entries ke liye current user ka naam/id ek dafa fetch kar lo
+  useEffect(() => {
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase.from("profiles").select("id, full_name, email").eq("id", user.id).single();
+      setCurrentProfile(data || null);
+    })();
+  }, []);
+
+  const logActivity = async (actionType, orderId, details) => {
+    const storeData = store || ordersStore;
+    if (!currentProfile || !storeData) return;
+    await supabase.from("activity_log").insert({
+      store_id: storeData.id,
+      user_id: currentProfile.id,
+      user_name: currentProfile.full_name || currentProfile.email,
+      action_type: actionType,
+      order_id: orderId ? String(orderId) : null,
+      details: details || null,
+    });
+  };
 
   useEffect(() => {
     const handleClick = (e) => {
@@ -313,6 +358,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           : o.agent_data;
         return { ...o, agent_status: status, last_edited_at: now, agent_data: agentData };
       }));
+      logActivity("status_change", orderId, { status });
       if (status === "Cancelled") {
         setCancelReasonModal(orderId);
         setCancelReasonOtherMode(false);
@@ -363,6 +409,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     }, { onConflict: "order_id" });
     if (!error) {
       setOrders(prev => prev.map(o => o.id === orderId ? { ...o, agent_data: updated, last_edited_at: now } : o));
+      logActivity("field_edit", orderId, { field, value: finalValue });
     }
     setEditingCell(null);
   };
@@ -409,9 +456,10 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     const { addressPayload, phoneToSync } = buildSyncPlan(order);
     try {
       await ensureHistorySnapshot(order);
+      const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(`${cfUrl}/shopify-update-order`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
         body: JSON.stringify({
           shop: storeData.shopify_url,
           token: storeData.api_token,
@@ -427,6 +475,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           { onConflict: "order_id" }
         );
         setOrders(prev => prev.map(o => o.id === order.id ? { ...o, synced_at: now } : o));
+        logActivity("sync", order.id, { name: order.name });
         return { id: order.id, name: order.name, success: true };
       }
       return { id: order.id, name: order.name, success: false, error: JSON.stringify(data.errors || data.error) };
@@ -465,11 +514,18 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     if (!storeData || !isHistoryValid(h)) {
       return { id: order.id, name: order.name, success: false, error: "Undo ke liye valid history nahi mili" };
     }
+    // Isi order ke liye pehle se ek undo chal raha ho to dobara start na karo
+    // (do baar jaldi-jaldi click hone par historyMap/order_sync_history do baar consume na ho)
+    if (undoInFlightRef.current.has(order.id)) {
+      return { id: order.id, name: order.name, success: false, error: "Is order ka undo pehle se process ho raha hai" };
+    }
+    undoInFlightRef.current.add(order.id);
     try {
       const prevAddr = h.previous_shipping_address || {};
+      const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(`${cfUrl}/shopify-update-order`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
         body: JSON.stringify({
           shop: storeData.shopify_url,
           token: storeData.api_token,
@@ -508,8 +564,25 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           updated_at: new Date().toISOString(),
         }, { onConflict: "order_id" });
         await supabase.from("order_sync_history").delete().eq("order_id", String(order.id));
+        // Shopify ko jo shipping_address/phone bheja gaya, wahi local state mein bhi set karo —
+        // agent_data ke empty hone par UI address/city/phone isi raw shipping_address pe fallback karti hai,
+        // aur is fallback ka Shopify webhook/realtime ke aane ka wait karna hi "purani value UI mein reh jaana" bug ki wajah tha
         setOrders(prev => prev.map(o => o.id === order.id
-          ? { ...o, agent_data: prevAgent, agent_status: h.previous_status || null, synced_at: null, last_edited_at: null }
+          ? {
+              ...o,
+              agent_data: prevAgent,
+              agent_status: h.previous_status || null,
+              synced_at: null,
+              last_edited_at: null,
+              shipping_address: {
+                ...(o.shipping_address || {}),
+                first_name: prevAddr.first_name || "",
+                last_name: prevAddr.last_name || "-",
+                address1: prevAddr.address1 || "",
+                city: prevAddr.city || "",
+                phone: h.previous_phone || "",
+              },
+            }
           : o
         ));
         setHistoryMap(prev => {
@@ -517,11 +590,14 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           delete next[String(order.id)];
           return next;
         });
+        logActivity("undo", order.id, { name: order.name });
         return { id: order.id, name: order.name, success: true };
       }
       return { id: order.id, name: order.name, success: false, error: JSON.stringify(data.errors || data.error) };
     } catch (err) {
       return { id: order.id, name: order.name, success: false, error: err.message };
+    } finally {
+      undoInFlightRef.current.delete(order.id);
     }
   };
 
@@ -545,6 +621,151 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     setUndoConfirmModal(null);
     setSelectedIds(new Set());
     setSyncResultModal({ title: "Undo Result", results });
+  };
+
+  // ---------- CREATE NEW ORDER (TASK 10) ----------
+  const resetNewOrderForm = () => {
+    setNewOrderForm({ name: "", phone: "", address: "", city: "", product: "", sku: "", price: "" });
+    setNewOrderCreateOnShopify(false);
+    setNewOrderError("");
+  };
+
+  const mergeRawOrderIntoState = (rawOrder) => {
+    setOrders(prev => {
+      const idx = prev.findIndex(o => o.id === rawOrder.id);
+      const merged = { ...rawOrder, agent_data: {}, agent_status: null, synced_at: null, last_edited_at: null };
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = merged;
+        return next;
+      }
+      return [merged, ...prev];
+    });
+  };
+
+  const createNewOrder = async (e) => {
+    e.preventDefault();
+    setNewOrderError("");
+    const storeData = store || ordersStore;
+    if (!storeData) { setNewOrderError("Store connected nahi hai"); return; }
+    if (!newOrderForm.name.trim() || !newOrderForm.phone.trim()) {
+      setNewOrderError("Naam aur phone zaroori hain");
+      return;
+    }
+    setNewOrderSaving(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${cfUrl}/create-order`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({
+          store_id: storeData.id,
+          create_on_shopify: newOrderCreateOnShopify,
+          customer_name: newOrderForm.name.trim(),
+          phone: newOrderForm.phone.trim(),
+          address: newOrderForm.address.trim(),
+          city: newOrderForm.city.trim(),
+          product: newOrderForm.product.trim(),
+          sku: newOrderForm.sku.trim(),
+          price: newOrderForm.price,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setNewOrderError(typeof data.error === "string" ? data.error : JSON.stringify(data.error));
+        setNewOrderSaving(false);
+        return;
+      }
+      mergeRawOrderIntoState(data.order);
+      setShowNewOrderModal(false);
+      resetNewOrderForm();
+    } catch (err) {
+      setNewOrderError(err.message);
+    }
+    setNewOrderSaving(false);
+  };
+
+  // ---------- BULK ORDER UPLOAD (TASK 11) ----------
+  const downloadCsvTemplate = () => {
+    const csv = "Name,Phone,Address,City,Product,SKU,Price\n";
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "neezam_bulk_order_template.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCsvUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const rows = results.data
+          .map(r => ({
+            name: (r.Name || r.name || "").trim(),
+            phone: (r.Phone || r.phone || "").trim(),
+            address: (r.Address || r.address || "").trim(),
+            city: (r.City || r.city || "").trim(),
+            product: (r.Product || r.product || "").trim(),
+            sku: (r.SKU || r.sku || "").trim(),
+            price: (r.Price || r.price || "0").toString().trim(),
+          }))
+          .filter(r => r.name && r.phone);
+        setBulkRows(rows);
+        setBulkPage(1);
+        setBulkResult(null);
+      },
+    });
+    e.target.value = "";
+  };
+
+  const confirmBulkImport = async () => {
+    const storeData = store || ordersStore;
+    if (!storeData || !bulkRows.length) return;
+    setBulkImporting(true);
+    setBulkProgress(0);
+    const { data: { session } } = await supabase.auth.getSession();
+    let successCount = 0, failCount = 0;
+    const created = [];
+    for (const row of bulkRows) {
+      try {
+        const res = await fetch(`${cfUrl}/create-order`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+          body: JSON.stringify({
+            store_id: storeData.id,
+            create_on_shopify: false,
+            customer_name: row.name,
+            phone: row.phone,
+            address: row.address,
+            city: row.city,
+            product: row.product,
+            sku: row.sku,
+            price: row.price,
+          }),
+        });
+        const data = await res.json();
+        if (data.error) failCount++;
+        else { successCount++; created.push(data.order); }
+      } catch {
+        failCount++;
+      }
+      setBulkProgress(p => p + 1);
+    }
+    created.forEach(mergeRawOrderIntoState);
+    setBulkImporting(false);
+    setBulkResult({ success: successCount, fail: failCount });
+  };
+
+  const closeBulkModal = () => {
+    setShowBulkModal(false);
+    setBulkRows([]);
+    setBulkPage(1);
+    setBulkResult(null);
   };
 
   const bulkUpdateStatus = async (status) => {
@@ -776,6 +997,14 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{currentStore?.store_name} — {tabFilteredOrders.length} orders</p>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <button onClick={() => { resetNewOrderForm(); setShowNewOrderModal(true); }}
+            style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+            + New Order
+          </button>
+          <button onClick={() => setShowBulkModal(true)}
+            style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+            📤 Bulk Upload
+          </button>
           <select value={perPage} onChange={e => { setPerPage(Number(e.target.value)); setPage(1); }}
             style={{ padding: "5px 8px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
             {PER_PAGE_OPTIONS.map(n => <option key={n} value={n}>{n} / page</option>)}
@@ -1267,6 +1496,144 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                 style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                 OK
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------- CREATE NEW ORDER MODAL (TASK 10) ---------- */}
+      {showNewOrderModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
+          <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 440, maxWidth: "94vw", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
+            <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)" }}>
+              <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)" }}>+ New Order</h2>
+            </div>
+            <form onSubmit={createNewOrder} style={{ padding: "16px 18px" }}>
+              <input type="text" placeholder="Naam" value={newOrderForm.name}
+                onChange={e => setNewOrderForm(f => ({ ...f, name: e.target.value }))}
+                style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, boxSizing: "border-box", marginBottom: 10 }} />
+              <input type="tel" placeholder="Phone" value={newOrderForm.phone}
+                onChange={e => setNewOrderForm(f => ({ ...f, phone: e.target.value }))}
+                style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, boxSizing: "border-box", marginBottom: 10 }} />
+              <textarea placeholder="Address" value={newOrderForm.address} rows={2}
+                onChange={e => setNewOrderForm(f => ({ ...f, address: e.target.value }))}
+                style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, boxSizing: "border-box", marginBottom: 10, resize: "vertical", fontFamily: "inherit" }} />
+              <input type="text" placeholder="City" value={newOrderForm.city}
+                onChange={e => setNewOrderForm(f => ({ ...f, city: e.target.value }))}
+                style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, boxSizing: "border-box", marginBottom: 10 }} />
+              <input type="text" placeholder="Product" value={newOrderForm.product}
+                onChange={e => setNewOrderForm(f => ({ ...f, product: e.target.value }))}
+                style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, boxSizing: "border-box", marginBottom: 10 }} />
+              <input type="text" placeholder="SKU" value={newOrderForm.sku}
+                onChange={e => setNewOrderForm(f => ({ ...f, sku: e.target.value }))}
+                style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, boxSizing: "border-box", marginBottom: 10 }} />
+              <input type="number" placeholder="Price" value={newOrderForm.price} step="0.01"
+                onChange={e => setNewOrderForm(f => ({ ...f, price: e.target.value }))}
+                style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, boxSizing: "border-box", marginBottom: 10 }} />
+
+              {currentStore?.shopify_url && (
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--ne-text)", cursor: "pointer", marginBottom: 12 }}>
+                  <input type="checkbox" checked={newOrderCreateOnShopify} onChange={e => setNewOrderCreateOnShopify(e.target.checked)} />
+                  Shopify order bhi banao
+                </label>
+              )}
+
+              {newOrderError && <p style={{ color: "var(--ne-danger)", fontSize: 12, marginBottom: 10 }}>{newOrderError}</p>}
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="submit" disabled={newOrderSaving}
+                  style={{ flex: 1, padding: "10px", background: newOrderSaving ? "var(--ne-border)" : "var(--ne-success)", color: newOrderSaving ? "var(--ne-muted)" : "#0A2E1A", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: newOrderSaving ? "default" : "pointer" }}>
+                  {newOrderSaving ? "Create ho raha hai..." : "✓ Create Order"}
+                </button>
+                <button type="button" onClick={() => setShowNewOrderModal(false)}
+                  style={{ padding: "10px 16px", background: "transparent", color: "var(--ne-muted)", border: "1px solid var(--ne-border)", borderRadius: 9, fontSize: 13, cursor: "pointer" }}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ---------- BULK ORDER UPLOAD MODAL (TASK 11) ---------- */}
+      {showBulkModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
+          <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 640, maxWidth: "94vw", maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
+            <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)" }}>
+              <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)" }}>📤 Bulk Order Upload</h2>
+              <p style={{ margin: "3px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>CSV template download karo, fill karo, phir upload karo.</p>
+            </div>
+
+            <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <button onClick={downloadCsvTemplate}
+                style={{ padding: "7px 14px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface)", color: "var(--ne-text)", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
+                ⬇ Download Template
+              </button>
+              <button onClick={() => fileInputRef.current?.click()}
+                style={{ padding: "7px 14px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, cursor: "pointer", fontWeight: 700 }}>
+                📁 CSV Upload Karo
+              </button>
+              <input ref={fileInputRef} type="file" accept=".csv" onChange={handleCsvUpload} style={{ display: "none" }} />
+              {bulkRows.length > 0 && <span style={{ fontSize: 11.5, color: "var(--ne-muted)" }}>{bulkRows.length} rows mile</span>}
+            </div>
+
+            <div style={{ flex: 1, overflowY: "auto", padding: "10px 18px" }}>
+              {bulkRows.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "2rem", color: "var(--ne-muted)", fontSize: 12 }}>
+                  Koi CSV upload nahi hui abhi.
+                </div>
+              ) : (
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                  <thead>
+                    <tr>
+                      {["Name", "Phone", "Address", "City", "Product", "SKU", "Price"].map(h => (
+                        <th key={h} style={{ textAlign: "left", padding: "5px 6px", color: "var(--ne-muted)", borderBottom: "1px solid var(--ne-border)", fontWeight: 600 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bulkRows.slice((bulkPage - 1) * BULK_PREVIEW_PER_PAGE, bulkPage * BULK_PREVIEW_PER_PAGE).map((r, idx) => (
+                      <tr key={idx}>
+                        <td style={{ padding: "5px 6px", color: "var(--ne-text)" }}>{r.name}</td>
+                        <td style={{ padding: "5px 6px", color: "var(--ne-text)" }}>{r.phone}</td>
+                        <td style={{ padding: "5px 6px", color: "var(--ne-text)" }}>{truncate(r.address, 30)}</td>
+                        <td style={{ padding: "5px 6px", color: "var(--ne-text)" }}>{r.city}</td>
+                        <td style={{ padding: "5px 6px", color: "var(--ne-text)" }}>{truncate(r.product, 20)}</td>
+                        <td style={{ padding: "5px 6px", color: "var(--ne-text)" }}>{r.sku}</td>
+                        <td style={{ padding: "5px 6px", color: "var(--ne-text)" }}>{r.price}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {bulkRows.length > BULK_PREVIEW_PER_PAGE && (
+              <div style={{ display: "flex", justifyContent: "center", gap: 6, padding: "6px 0", borderTop: "1px solid var(--ne-border)" }}>
+                <button onClick={() => setBulkPage(p => Math.max(1, p - 1))} disabled={bulkPage === 1}
+                  style={{ padding: "3px 10px", borderRadius: 7, border: "1px solid var(--ne-border)", background: "var(--ne-surface)", color: "var(--ne-muted)", fontSize: 11, cursor: bulkPage === 1 ? "default" : "pointer" }}>‹ Prev</button>
+                <span style={{ fontSize: 11, color: "var(--ne-muted-2)", alignSelf: "center" }}>
+                  Page {bulkPage} / {Math.ceil(bulkRows.length / BULK_PREVIEW_PER_PAGE)}
+                </span>
+                <button onClick={() => setBulkPage(p => Math.min(Math.ceil(bulkRows.length / BULK_PREVIEW_PER_PAGE), p + 1))} disabled={bulkPage === Math.ceil(bulkRows.length / BULK_PREVIEW_PER_PAGE)}
+                  style={{ padding: "3px 10px", borderRadius: 7, border: "1px solid var(--ne-border)", background: "var(--ne-surface)", color: "var(--ne-muted)", fontSize: 11, cursor: bulkPage === Math.ceil(bulkRows.length / BULK_PREVIEW_PER_PAGE) ? "default" : "pointer" }}>Next ›</button>
+              </div>
+            )}
+
+            <div style={{ padding: "12px 18px", borderTop: "1px solid var(--ne-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>
+                {bulkImporting ? `⏳ Import ho raha hai... ${bulkProgress}/${bulkRows.length}` : bulkResult ? `✅ ${bulkResult.success} success, ❌ ${bulkResult.fail} failed` : ""}
+              </span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={closeBulkModal} disabled={bulkImporting}
+                  style={{ padding: "8px 14px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-muted)", fontSize: 12, cursor: bulkImporting ? "default" : "pointer" }}>
+                  Close
+                </button>
+                <button onClick={confirmBulkImport} disabled={bulkImporting || bulkRows.length === 0}
+                  style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: (bulkImporting || bulkRows.length === 0) ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: (bulkImporting || bulkRows.length === 0) ? "default" : "pointer" }}>
+                  {bulkImporting ? "Importing..." : "✓ Confirm & Import"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

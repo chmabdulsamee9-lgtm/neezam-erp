@@ -1,11 +1,11 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 
 const STATUSES = [
   { label: "Approved", color: "#34D88E", bg: "#11402A" },
   { label: "Under Verification", color: "#F2A83E", bg: "#3A2A0D" },
   { label: "Cancelled", color: "#F26D6D", bg: "#3A1414" },
-  { label: "Not Answering", color: "#FB923C", bg: "#3A2410" },
-  { label: "Powered Off", color: "#F472B6", bg: "#3A1130" },
+  { label: "Not Answering", color: "var(--ne-orange)", bg: "var(--ne-orange-soft)" },
+  { label: "Powered Off", color: "var(--ne-pink)", bg: "var(--ne-pink-soft)" },
   { label: "Hold", color: "#8C93C4", bg: "#161B45" },
   { label: "Busy", color: "#5C7CFA", bg: "#1C2356" },
   { label: "FAKE Order", color: "#F26D6D", bg: "#2A0E0E" },
@@ -174,6 +174,13 @@ export default function Dashboard({ ordersData }) {
   const [dateFilter, setDateFilter] = useState("today");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
+  const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 760);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   const getDateRange = () => {
     const now = new Date();
@@ -207,6 +214,8 @@ export default function Dashboard({ ordersData }) {
     }) || [];
   };
 
+  // ordersData khali ho (naya store, ya orders load na hui hon) to bhi crash na ho —
+  // saare downstream computations 0/khali array pe hi default ho jate hain (TASK 21)
   const filtered = useMemo(() => {
     if (!ordersData?.length) return [];
     const { from, to } = getDateRange();
@@ -255,7 +264,16 @@ export default function Dashboard({ ordersData }) {
   const noStatusCount = filtered.filter(o => !o.agent_status).length;
 
   const pct = (count) => totalOrders ? Math.round((count / totalOrders) * 100) : 0;
-  const withPct = (count) => `${count} (${pct(count)}%)`;
+
+  const dateFilterLabel = DATE_FILTERS.find(f => f.value === dateFilter)?.label || "Today";
+
+  const heroChips = [
+    { label: "Total Orders", value: totalOrders },
+    { label: "Approved", value: statusCounts["Approved"] || 0 },
+    { label: "Pending", value: pendingCount },
+    { label: "Approved Revenue", value: `Rs. ${approvedRevenue.toLocaleString()}` },
+    { label: "No Status", value: noStatusCount },
+  ];
 
   return (
     <div style={{ padding: "1rem", color: "var(--ne-text)" }}>
@@ -279,34 +297,34 @@ export default function Dashboard({ ordersData }) {
         <span style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>{filtered.length} orders</span>
       </div>
 
-      {/* Top Stats */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.75rem", marginBottom: "0.75rem" }}>
-        {[
-          { label: "Total Orders", value: totalOrders, color: "var(--ne-accent)", icon: "📦" },
-          { label: "Total Revenue", value: `Rs. ${totalRevenue.toLocaleString()}`, color: "var(--ne-success)", icon: "💰" },
-          { label: "Approved Revenue", value: `Rs. ${approvedRevenue.toLocaleString()}`, color: "var(--ne-accent2)", icon: "✅" },
-          { label: "Pending", value: withPct(pendingCount), color: "var(--ne-warning)", icon: "⏳" },
-          { label: "Approved", value: withPct(statusCounts["Approved"] || 0), color: "var(--ne-success)", icon: "✅" },
-          { label: "Cancelled", value: withPct(statusCounts["Cancelled"] || 0), color: "var(--ne-danger)", icon: "❌" },
-          { label: "Not Answering", value: withPct(statusCounts["Not Answering"] || 0), color: "#FB923C", icon: "📵" },
-          { label: "No Status", value: withPct(noStatusCount), color: "var(--ne-muted-2)", icon: "❓" },
-        ].map((card, i) => (
-          <div key={i} style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, padding: "0.9rem", borderLeft: `3px solid ${card.color}` }}>
-            <div style={{ fontSize: 18, marginBottom: 4 }}>{card.icon}</div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "var(--ne-text)", marginBottom: 2 }}>{card.value}</div>
-            <div style={{ fontSize: 11, color: "var(--ne-muted)" }}>{card.label}</div>
+      {/* Hero Revenue Card */}
+      <div style={{ background: "var(--ne-grad)", borderRadius: 18, padding: "1.4rem", marginBottom: "0.75rem", display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "center", flexWrap: "wrap", gap: 16 }}>
+        <div>
+          <div style={{ fontSize: 12, color: "rgba(255,255,255,.75)", fontWeight: 600, marginBottom: 4 }}>
+            {dateFilterLabel} — total revenue
           </div>
-        ))}
+          <div style={{ fontSize: 30, fontWeight: 800, color: "#fff" }}>
+            Rs. {totalRevenue.toLocaleString()}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {heroChips.map(chip => (
+            <div key={chip.label} style={{ background: "rgba(255,255,255,.16)", borderRadius: 10, padding: "8px 14px" }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>{chip.value}</div>
+              <div style={{ fontSize: 10, color: "rgba(255,255,255,.85)", fontWeight: 600, whiteSpace: "nowrap" }}>{chip.label}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* All Statuses Grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "0.6rem", marginBottom: "0.75rem" }}>
+      {/* Status Breakdown Grid — saare 11 statuses, soft-background cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.6rem", marginBottom: "0.75rem" }}>
         {STATUSES.map(s => {
           const count = statusCounts[s.label] || 0;
           const p = pct(count);
           return (
-            <div key={s.label} style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "0.7rem", borderLeft: `3px solid ${s.color}` }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ne-text)", marginBottom: 2 }}>{count} ({p}%)</div>
+            <div key={s.label} style={{ background: s.bg, borderRadius: 10, padding: "0.7rem" }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: s.color, marginBottom: 2 }}>{count} ({p}%)</div>
               <div style={{ fontSize: 10, color: s.color, fontWeight: 600 }}>{s.label}</div>
             </div>
           );
@@ -317,7 +335,7 @@ export default function Dashboard({ ordersData }) {
       <TrendChart ordersData={ordersData} />
 
       {/* Status Breakdown + Source */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" }}>
 
         {/* Status Breakdown */}
         <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem" }}>
@@ -371,7 +389,7 @@ export default function Dashboard({ ordersData }) {
       </div>
 
       {/* Top Cities + Top SKUs */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "0.75rem" }}>
 
         {/* Top Cities */}
         <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem" }}>

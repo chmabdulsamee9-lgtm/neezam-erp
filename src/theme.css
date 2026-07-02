@@ -9,6 +9,8 @@
   --ne-success:#34D88E; --ne-success-soft:#11402A;
   --ne-warning:#F2A83E; --ne-warning-soft:#3A2A0D;
   --ne-danger:#F26D6D; --ne-danger-soft:#3A1414;
+  --ne-pink:#F472B6; --ne-pink-soft:#3A1130;
+  --ne-orange:#FB923C; --ne-orange-soft:#3A2410;
 }
 
 .ne-app-shell{font-family:'Inter',system-ui,sans-serif; min-height:100vh; background:var(--ne-bg-glow), var(--ne-bg); color:var(--ne-text); -webkit-font-smoothing:antialiased;}
@@ -78,6 +80,8 @@
   --ne-success:#16A34A; --ne-success-soft:#DCFCE7;
   --ne-warning:#D97706; --ne-warning-soft:#FEF3C7;
   --ne-danger:#DC2626; --ne-danger-soft:#FEE2E2;
+  --ne-pink:#DB2777; --ne-pink-soft:#FCE7F3;
+  --ne-orange:#EA580C; --ne-orange-soft:#FFEDD5;
 }
 :root[data-theme="light"] .ne-brand{ color:#1A1F36; }
 :root[data-theme="light"] .ne-navitem{ color:rgba(26,31,54,.6); }

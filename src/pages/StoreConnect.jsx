@@ -65,10 +65,17 @@ export default function StoreConnect({ storeId }) {
   const [syncingStoreId, setSyncingStoreId] = useState(null);
   const [syncProgress, setSyncProgress] = useState(0);
   const [syncError, setSyncError] = useState("");
+  const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
 
   useEffect(() => {
     fetchStores();
   }, [storeId]);
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 760);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   // SECURITY: sirf current user ke apne brand ka store dikhana hai —
   // saare stores nahi (warna ek brand dusre ka data dekh leta)
@@ -135,12 +142,15 @@ export default function StoreConnect({ storeId }) {
     let safety = 0;
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       while (safety < 200) {
         safety++;
         const qs = sinceId
           ? `?store_id=${store.id}&since_id=${sinceId}`
           : `?store_id=${store.id}`;
-        const res = await fetch(`${CF_URL}/sync-orders-chunk${qs}`);
+        const res = await fetch(`${CF_URL}/sync-orders-chunk${qs}`, {
+          headers: { Authorization: `Bearer ${session?.access_token}` },
+        });
         const data = await res.json();
 
         if (data.error) {
@@ -163,7 +173,7 @@ export default function StoreConnect({ storeId }) {
   };
 
   return (
-    <div style={{ padding: "2rem", maxWidth: 800, margin: "0 auto" }}>
+    <div style={{ padding: isMobile ? "1rem" : "2rem", maxWidth: 800, margin: "0 auto" }}>
 
       {/* Header */}
       <div style={{ marginBottom: "2rem" }}>
@@ -212,7 +222,7 @@ export default function StoreConnect({ storeId }) {
             <h2 style={{ margin: "0 0 1rem", fontSize: 16, color: "var(--ne-text)", fontWeight: 700 }}>
               Store URL daalo
             </h2>
-            <div style={{ display: "flex", gap: 10 }}>
+            <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10 }}>
               <input
                 type="text"
                 placeholder="yourstore.myshopify.com"
@@ -345,8 +355,10 @@ export default function StoreConnect({ storeId }) {
               {store.shopify_url && (
                 <div style={{
                   display: "flex",
-                  alignItems: "center",
+                  flexDirection: isMobile ? "column" : "row",
+                  alignItems: isMobile ? "flex-start" : "center",
                   justifyContent: "space-between",
+                  gap: isMobile ? 10 : 0,
                   background: "var(--ne-surface)",
                   border: "1px solid var(--ne-border)",
                   borderRadius: 10,
