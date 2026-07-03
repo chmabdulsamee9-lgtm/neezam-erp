@@ -4,8 +4,6 @@ import { supabase } from "../supabase";
 const CLIENT_ID = import.meta.env.VITE_SHOPIFY_CLIENT_ID;
 const REDIRECT_URI = "https://neezam-erp.pages.dev/auth/callback";
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
-const DEX_CLIENT_ID = "505436";
-const DEX_REDIRECT_URI = "https://neezam-erp.pages.dev/auth/dex-callback";
 
 const SCOPES = [
   "read_orders",
@@ -132,16 +130,6 @@ export default function StoreConnect({ storeId }) {
     if (!window.confirm("Yeh store delete karna chahte ho?")) return;
     await supabase.from("stores").delete().eq("id", id);
     fetchStores();
-  };
-
-  // state=storeId — DexCallback.jsx isay wapas padh kar pata karega konsa store update karna hai
-  const handleDexConnect = () => {
-    const authUrl =
-      `https://api.daraz.pk/oauth/authorize?response_type=code&force_auth=true` +
-      `&redirect_uri=${encodeURIComponent(DEX_REDIRECT_URI)}` +
-      `&client_id=${DEX_CLIENT_ID}` +
-      `&state=${storeId}`;
-    window.location.href = authUrl;
   };
 
   const handleSync = async (store) => {
@@ -410,48 +398,6 @@ export default function StoreConnect({ storeId }) {
               )}
             </div>
           ))}
-        </div>
-      )}
-
-      {/* Daraz Express (Dex) Logistics Connect */}
-      {!loading && stores.length > 0 && (
-        <div style={{ marginTop: "1.5rem" }}>
-          <h2 style={{ fontSize: 15, color: "var(--ne-muted)", marginBottom: 12, fontWeight: 600 }}>
-            Daraz Express (Dex) Logistics
-          </h2>
-          <div style={{
-            background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14,
-            padding: "1rem 1.25rem", boxShadow: "0 2px 8px rgba(0,0,0,.18)",
-            display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "flex-start" : "center",
-            justifyContent: "space-between", gap: 14,
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{
-                width: 44, height: 44, borderRadius: 12,
-                background: "var(--ne-surface)", display: "flex",
-                alignItems: "center", justifyContent: "center",
-                fontSize: 22, border: "1px solid var(--ne-border)"
-              }}>
-                📦
-              </div>
-              <div>
-                <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: "var(--ne-text)" }}>Daraz Express (Dex)</p>
-                <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--ne-muted-2)" }}>
-                  {stores[0]?.dex_seller_id ? `Seller ID: ${stores[0].dex_seller_id}` : "Courier delivery ke liye connect karo"}
-                </p>
-              </div>
-            </div>
-            {stores[0]?.dex_access_token ? (
-              <span style={{ fontSize: 11, padding: "4px 12px", background: "var(--ne-success-soft)", color: "var(--ne-success)", borderRadius: 20, fontWeight: 700 }}>
-                ✅ Connected
-              </span>
-            ) : (
-              <button onClick={handleDexConnect}
-                style={{ background: "var(--ne-grad)", color: "#fff", border: "none", borderRadius: 9, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
-                🔗 Login with Dex
-              </button>
-            )}
-          </div>
         </div>
       )}
     </div>
