@@ -111,7 +111,7 @@ export default function MetaCallback() {
         <div style={{ background: "#161B45", border: "1px solid #232A52", borderRadius: 16, padding: "2rem", width: "100%", maxWidth: 420 }}>
           <h2 style={{ margin: "0 0 6px", fontSize: 18 }}>📣 Ad Account Select Karo</h2>
           <p style={{ margin: "0 0 16px", fontSize: 13, color: "#8C93C4" }}>Aapke Facebook login mein {adAccounts.length} ad accounts mile — apna sahi account select karo.</p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20, maxHeight: 400, overflowY: "auto" }}>
             {adAccounts.map(acc => (
               <label key={acc.account_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 10, border: `1px solid ${selectedId === acc.account_id ? "#5C7CFA" : "#232A52"}`, background: selectedId === acc.account_id ? "rgba(92,124,250,.1)" : "transparent", cursor: "pointer" }}>
                 <input type="radio" checked={selectedId === acc.account_id} onChange={() => setSelectedId(acc.account_id)} />
