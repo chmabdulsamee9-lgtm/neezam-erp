@@ -17,6 +17,9 @@ import BudgetCalculator from './pages/BudgetCalculator'
 import CourierConnect from './pages/CourierConnect'
 import BookedOrders from './pages/BookedOrders'
 import Payments from './pages/Payments'
+import MetaConnect from './pages/MetaConnect'
+import MetaCallback from './pages/MetaCallback'
+import AdsAnalytics from './pages/AdsAnalytics'
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev"
 const BATCH_SIZE = 1000
@@ -36,6 +39,7 @@ const NAV_ICONS = {
   suggestions: <svg viewBox="0 0 20 20"><path d="M10 2.5a5.5 5.5 0 0 0-3 10.1V14h6v-1.4A5.5 5.5 0 0 0 10 2.5Z"/><path d="M8 17h4"/></svg>,
   whatsapp: <svg viewBox="0 0 20 20"><path d="M5 17l1-3.2A6.5 6.5 0 1 1 9.5 16L5 17Z"/><path d="M7.2 8c0 2.5 2.3 4.8 4.8 4.8"/></svg>,
   'store-connect': <svg viewBox="0 0 20 20"><path d="M8 12 12 8"/><rect x="2" y="9" width="6" height="6" rx="3" transform="rotate(-45 5 12)"/><rect x="12" y="5" width="6" height="6" rx="3" transform="rotate(-45 15 8)"/></svg>,
+  'meta-connect': <svg viewBox="0 0 20 20"><path d="M3 17V9"/><path d="M9 17V3"/><path d="M15 17v-6"/><path d="M2 3.5h6" opacity=".6"/></svg>,
   'courier-connect': <svg viewBox="0 0 20 20"><rect x="2" y="6" width="9" height="7" rx="1"/><path d="M11 9h3.5L17 11.5V13h-6"/><circle cx="6" cy="15.5" r="1.6"/><circle cx="14.5" cy="15.5" r="1.6"/><path d="M2 3.5h6" opacity=".6"/></svg>,
   payments: <svg viewBox="0 0 20 20"><rect x="2.5" y="4.5" width="15" height="11" rx="2"/><path d="M2.5 8.5h15"/><path d="M5.5 12.5h3"/></svg>,
   team: <svg viewBox="0 0 20 20"><circle cx="7" cy="7" r="2.6"/><circle cx="14" cy="8" r="2"/><path d="M2.5 17c.5-3 2.2-4.5 4.5-4.5s4 1.5 4.5 4.5"/><path d="M12 17c.4-2.3 1.6-3.7 3.5-3.7s2.7 1.1 3 3.2"/></svg>,
@@ -778,6 +782,10 @@ function App() {
     return <ShopifyCallback />
   }
 
+  if (window.location.pathname === '/auth/meta-callback') {
+    return <MetaCallback />
+  }
+
   if (loading) return <SplashScreen />
   if (!session) return <Login />
   if (!profileLoaded) return <SplashScreen />
@@ -880,6 +888,7 @@ function App() {
     { id: 'suggestions', label: 'Suggestions', group: 'Insights' },
     { id: 'whatsapp', label: 'WhatsApp', group: 'Channels' },
     { id: 'store-connect', label: 'Store Connect', group: 'Channels' },
+    { id: 'meta-connect', label: 'Meta Connect', group: 'Channels' },
     { id: 'courier-connect', label: 'Courier Connect', group: 'Channels' },
     { id: 'payments', label: 'Payments', group: 'Channels' },
   ]
@@ -1037,6 +1046,10 @@ function App() {
               )
             )}
             {activeMenu === 'store-connect' && hasAccess('store-connect') && <StoreConnect storeId={selectedStoreId} />}
+            {activeMenu === 'meta-connect' && hasAccess('meta-connect') && <MetaConnect storeId={selectedStoreId} />}
+            {activeMenu === 'ads' && hasAccess('ads') && (
+              <AdsAnalytics ordersData={ordersData} storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
+            )}
             {activeMenu === 'courier' && hasAccess('courier') && (
               <BookedOrders ordersData={ordersData} setOrdersData={setOrdersData} storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
             )}
@@ -1065,7 +1078,7 @@ function App() {
             {activeMenu === 'budget' && hasAccess('budget') && (
               <BudgetCalculator ordersData={ordersData} />
             )}
-            {!['dashboard', 'store-connect', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'payments'].includes(activeMenu) && (
+            {!['dashboard', 'store-connect', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'payments'].includes(activeMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{menuItems.find(m => m.id === activeMenu)?.label}</h2>
