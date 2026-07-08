@@ -1,8 +1,6 @@
 import { useState, useEffect, useMemo, useId } from "react";
-import { supabase } from "../supabase";
-import { getCachedBookedOrders, saveBookedOrdersBulk, getMeta, setMeta } from "../ordersCache";
-
-const PAGE_SIZE = 1000;
+import { getCachedBookedOrders } from "../ordersCache";
+import { syncBookedOrdersCache } from "../bookedOrdersData";
 
 // Courier company brand colors — BookedOrders.jsx ke COURIER_COLORS se consistent
 const COURIER_COLORS = {
@@ -23,106 +21,6 @@ function bucketCourierStatus(raw) {
   if (s.includes("fail")) return "Failed Delivery";
   if (s.includes("deliver")) return "Delivered";
   return "In Transit";
-}
-
-// Query-direction: order_statuses se shuru (store_id + dex_tracking_number IS NOT NULL),
-// shopify_orders_cache sirf matched (order_id wali) rows ke city-fallback ke liye targeted
-// lookup hota hai — BookedOrders.jsx ke pattern se consistent.
-async function fetchBookedStatuses(storeId) {
-  let allRows = [];
-  let from = 0;
-  while (true) {
-    const { data, error } = await supabase
-      .from("order_statuses")
-      .select("*")
-      .eq("store_id", storeId)
-      .not("dex_tracking_number", "is", null)
-      .range(from, from + PAGE_SIZE - 1);
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-    allRows = allRows.concat(data);
-    if (data.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-  return allRows;
-}
-
-// Full load ke liye: Orders.jsx ke fetchAllCachedOrders() jaisa hi — poori store ka
-// shopify_orders_cache ek bulk-paginated pass mein (koi .in() ID-filtering nahi). Pehle
-// yahan chunked .in() lookup thi (200 ids/query) jo 2000+ matched orders pe 10 sequential
-// round-trips banati thi — yehi asal slowdown tha. Ab sirf 1-2 simple paginated queries hain.
-async function fetchAllCachedOrdersLite(storeId) {
-  let allRows = [];
-  let from = 0;
-  while (true) {
-    const { data, error } = await supabase
-      .from("shopify_orders_cache")
-      .select("id, raw_data")
-      .eq("store_id", storeId)
-      .range(from, from + PAGE_SIZE - 1);
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-    allRows = allRows.concat(data);
-    if (data.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-  return allRows;
-}
-
-// Delta refresh ke liye: sirf mutthi-bhar changed order_ids hote hain, isliye targeted
-// chunked .in() lookup yahan theek/cheap hai (full-load ke bhari case se bilkul alag)
-async function fetchCachedOrdersByIds(storeId, ids) {
-  if (ids.length === 0) return [];
-  let allRows = [];
-  const CHUNK = 200;
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const chunk = ids.slice(i, i + CHUNK);
-    const { data, error } = await supabase
-      .from("shopify_orders_cache")
-      .select("id, raw_data")
-      .eq("store_id", storeId)
-      .in("id", chunk);
-    if (error) throw error;
-    allRows = allRows.concat(data || []);
-  }
-  return allRows;
-}
-
-// Orders.jsx ke delta-sync jaisa: sirf woh rows jo lastSyncedAt ke baad update hui hon —
-// updated_at hi teeno write-paths (call-center edit, live Dex API, Excel import) se touch
-// hota hai, isliye yehi field "row change ho gayi" ka reliable signal hai
-async function fetchBookedStatusesDelta(storeId, since) {
-  let allRows = [];
-  let from = 0;
-  while (true) {
-    const { data, error } = await supabase
-      .from("order_statuses")
-      .select("*")
-      .eq("store_id", storeId)
-      .not("dex_tracking_number", "is", null)
-      .gt("updated_at", since)
-      .range(from, from + PAGE_SIZE - 1);
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-    allRows = allRows.concat(data);
-    if (data.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-  return allRows;
-}
-
-function mergeStatusesWithCache(statuses, cacheMap) {
-  return statuses.map((s) => {
-    const raw = s.order_id ? cacheMap[String(s.order_id)] : null;
-    return {
-      id: s.order_id || `manual-${s.manual_order_number}`,
-      name: raw?.name || s.manual_order_number || "—",
-      customer: raw?.customer || null,
-      shipping_address: raw?.shipping_address || null,
-      agent_data: s,
-      isManual: !s.order_id,
-    };
-  });
 }
 
 const fmtHours = (h) => {
@@ -261,10 +159,10 @@ export default function CourierDashboard({ storeId }) {
     if (storeId) loadBooked();
   }, [storeId]);
 
-  const metaKey = `bookedLastSyncedAt-${storeId}`;
-
-  // BookedOrders.jsx wala exact pattern: cache mein data ho to FORAN dikhao (koi spinner
-  // nahi), phir background mein sirf changed rows silently fetch/merge/cache-update karo
+  // App.jsx ka background preload agar pehle hi cache warm kar chuka ho, to yahan turant
+  // (spinner ke bina) dikhega — warna yehi function full-load karega. syncBookedOrdersCache()
+  // (src/bookedOrdersData.js) hi asal fetch/merge/cache-write karta hai, App.jsx ka
+  // fire-and-forget preload bhi isi function ko use karta hai — dono jagah same logic.
   const loadBooked = async () => {
     setErrorMsg("");
     try {
@@ -274,48 +172,27 @@ export default function CourierDashboard({ storeId }) {
       if (cachedForStore.length > 0) {
         setOrders(cachedForStore);
         setLoading(false);
-        refreshBookedDelta();
+        syncBookedOrdersCache(storeId)
+          .then(({ rows }) => {
+            if (rows.length === 0) return;
+            setOrders((prev) => {
+              const map = {};
+              prev.forEach((o) => { map[o.id] = o; });
+              rows.forEach((o) => { map[o.id] = o; });
+              return Object.values(map);
+            });
+          })
+          .catch((err) => console.log("Booked delta sync error:", err.message));
         return;
       }
 
       setLoading(true);
-      const loadStartTime = new Date().toISOString();
-      const [statuses, cachedRows] = await Promise.all([fetchBookedStatuses(storeId), fetchAllCachedOrdersLite(storeId)]);
-      const cacheMap = {};
-      cachedRows.forEach((r) => { cacheMap[String(r.id)] = r.raw_data; });
-      const merged = mergeStatusesWithCache(statuses, cacheMap);
-      setOrders(merged);
-      await saveBookedOrdersBulk(merged);
-      await setMeta(metaKey, loadStartTime);
+      const { rows } = await syncBookedOrdersCache(storeId);
+      setOrders(rows);
     } catch (err) {
       setErrorMsg(err.message);
     }
     setLoading(false);
-  };
-
-  const refreshBookedDelta = async () => {
-    try {
-      const lastSyncedAt = (await getMeta(metaKey)) || "2000-01-01T00:00:00Z";
-      const loadStartTime = new Date().toISOString();
-      const deltaStatuses = await fetchBookedStatusesDelta(storeId, lastSyncedAt);
-      if (deltaStatuses.length > 0) {
-        const orderIds = deltaStatuses.filter((s) => s.order_id).map((s) => s.order_id);
-        const cachedRows = await fetchCachedOrdersByIds(storeId, orderIds);
-        const cacheMap = {};
-        cachedRows.forEach((r) => { cacheMap[String(r.id)] = r.raw_data; });
-        const deltaMerged = mergeStatusesWithCache(deltaStatuses, cacheMap);
-        setOrders((prev) => {
-          const map = {};
-          prev.forEach((o) => { map[o.id] = o; });
-          deltaMerged.forEach((o) => { map[o.id] = o; });
-          return Object.values(map);
-        });
-        await saveBookedOrdersBulk(deltaMerged);
-      }
-      await setMeta(metaKey, loadStartTime);
-    } catch (err) {
-      console.log("Booked delta sync error:", err.message);
-    }
   };
 
   const stats = useMemo(() => {

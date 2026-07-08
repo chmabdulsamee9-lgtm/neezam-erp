@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import './theme.css'
 import { supabase } from './supabase'
 import { getCachedOrders, saveOrdersBulk, upsertOrder, getMeta, setMeta, clearCache } from './ordersCache'
+import { syncBookedOrdersCache } from './bookedOrdersData'
 import { Monogram, Wordmark } from './components/Logo'
 import { SunIcon, MoonIcon, GlobeIcon } from './components/Icons'
 import { useLanguage, useTranslation } from './i18n'
@@ -327,6 +328,7 @@ function App() {
   const realtimeChannelRef = useRef(null)
   const rawOrdersRef = useRef([])
   const hasStartedLoadRef = useRef(false)
+  const hasStartedBookedLoadRef = useRef(false)
   const lastUserIdRef = useRef(null)
   const activeMenuRef = useRef(activeMenu)
 
@@ -372,6 +374,7 @@ function App() {
     rawOrdersRef.current = []
     statusMapRef.current = {}
     hasStartedLoadRef.current = false
+    hasStartedBookedLoadRef.current = false
     clearCache()
   }
 
@@ -404,6 +407,18 @@ function App() {
     if (session && profile?.approved && selectedStoreId && !hasStartedLoadRef.current) {
       hasStartedLoadRef.current = true
       autoLoadOrders(selectedStoreId)
+    }
+  }, [session, profile, selectedStoreId])
+
+  // Orders ke autoLoadOrders() jaisa hi parallel trigger — Booked Orders/Courier Dashboard
+  // ka data bhi background mein preload ho jaye (chahe user abhi kisi aur page pe ho), taake
+  // jab woh un pages pe navigate kare to cache already warm mile. Yeh sirf IndexedDB cache
+  // populate karta hai (koi App.jsx-level UI state nahi) — BookedOrders.jsx/CourierDashboard.jsx
+  // apne mount-time cache-check se hi yeh data utha lete hain.
+  useEffect(() => {
+    if (session && profile?.approved && selectedStoreId && !hasStartedBookedLoadRef.current) {
+      hasStartedBookedLoadRef.current = true
+      syncBookedOrdersCache(selectedStoreId).catch(err => console.log('Booked orders preload error:', err.message))
     }
   }, [session, profile, selectedStoreId])
 
@@ -501,6 +516,7 @@ function App() {
     rawOrdersRef.current = []
     statusMapRef.current = {}
     hasStartedLoadRef.current = false
+    hasStartedBookedLoadRef.current = false
   }
 
   const fetchAllOrderStatuses = async () => {
@@ -905,7 +921,7 @@ function App() {
           )}
 
           {profile.role === 'creator' && (sidebarOpen || mobileDrawerOpen) && (
-            <button onClick={() => { setIsMasterView(true); setSelectedStoreId(null); setOrdersLoaded(false); hasStartedLoadRef.current = false; closeDrawer() }}
+            <button onClick={() => { setIsMasterView(true); setSelectedStoreId(null); setOrdersLoaded(false); hasStartedLoadRef.current = false; hasStartedBookedLoadRef.current = false; closeDrawer() }}
               style={{ width: '100%', padding: '7px', borderRadius: 8, border: '1px solid #232A52', background: 'transparent', color: '#8C93C4', fontSize: 11.5, cursor: 'pointer', marginBottom: 8 }}>
               ← Master Dashboard
             </button>
