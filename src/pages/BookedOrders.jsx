@@ -1,9 +1,17 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../supabase";
 import { getCachedBookedOrders } from "../ordersCache";
-import { syncBookedOrdersCache } from "../bookedOrdersData";
+import { syncBookedOrdersCache, bucketFinalStatus } from "../bookedOrdersData";
+import dexLogo from "../assets/couriers/dex.png";
 
 const PER_PAGE_OPTIONS = [20, 50, 100];
+
+// courier_name -> logo asset. Jis courier ka logo yahan na ho, uske liye fallback
+// chhota colored-text badge dikhta hai (COURIER_COLORS wala)
+const courierLogos = {
+  "PK-DEX": dexLogo,
+  // future couriers yahan add honge: PK-TCS, PK-LCS, PK-TRAX, waghera
+};
 
 // Courier company brand colors — jaise Dashboard.jsx ke SOURCE_COLORS (Meta/TikTok/etc),
 // yeh company-identity colors hain, theme-reactive semantic vars nahi
@@ -41,10 +49,12 @@ const fmtDateTime = (iso) => (iso ? new Date(iso).toLocaleString("en-PK", { day:
 const trackingUrl = (trackingNo) => `https://www.dex.com.pk/tracking?references=${encodeURIComponent(trackingNo || "")}`;
 
 // "Day N" = pickup_success_at (ya na ho to package_created_at) se aaj tak guzre din + 1
-// (pickup/creation ke din khud "Day 1" hai). Sirf pending orders (na Delivered na Returned)
-// ke liye relevant hai — dono complete ho jayein to yeh pill dikhana hi nahi.
-function computeAgingDay(ad) {
-  if (ad.delivered_at || ad.return_success_at) return null;
+// (pickup/creation ke din khud "Day 1" hai). Koi bhi final/terminal courier_order_status
+// (Delivered/Returned/Delivery Failed/Return Pending/Lost/Pickup Failed/Cancelled) reach ho
+// chuka ho to yeh pill irrelevant hai — sirf abhi-tak-pending orders ke liye relevant hai.
+function computeAgingDay(o) {
+  const ad = o.agent_data;
+  if (bucketFinalStatus(ad.courier_order_status)) return null;
   const refTs = ad.pickup_success_at || ad.package_created_at;
   if (!refTs) return null;
   const days = Math.floor((Date.now() - new Date(refTs).getTime()) / 86400000) + 1;
@@ -60,44 +70,128 @@ function agingMeta(day) {
   return { color: "#DC2626", label: "Urgent Action Needed", pulse: true };
 }
 
-// Horizontal timeline — Booked/Picked Up ka apna timestamp hai; "In Transit" ka koi alag
-// column hi nahi humare schema mein (Dex Excel se yeh granularity kabhi capture nahi hui),
-// isliye woh step Picked Up ke sath hi "done" maana jata hai — jo bhi data available hai
-// usi ka honest representation hai, guess nahi.
-function timelineSteps(ad) {
-  const isReturned = !!ad.return_success_at;
-  const steps = [
-    { label: "Booked", done: !!ad.package_created_at, at: ad.package_created_at },
-    { label: "Picked Up", done: !!ad.pickup_success_at, at: ad.pickup_success_at },
-    { label: "In Transit", done: !!ad.pickup_success_at, at: null },
-    { label: isReturned ? "Returned" : "Delivered", done: isReturned || !!ad.delivered_at, at: isReturned ? ad.return_success_at : ad.delivered_at, isReturn: isReturned },
-  ];
-  let currentIdx = steps.findIndex((s) => !s.done);
-  if (currentIdx === -1) currentIdx = -1; // sab steps done — koi "current" glow nahi
-  return { steps, currentIdx };
+// Final-state color ramp (Aurora Ledger palette, confirmed) — jab order apne final/terminal
+// outcome tak pahunch jaye to POORI progress-line isi color mein render hoti hai, sirf last
+// dot ka color nahi.
+const FINAL_STATE_COLOR = {
+  Delivered: "#34D88E",
+  "Delivery Failed": "#F2A83E",
+  "Return Pending": "#FB923C",
+  Returned: "#F26D6D",
+  Lost: "#F472B6",
+};
+const IN_PROGRESS_COLOR = "var(--ne-accent)";
+
+function daysBetween(fromIso, toIso) {
+  if (!fromIso) return null;
+  const from = new Date(fromIso).getTime();
+  const to = toIso ? new Date(toIso).getTime() : Date.now();
+  return Math.max(0, Math.floor((to - from) / 86400000));
 }
 
-function Timeline({ ad }) {
-  const { steps, currentIdx } = timelineSteps(ad);
+// Booking ke turant baad, bina kisi intermediate status ke, seedha Cancelled/Pickup-Failed ho
+// jane wale orders ke liye poora 6-stage timeline misleading hai (jaise "Day 336" dikhana
+// jabke woh sirf turant-cancel hua tha, kabhi transit mein gaya hi nahi) — in ke liye sirf
+// Booked -> Final ka 2-stage mini-timeline dikhate hain, neutral color mein (koi urgency nahi).
+function isBookedToTerminalSpecialCase(finalStatus, ad) {
+  return (finalStatus === "Cancelled" || finalStatus === "Pickup Failed") && !ad.pickup_success_at;
+}
+
+// Stages: [Created (sirf matched orders ke liye, Shopify raw_data.created_at se) ->] Booked
+// [package_created_at] -> In Transit [pickup_success_at] -> Arrived at Destination City
+// [arrived_at_destination_at] -> Out for Delivery [out_for_delivery_at] -> Final (courier_order_status
+// se decide, color/label badalta hai). Har stage ke upar day-count = us stage aur AGLE known
+// checkpoint ke beech ka farq — agla checkpoint maloom ho jaye to yeh count naturally frozen ho
+// jata hai (dono timestamps fixed hain), warna aaj tak live badhta rehta hai.
+function buildTimeline(o) {
+  const ad = o.agent_data;
+  const finalStatus = bucketFinalStatus(ad.courier_order_status);
+
+  if (isBookedToTerminalSpecialCase(finalStatus, ad) && ad.package_created_at) {
+    const finalAt = ad.logistics_status_at || null;
+    return {
+      special: true,
+      color: "var(--ne-muted-2)",
+      currentIdx: -1,
+      isReached: true,
+      stages: [
+        { label: "Booked", at: ad.package_created_at, done: true, days: daysBetween(ad.package_created_at, finalAt) },
+        { label: finalStatus, at: finalAt, done: true, days: null, isFinal: true },
+      ],
+    };
+  }
+
+  const finalAt = finalStatus === "Delivered" ? (ad.delivered_at || ad.logistics_status_at)
+    : finalStatus === "Returned" ? (ad.return_success_at || ad.logistics_status_at)
+    : ad.logistics_status_at;
+  const finalMeta = finalStatus && FINAL_STATE_COLOR[finalStatus]
+    ? { label: finalStatus, at: finalAt, color: FINAL_STATE_COLOR[finalStatus] }
+    : { label: "Delivered", at: null, color: null };
+  const isReached = !!finalMeta.color;
+
+  const rawStages = [];
+  if (!o.isManual) rawStages.push({ label: "Created", at: o.created_at });
+  rawStages.push({ label: "Booked", at: ad.package_created_at });
+  rawStages.push({ label: "In Transit", at: ad.pickup_success_at });
+  rawStages.push({ label: "Arrived at Destination City", at: ad.arrived_at_destination_at });
+  rawStages.push({ label: "Out for Delivery", at: ad.out_for_delivery_at });
+
+  const checkpoints = [...rawStages, finalMeta];
+  const stages = rawStages.map((s, i) => {
+    const nextKnownAt = checkpoints.slice(i + 1).find((c) => !!c.at)?.at || null;
+    return { ...s, done: isReached || !!s.at, days: s.at ? daysBetween(s.at, nextKnownAt) : null };
+  });
+
+  let currentIdx = -1;
+  for (let i = stages.length - 1; i >= 0; i--) {
+    if (stages[i].at) { currentIdx = i; break; }
+  }
+
+  return {
+    special: false,
+    color: isReached ? finalMeta.color : IN_PROGRESS_COLOR,
+    isReached,
+    currentIdx: isReached ? -1 : currentIdx,
+    stages: [...stages, { label: finalMeta.label, at: finalMeta.at, done: isReached, days: null, isFinal: true }],
+  };
+}
+
+function Timeline({ order }) {
+  const tl = buildTimeline(order);
   return (
     <div style={{ display: "flex" }}>
-      {steps.map((s, i) => (
-        <div key={s.label} style={{ flex: 1, textAlign: "center", position: "relative" }}>
-          {i > 0 && (
-            <div style={{ position: "absolute", top: 6, left: "-50%", width: "100%", height: 2, background: steps[i - 1].done ? "var(--ne-success)" : "var(--ne-border)" }} />
-          )}
-          <div style={{
-            width: 13, height: 13, borderRadius: "50%", margin: "0 auto", position: "relative", zIndex: 1,
-            background: s.done ? (s.isReturn ? "var(--ne-danger)" : "var(--ne-success)") : "var(--ne-border)",
-            boxShadow: i === currentIdx ? "0 0 0 5px var(--ne-accent-soft)" : "none",
-            border: i === currentIdx ? "2px solid var(--ne-accent)" : "none",
-          }} />
-          <div style={{ fontSize: 9.5, marginTop: 6, fontWeight: s.done ? 700 : 500, color: s.done ? "var(--ne-text)" : "var(--ne-muted-2)" }}>{s.label}</div>
-          <div style={{ fontSize: 8.5, color: "var(--ne-muted-2)", marginTop: 2 }}>{fmtDateTime(s.at) || "—"}</div>
-        </div>
-      ))}
+      {tl.stages.map((s, i) => {
+        const isCurrent = i === tl.currentIdx;
+        const dotColor = tl.isReached || tl.special ? tl.color : (s.done ? IN_PROGRESS_COLOR : "var(--ne-border)");
+        const lineColor = tl.isReached || tl.special ? tl.color : (i > 0 && tl.stages[i - 1].done ? IN_PROGRESS_COLOR : "var(--ne-border)");
+        return (
+          <div key={s.label} style={{ flex: 1, textAlign: "center", position: "relative", minWidth: 72 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: dotColor, marginBottom: 3, minHeight: 12 }}>
+              {s.days !== null && s.days !== undefined ? `${s.days} day${s.days === 1 ? "" : "s"}` : " "}
+            </div>
+            {i > 0 && (
+              <div style={{ position: "absolute", top: 20, left: "-50%", width: "100%", height: 2, background: lineColor }} />
+            )}
+            <div style={{
+              width: 11, height: 11, borderRadius: "50%", margin: "0 auto", position: "relative", zIndex: 1,
+              background: dotColor,
+              boxShadow: isCurrent ? `0 0 0 4px ${dotColor}33` : "none",
+            }} />
+            <div style={{ fontSize: 9.5, marginTop: 6, fontWeight: s.done ? 700 : 500, color: s.done ? "var(--ne-text)" : "var(--ne-muted-2)" }}>{s.label}</div>
+            <div style={{ fontSize: 8.5, color: "var(--ne-muted-2)", marginTop: 2 }}>{fmtDateTime(s.at) || "—"}</div>
+          </div>
+        );
+      })}
     </div>
   );
+}
+
+// Order-number ke numeric-sequence se descending sort (LATEST se OLDEST) — "#DWK8390" se 8390
+// nikal ke number compare karte hain, manual orders ke liye manual_order_number use karte hain.
+function extractOrderNum(o) {
+  const raw = (o.name && o.name !== "—" ? o.name : o.agent_data.manual_order_number) || "";
+  const digits = raw.replace(/\D/g, "");
+  return digits ? parseInt(digits, 10) : -1;
 }
 
 export default function BookedOrders({ storeId, ordersStore }) {
@@ -235,7 +329,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
     const matchTab = activeTab === "All" || bucketCourierStatus(ad.courier_order_status) === activeTab;
     const matchCourier = courierFilter === "All" || ad.courier_name === courierFilter;
     return matchSearch && matchTab && matchCourier;
-  });
+  }).sort((a, b) => extractOrderNum(b) - extractOrderNum(a));
 
   const totalPages = Math.ceil(filtered.length / perPage) || 1;
   const pagedFiltered = filtered.slice((page - 1) * perPage, page * perPage);
@@ -297,23 +391,37 @@ export default function BookedOrders({ storeId, ordersStore }) {
           {pagedFiltered.map((o) => {
             const ad = o.agent_data;
             const bucket = bucketCourierStatus(ad.courier_order_status);
-            const meta = STATUS_BUCKET_META[bucket] || { color: "var(--ne-muted-2)", bg: "var(--ne-surface)" };
+            const finalStatus = bucketFinalStatus(ad.courier_order_status);
+            const isSpecialTerminal = finalStatus === "Cancelled" || finalStatus === "Pickup Failed";
+            const meta = isSpecialTerminal
+              ? { color: "var(--ne-muted)", bg: "var(--ne-muted-soft)" }
+              : STATUS_BUCKET_META[bucket] || { color: "var(--ne-muted-2)", bg: "var(--ne-surface)" };
             const fullName = `${o.customer?.first_name || ""} ${o.customer?.last_name || ""}`.trim();
             const phone = o.customer?.phone || o.shipping_address?.phone || "";
             const city = o.shipping_address?.city || "";
             const isRemarksOpen = expandedRemarksIds.has(o.id);
             const remarksLog = ad.remarks_log || [];
-            const agingDay = computeAgingDay(ad);
+            const agingDay = computeAgingDay(o);
             const aging = agingDay ? agingMeta(agingDay) : null;
+            const logo = courierLogos[ad.courier_name];
 
             return (
               <div key={o.id} style={cardStyle}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
                   <div>
-                    <a href={trackingUrl(ad.dex_tracking_number)} target="_blank" rel="noreferrer"
-                      style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 14, borderBottom: "1px dashed var(--ne-accent)", paddingBottom: 1 }}>
-                      {o.name}
-                    </a>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      {logo ? (
+                        <img src={logo} alt={ad.courier_name} style={{ height: 16, width: "auto", display: "block" }} />
+                      ) : ad.courier_name ? (
+                        <span style={{ fontSize: 8.5, fontWeight: 700, padding: "1px 6px", borderRadius: 5, background: `${courierColor(ad.courier_name)}26`, color: courierColor(ad.courier_name) }}>
+                          {ad.courier_name}
+                        </span>
+                      ) : null}
+                      <a href={trackingUrl(ad.dex_tracking_number)} target="_blank" rel="noreferrer"
+                        style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 14 }}>
+                        {o.name}
+                      </a>
+                    </div>
                     <div style={{ fontSize: 11, color: "var(--ne-muted-2)", marginTop: 3 }}>
                       {fullName || "—"} · {phone || "—"} · {city || "—"}
                       {ad.logistics_status_at ? ` · ${fmtDateTime(ad.logistics_status_at)}` : ""}
@@ -323,11 +431,6 @@ export default function BookedOrders({ storeId, ordersStore }) {
                     {o.isManual && (
                       <span title="Shopify mein match nahi mila — sirf Excel se courier data" style={{ padding: "4px 10px", borderRadius: 8, fontSize: 10.5, fontWeight: 700, background: "var(--ne-warning-soft)", color: "var(--ne-warning)" }}>
                         ⚠️ Unmatched/Manual
-                      </span>
-                    )}
-                    {ad.courier_name && (
-                      <span style={{ padding: "4px 10px", borderRadius: 8, fontSize: 10.5, fontWeight: 700, background: `${courierColor(ad.courier_name)}26`, color: courierColor(ad.courier_name) }}>
-                        {ad.courier_name}
                       </span>
                     )}
                     <span style={{ padding: "4px 10px", borderRadius: 8, fontSize: 10.5, fontWeight: 700, background: meta.bg, color: meta.color }}>
@@ -374,8 +477,8 @@ export default function BookedOrders({ storeId, ordersStore }) {
                 </div>
 
                 {/* Timeline — hamesha visible, koi toggle/wrapper nahi */}
-                <div style={{ marginBottom: 16 }}>
-                  <Timeline ad={ad} />
+                <div style={{ marginBottom: 16, overflowX: "auto" }}>
+                  <Timeline order={o} />
                 </div>
 
                 {ad.latest_fail_reason && (
@@ -385,8 +488,9 @@ export default function BookedOrders({ storeId, ordersStore }) {
                 )}
 
                 {/* Remarks box — YEH pura block hamesha visible hai, sirf iske andar ki
-                    .remarks-list collapse/expand hoti hai jab header-button click ho */}
-                <div style={{ background: "var(--ne-surface-2)", borderRadius: 10, padding: "14px 16px" }}>
+                    .remarks-list collapse/expand hoti hai jab header-button click ho.
+                    Background/shadow Orders.jsx ke card-style se exact match (dono modes mein). */}
+                <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, padding: "14px 16px", boxShadow: "0 2px 8px rgba(0,0,0,.18)" }}>
                   <button onClick={() => toggleRemarks(o.id)}
                     style={{ background: "none", border: "none", color: "var(--ne-text)", fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, padding: 0 }}>
                     💬 Remarks <span style={{ fontSize: 10.5, background: "var(--ne-accent)", color: "#fff", padding: "1px 8px", borderRadius: 10 }}>{remarksLog.length}</span>

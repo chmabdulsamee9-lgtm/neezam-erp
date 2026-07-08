@@ -146,10 +146,29 @@ export function mergeStatusesWithCache(statuses, cacheMap) {
       customer: raw?.customer || null,
       shipping_address: raw?.shipping_address || null,
       total_price: raw?.total_price ?? null,
+      created_at: raw?.created_at || null,
       agent_data: s,
       isManual: !s.order_id,
     };
   });
+}
+
+// courier_order_status (OMS-level, omsOrderStatus se aaya) hi authoritative source hai final-state
+// ke liye — dex_status (granular logistics snapshot) sirf in-progress stage detect karne ke kaam
+// aata hai (Timeline component mein). Real data se confirmed keyword-rules (2026-07-09 query se):
+// "Delivery attempt failed"/"Deliver Failed" > "Return pending" > "Returned" > "Delivered" > "Lost
+// damaged" > "Pickup failed" > "Canceled" — pehle jo match ho jaye wahi jeetta hai. Baaki
+// (Last Mile Inbound/Transit to ship/Ready to ship/Shipping/NULL) abhi in-progress hain, final nahi.
+export function bucketFinalStatus(courierOrderStatus) {
+  const s = (courierOrderStatus || "").toLowerCase();
+  if (s.includes("deliver") && s.includes("fail")) return "Delivery Failed";
+  if (s.includes("return") && s.includes("pending")) return "Return Pending";
+  if (s.includes("return")) return "Returned";
+  if (s.includes("deliver")) return "Delivered";
+  if (s.includes("lost")) return "Lost";
+  if (s.includes("pickup") && s.includes("fail")) return "Pickup Failed";
+  if (s.includes("cancel")) return "Cancelled";
+  return null;
 }
 
 // "Poisoned" row = matched order (order_id hai, isManual false) jiska Shopify data cache-miss
