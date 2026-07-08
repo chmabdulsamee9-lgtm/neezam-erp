@@ -47,6 +47,30 @@ async function fetchBookedStatuses(storeId) {
   return allRows;
 }
 
+// Full load ke liye: Orders.jsx ke fetchAllCachedOrders() jaisa hi — poori store ka
+// shopify_orders_cache ek bulk-paginated pass mein (koi .in() ID-filtering nahi). Pehle
+// yahan chunked .in() lookup thi (200 ids/query) jo 2000+ matched orders pe 10 sequential
+// round-trips banati thi — yehi asal slowdown tha. Ab sirf 1-2 simple paginated queries hain.
+async function fetchAllCachedOrdersLite(storeId) {
+  let allRows = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from("shopify_orders_cache")
+      .select("id, raw_data")
+      .eq("store_id", storeId)
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    allRows = allRows.concat(data);
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return allRows;
+}
+
+// Delta refresh ke liye: sirf mutthi-bhar changed order_ids hote hain, isliye targeted
+// chunked .in() lookup yahan theek/cheap hai (full-load ke bhari case se bilkul alag)
 async function fetchCachedOrdersByIds(storeId, ids) {
   if (ids.length === 0) return [];
   let allRows = [];
@@ -87,13 +111,7 @@ async function fetchBookedStatusesDelta(storeId, since) {
   return allRows;
 }
 
-// BookedOrders.jsx ke buildMergedBookedOrders() jaisa hi (same shape) — dono pages ek hi
-// shared IndexedDB cache-store (booked_orders) use karte hain
-async function buildMergedBookedOrders(storeId, statuses) {
-  const orderIds = statuses.filter((s) => s.order_id).map((s) => s.order_id);
-  const cachedRows = await fetchCachedOrdersByIds(storeId, orderIds);
-  const cacheMap = {};
-  cachedRows.forEach((r) => { cacheMap[String(r.id)] = r.raw_data; });
+function mergeStatusesWithCache(statuses, cacheMap) {
   return statuses.map((s) => {
     const raw = s.order_id ? cacheMap[String(s.order_id)] : null;
     return {
@@ -262,8 +280,10 @@ export default function CourierDashboard({ storeId }) {
 
       setLoading(true);
       const loadStartTime = new Date().toISOString();
-      const statuses = await fetchBookedStatuses(storeId);
-      const merged = await buildMergedBookedOrders(storeId, statuses);
+      const [statuses, cachedRows] = await Promise.all([fetchBookedStatuses(storeId), fetchAllCachedOrdersLite(storeId)]);
+      const cacheMap = {};
+      cachedRows.forEach((r) => { cacheMap[String(r.id)] = r.raw_data; });
+      const merged = mergeStatusesWithCache(statuses, cacheMap);
       setOrders(merged);
       await saveBookedOrdersBulk(merged);
       await setMeta(metaKey, loadStartTime);
@@ -279,7 +299,11 @@ export default function CourierDashboard({ storeId }) {
       const loadStartTime = new Date().toISOString();
       const deltaStatuses = await fetchBookedStatusesDelta(storeId, lastSyncedAt);
       if (deltaStatuses.length > 0) {
-        const deltaMerged = await buildMergedBookedOrders(storeId, deltaStatuses);
+        const orderIds = deltaStatuses.filter((s) => s.order_id).map((s) => s.order_id);
+        const cachedRows = await fetchCachedOrdersByIds(storeId, orderIds);
+        const cacheMap = {};
+        cachedRows.forEach((r) => { cacheMap[String(r.id)] = r.raw_data; });
+        const deltaMerged = mergeStatusesWithCache(deltaStatuses, cacheMap);
         setOrders((prev) => {
           const map = {};
           prev.forEach((o) => { map[o.id] = o; });
