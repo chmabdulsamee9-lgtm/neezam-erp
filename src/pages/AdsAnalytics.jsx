@@ -321,7 +321,7 @@ export default function AdsAnalytics({ ordersData, storeId, ordersStore, cfUrl }
       <div style={{ ...cardStyle, marginBottom: "1rem" }}>
         <h2 style={{ margin: "0 0 6px", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>📊 ROAS (Meta)</h2>
         <p style={{ margin: "0 0 10px", fontSize: 10.5, color: "var(--ne-muted-2)", lineHeight: 1.5 }}>
-          ⚠️ Yeh sirf STORE-LEVEL aggregate hai — Meta ka total spend vs Neezam ke "Meta" source wale saare orders ka revenue (isi date range mein). Per-campaign attribution nahi hai, kyunke orders data mein individual campaign ID track nahi hoti.
+          ⚠️ Yeh sirf STORE-LEVEL aggregate hai — Meta ka total spend vs eNeezam ke "Meta" source wale saare orders ka revenue (isi date range mein). Per-campaign attribution nahi hai, kyunke orders data mein individual campaign ID track nahi hoti.
         </p>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span style={{ fontSize: 14, color: "var(--ne-danger)", fontWeight: 700 }}>{rupees(metaSpend)} spend</span>

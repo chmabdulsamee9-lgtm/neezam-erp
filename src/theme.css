@@ -4,16 +4,17 @@
                 radial-gradient(50% 40% at 0% 100%, rgba(168,85,247,.12), transparent 60%);
   --ne-sidebar-bg:#0A0E26; --ne-surface:#11163A; --ne-surface-2:#161B45; --ne-border:#232A52;
   --ne-text:#EEF0FF; --ne-muted:#8C93C4; --ne-muted-2:#4F567E;
-  --ne-accent:#5C7CFA; --ne-accent2:#A855F7; --ne-accent-soft:#1C2356;
+  --ne-accent:#5C7CFA; --ne-accent2:#A855F7; --ne-accent-soft:#1C2356; --ne-accent2-soft:#26134A;
   --ne-grad: linear-gradient(120deg, #5C7CFA 0%, #A855F7 100%);
   --ne-success:#34D88E; --ne-success-soft:#11402A;
   --ne-warning:#F2A83E; --ne-warning-soft:#3A2A0D;
   --ne-danger:#F26D6D; --ne-danger-soft:#3A1414;
   --ne-pink:#F472B6; --ne-pink-soft:#3A1130;
   --ne-orange:#FB923C; --ne-orange-soft:#3A2410;
+  --ne-muted-soft:#1A1E40;
 }
 
-.ne-app-shell{font-family:'Inter',system-ui,sans-serif; min-height:100vh; background:var(--ne-bg-glow), var(--ne-bg); color:var(--ne-text); -webkit-font-smoothing:antialiased;}
+.ne-app-shell{font-family:'Inter',system-ui,sans-serif; min-height:100vh; min-height:100dvh; background:var(--ne-bg-glow), var(--ne-bg); color:var(--ne-text); -webkit-font-smoothing:antialiased;}
 .ne-app{display:flex; height:100%; width:100%; overflow:hidden;}
 
 .ne-sidebar{width:240px; flex-shrink:0; background:var(--ne-sidebar-bg); padding:20px 14px; display:flex; flex-direction:column; height:100%; overflow-y:auto;}
@@ -49,8 +50,6 @@
 .ne-drawer-backdrop{display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:998;}
 .ne-drawer-backdrop.open{display:block;}
 
-@keyframes neezam-spin { to { transform: rotate(360deg); } }
-
 @media (max-width: 760px){
   .ne-hamburger{display:flex;}
   .ne-sidebar{
@@ -62,12 +61,26 @@
   .ne-sidebar .ne-navitem{justify-content:flex-start !important; padding:8px 10px !important;}
   .ne-sidebar .ne-brand-row{justify-content:flex-start !important; padding:6px 8px 18px !important;}
   .ne-collapse-btn{display:none;}
+  .ne-content{padding-bottom:2rem;} /* scroll-end safety margin — aakhri card/button viewport edge se chipka na rahe */
 }
 
 .ne-app-shell ::-webkit-scrollbar{width:9px; height:9px;}
 .ne-app-shell ::-webkit-scrollbar-track{background:transparent;}
 .ne-app-shell ::-webkit-scrollbar-thumb{background:var(--ne-border); border-radius:6px;}
 .ne-app-shell ::-webkit-scrollbar-thumb:hover{background:var(--ne-muted-2);}
+
+/* Sidebar hamesha dark navy hai (light mode mein bhi) — iska scrollbar bhi hamesha
+   dark-appropriate rehna chahiye, theme-reactive --ne-border/muted nahi (jo light
+   mode mein bahut halka/invisible ho jate) */
+.ne-sidebar::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);}
+.ne-sidebar::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.25);}
+
+/* Hamesha-dark utility/callback screens (Shopify/Meta OAuth callback) ke
+   scrollable lists ke liye consistent slim indigo-tinted scrollbar */
+.ne-dark-scroll::-webkit-scrollbar{width:9px; height:9px;}
+.ne-dark-scroll::-webkit-scrollbar-track{background:transparent;}
+.ne-dark-scroll::-webkit-scrollbar-thumb{background:#232A52; border-radius:6px;}
+.ne-dark-scroll::-webkit-scrollbar-thumb:hover{background:#4F567E;}
 /* ===== LIGHT MODE ===== */
 :root[data-theme="light"]{
   --ne-bg:#F4F5FB;
@@ -75,15 +88,24 @@
                 radial-gradient(50% 40% at 0% 100%, rgba(168,85,247,.06), transparent 60%);
   --ne-sidebar-bg:#0A0E26; --ne-surface:#F4F5FB; --ne-surface-2:#FFFFFF; --ne-border:#E1E4F0;
   --ne-text:#1A1F36; --ne-muted:#6B7280; --ne-muted-2:#9CA3AF;
-  --ne-accent:#5C7CFA; --ne-accent2:#A855F7; --ne-accent-soft:#EDEFFE;
+  --ne-accent:#5C7CFA; --ne-accent2:#A855F7; --ne-accent-soft:#EDEFFE; --ne-accent2-soft:#F3E8FF;
   --ne-grad: linear-gradient(120deg, #5C7CFA 0%, #A855F7 100%);
   --ne-success:#16A34A; --ne-success-soft:#DCFCE7;
   --ne-warning:#D97706; --ne-warning-soft:#FEF3C7;
   --ne-danger:#DC2626; --ne-danger-soft:#FEE2E2;
   --ne-pink:#DB2777; --ne-pink-soft:#FCE7F3;
   --ne-orange:#EA580C; --ne-orange-soft:#FFEDD5;
+  --ne-muted-soft:#F1F2F6;
 }
 
-.ne-theme-toggle{ background:var(--ne-surface-2); border:1px solid var(--ne-border); color:var(--ne-text); border-radius:9px; width:34px; height:34px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:15px; flex-shrink:0; }
-.ne-mobile-preview-btn{ background:var(--ne-surface-2); border:1px solid var(--ne-border); color:var(--ne-text); border-radius:9px; padding:0 12px; height:34px; display:flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; font-weight:600; flex-shrink:0; white-space:nowrap; }
-.ne-mobile-preview-btn.active{ background:var(--ne-grad); color:#fff; border-color:transparent; }
+/* ===== BRANDING (eNeezam) — wordmark + splash animation ===== */
+.ne-wordmark-e{ background:var(--ne-grad); -webkit-background-clip:text; background-clip:text; color:transparent; }
+
+.ne-monogram-path{ stroke-dasharray:100; stroke-dashoffset:100; animation:ne-draw-path .8s ease forwards; }
+@keyframes ne-draw-path{ to{ stroke-dashoffset:0; } }
+
+.ne-monogram-dot{ opacity:0; transform-origin:center; transform:scale(0); animation:ne-pop-dot .3s ease forwards; }
+@keyframes ne-pop-dot{ to{ opacity:1; transform:scale(1); } }
+
+.ne-splash-wordmark{ opacity:0; transform:translateY(10px); animation:ne-fade-slide-up .4s ease forwards; animation-delay:1.45s; display:inline-block; }
+@keyframes ne-fade-slide-up{ to{ opacity:1; transform:translateY(0); } }

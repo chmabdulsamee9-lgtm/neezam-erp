@@ -6,6 +6,10 @@
 
 html, body {
   height: 100%;
+  height: 100dvh; /* mobile browsers ke address-bar show/hide se viewport height badalti hai —
+                     100% (jo effectively 100vh jaisa resolve hota hai) us badlaav ko track nahi
+                     karta, isliye neeche wala content cut ho jata tha; 100dvh hamesha current
+                     visible viewport ke barabar rehta hai */
   width: 100%;
   overflow: hidden;
   background: #0f172a;

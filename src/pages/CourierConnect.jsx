@@ -1,7 +1,114 @@
 import { useState, useEffect } from "react";
+import ExcelJS from "exceljs";
 import { supabase } from "../supabase";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
+
+// Dex ke 43-column Excel export headers -> dex_shipments_import table ke snake_case columns.
+// (SQL confirmed — dex_shipments_import table, upsert key (store_id, tracking_no))
+const DEX_HEADER_MAP = {
+  externalOrderId: "external_order_id",
+  omsOrderId: "oms_order_id",
+  trackingNo: "tracking_no",
+  "Original Tracking No": "original_tracking_no",
+  "Package type": "package_type",
+  "Delivery Option": "delivery_option",
+  platform: "platform",
+  omsOrderStatus: "oms_order_status",
+  totalPrice: "total_price",
+  paymentMethod: "payment_method",
+  orderCreatedTime: "order_created_time",
+  productList: "product_list",
+  quantity: "quantity",
+  estimatedShippingFee: "estimated_shipping_fee",
+  dimWeight: "dim_weight",
+  receiver: "receiver",
+  receiverPhone: "receiver_phone",
+  receiverAddress: "receiver_address",
+  receiverLevel4Address: "receiver_level4_address",
+  receiverLevel3Address: "receiver_level3_address",
+  receiverLevel2Address: "receiver_level2_address",
+  "Receiver Original Address": "receiver_original_address",
+  warehouseName: "warehouse_name",
+  warehouseAddress: "warehouse_address",
+  "Warehouse Original Address": "warehouse_original_address",
+  deliveryNote: "delivery_note",
+  firstMileShippingProvider: "first_mile_shipping_provider",
+  lastMileShippingProvider: "last_mile_shipping_provider",
+  packageCreatedTime: "package_created_time",
+  logisticsCurrentStatus: "logistics_current_status",
+  logisticsCurrentStatusTime: "logistics_current_status_time",
+  failedPickupReason: "failed_pickup_reason",
+  pickupSuccessTime: "pickup_success_time",
+  firstFailDeliveryAttemptTime: "first_fail_delivery_attempt_time",
+  latestFailedDeliveryTime: "latest_failed_delivery_time",
+  "First failed delivery attempt reason": "first_failed_delivery_attempt_reason",
+  "Second failed delivery attempt reason": "second_failed_delivery_attempt_reason",
+  "Third failed delivery attempt reason": "third_failed_delivery_attempt_reason",
+  "Fourth failed delivery attempt reason": "fourth_failed_delivery_attempt_reason",
+  deliveryAttemptCount: "delivery_attempt_count",
+  deliveredTime: "delivered_time",
+  failedReturnTime: "failed_return_time",
+  returnSuccessTime: "return_success_time",
+};
+
+const DEX_TIMESTAMP_COLS = new Set([
+  "order_created_time", "package_created_time", "logistics_current_status_time",
+  "pickup_success_time", "first_fail_delivery_attempt_time", "latest_failed_delivery_time",
+  "delivered_time", "failed_return_time", "return_success_time",
+]);
+const DEX_NUMERIC_COLS = new Set(["total_price", "estimated_shipping_fee", "dim_weight"]);
+const DEX_INTEGER_COLS = new Set(["quantity", "delivery_attempt_count"]);
+
+function coerceDexCell(value, col) {
+  if (value === null || value === undefined || value === "") return null;
+  if (value instanceof Date) {
+    return DEX_TIMESTAMP_COLS.has(col) ? value.toISOString() : value.toString();
+  }
+  if (typeof value === "object") {
+    if (value.text) value = value.text;
+    else if (value.result !== undefined) value = value.result;
+    else if (Array.isArray(value.richText)) value = value.richText.map(t => t.text).join("");
+    else return null;
+  }
+  if (DEX_TIMESTAMP_COLS.has(col)) {
+    const d = new Date(value);
+    return isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  if (DEX_NUMERIC_COLS.has(col) || DEX_INTEGER_COLS.has(col)) {
+    const n = Number(value);
+    return isNaN(n) ? null : n;
+  }
+  return String(value).trim();
+}
+
+async function parseDexExcelFile(file) {
+  const buffer = await file.arrayBuffer();
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.worksheets[0];
+  if (!sheet) return [];
+
+  const colIndexToDbKey = {};
+  sheet.getRow(1).eachCell((cell, colNumber) => {
+    const header = String(cell.value || "").trim();
+    const dbKey = DEX_HEADER_MAP[header];
+    if (dbKey) colIndexToDbKey[colNumber] = dbKey;
+  });
+
+  const rows = [];
+  sheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const obj = {};
+    row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
+      const dbKey = colIndexToDbKey[colNumber];
+      if (!dbKey) return;
+      obj[dbKey] = coerceDexCell(cell.value, dbKey);
+    });
+    if (obj.tracking_no) rows.push(obj);
+  });
+  return rows;
+}
 
 export default function CourierConnect({ storeId }) {
   const [store, setStore] = useState(null);
@@ -10,6 +117,10 @@ export default function CourierConnect({ storeId }) {
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState("");
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
+
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [uploadResult, setUploadResult] = useState(null);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
@@ -55,6 +166,39 @@ export default function CourierConnect({ storeId }) {
       setError(err.message);
     }
     setConnecting(false);
+  };
+
+  const handleExcelUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    setUploading(true);
+    setUploadError("");
+    setUploadResult(null);
+    try {
+      const rows = await parseDexExcelFile(file);
+      if (rows.length === 0) {
+        setUploadError("File mein koi valid row (tracking_no ke sath) nahi mili");
+        setUploading(false);
+        return;
+      }
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${CF_URL}/dex-import-shipments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ storeId, rows }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setUploadError(data.error);
+        setUploading(false);
+        return;
+      }
+      setUploadResult({ upserted: data.upserted, skipped: data.skipped });
+    } catch (err) {
+      setUploadError(err.message);
+    }
+    setUploading(false);
   };
 
   const isConnected = !!store?.dex_seller_id;
@@ -119,6 +263,34 @@ export default function CourierConnect({ storeId }) {
                 {connecting ? "Connect ho raha hai..." : "🔗 Connect Dex"}
               </button>
             </form>
+          )}
+        </div>
+      )}
+
+      {/* Phase 8: Dex manual Excel upload — 43-column export, insert-or-update by tracking_no.
+          Live-API binding (upar wala card) se bilkul alag/independent hai. */}
+      {!loading && (
+        <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1.5rem", marginTop: "1rem" }}>
+          <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: 15, color: "var(--ne-text)" }}>📊 Dex Excel Upload</p>
+          <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--ne-muted-2)" }}>
+            Daraz Seller Center se export ki gayi shipments file (.xlsx) upload karo — tracking number ke hisaab se insert-or-update ho jayega.
+          </p>
+
+          <label style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            padding: "12px", borderRadius: 10, border: "1px dashed var(--ne-border)",
+            background: "var(--ne-surface)", cursor: uploading ? "default" : "pointer",
+            fontSize: 13, fontWeight: 600, color: "var(--ne-muted)",
+          }}>
+            {uploading ? "⏳ Upload ho raha hai..." : "📁 Excel file choose karo (.xlsx)"}
+            <input type="file" accept=".xlsx" onChange={handleExcelUpload} disabled={uploading} style={{ display: "none" }} />
+          </label>
+
+          {uploadError && <p style={{ color: "var(--ne-danger)", fontSize: 12, marginTop: 10 }}>{uploadError}</p>}
+          {uploadResult && (
+            <p style={{ color: "var(--ne-success)", fontSize: 12, marginTop: 10 }}>
+              ✅ {uploadResult.upserted} shipments save ho gaye{uploadResult.skipped > 0 ? ` (${uploadResult.skipped} rows skip hui, tracking number missing tha)` : ""}.
+            </p>
           )}
         </div>
       )}

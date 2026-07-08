@@ -78,7 +78,7 @@ const toLocalDateStr = (d) =>
 
 const isHistoryValid = (h) => !!(h && h.created_at && (Date.now() - new Date(h.created_at).getTime()) < HISTORY_VALID_MS);
 
-export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrdersLoaded, ordersStore, setOrdersStore, cfUrl, forceMobile }) {
+export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrdersLoaded, ordersStore, setOrdersStore, cfUrl }) {
   const orders = ordersData;
   const setOrders = setOrdersData;
   const [loading, setLoading] = useState(!ordersLoaded);
@@ -1134,7 +1134,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
       {loading ? (
         <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>Loading orders...</div>
-      ) : (isMobile || forceMobile) ? (
+      ) : isMobile ? (
         <div ref={tableRef} style={{ flex: 1, overflowY: "auto" }}>
           {orderRows.map(({ order, source, phone, fullName, city, address, products, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, isExpanded, statusBtn, syncRow }) => (
             <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "10px 12px", marginBottom: 8 }}>

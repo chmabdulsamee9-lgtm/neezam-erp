@@ -1,7 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import './theme.css'
 import { supabase } from './supabase'
 import { getCachedOrders, saveOrdersBulk, upsertOrder, getMeta, setMeta, clearCache } from './ordersCache'
+import { Monogram, Wordmark } from './components/Logo'
+import { SunIcon, MoonIcon, GlobeIcon } from './components/Icons'
+import { useLanguage, useTranslation } from './i18n'
 import Login from './pages/Login'
 import StoreConnect from './pages/StoreConnect'
 import ShopifyCallback from './pages/ShopifyCallback'
@@ -15,6 +19,7 @@ import ProfitLoss from './pages/ProfitLoss'
 import SupplierLedger from './pages/SupplierLedger'
 import BudgetCalculator from './pages/BudgetCalculator'
 import CourierConnect from './pages/CourierConnect'
+import CourierDashboard from './pages/CourierDashboard'
 import BookedOrders from './pages/BookedOrders'
 import Payments from './pages/Payments'
 import MetaConnect from './pages/MetaConnect'
@@ -37,6 +42,7 @@ const NAV_ICONS = {
   products: <svg viewBox="0 0 20 20"><path d="M3 3h6l8 8-6 6-8-8Z"/><circle cx="7" cy="7" r="1.3" fill="currentColor" stroke="none"/></svg>,
   budget: <svg viewBox="0 0 20 20"><rect x="2.5" y="3.5" width="15" height="13" rx="2"/><path d="M2.5 8h15M6 12h2M11 12h3"/></svg>,
   suggestions: <svg viewBox="0 0 20 20"><path d="M10 2.5a5.5 5.5 0 0 0-3 10.1V14h6v-1.4A5.5 5.5 0 0 0 10 2.5Z"/><path d="M8 17h4"/></svg>,
+  'courier-dashboard': <svg viewBox="0 0 20 20"><rect x="2" y="9" width="7" height="6" rx="1"/><path d="M9 11h3l2 2.5V15H9"/><circle cx="5" cy="16.5" r="1.4"/><circle cx="12.5" cy="16.5" r="1.4"/><path d="M15.5 3v6M18 5.5v3.5"/></svg>,
   whatsapp: <svg viewBox="0 0 20 20"><path d="M5 17l1-3.2A6.5 6.5 0 1 1 9.5 16L5 17Z"/><path d="M7.2 8c0 2.5 2.3 4.8 4.8 4.8"/></svg>,
   'store-connect': <svg viewBox="0 0 20 20"><path d="M8 12 12 8"/><rect x="2" y="9" width="6" height="6" rx="3" transform="rotate(-45 5 12)"/><rect x="12" y="5" width="6" height="6" rx="3" transform="rotate(-45 15 8)"/></svg>,
   'meta-connect': <svg viewBox="0 0 20 20"><path d="M3 17V9"/><path d="M9 17V3"/><path d="M15 17v-6"/><path d="M2 3.5h6" opacity=".6"/></svg>,
@@ -49,15 +55,9 @@ const NAV_ICONS = {
 
 function SplashScreen() {
   return (
-    <div className="ne-app-shell" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18 }}>
-      <div style={{ fontSize: '2.8rem', fontWeight: 700, color: '#fff' }}>نظام</div>
-      <div style={{
-        width: 36, height: 36, borderRadius: '50%',
-        border: '3px solid #232A52', borderTopColor: '#5C7CFA',
-        animation: 'neezam-spin 0.8s linear infinite',
-      }} />
-      <div style={{ fontSize: 13, color: '#8C93C4' }}>Tayar ho raha hai...</div>
-      <style>{`@keyframes neezam-spin { to { transform: rotate(360deg); } }`}</style>
+    <div className="ne-app-shell" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18, background: '#0A0E26' }}>
+      <Monogram size={90} animated />
+      <Wordmark size={26} animated />
     </div>
   )
 }
@@ -80,7 +80,7 @@ function PendingApprovalScreen({ onSignOut }) {
   )
 }
 
-function MasterDashboard({ allStores, pendingProfiles, passwordResetRequests, onApprove, onEnterStore, onSignOut, userEmail, cfUrl, creatorId, onDataChanged }) {
+function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, onSignOut, userEmail, cfUrl, onDataChanged }) {
   const [editingAdmin, setEditingAdmin] = useState(null)
   const [editFullName, setEditFullName] = useState('')
   const [editPhone, setEditPhone] = useState('')
@@ -89,11 +89,6 @@ function MasterDashboard({ allStores, pendingProfiles, passwordResetRequests, on
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState('')
   const [editPasswordSuccess, setEditPasswordSuccess] = useState(false)
-
-  const [resolvingRequest, setResolvingRequest] = useState(null)
-  const [resolvePassword, setResolvePassword] = useState('')
-  const [resolveSaving, setResolveSaving] = useState(false)
-  const [resolveError, setResolveError] = useState('')
 
   const statCard = (value, label, color, softBg) => (
     <div style={{ flex: 1, background: softBg, borderRadius: 10, padding: '8px 4px', textAlign: 'center' }}>
@@ -154,39 +149,6 @@ function MasterDashboard({ allStores, pendingProfiles, passwordResetRequests, on
     setEditSaving(false)
   }
 
-  const openResolveRequest = (req) => {
-    setResolvingRequest(req)
-    setResolvePassword('')
-    setResolveError('')
-  }
-
-  const resolveRequest = async (e) => {
-    e.preventDefault()
-    setResolveError('')
-    if (!resolvePassword || resolvePassword.length < 6) { setResolveError('Naya password kam az kam 6 characters ka ho'); return }
-    setResolveSaving(true)
-    try {
-      const { data: profileRow } = await supabase.from('profiles').select('id').eq('email', resolvingRequest.email).single()
-      if (!profileRow) { setResolveError('Is email ka koi account nahi mila'); setResolveSaving(false); return }
-      const { data: { session } } = await supabase.auth.getSession()
-      const res = await fetch(`${cfUrl}/update-user-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ target_user_id: profileRow.id, new_password: resolvePassword }),
-      })
-      const data = await res.json()
-      if (data.error) { setResolveError(data.error); setResolveSaving(false); return }
-      await supabase.from('password_reset_requests').update({
-        status: 'resolved', resolved_at: new Date().toISOString(), resolved_by: creatorId,
-      }).eq('id', resolvingRequest.id)
-      setResolvingRequest(null)
-      onDataChanged?.()
-    } catch (err) {
-      setResolveError(err.message)
-    }
-    setResolveSaving(false)
-  }
-
   return (
     <div className="ne-app-shell" style={{ height: '100%', overflow: 'auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: '1px solid var(--ne-border)' }}>
@@ -217,26 +179,6 @@ function MasterDashboard({ allStores, pendingProfiles, passwordResetRequests, on
                   <button onClick={() => onApprove(p.id)}
                     style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: 'var(--ne-grad)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
                     ✓ Approve
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {passwordResetRequests.length > 0 && (
-          <div style={{ marginBottom: '2rem' }}>
-            <h2 style={{ fontSize: 14, color: '#F26D6D', marginBottom: 10 }}>🔑 Password Reset Requests ({passwordResetRequests.length})</h2>
-            <div style={{ display: 'grid', gap: 8 }}>
-              {passwordResetRequests.map(r => (
-                <div key={r.id} style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 12, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 2px 8px rgba(0,0,0,.18)' }}>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 13 }}>{r.email}</div>
-                    <div style={{ fontSize: 11, color: 'var(--ne-muted)' }}>{new Date(r.requested_at).toLocaleString('en-PK')}</div>
-                  </div>
-                  <button onClick={() => openResolveRequest(r)}
-                    style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: 'var(--ne-warning)', color: '#1A1300', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                    🔑 Set New Password
                   </button>
                 </div>
               ))}
@@ -325,46 +267,41 @@ function MasterDashboard({ allStores, pendingProfiles, passwordResetRequests, on
         </div>
       )}
 
-      {resolvingRequest && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000000 }}>
-          <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 16, width: 380, maxWidth: '94vw', boxShadow: '0 12px 40px rgba(0,0,0,0.6)' }}>
-            <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--ne-border)' }}>
-              <h2 style={{ margin: 0, fontSize: 15, color: 'var(--ne-text)' }}>🔑 Set New Password — {resolvingRequest.email}</h2>
-            </div>
-            <form onSubmit={resolveRequest} style={{ padding: '16px 18px' }}>
-              <input type="password" placeholder="Naya password (min 6 characters)" value={resolvePassword}
-                onChange={e => setResolvePassword(e.target.value)} style={inputStyle} />
-              {resolveError && <p style={{ color: 'var(--ne-danger)', fontSize: 12, marginBottom: 10 }}>{resolveError}</p>}
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button type="submit" disabled={resolveSaving}
-                  style={{ flex: 1, padding: '10px', background: resolveSaving ? 'var(--ne-border)' : 'var(--ne-warning)', color: '#1A1300', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: resolveSaving ? 'default' : 'pointer' }}>
-                  {resolveSaving ? 'Set ho raha hai...' : '✓ Set & Resolve'}
-                </button>
-                <button type="button" onClick={() => setResolvingRequest(null)}
-                  style={{ padding: '10px 16px', background: 'transparent', color: 'var(--ne-muted)', border: '1px solid var(--ne-border)', borderRadius: 9, fontSize: 13, cursor: 'pointer' }}>
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
 
 function App() {
+  const navigate = useNavigate()
+  const location = useLocation()
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
   // TASK 18: default 'light' — localStorage mein pehle se koi choice ho to wahi respect hoti hai
   const [theme, setTheme] = useState(() => (typeof localStorage !== 'undefined' && localStorage.getItem('neezam_theme')) || 'light')
-  const [forceMobile, setForceMobile] = useState(false)
+  // Boot splash ko full ne-monogram-path/ne-monogram-dot animation dikhne ka mauka dene ke
+  // liye min ~1.8s display — sirf pehli baar (app boot) gate hota hai, baad ke SplashScreen
+  // renders (profile/orders load) is timer se dobara wait nahi karte.
+  const [minSplashDone, setMinSplashDone] = useState(false)
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
     localStorage.setItem('neezam_theme', theme)
   }, [theme])
-  const [activeMenu, setActiveMenu] = useState('dashboard')
+
+  useEffect(() => {
+    const timer = setTimeout(() => setMinSplashDone(true), 1800)
+    return () => clearTimeout(timer)
+  }, [])
+
+  // activeMenu ab URL se derive hota hai (React Router) — setActiveMenu shim navigate() ko
+  // call karta hai taake sidebar clicks real per-page URLs banayein (back/forward + direct-URL support)
+  const activeMenu = (location.pathname === '/' || location.pathname.startsWith('/auth/')) ? 'dashboard' : location.pathname.slice(1)
+  const setActiveMenu = (id) => navigate(`/${id}`)
+
+  useEffect(() => {
+    if (location.pathname === '/') navigate('/dashboard', { replace: true })
+  }, [location.pathname])
+
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
   const [ordersData, setOrdersData] = useState([])
@@ -374,11 +311,12 @@ function App() {
   const [syncStatusText, setSyncStatusText] = useState("")
 
   const [profile, setProfile] = useState(null)
+  const [lang, setLang] = useLanguage(profile?.id)
+  const t = useTranslation(lang)
   const [profileLoaded, setProfileLoaded] = useState(false)
   const [userStoresList, setUserStoresList] = useState([])
   const [allStores, setAllStores] = useState([])
   const [pendingProfiles, setPendingProfiles] = useState([])
-  const [passwordResetRequests, setPasswordResetRequests] = useState([])
   const [selectedStoreId, setSelectedStoreId] = useState(null)
   const [isMasterView, setIsMasterView] = useState(false)
   const [isAdminMasterView, setIsAdminMasterView] = useState(false)
@@ -430,7 +368,6 @@ function App() {
     setUserStoresList([])
     setAllStores([])
     setPendingProfiles([])
-    setPasswordResetRequests([])
     setNotifCount(0)
     rawOrdersRef.current = []
     statusMapRef.current = {}
@@ -493,11 +430,6 @@ function App() {
     }
   }, [isAdminMasterView, userStoresList])
 
-  const fetchPasswordResetRequests = async () => {
-    const { data } = await supabase.from('password_reset_requests').select('*').eq('status', 'pending').order('requested_at', { ascending: false })
-    setPasswordResetRequests(data || [])
-  }
-
   const loadProfileAndStores = async () => {
     const userId = session.user.id
     const { data: profileData } = await supabase.from('profiles').select('*').eq('id', userId).single()
@@ -526,7 +458,6 @@ function App() {
       setAllStores(storesWithStats)
       const { data: pending } = await supabase.from('profiles').select('*').eq('approved', false).neq('role', 'creator')
       setPendingProfiles(pending || [])
-      await fetchPasswordResetRequests()
       setIsMasterView(true)
     } else if (profileData?.approved) {
       const { data: us } = await supabase
@@ -542,8 +473,17 @@ function App() {
   }
 
   const handleApprove = async (profileId) => {
+    const approvedProfile = pendingProfiles.find(p => p.id === profileId)
     await supabase.from('profiles').update({ approved: true }).eq('id', profileId)
     setPendingProfiles(prev => prev.filter(p => p.id !== profileId))
+    if (approvedProfile?.email) {
+      const { data: { session: currentSession } } = await supabase.auth.getSession()
+      fetch(`${CF_URL}/send-approved-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${currentSession?.access_token}` },
+        body: JSON.stringify({ email: approvedProfile.email, fullName: approvedProfile.full_name || '' }),
+      }).catch(() => {})
+    }
   }
 
   const handleEnterStore = (store) => {
@@ -778,15 +718,15 @@ function App() {
     }
   }
 
-  if (window.location.pathname === '/auth/callback') {
+  if (location.pathname === '/auth/callback') {
     return <ShopifyCallback />
   }
 
-  if (window.location.pathname === '/auth/meta-callback') {
+  if (location.pathname === '/auth/meta-callback') {
     return <MetaCallback />
   }
 
-  if (loading) return <SplashScreen />
+  if (loading || !minSplashDone) return <SplashScreen />
   if (!session) return <Login />
   if (!profileLoaded) return <SplashScreen />
   if (!profile) return <PendingApprovalScreen onSignOut={() => supabase.auth.signOut()} />
@@ -797,13 +737,11 @@ function App() {
       <MasterDashboard
         allStores={allStores}
         pendingProfiles={pendingProfiles}
-        passwordResetRequests={passwordResetRequests}
         onApprove={handleApprove}
         onEnterStore={handleEnterStore}
         onSignOut={() => supabase.auth.signOut()}
         userEmail={session.user.email}
         cfUrl={CF_URL}
-        creatorId={profile.id}
         onDataChanged={loadProfileAndStores}
       />
     )
@@ -875,31 +813,32 @@ function App() {
   const hasAccess = (moduleId) => !isStaff || staffPermissions.includes(moduleId)
 
   const allMenuItems = [
-    { id: 'dashboard', label: 'Dashboard', group: 'Overview' },
-    { id: 'orders', label: 'Orders', group: 'Overview' },
-    { id: 'courier', label: 'Booked Orders', group: 'Operations' },
-    { id: 'returns', label: 'Returns', group: 'Operations' },
-    { id: 'products', label: 'Products', group: 'Operations' },
-    { id: 'ads', label: 'Ads Analytics', group: 'Insights' },
-    { id: 'pnl', label: 'Profit & Loss', group: 'Insights' },
-    { id: 'ledger', label: 'Supplier Ledger', group: 'Insights' },
-    { id: 'cities', label: 'City Performance', group: 'Insights' },
-    { id: 'budget', label: 'Budget Calculator', group: 'Insights' },
-    { id: 'suggestions', label: 'Suggestions', group: 'Insights' },
-    { id: 'whatsapp', label: 'WhatsApp', group: 'Channels' },
-    { id: 'store-connect', label: 'Store Connect', group: 'Channels' },
-    { id: 'meta-connect', label: 'Meta Connect', group: 'Channels' },
-    { id: 'courier-connect', label: 'Courier Connect', group: 'Channels' },
-    { id: 'payments', label: 'Payments', group: 'Channels' },
+    { id: 'dashboard', label: t('nav.dashboard'), group: t('nav.group.overview') },
+    { id: 'orders', label: t('nav.orders'), group: t('nav.group.overview') },
+    { id: 'courier', label: t('nav.courier'), group: t('nav.group.operations') },
+    { id: 'returns', label: t('nav.returns'), group: t('nav.group.operations') },
+    { id: 'products', label: t('nav.products'), group: t('nav.group.operations') },
+    { id: 'ads', label: t('nav.ads'), group: t('nav.group.insights') },
+    { id: 'pnl', label: t('nav.pnl'), group: t('nav.group.insights') },
+    { id: 'ledger', label: t('nav.ledger'), group: t('nav.group.insights') },
+    { id: 'cities', label: t('nav.cities'), group: t('nav.group.insights') },
+    { id: 'budget', label: t('nav.budget'), group: t('nav.group.insights') },
+    { id: 'suggestions', label: t('nav.suggestions'), group: t('nav.group.insights') },
+    { id: 'courier-dashboard', label: t('nav.courier-dashboard'), group: t('nav.group.insights') },
+    { id: 'whatsapp', label: t('nav.whatsapp'), group: t('nav.group.channels') },
+    { id: 'store-connect', label: t('nav.store-connect'), group: t('nav.group.channels') },
+    { id: 'meta-connect', label: t('nav.meta-connect'), group: t('nav.group.channels') },
+    { id: 'courier-connect', label: t('nav.courier-connect'), group: t('nav.group.channels') },
+    { id: 'payments', label: t('nav.payments'), group: t('nav.group.channels') },
   ]
 
   const isPrivileged = profile.role === 'admin' || profile.role === 'creator'
   const menuItemsWithExtras = isPrivileged
     ? [...allMenuItems,
-        { id: 'team', label: 'Team', group: 'Channels' },
-        { id: 'activity-log', label: 'Activity Log', group: 'Channels' },
-        { id: 'settings', label: 'Settings', group: 'Channels' }]
-    : [...allMenuItems, { id: 'settings', label: 'Settings', group: 'Channels' }]
+        { id: 'team', label: t('nav.team'), group: t('nav.group.channels') },
+        { id: 'activity-log', label: t('nav.activity-log'), group: t('nav.group.channels') },
+        { id: 'settings', label: t('nav.settings'), group: t('nav.group.channels') }]
+    : [...allMenuItems, { id: 'settings', label: t('nav.settings'), group: t('nav.group.channels') }]
 
   const alwaysVisibleIds = ['team', 'activity-log', 'settings']
   const menuItems = menuItemsWithExtras.filter(m => hasAccess(m.id) || alwaysVisibleIds.includes(m.id))
@@ -907,7 +846,7 @@ function App() {
   const currentStoreInfo = userStoresList.find(us => us.store_id === selectedStoreId)?.stores
 
   // Group nav items in original order, preserving group sequence
-  const groupOrder = ['Overview', 'Operations', 'Insights', 'Channels']
+  const groupOrder = [t('nav.group.overview'), t('nav.group.operations'), t('nav.group.insights'), t('nav.group.channels')]
   const groupedMenu = groupOrder.map(g => ({ group: g, items: menuItems.filter(m => m.group === g) })).filter(g => g.items.length > 0)
 
   const closeDrawer = () => setMobileDrawerOpen(false)
@@ -987,11 +926,28 @@ function App() {
           ))}
 
           <div style={{ marginTop: 'auto', paddingTop: 16 }}>
+            {(sidebarOpen || mobileDrawerOpen) ? (
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                <button onClick={() => setTheme(th => th === 'dark' ? 'light' : 'dark')} title={t('theme.toggle')}
+                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', height: 34, borderRadius: 9, border: '1px solid #232A52', background: 'rgba(255,255,255,.04)', color: '#EEF0FF', cursor: 'pointer' }}>
+                  {theme === 'dark' ? <SunIcon style={{ width: 15, height: 15 }} /> : <MoonIcon style={{ width: 15, height: 15 }} />}
+                </button>
+                <button onClick={() => setLang(lang === 'ur' ? 'en' : 'ur')} title={t('lang.switch')}
+                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, height: 34, borderRadius: 9, border: '1px solid #232A52', background: 'rgba(255,255,255,.04)', color: '#EEF0FF', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>
+                  <GlobeIcon style={{ width: 15, height: 15 }} /> {lang.toUpperCase()}
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => setTheme(th => th === 'dark' ? 'light' : 'dark')} title={t('theme.toggle')}
+                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', height: 34, borderRadius: 9, border: '1px solid #232A52', background: 'rgba(255,255,255,.04)', color: '#EEF0FF', cursor: 'pointer', marginBottom: 8 }}>
+                {theme === 'dark' ? <SunIcon style={{ width: 15, height: 15 }} /> : <MoonIcon style={{ width: 15, height: 15 }} />}
+              </button>
+            )}
             <div onClick={() => supabase.auth.signOut()} className="ne-navitem" style={{ color: '#F26D6D' }}>
               <span className="ne-ic" style={{ background: 'rgba(242,109,109,.1)' }}>
                 <svg viewBox="0 0 20 20" stroke="#F26D6D"><path d="M7 17H4.5a1.5 1.5 0 0 1-1.5-1.5v-11A1.5 1.5 0 0 1 4.5 3H7"/><path d="M13 14l4-4-4-4"/><path d="M17 10H7"/></svg>
               </span>
-              {(sidebarOpen || mobileDrawerOpen) && <span>Logout</span>}
+              {(sidebarOpen || mobileDrawerOpen) && <span>{t('action.logout')}</span>}
             </div>
           </div>
         </div>
@@ -1005,14 +961,6 @@ function App() {
                 {syncStatusText && <span className="ne-sync-status">{syncStatusText}</span>}
               </h1>
               <div className="ne-userchip">
-                {profile.role === 'creator' && (
-                  <button className={`ne-mobile-preview-btn${forceMobile ? ' active' : ''}`} onClick={() => setForceMobile(!forceMobile)} title="Mobile view preview">
-                    📱 {forceMobile ? 'Mobile ON' : 'Mobile Preview'}
-                  </button>
-                )}
-                <button className="ne-theme-toggle" onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} title="Theme switch karo">
-                  {theme === 'dark' ? '☀️' : '🌙'}
-                </button>
                 <div className="ne-avatar">{session.user.email[0].toUpperCase()}</div>
                 <span>{session.user.email}</span>
               </div>
@@ -1078,7 +1026,10 @@ function App() {
             {activeMenu === 'budget' && hasAccess('budget') && (
               <BudgetCalculator ordersData={ordersData} />
             )}
-            {!['dashboard', 'store-connect', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'payments'].includes(activeMenu) && (
+            {activeMenu === 'courier-dashboard' && hasAccess('courier-dashboard') && (
+              <CourierDashboard storeId={selectedStoreId} />
+            )}
+            {!['dashboard', 'store-connect', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'payments'].includes(activeMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{menuItems.find(m => m.id === activeMenu)?.label}</h2>
