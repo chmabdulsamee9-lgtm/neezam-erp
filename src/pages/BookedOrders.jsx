@@ -108,7 +108,6 @@ export default function BookedOrders({ storeId, ordersStore }) {
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState("All");
   const [courierFilter, setCourierFilter] = useState("All");
-  const [expandedIds, setExpandedIds] = useState(new Set());
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(20);
   const [currentProfile, setCurrentProfile] = useState(null);
@@ -173,14 +172,6 @@ export default function BookedOrders({ storeId, ordersStore }) {
       setError(err.message);
     }
     setLoading(false);
-  };
-
-  const toggleExpand = (id) => {
-    setExpandedIds((prev) => {
-      const n = new Set(prev);
-      n.has(id) ? n.delete(id) : n.add(id);
-      return n;
-    });
   };
 
   const toggleRemarks = (id) => {
@@ -249,7 +240,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
   const totalPages = Math.ceil(filtered.length / perPage) || 1;
   const pagedFiltered = filtered.slice((page - 1) * perPage, page * perPage);
 
-  const cardStyle = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "12px 14px", marginBottom: 8 };
+  const cardStyle = { background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "18px 20px", marginBottom: 16 };
 
   if (error) return <div style={{ padding: "2rem", color: "var(--ne-danger)" }}>❌ {error}</div>;
 
@@ -310,7 +301,6 @@ export default function BookedOrders({ storeId, ordersStore }) {
             const fullName = `${o.customer?.first_name || ""} ${o.customer?.last_name || ""}`.trim();
             const phone = o.customer?.phone || o.shipping_address?.phone || "";
             const city = o.shipping_address?.city || "";
-            const isExpanded = expandedIds.has(o.id);
             const isRemarksOpen = expandedRemarksIds.has(o.id);
             const remarksLog = ad.remarks_log || [];
             const agingDay = computeAgingDay(ad);
@@ -360,81 +350,72 @@ export default function BookedOrders({ storeId, ordersStore }) {
                   </div>
                 </div>
 
-                <button onClick={() => toggleExpand(o.id)}
-                  style={{ width: "100%", marginTop: 8, padding: "6px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface)", color: "var(--ne-muted)", fontSize: 10.5, cursor: "pointer", fontWeight: 600 }}>
-                  {isExpanded ? "▲ Kam dikhao" : "▼ Tafseel dikhao"}
-                </button>
+                {/* Details Grid — hamesha visible, koi toggle/wrapper nahi */}
+                <div style={{
+                  display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(4, 1fr)", gap: 14,
+                  padding: "14px 0", borderTop: "1px solid var(--ne-border)", borderBottom: "1px solid var(--ne-border)", marginTop: 12, marginBottom: 14,
+                }}>
+                  <div>
+                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 4 }}>Tracking No</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ne-text)", fontFamily: "monospace" }}>{ad.dex_tracking_number || "—"}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 4 }}>Status</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: meta.color }}>{ad.courier_order_status || bucket}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 4 }}>Amount (COD)</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ne-text)" }}>{o.total_price ? `Rs. ${Number(o.total_price).toLocaleString()}` : "—"}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 4 }}>Delivery Attempts</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: ad.delivery_attempt_count > 0 ? "var(--ne-warning)" : "var(--ne-text)" }}>{ad.delivery_attempt_count || 0}</div>
+                  </div>
+                </div>
 
-                {isExpanded && (
-                  <div style={{ marginTop: 8, fontSize: 11 }}>
-                    {/* Detail Grid */}
-                    <div style={{
-                      display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(4, 1fr)", gap: 14,
-                      padding: "14px 0", borderTop: "1px solid var(--ne-border)", borderBottom: "1px solid var(--ne-border)", marginBottom: 14,
-                    }}>
-                      <div>
-                        <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 4 }}>Tracking No</div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ne-text)", fontFamily: "monospace" }}>{ad.dex_tracking_number || "—"}</div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 4 }}>Status</div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: meta.color }}>{ad.courier_order_status || bucket}</div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 4 }}>Amount (COD)</div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ne-text)" }}>{o.total_price ? `Rs. ${Number(o.total_price).toLocaleString()}` : "—"}</div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 4 }}>Delivery Attempts</div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: ad.delivery_attempt_count > 0 ? "var(--ne-warning)" : "var(--ne-text)" }}>{ad.delivery_attempt_count || 0}</div>
-                      </div>
-                    </div>
+                {/* Timeline — hamesha visible, koi toggle/wrapper nahi */}
+                <div style={{ marginBottom: 16 }}>
+                  <Timeline ad={ad} />
+                </div>
 
-                    {/* Timeline */}
-                    <div style={{ marginBottom: 16 }}>
-                      <Timeline ad={ad} />
-                    </div>
-
-                    {ad.latest_fail_reason && (
-                      <div style={{ marginBottom: 14, padding: "5px 9px", borderRadius: 8, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, width: "fit-content" }}>
-                        ⚠️ {ad.latest_fail_reason}
-                      </div>
-                    )}
-
-                    {/* Remarks — timeline ke seedha neeche, bordered-box toggle + count-badge */}
-                    <div>
-                      <button onClick={() => toggleRemarks(o.id)}
-                        style={{ background: "none", border: "1px solid var(--ne-border)", color: "var(--ne-muted)", fontSize: 11.5, fontWeight: 600, padding: "6px 14px", borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-                        💬 {isRemarksOpen ? "Hide Remarks" : "Show / Add Remarks"}
-                        <span style={{ fontSize: 10, background: "var(--ne-accent)", color: "#fff", padding: "1px 7px", borderRadius: 10 }}>{remarksLog.length}</span>
-                      </button>
-
-                      {isRemarksOpen && (
-                        <div style={{ marginTop: 12, paddingTop: 2 }}>
-                          {remarksLog.map((r, i) => (
-                            <div key={i} style={{ padding: "6px 0", fontSize: 12, borderBottom: i === remarksLog.length - 1 ? "none" : "1px solid var(--ne-border)" }}>
-                              <div style={{ color: "var(--ne-text)" }}>{r.text}</div>
-                              <div style={{ fontSize: 10, color: "var(--ne-muted-2)", marginTop: 3 }}>
-                                {r.author} · {new Date(r.created_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true })}
-                              </div>
-                            </div>
-                          ))}
-                          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                            <input type="text" placeholder="Naya remark likhein..."
-                              value={remarkDrafts[o.id] || ""}
-                              onChange={(e) => setRemarkDrafts((prev) => ({ ...prev, [o.id]: e.target.value }))}
-                              onKeyDown={(e) => { if (e.key === "Enter") submitRemark(o); }}
-                              style={{ flex: 1, background: "transparent", border: "none", borderBottom: "1px solid var(--ne-border)", padding: "6px 2px", color: "var(--ne-text)", fontSize: 12, outline: "none" }} />
-                            <button onClick={() => submitRemark(o)} disabled={remarkSubmitting === o.id || !(remarkDrafts[o.id] || "").trim()}
-                              style={{ background: "transparent", border: "1px solid var(--ne-accent)", color: "var(--ne-accent)", padding: "6px 14px", borderRadius: 6, fontSize: 11.5, fontWeight: 700, cursor: remarkSubmitting === o.id ? "default" : "pointer", whiteSpace: "nowrap" }}>
-                              {remarkSubmitting === o.id ? "..." : "Add"}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                {ad.latest_fail_reason && (
+                  <div style={{ marginBottom: 14, padding: "5px 9px", borderRadius: 8, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, width: "fit-content" }}>
+                    ⚠️ {ad.latest_fail_reason}
                   </div>
                 )}
+
+                {/* Remarks box — YEH pura block hamesha visible hai, sirf iske andar ki
+                    .remarks-list collapse/expand hoti hai jab header-button click ho */}
+                <div style={{ background: "var(--ne-surface-2)", borderRadius: 10, padding: "14px 16px" }}>
+                  <button onClick={() => toggleRemarks(o.id)}
+                    style={{ background: "none", border: "none", color: "var(--ne-text)", fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, padding: 0 }}>
+                    💬 Remarks <span style={{ fontSize: 10.5, background: "var(--ne-accent)", color: "#fff", padding: "1px 8px", borderRadius: 10 }}>{remarksLog.length}</span>
+                  </button>
+
+                  {isRemarksOpen && (
+                    <div style={{ marginTop: 12 }}>
+                      {remarksLog.map((r, i) => (
+                        <div key={i} style={{ background: "var(--ne-surface)", borderRadius: 8, padding: "10px 12px", marginBottom: 8, fontSize: 12 }}>
+                          <div style={{ color: "var(--ne-text)" }}>{r.text}</div>
+                          <div style={{ fontSize: 10, color: "var(--ne-muted-2)", marginTop: 4 }}>
+                            {r.author} · {new Date(r.created_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true })}
+                          </div>
+                        </div>
+                      ))}
+                      <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                        <input type="text" placeholder="Naya remark likhein..."
+                          value={remarkDrafts[o.id] || ""}
+                          onChange={(e) => setRemarkDrafts((prev) => ({ ...prev, [o.id]: e.target.value }))}
+                          onKeyDown={(e) => { if (e.key === "Enter") submitRemark(o); }}
+                          style={{ flex: 1, background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 8, padding: "9px 12px", color: "var(--ne-text)", fontSize: 12, outline: "none" }} />
+                        <button onClick={() => submitRemark(o)} disabled={remarkSubmitting === o.id || !(remarkDrafts[o.id] || "").trim()}
+                          style={{ background: "var(--ne-grad)", border: "none", color: "#fff", padding: "9px 18px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: remarkSubmitting === o.id ? "default" : "pointer", whiteSpace: "nowrap" }}>
+                          {remarkSubmitting === o.id ? "..." : "Add"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}
