@@ -1,5 +1,38 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
+
+const DEX_IMPORT_BATCH = 1000;
+
+// Temporary bridge: jab tak Dex live API bind nahi hoti, Excel-uploaded
+// (dex_shipments_import) data hi "booked" orders ka stand-in hai. Live data
+// (order_statuses.dex_*) hamesha priority leta hai — jaise hi live API se
+// koi order bind hoga, excel wala fallback khud-ba-khud overridden ho jayega.
+async function fetchAllDexShipments(storeId) {
+  let allRows = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from("dex_shipments_import")
+      .select("*")
+      .eq("store_id", storeId)
+      .range(from, from + DEX_IMPORT_BATCH - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    allRows = allRows.concat(data);
+    if (data.length < DEX_IMPORT_BATCH) break;
+    from += DEX_IMPORT_BATCH;
+  }
+  return allRows;
+}
+
+// Dex externalOrderId format: "PREFIX[-VARIANT]_shopifyId_suffix" -> Shopify order
+// name ("#DWK2366") sirf prefix hota hai (variant/suffix hataa kar)
+const extractOrderRef = (externalOrderId) => {
+  if (!externalOrderId) return null;
+  const beforeUnderscore = String(externalOrderId).split("_")[0];
+  const prefix = beforeUnderscore.split("-")[0];
+  return prefix ? `#${prefix}` : null;
+};
 
 // Real status mapping (Worker se verified) — label + Aurora Ledger color mapping
 const DEX_STATUSES = [
@@ -20,6 +53,7 @@ export default function BookedOrders({ ordersData, setOrdersData, storeId, order
   const [statusFilter, setStatusFilter] = useState("All");
   const [trackingModal, setTrackingModal] = useState(null); // { order, timeline, status }
   const [cancelConfirmOrder, setCancelConfirmOrder] = useState(null);
+  const [excelShipments, setExcelShipments] = useState([]);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
@@ -27,14 +61,41 @@ export default function BookedOrders({ ordersData, setOrdersData, storeId, order
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  useEffect(() => {
+    if (!storeId) return;
+    fetchAllDexShipments(storeId).then(setExcelShipments).catch(() => setExcelShipments([]));
+  }, [storeId]);
+
   const isDexConnected = !!ordersStore?.dex_seller_id;
 
-  const bookedOrders = (ordersData || []).filter(o => o.agent_data?.dex_package_code);
-  const eligibleOrders = (ordersData || []).filter(o => o.agent_status === "Approved" && !o.agent_data?.dex_package_code);
+  const excelByOrderRef = useMemo(() => {
+    const map = {};
+    excelShipments.forEach((s) => {
+      const ref = extractOrderRef(s.external_order_id);
+      if (ref) map[ref] = s;
+    });
+    return map;
+  }, [excelShipments]);
+
+  // Live Dex API data (order_statuses.dex_*) hamesha priority leta hai; Excel-uploaded
+  // data sirf tab tak stand-in hai jab tak live shipment na bane
+  const getBookedInfo = (o) => {
+    if (o.agent_data?.dex_package_code) {
+      return { trackingNumber: o.agent_data.dex_tracking_number, status: o.agent_data.dex_status || "Processing", source: "live" };
+    }
+    const excel = excelByOrderRef[o.name];
+    if (excel) {
+      return { trackingNumber: excel.tracking_no, status: excel.logistics_current_status || "Processing", source: "excel" };
+    }
+    return null;
+  };
+
+  const bookedOrders = (ordersData || []).filter(o => getBookedInfo(o) !== null);
+  const eligibleOrders = (ordersData || []).filter(o => o.agent_status === "Approved" && getBookedInfo(o) === null);
 
   const tabCounts = { All: bookedOrders.length };
-  DEX_STATUSES.forEach(s => { tabCounts[s.label] = bookedOrders.filter(o => (o.agent_data?.dex_status || "Processing") === s.label).length; });
-  const filteredBooked = statusFilter === "All" ? bookedOrders : bookedOrders.filter(o => (o.agent_data?.dex_status || "Processing") === statusFilter);
+  DEX_STATUSES.forEach(s => { tabCounts[s.label] = bookedOrders.filter(o => getBookedInfo(o)?.status === s.label).length; });
+  const filteredBooked = statusFilter === "All" ? bookedOrders : bookedOrders.filter(o => getBookedInfo(o)?.status === statusFilter);
 
   const buildShipmentPayload = (order) => {
     const agentData = order.agent_data || {};
@@ -103,7 +164,8 @@ export default function BookedOrders({ ordersData, setOrdersData, storeId, order
     setBusyOrderId(order.id);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const qs = new URLSearchParams({ store_id: storeId, tracking_number: order.agent_data.dex_tracking_number, order_id: String(order.id) }).toString();
+      const trackingNumber = order.agent_data?.dex_tracking_number || getBookedInfo(order)?.trackingNumber;
+      const qs = new URLSearchParams({ store_id: storeId, tracking_number: trackingNumber, order_id: String(order.id) }).toString();
       const res = await fetch(`${cfUrl}/dex-track-shipment?${qs}`, {
         headers: { Authorization: `Bearer ${session?.access_token}` },
       });
@@ -150,13 +212,15 @@ export default function BookedOrders({ ordersData, setOrdersData, storeId, order
   const cardStyle = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, padding: "12px 14px", boxShadow: "0 2px 8px rgba(0,0,0,.18)" };
   const btnStyle = (bg, color) => ({ padding: "6px 12px", borderRadius: 8, border: "none", background: bg, color, fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" });
 
-  if (!isDexConnected) {
+  // Live connection na ho tab bhi Excel-uploaded data agar mila ho to page dikhega
+  // (temporary bridge) — sirf tab block karo jab dono me se koi bhi source na ho
+  if (!isDexConnected && excelShipments.length === 0) {
     return (
       <div style={{ padding: isMobile ? "1rem" : "1.5rem", color: "var(--ne-text)" }}>
         <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>🚚 Booked Orders</h1>
         <div style={{ marginTop: "1.5rem", background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "2rem", textAlign: "center", color: "var(--ne-muted)" }}>
           <div style={{ fontSize: 32, marginBottom: 8 }}>📦</div>
-          Daraz Express (Dex) abhi connected nahi hai. Pehle <strong>Courier Connect</strong> page se connect karo.
+          Daraz Express (Dex) abhi connected nahi hai. Pehle <strong>Courier Connect</strong> page se connect karo (ya Excel data upload karo).
         </div>
       </div>
     );
@@ -197,7 +261,8 @@ export default function BookedOrders({ ordersData, setOrdersData, storeId, order
       ) : (
         <div style={{ display: "grid", gap: 8, marginBottom: "1.5rem" }}>
           {filteredBooked.map(o => {
-            const status = o.agent_data?.dex_status || "Processing";
+            const info = getBookedInfo(o);
+            const status = info?.status || "Processing";
             const meta = statusMeta(status);
             const receiverName = o.agent_data?.customer_name || `${o.customer?.first_name || ""} ${o.customer?.last_name || ""}`.trim();
             const phone = o.agent_data?.phone || o.customer?.phone || o.shipping_address?.phone || "";
@@ -207,9 +272,15 @@ export default function BookedOrders({ ordersData, setOrdersData, storeId, order
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <span style={{ fontWeight: 700, fontSize: 13, color: "var(--ne-text)" }}>{o.name}</span>
                     <span style={{ padding: "2px 9px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: meta.bg, color: meta.color }}>{status}</span>
+                    {info?.source === "excel" && (
+                      <span title="Excel upload se aaya hai — live API bind hone tak temporary data"
+                        style={{ padding: "2px 9px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: "var(--ne-accent-soft)", color: "var(--ne-accent)" }}>
+                        📊 Excel
+                      </span>
+                    )}
                   </div>
                   <div style={{ fontSize: 11, color: "var(--ne-muted)", marginTop: 3 }}>
-                    Tracking: {o.agent_data.dex_tracking_number || "—"} · {receiverName || "—"} · {phone || "—"}
+                    Tracking: {info?.trackingNumber || "—"} · {receiverName || "—"} · {phone || "—"}
                   </div>
                   <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)", marginTop: 2 }}>Delivery Option: Standard</div>
                 </div>
