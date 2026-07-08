@@ -24,37 +24,41 @@ function bucketCourierStatus(raw) {
   return "In Transit";
 }
 
-async function fetchAllCachedOrders(storeId) {
-  let allRows = [];
-  let from = 0;
-  while (true) {
-    const { data, error } = await supabase
-      .from("shopify_orders_cache")
-      .select("raw_data")
-      .eq("store_id", storeId)
-      .range(from, from + PAGE_SIZE - 1);
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-    allRows = allRows.concat(data.map((r) => r.raw_data));
-    if (data.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-  return allRows;
-}
-
-async function fetchAllOrderStatuses() {
+// Query-direction: order_statuses se shuru (store_id + dex_tracking_number IS NOT NULL),
+// shopify_orders_cache sirf matched (order_id wali) rows ke city-fallback ke liye targeted
+// lookup hota hai — BookedOrders.jsx ke pattern se consistent.
+async function fetchBookedStatuses(storeId) {
   let allRows = [];
   let from = 0;
   while (true) {
     const { data, error } = await supabase
       .from("order_statuses")
       .select("*")
+      .eq("store_id", storeId)
+      .not("dex_tracking_number", "is", null)
       .range(from, from + PAGE_SIZE - 1);
     if (error) throw error;
     if (!data || data.length === 0) break;
     allRows = allRows.concat(data);
     if (data.length < PAGE_SIZE) break;
     from += PAGE_SIZE;
+  }
+  return allRows;
+}
+
+async function fetchCachedOrdersByIds(storeId, ids) {
+  if (ids.length === 0) return [];
+  let allRows = [];
+  const CHUNK = 200;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK);
+    const { data, error } = await supabase
+      .from("shopify_orders_cache")
+      .select("id, raw_data")
+      .eq("store_id", storeId)
+      .in("id", chunk);
+    if (error) throw error;
+    allRows = allRows.concat(data || []);
   }
   return allRows;
 }
@@ -195,13 +199,16 @@ export default function CourierDashboard({ storeId }) {
     if (!storeId) return;
     setLoading(true);
     setErrorMsg("");
-    Promise.all([fetchAllCachedOrders(storeId), fetchAllOrderStatuses()])
-      .then(([cached, statuses]) => {
-        const statusMap = {};
-        statuses.forEach((s) => { statusMap[s.order_id] = s; });
-        const merged = cached
-          .map((o) => ({ ...o, agent_data: statusMap[String(o.id)] || {} }))
-          .filter((o) => o.agent_data.dex_tracking_number);
+    fetchBookedStatuses(storeId)
+      .then(async (statuses) => {
+        const orderIds = statuses.filter((s) => s.order_id).map((s) => s.order_id);
+        const cachedRows = await fetchCachedOrdersByIds(storeId, orderIds);
+        const cacheMap = {};
+        cachedRows.forEach((r) => { cacheMap[String(r.id)] = r.raw_data; });
+        const merged = statuses.map((s) => ({
+          shipping_address: s.order_id ? cacheMap[String(s.order_id)]?.shipping_address || null : null,
+          agent_data: s,
+        }));
         setOrders(merged);
       })
       .catch((err) => setErrorMsg(err.message))

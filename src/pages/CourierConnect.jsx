@@ -197,7 +197,7 @@ export default function CourierConnect({ storeId }) {
         setUploading(false);
         return;
       }
-      setUploadResult({ updated: data.updated, unmatched: data.unmatched, unmatchedList: data.unmatchedList || [] });
+      setUploadResult({ updated: data.updated, inserted: data.inserted });
     } catch (err) {
       setUploadError(err.message);
     }
@@ -294,23 +294,12 @@ export default function CourierConnect({ storeId }) {
           {uploadResult && (
             <div style={{ marginTop: 10 }}>
               <p style={{ color: "var(--ne-success)", fontSize: 12, margin: 0 }}>
-                ✅ {uploadResult.updated} orders update ho gaye.
+                ✅ {uploadResult.updated} orders update ho gaye (Shopify se match hue).
               </p>
-              {uploadResult.unmatched > 0 && (
-                <>
-                  <p style={{ color: "var(--ne-warning)", fontSize: 12, margin: "4px 0 0" }}>
-                    ⚠️ {uploadResult.unmatched} rows match nahi hui (order Shopify mein nahi mila — shayad abhi sync nahi hua).
-                  </p>
-                  {uploadResult.unmatchedList.length > 0 && (
-                    <div style={{ marginTop: 6, maxHeight: 140, overflowY: "auto", background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 8, padding: "8px 10px" }}>
-                      {uploadResult.unmatchedList.map((u, i) => (
-                        <div key={i} style={{ fontSize: 11, color: "var(--ne-muted)" }}>
-                          {u.order_number_match} · Tracking: {u.tracking_number || "—"}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
+              {uploadResult.inserted > 0 && (
+                <p style={{ color: "var(--ne-accent)", fontSize: 12, margin: "4px 0 0" }}>
+                  📊 {uploadResult.inserted} orders "Unmatched/Manual" ke taur par add hue (Shopify mein nahi milay — Booked Orders mein alag badge ke sath dikhenge).
+                </p>
               )}
             </div>
           )}

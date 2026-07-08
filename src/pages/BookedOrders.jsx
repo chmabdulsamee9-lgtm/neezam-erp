@@ -34,38 +34,41 @@ function bucketCourierStatus(raw) {
   return "In Transit";
 }
 
-async function fetchAllCachedOrders(storeId) {
-  let allRows = [];
-  let from = 0;
-  while (true) {
-    const { data, error } = await supabase
-      .from("shopify_orders_cache")
-      .select("raw_data")
-      .eq("store_id", storeId)
-      .order("created_at", { ascending: false })
-      .range(from, from + PAGE_SIZE - 1);
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-    allRows = allRows.concat(data.map((r) => r.raw_data));
-    if (data.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-  return allRows;
-}
-
-async function fetchAllOrderStatuses() {
+// Query-direction: order_statuses se shuru (store_id + dex_tracking_number IS NOT NULL),
+// shopify_orders_cache sirf matched (order_id wali) rows ke customer/address details ke liye
+// targeted lookup hota hai — manual/unmatched rows ke liye koi Shopify row hai hi nahi.
+async function fetchBookedStatuses(storeId) {
   let allRows = [];
   let from = 0;
   while (true) {
     const { data, error } = await supabase
       .from("order_statuses")
       .select("*")
+      .eq("store_id", storeId)
+      .not("dex_tracking_number", "is", null)
       .range(from, from + PAGE_SIZE - 1);
     if (error) throw error;
     if (!data || data.length === 0) break;
     allRows = allRows.concat(data);
     if (data.length < PAGE_SIZE) break;
     from += PAGE_SIZE;
+  }
+  return allRows;
+}
+
+async function fetchCachedOrdersByIds(storeId, ids) {
+  if (ids.length === 0) return [];
+  let allRows = [];
+  const CHUNK = 200;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK);
+    const { data, error } = await supabase
+      .from("shopify_orders_cache")
+      .select("id, raw_data")
+      .eq("store_id", storeId)
+      .in("id", chunk);
+    if (error) throw error;
+    allRows = allRows.concat(data || []);
   }
   return allRows;
 }
@@ -96,12 +99,23 @@ export default function BookedOrders({ storeId, ordersStore }) {
     setLoading(true);
     setError("");
     try {
-      const [cached, statuses] = await Promise.all([fetchAllCachedOrders(storeId), fetchAllOrderStatuses()]);
-      const statusMap = {};
-      statuses.forEach((s) => { statusMap[s.order_id] = s; });
-      const merged = cached
-        .map((o) => ({ ...o, agent_data: statusMap[String(o.id)] || {} }))
-        .filter((o) => o.agent_data.dex_tracking_number); // sirf booked/shipped orders (tracking_no IS NOT NULL)
+      const statuses = await fetchBookedStatuses(storeId);
+      const orderIds = statuses.filter((s) => s.order_id).map((s) => s.order_id);
+      const cachedRows = await fetchCachedOrdersByIds(storeId, orderIds);
+      const cacheMap = {};
+      cachedRows.forEach((r) => { cacheMap[String(r.id)] = r.raw_data; });
+
+      const merged = statuses.map((s) => {
+        const raw = s.order_id ? cacheMap[String(s.order_id)] : null;
+        return {
+          id: s.order_id || `manual-${s.manual_order_number}`,
+          name: raw?.name || s.manual_order_number || "—",
+          customer: raw?.customer || null,
+          shipping_address: raw?.shipping_address || null,
+          agent_data: s,
+          isManual: !s.order_id,
+        };
+      });
       setOrders(merged);
     } catch (err) {
       setError(err.message);
@@ -199,7 +213,16 @@ export default function BookedOrders({ storeId, ordersStore }) {
             return (
               <div key={o.id} style={cardStyle}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 13 }}>{o.name}</a>
+                  {o.isManual ? (
+                    <span style={{ color: "var(--ne-text)", fontWeight: 700, fontSize: 13 }}>{o.name}</span>
+                  ) : (
+                    <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 13 }}>{o.name}</a>
+                  )}
+                  {o.isManual && (
+                    <span title="Shopify mein match nahi mila — sirf Excel se courier data" style={{ padding: "2px 9px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: "var(--ne-warning-soft)", color: "var(--ne-warning)" }}>
+                      ⚠️ Unmatched/Manual
+                    </span>
+                  )}
                   {ad.courier_name && (
                     <span style={{ padding: "2px 9px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: `${courierColor(ad.courier_name)}22`, color: courierColor(ad.courier_name) }}>
                       {ad.courier_name}
