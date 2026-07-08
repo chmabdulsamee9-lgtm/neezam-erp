@@ -82,6 +82,8 @@ function coerceDexCell(value, col) {
   return String(value).trim();
 }
 
+const ALL_DEX_DB_KEYS = Object.values(DEX_HEADER_MAP);
+
 async function parseDexExcelFile(file) {
   const buffer = await file.arrayBuffer();
   const workbook = new ExcelJS.Workbook();
@@ -99,7 +101,11 @@ async function parseDexExcelFile(file) {
   const rows = [];
   sheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return;
+    // Har row ke object mein SAARI 43 keys explicitly (null default) rakhni zaroori hain —
+    // PostgREST bulk upsert (PGRST102) har row mein exact same key-set maangta hai, warna
+    // blank-cell wali rows doosri rows se kam keys ki wajah se poori request reject kar deti hain.
     const obj = {};
+    ALL_DEX_DB_KEYS.forEach((key) => { obj[key] = null; });
     row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
       const dbKey = colIndexToDbKey[colNumber];
       if (!dbKey) return;
