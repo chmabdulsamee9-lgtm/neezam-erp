@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import ExcelJS from "exceljs";
 import { supabase } from "../supabase";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
@@ -61,6 +60,9 @@ function extractOrderRef(externalOrderId) {
 }
 
 async function parseDexExcelFile(file) {
+  // Dynamic import — exceljs (~1MB) sirf yahan, upload ke actual waqt load hoti hai, poori
+  // app ke initial bundle mein hamesha shamil nahi rehti (pehle static import thi)
+  const { default: ExcelJS } = await import("exceljs");
   const buffer = await file.arrayBuffer();
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer);

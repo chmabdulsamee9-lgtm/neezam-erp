@@ -32,6 +32,14 @@ const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev"
 const BATCH_SIZE = 1000
 const isValidPhone = (p) => /^\d{11}$/.test(String(p || "").trim())
 
+// selectedStoreId reload pe yaad rakhne ke liye — pehle yeh sirf React state thi, isliye
+// reload par khud-ba-khud null ho jati thi aur creator/multi-store admin hamesha Master
+// Dashboard pe wapas phenk diye jate the chahe woh kisi specific store ke andar page pe hon
+const STORE_STORAGE_KEY = 'ne_selected_store_id'
+const persistStoreId = (id) => { try { localStorage.setItem(STORE_STORAGE_KEY, id) } catch {} }
+const getPersistedStoreId = () => { try { return localStorage.getItem(STORE_STORAGE_KEY) } catch { return null } }
+const clearPersistedStoreId = () => { try { localStorage.removeItem(STORE_STORAGE_KEY) } catch {} }
+
 const NAV_ICONS = {
   dashboard: <svg viewBox="0 0 20 20"><rect x="2.5" y="2.5" width="6.5" height="6.5" rx="1.5"/><rect x="11" y="2.5" width="6.5" height="6.5" rx="1.5"/><rect x="2.5" y="11" width="6.5" height="6.5" rx="1.5"/><rect x="11" y="11" width="6.5" height="6.5" rx="1.5"/></svg>,
   orders: <svg viewBox="0 0 20 20"><path d="M10 2.5 17 6.5v7L10 17.5 3 13.5v-7Z"/><path d="M3 6.5 10 10.5 17 6.5"/><path d="M10 10.5v7"/></svg>,
@@ -59,7 +67,7 @@ function SplashScreen() {
   return (
     <div className="ne-app-shell" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18, background: '#0A0E26' }}>
       <Monogram size={90} animated />
-      <Wordmark size={26} animated dark />
+      <Wordmark size={44} animated dark />
     </div>
   )
 }
@@ -155,7 +163,11 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
     <div className="ne-app-shell" style={{ height: '100%', overflow: 'auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: '1px solid var(--ne-border)' }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>نظام — Master Dashboard</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Monogram size={24} />
+            <Wordmark size={18} />
+            <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--ne-text)' }}>— Master Dashboard</span>
+          </div>
           <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--ne-muted)' }}>Creator view — saare brands</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -300,9 +312,11 @@ function App() {
   const activeMenu = (location.pathname === '/' || location.pathname.startsWith('/auth/')) ? 'dashboard' : location.pathname.slice(1)
   const setActiveMenu = (id) => navigate(`/${id}`)
 
+  // Root-redirect ab auth-aware hai — pehle yeh session check kiye bina hi /dashboard
+  // navigate kar deta tha, isliye Login form khule hone par bhi URL "/dashboard" dikhta tha
   useEffect(() => {
-    if (location.pathname === '/') navigate('/dashboard', { replace: true })
-  }, [location.pathname])
+    if (location.pathname === '/') navigate(session ? '/dashboard' : '/login', { replace: true })
+  }, [location.pathname, session])
 
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
@@ -320,7 +334,10 @@ function App() {
   const [allStores, setAllStores] = useState([])
   const [pendingProfiles, setPendingProfiles] = useState([])
   const [selectedStoreId, setSelectedStoreId] = useState(null)
-  const [isMasterView, setIsMasterView] = useState(false)
+  // isMasterView ab URL se derive hoti hai (koi alag state nahi) — pehle yeh independent
+  // boolean thi jo har reload par creator ke liye hamesha true force ho jati thi, current
+  // URL/store ko ignore karte hue. Master Dashboard ka apna route (/master-dashboard) hai.
+  const isMasterView = activeMenu === 'master-dashboard'
   const [isAdminMasterView, setIsAdminMasterView] = useState(false)
   const [adminStoreStats, setAdminStoreStats] = useState({})
   const [notifCount, setNotifCount] = useState(0)
@@ -366,7 +383,7 @@ function App() {
     setOrdersLoaded(false)
     setOrdersStore(null)
     setSelectedStoreId(null)
-    setIsMasterView(false)
+    clearPersistedStoreId()
     setIsAdminMasterView(false)
     setUserStoresList([])
     setAllStores([])
@@ -474,15 +491,30 @@ function App() {
       setAllStores(storesWithStats)
       const { data: pending } = await supabase.from('profiles').select('*').eq('approved', false).neq('role', 'creator')
       setPendingProfiles(pending || [])
-      setIsMasterView(true)
+
+      // Reload pe pichli baar wali store restore karo (agar abhi bhi accessible hai) —
+      // warna hi Master Dashboard pe fallback karo (creator har store access kar sakta hai,
+      // isliye "accessible" yahan sirf "abhi bhi exist karti hai" maana ja raha hai)
+      const persistedId = getPersistedStoreId()
+      const persistedStoreValid = persistedId && storesWithStats.some(s => s.id === persistedId)
+      if (persistedStoreValid) {
+        setSelectedStoreId(persistedId)
+      } else if (location.pathname !== '/master-dashboard') {
+        navigate('/master-dashboard', { replace: true })
+      }
     } else if (profileData?.approved) {
       const { data: us } = await supabase
         .from('user_stores')
         .select('store_id, permissions, stores(store_name, shopify_url, id)')
         .eq('user_id', userId)
       setUserStoresList(us || [])
-      if (us && us.length > 0) {
+      const persistedId = getPersistedStoreId()
+      const accessibleIds = (us || []).map(u => u.store_id)
+      if (persistedId && accessibleIds.includes(persistedId)) {
+        setSelectedStoreId(persistedId)
+      } else if (us && us.length > 0) {
         setSelectedStoreId(us[0].store_id)
+        persistStoreId(us[0].store_id)
       }
     }
     setProfileLoaded(true)
@@ -503,14 +535,16 @@ function App() {
   }
 
   const handleEnterStore = (store) => {
-    setIsMasterView(false)
     setSelectedStoreId(store.id)
+    persistStoreId(store.id)
+    navigate('/dashboard')
   }
 
   // TASK 14: sidebar brand switcher — order loading state reset karo taake naye store ke liye reload ho
   const handleSwitchStore = (newStoreId) => {
     if (!newStoreId || newStoreId === selectedStoreId) return
     setSelectedStoreId(newStoreId)
+    persistStoreId(newStoreId)
     setOrdersData([])
     setOrdersLoaded(false)
     setOrdersStore(null)
@@ -892,7 +926,7 @@ function App() {
         <div className={`ne-sidebar${sidebarOpen ? '' : ' collapsed'}${mobileDrawerOpen ? ' open' : ''}`}>
           <div className="ne-brand-row">
             <Monogram size={22} />
-            {(sidebarOpen || mobileDrawerOpen) && <Wordmark size={15} dark />}
+            {(sidebarOpen || mobileDrawerOpen) && <Wordmark size={18} dark />}
             <span className="ne-live-dot" title="Realtime connected" />
             {(sidebarOpen || mobileDrawerOpen) && (
               <button className="ne-collapse-btn" onClick={() => setSidebarOpen(!sidebarOpen)} style={{ marginLeft: 'auto' }}>◀</button>
@@ -922,7 +956,7 @@ function App() {
           )}
 
           {profile.role === 'creator' && (sidebarOpen || mobileDrawerOpen) && (
-            <button onClick={() => { setIsMasterView(true); setSelectedStoreId(null); setOrdersLoaded(false); hasStartedLoadRef.current = false; hasStartedBookedLoadRef.current = false; closeDrawer() }}
+            <button onClick={() => { navigate('/master-dashboard'); setSelectedStoreId(null); setOrdersLoaded(false); hasStartedLoadRef.current = false; hasStartedBookedLoadRef.current = false; closeDrawer() }}
               style={{ width: '100%', padding: '7px', borderRadius: 8, border: '1px solid #232A52', background: 'transparent', color: '#8C93C4', fontSize: 11.5, cursor: 'pointer', marginBottom: 8 }}>
               ← Master Dashboard
             </button>

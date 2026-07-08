@@ -1,9 +1,9 @@
 :root{
-  --ne-bg:#070A1A;
+  --ne-bg:#0B1220;
   --ne-bg-glow: radial-gradient(60% 50% at 85% -10%, rgba(92,124,250,.18), transparent 60%),
                 radial-gradient(50% 40% at 0% 100%, rgba(168,85,247,.12), transparent 60%);
-  --ne-sidebar-bg:#0A0E26; --ne-surface:#11163A; --ne-surface-2:#161B45; --ne-border:#232A52;
-  --ne-text:#EEF0FF; --ne-muted:#8C93C4; --ne-muted-2:#4F567E;
+  --ne-sidebar-bg:#0A0E26; --ne-surface:#151B29; --ne-surface-2:#1B2333; --ne-border:#232C42;
+  --ne-text:#EDF0FA; --ne-muted:#8A93AB; --ne-muted-2:#5B6580;
   --ne-accent:#5C7CFA; --ne-accent2:#A855F7; --ne-accent-soft:#1C2356; --ne-accent2-soft:#26134A;
   --ne-grad: linear-gradient(120deg, #5C7CFA 0%, #A855F7 100%);
   --ne-success:#34D88E; --ne-success-soft:#11402A;

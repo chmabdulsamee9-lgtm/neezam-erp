@@ -115,6 +115,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
   const [expandedRemarksIds, setExpandedRemarksIds] = useState(new Set());
   const [remarkDrafts, setRemarkDrafts] = useState({});
   const [remarkSubmitting, setRemarkSubmitting] = useState(null);
+  const [loadingCount, setLoadingCount] = useState(0);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
@@ -165,7 +166,8 @@ export default function BookedOrders({ storeId, ordersStore }) {
       }
 
       setLoading(true);
-      const { rows } = await syncBookedOrdersCache(storeId);
+      setLoadingCount(0);
+      const { rows } = await syncBookedOrdersCache(storeId, (count) => setLoadingCount(count));
       setOrders(rows);
     } catch (err) {
       setError(err.message);
@@ -294,7 +296,9 @@ export default function BookedOrders({ storeId, ordersStore }) {
       </div>
 
       {loading ? (
-        <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>Loading...</div>
+        <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>
+          Loading{loadingCount > 0 ? ` (${loadingCount} loaded)` : "..."}
+        </div>
       ) : filtered.length === 0 ? (
         <div style={{ ...cardStyle, textAlign: "center", color: "var(--ne-muted-2)", fontSize: 12 }}>Is filter mein koi booked order nahi.</div>
       ) : (
@@ -393,11 +397,12 @@ export default function BookedOrders({ storeId, ordersStore }) {
                       </div>
                     )}
 
-                    {/* Remarks — jaisa "Tafseel dikhao" pattern, apna alag collapsed sub-toggle */}
+                    {/* Remarks — jaisa "Tafseel dikhao" pattern, apna alag collapsed sub-toggle.
+                        Halka style: koi box/border nahi, sirf accent-color text-link jaisa */}
                     <div>
                       <button onClick={() => toggleRemarks(o.id)}
-                        style={{ padding: "5px 10px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface)", color: "var(--ne-muted)", fontSize: 10.5, cursor: "pointer", fontWeight: 600 }}>
-                        💬 {isRemarksOpen ? "Hide" : "Show / Add"} Remarks ({remarksLog.length})
+                        style={{ padding: "4px 0", border: "none", background: "transparent", color: "var(--ne-accent)", fontSize: 10.5, cursor: "pointer", fontWeight: 600 }}>
+                        💬 {isRemarksOpen ? "Hide Remarks" : `Show / Add Remarks (${remarksLog.length})`}
                       </button>
 
                       {isRemarksOpen && (

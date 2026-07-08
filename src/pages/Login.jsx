@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../supabase'
 import Logo, { Monogram, Wordmark } from '../components/Logo'
 
@@ -6,8 +7,12 @@ const CF_URL = 'https://neezam-erp.chmabdulsamee9.workers.dev'
 const isValidPhone = (p) => /^\d{11}$/.test(p.trim())
 
 export default function Login() {
-  // "login" | "signup" | "signup-otp" | "forgot" | "forgot-otp" | "forgot-reset"
-  const [mode, setMode] = useState('login')
+  const navigate = useNavigate()
+  const location = useLocation()
+  // "login" | "signup" | "signup-otp" | "forgot" | "forgot-otp" | "forgot-reset" — initial
+  // value URL se aata hai (/signup -> signup tab) taake Login/Signup ka apna sahi URL ho;
+  // baaki sub-modes (forgot-password waghera) jaan-boojh kar sirf local state hain, URL-tracked nahi
+  const [mode, setMode] = useState(() => (location.pathname === '/signup' ? 'signup' : 'login'))
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -49,6 +54,9 @@ export default function Login() {
   const switchMode = (m) => {
     setMode(m)
     setError('')
+    // Sirf login/signup ka apna URL hai — baaki sub-modes (forgot-password waghera) local hi rehte hain
+    if (m === 'login') navigate('/login')
+    else if (m === 'signup') navigate('/signup')
   }
 
   const handleLogin = async (e) => {

@@ -2,7 +2,7 @@
 // background preload, BookedOrders.jsx, aur CourierDashboard.jsx. Teeno jagah pehle
 // alag-alag copies thi (manually sync karni parti thi har fix mein) — ab ek hi jagah hai.
 import { supabase } from "./supabase";
-import { getCachedBookedOrders, saveBookedOrdersBulk, getMeta, setMeta } from "./ordersCache";
+import { getCachedBookedOrders, saveBookedOrdersBulk, getMeta, setMeta, getCachedOrders } from "./ordersCache";
 
 const PAGE_SIZE = 1000;
 
@@ -12,7 +12,8 @@ export function bookedMetaKey(storeId) {
 
 // order_statuses se shuru (store_id + dex_tracking_number IS NOT NULL) — Shopify data
 // (shopify_orders_cache) sirf matched (order_id wali) rows ke details ke liye chahiye.
-export async function fetchBookedStatuses(storeId) {
+// onProgress(count) — har page ke baad running-total report karta hai (loading-count UI ke liye)
+export async function fetchBookedStatuses(storeId, onProgress) {
   let allRows = [];
   let from = 0;
   while (true) {
@@ -25,6 +26,7 @@ export async function fetchBookedStatuses(storeId) {
     if (error) throw error;
     if (!data || data.length === 0) break;
     allRows = allRows.concat(data);
+    onProgress?.(allRows.length);
     if (data.length < PAGE_SIZE) break;
     from += PAGE_SIZE;
   }
@@ -154,8 +156,9 @@ export function mergeStatusesWithCache(statuses, cacheMap) {
 // IndexedDB cache + meta ko silently populate/update karta hai (koi React state nahi) —
 // App.jsx ka background preload isay fire-and-forget call karta hai; BookedOrders.jsx/
 // CourierDashboard.jsx isi function ko apne mount-time refresh ke liye bhi use karte hain,
-// aur returned rows se apna local state update kar lete hain.
-export async function syncBookedOrdersCache(storeId) {
+// aur returned rows se apna local state update kar lete hain. onProgress(count) sirf
+// full-load path mein call hota hai (order_statuses page-by-page) — loading-count UI ke liye.
+export async function syncBookedOrdersCache(storeId, onProgress) {
   const metaKey = bookedMetaKey(storeId);
   const cached = await getCachedBookedOrders();
   const hasCacheForStore = cached.some((o) => o.agent_data?.store_id === storeId);
@@ -178,9 +181,27 @@ export async function syncBookedOrdersCache(storeId) {
   }
 
   const loadStartTime = new Date().toISOString();
-  const [statuses, cachedRows] = await Promise.all([fetchBookedStatuses(storeId), fetchAllCachedOrdersLite(storeId)]);
-  const cacheMap = {};
-  cachedRows.forEach((r) => { cacheMap[String(r.id)] = r.raw_data; });
+
+  // Orders ka apna preload (App.jsx:autoLoadOrders) LOCAL "orders" IndexedDB cache already
+  // bhar chuka hota hai usi waqt parallel mein — wahi se id->order map banate hain, taake
+  // shopify_orders_cache ka network se DOBARA (redundant) fetch na karna pade. Yehi asal
+  // wajah thi "kabhi 140 pe atak, kabhi 3000 pe" wale slow-load ki — do bhari network fetches
+  // ek sath chal rahi hoti thi. Sirf agar local cache bhi khali ho (bilkul first-ever
+  // app-open, dono cache cold) tabhi purana network-fallback chalta hai.
+  const localOrders = await getCachedOrders();
+  const [statuses, cacheMap] = await (async () => {
+    if (localOrders.length > 0) {
+      const s = await fetchBookedStatuses(storeId, onProgress);
+      const map = {};
+      localOrders.forEach((o) => { map[String(o.id)] = o; });
+      return [s, map];
+    }
+    const [s, cachedRows] = await Promise.all([fetchBookedStatuses(storeId, onProgress), fetchAllCachedOrdersLite(storeId)]);
+    const map = {};
+    cachedRows.forEach((r) => { map[String(r.id)] = r.raw_data; });
+    return [s, map];
+  })();
+
   const merged = mergeStatusesWithCache(statuses, cacheMap);
   await saveBookedOrdersBulk(merged);
   await setMeta(metaKey, loadStartTime);
