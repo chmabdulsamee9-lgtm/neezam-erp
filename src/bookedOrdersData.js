@@ -152,6 +152,24 @@ export function mergeStatusesWithCache(statuses, cacheMap) {
   });
 }
 
+// "Poisoned" row = matched order (order_id hai, isManual false) jiska Shopify data cache-miss
+// ki wajah se null reh gaya tha (name fallback "—" ban gaya). Manual/unmatched orders ke liye
+// "—" bilkul sahi/expected hai (unka koi order_id/Shopify row hai hi nahi) — sirf matched
+// orders ka "—" hona hi galat/poisoned signal hai.
+function findPoisonedRows(rows) {
+  return rows.filter((r) => !r.isManual && r.agent_data?.order_id && r.name === "—");
+}
+
+async function repairPoisonedRows(storeId, poisoned) {
+  if (poisoned.length === 0) return [];
+  const orderIds = poisoned.map((r) => r.agent_data.order_id);
+  const cachedRows = await fetchCachedOrdersByIds(storeId, orderIds);
+  const cacheMap = {};
+  cachedRows.forEach((r) => { cacheMap[String(r.id)] = r.raw_data; });
+  const statuses = poisoned.map((r) => r.agent_data);
+  return mergeStatusesWithCache(statuses, cacheMap);
+}
+
 // Full-load-or-delta: cache khali ho to poora load karo, warna sirf changed rows.
 // IndexedDB cache + meta ko silently populate/update karta hai (koi React state nahi) —
 // App.jsx ka background preload isay fire-and-forget call karta hai; BookedOrders.jsx/
@@ -161,9 +179,18 @@ export function mergeStatusesWithCache(statuses, cacheMap) {
 export async function syncBookedOrdersCache(storeId, onProgress) {
   const metaKey = bookedMetaKey(storeId);
   const cached = await getCachedBookedOrders();
-  const hasCacheForStore = cached.some((o) => o.agent_data?.store_id === storeId);
+  const cachedForStore = cached.filter((o) => o.agent_data?.store_id === storeId);
+  const hasCacheForStore = cachedForStore.length > 0;
 
   if (hasCacheForStore) {
+    // Self-heal: pehle kabhi poison hui rows (order_id hai lekin local-cache-miss ki wajah
+    // se Shopify data khali reh gaya tha, "name" waghera "—" ban gaya) ko yahan targeted
+    // lookup se theek karo — warna woh row kabhi khud repair nahi hoti (delta-sync sirf
+    // updated_at badalne par hi us row ko dobara chhuta hai)
+    const poisoned = findPoisonedRows(cachedForStore);
+    const repaired = await repairPoisonedRows(storeId, poisoned);
+    if (repaired.length > 0) await saveBookedOrdersBulk(repaired);
+
     const lastSyncedAt = (await getMeta(metaKey)) || "2000-01-01T00:00:00Z";
     const loadStartTime = new Date().toISOString();
     const deltaStatuses = await fetchBookedStatusesDelta(storeId, lastSyncedAt);
@@ -177,7 +204,7 @@ export async function syncBookedOrdersCache(storeId, onProgress) {
       await saveBookedOrdersBulk(deltaMerged);
     }
     await setMeta(metaKey, loadStartTime);
-    return { full: false, rows: deltaMerged };
+    return { full: false, rows: [...repaired, ...deltaMerged] };
   }
 
   const loadStartTime = new Date().toISOString();
@@ -201,6 +228,16 @@ export async function syncBookedOrdersCache(storeId, onProgress) {
     cachedRows.forEach((r) => { map[String(r.id)] = r.raw_data; });
     return [s, map];
   })();
+
+  // Local-cache-miss ko silently trust nahi karte — jitne order_ids map mein nahi milay
+  // (matched hain lekin abhi tak local "orders" cache mein nahi aaye, jaisे purane orders
+  // jo background mein load ho rahe hote hain), unke liye ek chhoti targeted lookup karo —
+  // yehi cache-poisoning bug ki asal wajah thi.
+  const missingIds = statuses.filter((s) => s.order_id && !cacheMap[String(s.order_id)]).map((s) => s.order_id);
+  if (missingIds.length > 0) {
+    const missingRows = await fetchCachedOrdersByIds(storeId, missingIds);
+    missingRows.forEach((r) => { cacheMap[String(r.id)] = r.raw_data; });
+  }
 
   const merged = mergeStatusesWithCache(statuses, cacheMap);
   await saveBookedOrdersBulk(merged);

@@ -318,48 +318,47 @@ export default function BookedOrders({ storeId, ordersStore }) {
 
             return (
               <div key={o.id} style={cardStyle}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <a href={trackingUrl(ad.dex_tracking_number)} target="_blank" rel="noreferrer"
-                    style={{ color: "var(--ne-accent)", fontWeight: 600, textDecoration: "none", fontSize: 13, borderBottom: "1px dashed var(--ne-accent)", paddingBottom: 1 }}>
-                    {o.name}
-                  </a>
-                  {o.isManual && (
-                    <span title="Shopify mein match nahi mila — sirf Excel se courier data" style={{ padding: "2px 9px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: "var(--ne-warning-soft)", color: "var(--ne-warning)" }}>
-                      ⚠️ Unmatched/Manual
-                    </span>
-                  )}
-                  {ad.courier_name && (
-                    <span style={{ padding: "2px 9px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: `${courierColor(ad.courier_name)}22`, color: courierColor(ad.courier_name) }}>
-                      {ad.courier_name}
-                    </span>
-                  )}
-                  <span style={{ padding: "2px 9px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: meta.bg, color: meta.color }}>
-                    {ad.courier_order_status || bucket}
-                  </span>
-                  {ad.delivery_attempt_count > 1 && (
-                    <span style={{ padding: "2px 9px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: "var(--ne-warning-soft)", color: "var(--ne-warning)" }}>
-                      ⚠️ {ad.delivery_attempt_count} attempts
-                    </span>
-                  )}
-                  {aging && (
-                    <span style={{
-                      marginLeft: "auto", padding: "2px 9px", borderRadius: 10, fontSize: 10, fontWeight: 700,
-                      background: `${aging.color}22`, color: aging.color,
-                      animation: aging.pulse ? "ne-aging-pulse 1.4s ease-in-out infinite" : "none",
-                    }}>
-                      Day {agingDay} · {aging.label}
-                    </span>
-                  )}
-                </div>
-
-                <div style={{ fontSize: 11, color: "var(--ne-muted)", marginTop: 4 }}>
-                  {fullName || "—"} · {phone || "—"} · {city || "—"}
-                </div>
-                {ad.logistics_status_at && (
-                  <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)", marginTop: 2 }}>
-                    Last update: {fmtDateTime(ad.logistics_status_at)}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
+                  <div>
+                    <a href={trackingUrl(ad.dex_tracking_number)} target="_blank" rel="noreferrer"
+                      style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 14, borderBottom: "1px dashed var(--ne-accent)", paddingBottom: 1 }}>
+                      {o.name}
+                    </a>
+                    <div style={{ fontSize: 11, color: "var(--ne-muted-2)", marginTop: 3 }}>
+                      {fullName || "—"} · {phone || "—"} · {city || "—"}
+                      {ad.logistics_status_at ? ` · ${fmtDateTime(ad.logistics_status_at)}` : ""}
+                    </div>
                   </div>
-                )}
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    {o.isManual && (
+                      <span title="Shopify mein match nahi mila — sirf Excel se courier data" style={{ padding: "4px 10px", borderRadius: 8, fontSize: 10.5, fontWeight: 700, background: "var(--ne-warning-soft)", color: "var(--ne-warning)" }}>
+                        ⚠️ Unmatched/Manual
+                      </span>
+                    )}
+                    {ad.courier_name && (
+                      <span style={{ padding: "4px 10px", borderRadius: 8, fontSize: 10.5, fontWeight: 700, background: `${courierColor(ad.courier_name)}26`, color: courierColor(ad.courier_name) }}>
+                        {ad.courier_name}
+                      </span>
+                    )}
+                    <span style={{ padding: "4px 10px", borderRadius: 8, fontSize: 10.5, fontWeight: 700, background: meta.bg, color: meta.color }}>
+                      {ad.courier_order_status || bucket}
+                    </span>
+                    {ad.delivery_attempt_count > 1 && (
+                      <span style={{ padding: "4px 10px", borderRadius: 8, fontSize: 10.5, fontWeight: 700, background: "var(--ne-warning-soft)", color: "var(--ne-warning)" }}>
+                        ⚠️ {ad.delivery_attempt_count} attempts
+                      </span>
+                    )}
+                    {aging && (
+                      <span style={{
+                        display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 20, fontSize: 11, fontWeight: 700,
+                        background: `${aging.color}22`, color: aging.color,
+                      }}>
+                        <span style={{ width: 7, height: 7, borderRadius: "50%", background: aging.color, animation: aging.pulse ? "ne-aging-pulse 1.4s ease-in-out infinite" : "none" }} />
+                        Day {agingDay} — {aging.label}
+                      </span>
+                    )}
+                  </div>
+                </div>
 
                 <button onClick={() => toggleExpand(o.id)}
                   style={{ width: "100%", marginTop: 8, padding: "6px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface)", color: "var(--ne-muted)", fontSize: 10.5, cursor: "pointer", fontWeight: 600 }}>
@@ -367,62 +366,67 @@ export default function BookedOrders({ storeId, ordersStore }) {
                 </button>
 
                 {isExpanded && (
-                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--ne-border)", display: "flex", flexDirection: "column", gap: 12, fontSize: 11 }}>
+                  <div style={{ marginTop: 8, fontSize: 11 }}>
                     {/* Detail Grid */}
-                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(4, 1fr)", gap: 10 }}>
+                    <div style={{
+                      display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(4, 1fr)", gap: 14,
+                      padding: "14px 0", borderTop: "1px solid var(--ne-border)", borderBottom: "1px solid var(--ne-border)", marginBottom: 14,
+                    }}>
                       <div>
-                        <div style={{ fontSize: 9.5, color: "var(--ne-muted-2)", textTransform: "uppercase", letterSpacing: ".03em" }}>Tracking No</div>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ne-text)", fontFamily: "monospace" }}>{ad.dex_tracking_number || "—"}</div>
+                        <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 4 }}>Tracking No</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ne-text)", fontFamily: "monospace" }}>{ad.dex_tracking_number || "—"}</div>
                       </div>
                       <div>
-                        <div style={{ fontSize: 9.5, color: "var(--ne-muted-2)", textTransform: "uppercase", letterSpacing: ".03em" }}>Status</div>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: meta.color }}>{ad.courier_order_status || bucket}</div>
+                        <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 4 }}>Status</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: meta.color }}>{ad.courier_order_status || bucket}</div>
                       </div>
                       <div>
-                        <div style={{ fontSize: 9.5, color: "var(--ne-muted-2)", textTransform: "uppercase", letterSpacing: ".03em" }}>Amount/COD</div>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ne-text)" }}>{o.total_price ? `Rs. ${Number(o.total_price).toLocaleString()}` : "—"}</div>
+                        <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 4 }}>Amount (COD)</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ne-text)" }}>{o.total_price ? `Rs. ${Number(o.total_price).toLocaleString()}` : "—"}</div>
                       </div>
                       <div>
-                        <div style={{ fontSize: 9.5, color: "var(--ne-muted-2)", textTransform: "uppercase", letterSpacing: ".03em" }}>Delivery Attempts</div>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: ad.delivery_attempt_count > 0 ? "var(--ne-warning)" : "var(--ne-text)" }}>{ad.delivery_attempt_count || 0}</div>
+                        <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 4 }}>Delivery Attempts</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: ad.delivery_attempt_count > 0 ? "var(--ne-warning)" : "var(--ne-text)" }}>{ad.delivery_attempt_count || 0}</div>
                       </div>
                     </div>
 
                     {/* Timeline */}
-                    <Timeline ad={ad} />
+                    <div style={{ marginBottom: 16 }}>
+                      <Timeline ad={ad} />
+                    </div>
 
                     {ad.latest_fail_reason && (
-                      <div style={{ padding: "5px 9px", borderRadius: 8, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, width: "fit-content" }}>
+                      <div style={{ marginBottom: 14, padding: "5px 9px", borderRadius: 8, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, width: "fit-content" }}>
                         ⚠️ {ad.latest_fail_reason}
                       </div>
                     )}
 
-                    {/* Remarks — jaisa "Tafseel dikhao" pattern, apna alag collapsed sub-toggle.
-                        Halka style: koi box/border nahi, sirf accent-color text-link jaisa */}
+                    {/* Remarks — timeline ke seedha neeche, bordered-box toggle + count-badge */}
                     <div>
                       <button onClick={() => toggleRemarks(o.id)}
-                        style={{ padding: "4px 0", border: "none", background: "transparent", color: "var(--ne-accent)", fontSize: 10.5, cursor: "pointer", fontWeight: 600 }}>
-                        💬 {isRemarksOpen ? "Hide Remarks" : `Show / Add Remarks (${remarksLog.length})`}
+                        style={{ background: "none", border: "1px solid var(--ne-border)", color: "var(--ne-muted)", fontSize: 11.5, fontWeight: 600, padding: "6px 14px", borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                        💬 {isRemarksOpen ? "Hide Remarks" : "Show / Add Remarks"}
+                        <span style={{ fontSize: 10, background: "var(--ne-accent)", color: "#fff", padding: "1px 7px", borderRadius: 10 }}>{remarksLog.length}</span>
                       </button>
 
                       {isRemarksOpen && (
-                        <div style={{ marginTop: 8 }}>
+                        <div style={{ marginTop: 12, paddingTop: 2 }}>
                           {remarksLog.map((r, i) => (
-                            <div key={i} style={{ padding: "7px 0", borderTop: i === 0 ? "none" : "1px solid var(--ne-border)" }}>
-                              <div style={{ fontSize: 11.5, color: "var(--ne-text)" }}>{r.text}</div>
-                              <div style={{ fontSize: 10, color: "var(--ne-muted-2)", marginTop: 2 }}>
+                            <div key={i} style={{ padding: "6px 0", fontSize: 12, borderBottom: i === remarksLog.length - 1 ? "none" : "1px solid var(--ne-border)" }}>
+                              <div style={{ color: "var(--ne-text)" }}>{r.text}</div>
+                              <div style={{ fontSize: 10, color: "var(--ne-muted-2)", marginTop: 3 }}>
                                 {r.author} · {new Date(r.created_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true })}
                               </div>
                             </div>
                           ))}
-                          <div style={{ display: "flex", gap: 8, alignItems: "flex-end", marginTop: remarksLog.length > 0 ? 8 : 0, paddingTop: remarksLog.length > 0 ? 8 : 0, borderTop: remarksLog.length > 0 ? "1px solid var(--ne-border)" : "none" }}>
-                            <input type="text" placeholder="Remark likho..."
+                          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                            <input type="text" placeholder="Naya remark likhein..."
                               value={remarkDrafts[o.id] || ""}
                               onChange={(e) => setRemarkDrafts((prev) => ({ ...prev, [o.id]: e.target.value }))}
                               onKeyDown={(e) => { if (e.key === "Enter") submitRemark(o); }}
-                              style={{ flex: 1, padding: "4px 2px", border: "none", borderBottom: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 11.5, outline: "none" }} />
+                              style={{ flex: 1, background: "transparent", border: "none", borderBottom: "1px solid var(--ne-border)", padding: "6px 2px", color: "var(--ne-text)", fontSize: 12, outline: "none" }} />
                             <button onClick={() => submitRemark(o)} disabled={remarkSubmitting === o.id || !(remarkDrafts[o.id] || "").trim()}
-                              style={{ padding: "5px 14px", borderRadius: 8, border: "1px solid var(--ne-accent)", background: "transparent", color: "var(--ne-accent)", fontSize: 10.5, fontWeight: 700, cursor: remarkSubmitting === o.id ? "default" : "pointer", whiteSpace: "nowrap" }}>
+                              style={{ background: "transparent", border: "1px solid var(--ne-accent)", color: "var(--ne-accent)", padding: "6px 14px", borderRadius: 6, fontSize: 11.5, fontWeight: 700, cursor: remarkSubmitting === o.id ? "default" : "pointer", whiteSpace: "nowrap" }}>
                               {remarkSubmitting === o.id ? "..." : "Add"}
                             </button>
                           </div>
