@@ -143,6 +143,7 @@ export function mergeStatusesWithCache(statuses, cacheMap) {
       name: raw?.name || s.manual_order_number || "—",
       customer: raw?.customer || null,
       shipping_address: raw?.shipping_address || null,
+      total_price: raw?.total_price ?? null,
       agent_data: s,
       isManual: !s.order_id,
     };
