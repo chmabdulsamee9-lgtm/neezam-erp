@@ -4,85 +4,61 @@ import { supabase } from "../supabase";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 
-// Dex ke 43-column Excel export headers -> dex_shipments_import table ke snake_case columns.
-// (SQL confirmed — dex_shipments_import table, upsert key (store_id, tracking_no))
-const DEX_HEADER_MAP = {
-  externalOrderId: "external_order_id",
-  omsOrderId: "oms_order_id",
-  trackingNo: "tracking_no",
-  "Original Tracking No": "original_tracking_no",
-  "Package type": "package_type",
-  "Delivery Option": "delivery_option",
-  platform: "platform",
-  omsOrderStatus: "oms_order_status",
-  totalPrice: "total_price",
-  paymentMethod: "payment_method",
-  orderCreatedTime: "order_created_time",
-  productList: "product_list",
-  quantity: "quantity",
-  estimatedShippingFee: "estimated_shipping_fee",
-  dimWeight: "dim_weight",
-  receiver: "receiver",
-  receiverPhone: "receiver_phone",
-  receiverAddress: "receiver_address",
-  receiverLevel4Address: "receiver_level4_address",
-  receiverLevel3Address: "receiver_level3_address",
-  receiverLevel2Address: "receiver_level2_address",
-  "Receiver Original Address": "receiver_original_address",
-  warehouseName: "warehouse_name",
-  warehouseAddress: "warehouse_address",
-  "Warehouse Original Address": "warehouse_original_address",
-  deliveryNote: "delivery_note",
-  firstMileShippingProvider: "first_mile_shipping_provider",
-  lastMileShippingProvider: "last_mile_shipping_provider",
-  packageCreatedTime: "package_created_time",
-  logisticsCurrentStatus: "logistics_current_status",
-  logisticsCurrentStatusTime: "logistics_current_status_time",
-  failedPickupReason: "failed_pickup_reason",
-  pickupSuccessTime: "pickup_success_time",
-  firstFailDeliveryAttemptTime: "first_fail_delivery_attempt_time",
-  latestFailedDeliveryTime: "latest_failed_delivery_time",
-  "First failed delivery attempt reason": "first_failed_delivery_attempt_reason",
-  "Second failed delivery attempt reason": "second_failed_delivery_attempt_reason",
-  "Third failed delivery attempt reason": "third_failed_delivery_attempt_reason",
-  "Fourth failed delivery attempt reason": "fourth_failed_delivery_attempt_reason",
-  deliveryAttemptCount: "delivery_attempt_count",
-  deliveredTime: "delivered_time",
-  failedReturnTime: "failed_return_time",
-  returnSuccessTime: "return_success_time",
+// Dex ke 43-column Excel export mein se sirf woh headers jo order_statuses ke courier-overlay
+// columns ke liye zaroori hain (price/address/warehouse/product-list waghera is naye architecture
+// mein store nahi hote — order_statuses sirf courier/logistics overlay hai, Shopify data nahi).
+const DEX_SOURCE_HEADERS = {
+  externalOrderId: "externalOrderId",
+  lastMileShippingProvider: "lastMileShippingProvider",
+  trackingNo: "trackingNo",
+  omsOrderStatus: "omsOrderStatus",
+  logisticsCurrentStatus: "logisticsCurrentStatus",
+  logisticsCurrentStatusTime: "logisticsCurrentStatusTime",
+  deliveryAttemptCount: "deliveryAttemptCount",
+  packageCreatedTime: "packageCreatedTime",
+  pickupSuccessTime: "pickupSuccessTime",
+  deliveredTime: "deliveredTime",
+  returnSuccessTime: "returnSuccessTime",
+  "First failed delivery attempt reason": "firstFailedDeliveryAttemptReason",
+  "Second failed delivery attempt reason": "secondFailedDeliveryAttemptReason",
+  "Third failed delivery attempt reason": "thirdFailedDeliveryAttemptReason",
+  "Fourth failed delivery attempt reason": "fourthFailedDeliveryAttemptReason",
 };
 
-const DEX_TIMESTAMP_COLS = new Set([
-  "order_created_time", "package_created_time", "logistics_current_status_time",
-  "pickup_success_time", "first_fail_delivery_attempt_time", "latest_failed_delivery_time",
-  "delivered_time", "failed_return_time", "return_success_time",
-]);
-const DEX_NUMERIC_COLS = new Set(["total_price", "estimated_shipping_fee", "dim_weight"]);
-const DEX_INTEGER_COLS = new Set(["quantity", "delivery_attempt_count"]);
-
-function coerceDexCell(value, col) {
-  if (value === null || value === undefined || value === "") return null;
-  if (value instanceof Date) {
-    return DEX_TIMESTAMP_COLS.has(col) ? value.toISOString() : value.toString();
-  }
+function cellToText(value) {
+  if (value === null || value === undefined || value === "") return "";
+  if (value instanceof Date) return value.toString();
   if (typeof value === "object") {
-    if (value.text) value = value.text;
-    else if (value.result !== undefined) value = value.result;
-    else if (Array.isArray(value.richText)) value = value.richText.map(t => t.text).join("");
-    else return null;
-  }
-  if (DEX_TIMESTAMP_COLS.has(col)) {
-    const d = new Date(value);
-    return isNaN(d.getTime()) ? null : d.toISOString();
-  }
-  if (DEX_NUMERIC_COLS.has(col) || DEX_INTEGER_COLS.has(col)) {
-    const n = Number(value);
-    return isNaN(n) ? null : n;
+    if (value.text) return String(value.text);
+    if (value.result !== undefined) return String(value.result);
+    if (Array.isArray(value.richText)) return value.richText.map((t) => t.text).join("");
+    return "";
   }
   return String(value).trim();
 }
 
-const ALL_DEX_DB_KEYS = Object.values(DEX_HEADER_MAP);
+function cellToTimestamp(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const d = value instanceof Date ? value : new Date(cellToText(value));
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+function cellToInt(value) {
+  const text = cellToText(value);
+  if (!text) return null;
+  const n = Number(text);
+  return isNaN(n) ? null : Math.round(n);
+}
+
+// Dex externalOrderId format: "PREFIX[-VARIANT]_shopifyId_suffix" (jaise DWK2366_7859021644086_362,
+// DWK2265-F1_6105674187062_264) — Shopify order name ("#DWK2366") sirf prefix hota hai
+function extractOrderRef(externalOrderId) {
+  const text = cellToText(externalOrderId).trim();
+  if (!text) return null;
+  const beforeUnderscore = text.split("_")[0];
+  const prefix = beforeUnderscore.split("-")[0];
+  return prefix ? `#${prefix}` : null;
+}
 
 async function parseDexExcelFile(file) {
   const buffer = await file.arrayBuffer();
@@ -91,27 +67,48 @@ async function parseDexExcelFile(file) {
   const sheet = workbook.worksheets[0];
   if (!sheet) return [];
 
-  const colIndexToDbKey = {};
+  const colIndexToSourceKey = {};
   sheet.getRow(1).eachCell((cell, colNumber) => {
     const header = String(cell.value || "").trim();
-    const dbKey = DEX_HEADER_MAP[header];
-    if (dbKey) colIndexToDbKey[colNumber] = dbKey;
+    const sourceKey = DEX_SOURCE_HEADERS[header];
+    if (sourceKey) colIndexToSourceKey[colNumber] = sourceKey;
   });
 
   const rows = [];
   sheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return;
-    // Har row ke object mein SAARI 43 keys explicitly (null default) rakhni zaroori hain —
-    // PostgREST bulk upsert (PGRST102) har row mein exact same key-set maangta hai, warna
-    // blank-cell wali rows doosri rows se kam keys ki wajah se poori request reject kar deti hain.
-    const obj = {};
-    ALL_DEX_DB_KEYS.forEach((key) => { obj[key] = null; });
+    const raw = {};
     row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
-      const dbKey = colIndexToDbKey[colNumber];
-      if (!dbKey) return;
-      obj[dbKey] = coerceDexCell(cell.value, dbKey);
+      const sourceKey = colIndexToSourceKey[colNumber];
+      if (!sourceKey) return;
+      raw[sourceKey] = cell.value;
     });
-    if (obj.tracking_no) rows.push(obj);
+
+    const orderNumberMatch = extractOrderRef(raw.externalOrderId);
+    if (!orderNumberMatch) return; // is row ko kisi Shopify order se match hi nahi kiya ja sakta
+
+    // Har row hamesha yehi 10 keys rakhta hai (kuch null ho sakti hain) — blank-cell wali
+    // rows doosri rows se kam keys ki wajah se PostgREST bulk-upsert (PGRST102) fail nahi karengi,
+    // kyunki yahan object literal hamesha explicit shape mein banta hai, conditional nahi.
+    rows.push({
+      order_number_match: orderNumberMatch,
+      courier_name: cellToText(raw.lastMileShippingProvider) || null,
+      dex_tracking_number: cellToText(raw.trackingNo) || null,
+      courier_order_status: cellToText(raw.omsOrderStatus) || null,
+      dex_status: cellToText(raw.logisticsCurrentStatus) || null,
+      logistics_status_at: cellToTimestamp(raw.logisticsCurrentStatusTime),
+      delivery_attempt_count: cellToInt(raw.deliveryAttemptCount),
+      latest_fail_reason:
+        cellToText(raw.fourthFailedDeliveryAttemptReason) ||
+        cellToText(raw.thirdFailedDeliveryAttemptReason) ||
+        cellToText(raw.secondFailedDeliveryAttemptReason) ||
+        cellToText(raw.firstFailedDeliveryAttemptReason) ||
+        null,
+      package_created_at: cellToTimestamp(raw.packageCreatedTime),
+      pickup_success_at: cellToTimestamp(raw.pickupSuccessTime),
+      delivered_at: cellToTimestamp(raw.deliveredTime),
+      return_success_at: cellToTimestamp(raw.returnSuccessTime),
+    });
   });
   return rows;
 }
@@ -184,7 +181,7 @@ export default function CourierConnect({ storeId }) {
     try {
       const rows = await parseDexExcelFile(file);
       if (rows.length === 0) {
-        setUploadError("File mein koi valid row (tracking_no ke sath) nahi mili");
+        setUploadError("File mein koi valid row (jisme order number extract ho saka) nahi mili");
         setUploading(false);
         return;
       }
@@ -200,7 +197,7 @@ export default function CourierConnect({ storeId }) {
         setUploading(false);
         return;
       }
-      setUploadResult({ upserted: data.upserted, skipped: data.skipped });
+      setUploadResult({ updated: data.updated, unmatched: data.unmatched, unmatchedList: data.unmatchedList || [] });
     } catch (err) {
       setUploadError(err.message);
     }
@@ -273,13 +270,14 @@ export default function CourierConnect({ storeId }) {
         </div>
       )}
 
-      {/* Phase 8: Dex manual Excel upload — 43-column export, insert-or-update by tracking_no.
-          Live-API binding (upar wala card) se bilkul alag/independent hai. */}
+      {/* Dex manual Excel upload — order_statuses ke courier-overlay columns ko update karta hai
+          (order_number_match se Shopify order dhoond kar). Live-API binding (upar wala card) se
+          bilkul alag/independent hai. */}
       {!loading && (
         <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1.5rem", marginTop: "1rem" }}>
           <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: 15, color: "var(--ne-text)" }}>📊 Dex Excel Upload</p>
           <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--ne-muted-2)" }}>
-            Daraz Seller Center se export ki gayi shipments file (.xlsx) upload karo — tracking number ke hisaab se insert-or-update ho jayega.
+            Daraz Seller Center se export ki gayi shipments file (.xlsx) upload karo — order number match kar ke courier/tracking status update ho jayega.
           </p>
 
           <label style={{
@@ -294,9 +292,27 @@ export default function CourierConnect({ storeId }) {
 
           {uploadError && <p style={{ color: "var(--ne-danger)", fontSize: 12, marginTop: 10 }}>{uploadError}</p>}
           {uploadResult && (
-            <p style={{ color: "var(--ne-success)", fontSize: 12, marginTop: 10 }}>
-              ✅ {uploadResult.upserted} shipments save ho gaye{uploadResult.skipped > 0 ? ` (${uploadResult.skipped} rows skip hui, tracking number missing tha)` : ""}.
-            </p>
+            <div style={{ marginTop: 10 }}>
+              <p style={{ color: "var(--ne-success)", fontSize: 12, margin: 0 }}>
+                ✅ {uploadResult.updated} orders update ho gaye.
+              </p>
+              {uploadResult.unmatched > 0 && (
+                <>
+                  <p style={{ color: "var(--ne-warning)", fontSize: 12, margin: "4px 0 0" }}>
+                    ⚠️ {uploadResult.unmatched} rows match nahi hui (order Shopify mein nahi mila — shayad abhi sync nahi hua).
+                  </p>
+                  {uploadResult.unmatchedList.length > 0 && (
+                    <div style={{ marginTop: 6, maxHeight: 140, overflowY: "auto", background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 8, padding: "8px 10px" }}>
+                      {uploadResult.unmatchedList.map((u, i) => (
+                        <div key={i} style={{ fontSize: 11, color: "var(--ne-muted)" }}>
+                          {u.order_number_match} · Tracking: {u.tracking_number || "—"}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           )}
         </div>
       )}

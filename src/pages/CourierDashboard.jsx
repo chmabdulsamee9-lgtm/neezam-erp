@@ -1,22 +1,60 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useId } from "react";
 import { supabase } from "../supabase";
 
-const BATCH_SIZE = 1000;
+const PAGE_SIZE = 1000;
 
-async function fetchAllShipments(storeId) {
+// Courier company brand colors — BookedOrders.jsx ke COURIER_COLORS se consistent
+const COURIER_COLORS = {
+  "PK-DEX": "#5C7CFA",
+  "PK-LCS": "#34D88E",
+  "PK-TCS": "#FB923C",
+  "PK-TRAX": "#3B82F6",
+  "PK-MNP-API": "#A855F7",
+};
+const courierColor = (name) => COURIER_COLORS[name] || "#8C93C4";
+
+// BookedOrders.jsx ke bucketCourierStatus() jaisa hi — dono pages ki counting consistent rehni
+// chahiye (agar BookedOrders "5 Failed Delivery" dikhaye to Dashboard bhi wahi 5 dikhaye)
+function bucketCourierStatus(raw) {
+  const s = (raw || "").toLowerCase();
+  if (!s) return "In Transit";
+  if (s.includes("return")) return "Returned";
+  if (s.includes("fail")) return "Failed Delivery";
+  if (s.includes("deliver")) return "Delivered";
+  return "In Transit";
+}
+
+async function fetchAllCachedOrders(storeId) {
   let allRows = [];
   let from = 0;
   while (true) {
     const { data, error } = await supabase
-      .from("dex_shipments_import")
-      .select("*")
+      .from("shopify_orders_cache")
+      .select("raw_data")
       .eq("store_id", storeId)
-      .range(from, from + BATCH_SIZE - 1);
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    allRows = allRows.concat(data.map((r) => r.raw_data));
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return allRows;
+}
+
+async function fetchAllOrderStatuses() {
+  let allRows = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from("order_statuses")
+      .select("*")
+      .range(from, from + PAGE_SIZE - 1);
     if (error) throw error;
     if (!data || data.length === 0) break;
     allRows = allRows.concat(data);
-    if (data.length < BATCH_SIZE) break;
-    from += BATCH_SIZE;
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
   }
   return allRows;
 }
@@ -29,8 +67,120 @@ const fmtHours = (h) => {
   return `${h.toFixed(1)}h`;
 };
 
+// Catmull-Rom -> cubic-bezier — Dashboard.jsx ke Phase 7 Trend Chart jaisa smooth curve
+function smoothLinePath(points) {
+  if (points.length < 2) return "";
+  let d = `M${points[0].x.toFixed(1)},${points[0].y.toFixed(1)}`;
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[i === 0 ? i : i - 1];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[i + 2 < points.length ? i + 2 : i + 1];
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`;
+  }
+  return d;
+}
+
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+function DeliveredVsReturnedChart({ orders }) {
+  const gradUid = useId();
+  const [hoveredDay, setHoveredDay] = useState(null);
+
+  const days = useMemo(() => {
+    const now = new Date();
+    return Array.from({ length: 30 }, (_, idx) => {
+      const i = 29 - idx;
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      const dayStr = ymd(d);
+      const delivered = orders.filter((o) => o.agent_data.delivered_at && ymd(new Date(o.agent_data.delivered_at)) === dayStr).length;
+      const returned = orders.filter((o) => o.agent_data.return_success_at && ymd(new Date(o.agent_data.return_success_at)) === dayStr).length;
+      return { date: dayStr, label: `${d.getMonth() + 1}/${d.getDate()}`, Delivered: delivered, Returned: returned };
+    });
+  }, [orders]);
+
+  const W = 700, H = 200;
+  const PAD = { top: 20, right: 20, bottom: 25, left: 10 };
+  const cW = W - PAD.left - PAD.right;
+  const cH = H - PAD.top - PAD.bottom;
+  const n = days.length;
+  const getX = (i) => PAD.left + (i / (n - 1)) * cW;
+  const maxVal = Math.max(...days.map((d) => Math.max(d.Delivered, d.Returned)), 1);
+  const getY = (val) => PAD.top + cH - (val / maxVal) * cH;
+  const bandW = cW / (n - 1);
+
+  const LINES = [
+    { key: "Delivered", color: "#34D88E" },
+    { key: "Returned", color: "#F26D6D" },
+  ];
+  const linePoints = (key) => days.map((d, i) => ({ x: getX(i), y: getY(d[key]) }));
+  const buildPath = (key) => smoothLinePath(linePoints(key));
+  const buildAreaPath = (key) => {
+    const pts = linePoints(key);
+    const baseline = PAD.top + cH;
+    return `${smoothLinePath(pts)} L${pts[pts.length - 1].x.toFixed(1)},${baseline.toFixed(1)} L${pts[0].x.toFixed(1)},${baseline.toFixed(1)} Z`;
+  };
+
+  const hovered = hoveredDay !== null ? days[hoveredDay] : null;
+  const tooltipX = hoveredDay !== null ? getX(hoveredDay) : 0;
+  const tooltipOnRight = tooltipX < W / 2;
+
+  return (
+    <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem", marginBottom: "0.75rem" }}>
+      <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>📈 Delivered vs Returned — Last 30 Days</h2>
+      <div style={{ background: "var(--ne-bg)", borderRadius: 10, overflow: "hidden" }}>
+        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", display: "block" }} onMouseLeave={() => setHoveredDay(null)}>
+          <defs>
+            {LINES.map(({ key, color }) => (
+              <linearGradient key={key} id={`${gradUid}-${key}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stopColor={color} stopOpacity="0.35" />
+                <stop offset="1" stopColor={color} stopOpacity="0" />
+              </linearGradient>
+            ))}
+          </defs>
+          {[0, 0.25, 0.5, 0.75, 1].map((t) => (
+            <line key={t} x1={PAD.left} y1={PAD.top + t * cH} x2={PAD.left + cW} y2={PAD.top + t * cH} stroke="#232A52" strokeWidth="0.8" />
+          ))}
+          {days.map((d, i) => (i % 5 === 0 || i === n - 1) && (
+            <text key={i} x={getX(i)} y={H - 6} textAnchor="middle" fontSize="8" fill="#4F567E">{d.label}</text>
+          ))}
+          {LINES.map(({ key }) => (
+            <path key={`area-${key}`} d={buildAreaPath(key)} fill={`url(#${gradUid}-${key})`} stroke="none" />
+          ))}
+          {LINES.map(({ key, color }) => (
+            <path key={key} d={buildPath(key)} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+          ))}
+          {LINES.map(({ key, color }) =>
+            days.map((d, i) => (
+              <circle key={`${key}-${i}`} cx={getX(i)} cy={getY(d[key])} r={hoveredDay === i ? 4 : 2.5} fill={color} stroke="#070A1A" strokeWidth="1.5" />
+            ))
+          )}
+          {days.map((_, i) => {
+            const x = i === 0 ? PAD.left : getX(i) - bandW / 2;
+            const w = i === 0 || i === n - 1 ? bandW / 2 : bandW;
+            return <rect key={i} x={x} y={PAD.top} width={w} height={cH} fill="transparent" style={{ cursor: "crosshair" }} onMouseEnter={() => setHoveredDay(i)} />;
+          })}
+          {hovered && <line x1={tooltipX} y1={PAD.top} x2={tooltipX} y2={PAD.top + cH} stroke="#4F567E" strokeWidth="0.8" strokeDasharray="3,2" />}
+          {hovered && (
+            <g>
+              <rect x={tooltipOnRight ? tooltipX + 6 : tooltipX - 96} y={PAD.top + 2} width={90} height={42} rx={4} fill="#161B45" stroke="#232A52" strokeWidth="0.5" />
+              <text x={tooltipOnRight ? tooltipX + 11 : tooltipX - 90} y={PAD.top + 12} fontSize="7.5" fill="#8C93C4">{hovered.date}</text>
+              <text x={tooltipOnRight ? tooltipX + 11 : tooltipX - 90} y={PAD.top + 24} fontSize="8" fill="#34D88E" fontWeight="600">Delivered: {hovered.Delivered}</text>
+              <text x={tooltipOnRight ? tooltipX + 11 : tooltipX - 90} y={PAD.top + 36} fontSize="8" fill="#F26D6D" fontWeight="600">Returned: {hovered.Returned}</text>
+            </g>
+          )}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
 export default function CourierDashboard({ storeId }) {
-  const [shipments, setShipments] = useState([]);
+  const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
@@ -45,78 +195,80 @@ export default function CourierDashboard({ storeId }) {
     if (!storeId) return;
     setLoading(true);
     setErrorMsg("");
-    fetchAllShipments(storeId)
-      .then(setShipments)
+    Promise.all([fetchAllCachedOrders(storeId), fetchAllOrderStatuses()])
+      .then(([cached, statuses]) => {
+        const statusMap = {};
+        statuses.forEach((s) => { statusMap[s.order_id] = s; });
+        const merged = cached
+          .map((o) => ({ ...o, agent_data: statusMap[String(o.id)] || {} }))
+          .filter((o) => o.agent_data.dex_tracking_number);
+        setOrders(merged);
+      })
       .catch((err) => setErrorMsg(err.message))
       .finally(() => setLoading(false));
   }, [storeId]);
 
   const stats = useMemo(() => {
-    const total = shipments.length;
-    const delivered = shipments.filter((s) => s.delivered_time).length;
-    const returned = shipments.filter((s) => s.return_success_time || s.failed_return_time).length;
-    const pending = total - delivered - returned;
+    const total = orders.length;
+    const buckets = orders.map((o) => bucketCourierStatus(o.agent_data.courier_order_status));
+    const delivered = buckets.filter((b) => b === "Delivered").length;
+    const returned = buckets.filter((b) => b === "Returned").length;
+    const failed = buckets.filter((b) => b === "Failed Delivery").length;
+    const inTransit = buckets.filter((b) => b === "In Transit").length;
     const successRate = total ? Math.round((delivered / total) * 100) : 0;
 
-    const deliveryDurations = shipments
-      .filter((s) => s.delivered_time && s.package_created_time)
-      .map((s) => (new Date(s.delivered_time) - new Date(s.package_created_time)) / 3600000)
-      .filter((h) => h >= 0);
-    const avgDeliveryHours = deliveryDurations.length
-      ? deliveryDurations.reduce((a, b) => a + b, 0) / deliveryDurations.length
-      : null;
+    const attemptCounts = orders.map((o) => Number(o.agent_data.delivery_attempt_count) || 0);
+    const avgAttempts = attemptCounts.length ? attemptCounts.reduce((a, b) => a + b, 0) / attemptCounts.length : 0;
+
+    // Status Funnel: dex_status (live API se mapped label, ya Excel se raw logistics status —
+    // "logistics_status" column alag se nahi banaya, dex_status hi reuse hota hai)
+    const statusCounts = {};
+    orders.forEach((o) => {
+      const status = o.agent_data.dex_status || "Unknown";
+      statusCounts[status] = (statusCounts[status] || 0) + 1;
+    });
+    const statusFunnel = Object.entries(statusCounts).sort((a, b) => b[1] - a[1]);
+
+    const courierCounts = {};
+    orders.forEach((o) => {
+      const courier = o.agent_data.courier_name || "Unknown";
+      courierCounts[courier] = (courierCounts[courier] || 0) + 1;
+    });
+    const courierSplit = Object.entries(courierCounts).sort((a, b) => b[1] - a[1]);
 
     const reasonCounts = {};
-    const reasonCols = [
-      "failed_pickup_reason",
-      "first_failed_delivery_attempt_reason",
-      "second_failed_delivery_attempt_reason",
-      "third_failed_delivery_attempt_reason",
-      "fourth_failed_delivery_attempt_reason",
-    ];
-    shipments.forEach((s) => {
-      reasonCols.forEach((col) => {
-        const reason = s[col];
-        if (reason) reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
-      });
+    orders.forEach((o) => {
+      const reason = o.agent_data.latest_fail_reason;
+      if (reason) reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
     });
     const topReasons = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
 
     const cityMap = {};
-    shipments.forEach((s) => {
-      const city = s.receiver_level3_address || "Unknown";
+    orders.forEach((o) => {
+      const city = o.agent_data.city || o.shipping_address?.city || "Unknown";
       if (!cityMap[city]) cityMap[city] = { total: 0, delivered: 0 };
       cityMap[city].total++;
-      if (s.delivered_time) cityMap[city].delivered++;
+      if (o.agent_data.delivered_at) cityMap[city].delivered++;
     });
     const topCities = Object.entries(cityMap)
       .sort((a, b) => b[1].total - a[1].total)
       .slice(0, 8)
       .map(([city, v]) => ({ city, ...v, rate: v.total ? Math.round((v.delivered / v.total) * 100) : 0 }));
 
-    const statusCounts = {};
-    shipments.forEach((s) => {
-      const status = s.logistics_current_status || "Unknown";
-      statusCounts[status] = (statusCounts[status] || 0) + 1;
-    });
-    const statusFunnel = Object.entries(statusCounts).sort((a, b) => b[1] - a[1]);
-
-    return { total, delivered, returned, pending, successRate, avgDeliveryHours, topReasons, topCities, statusFunnel };
-  }, [shipments]);
+    return { total, delivered, returned, failed, inTransit, successRate, avgAttempts, statusFunnel, courierSplit, topReasons, topCities };
+  }, [orders]);
 
   if (loading) {
     return <div style={{ padding: "3rem", textAlign: "center", color: "var(--ne-muted)" }}>Loading courier data...</div>;
   }
-
   if (errorMsg) {
     return <div style={{ padding: "1.5rem", color: "var(--ne-danger)", fontSize: 13 }}>{errorMsg}</div>;
   }
-
   if (stats.total === 0) {
     return (
       <div style={{ padding: "2rem", textAlign: "center", color: "var(--ne-muted)" }}>
         <div style={{ fontSize: 32, marginBottom: 8 }}>📦</div>
-        <p>Abhi koi Dex shipment data nahi mila. "Courier Connect" page se Excel upload karo.</p>
+        <p>Abhi koi booked shipment nahi mili. "Courier Connect" page se Excel upload karo ya live Dex se shipment banao.</p>
       </div>
     );
   }
@@ -124,9 +276,16 @@ export default function CourierDashboard({ storeId }) {
   const heroChips = [
     { label: "Total Shipments", value: stats.total },
     { label: "Delivered", value: stats.delivered },
-    { label: "Returned/Failed", value: stats.returned },
-    { label: "Pending/In-Transit", value: stats.pending },
-    { label: "Avg Delivery Time", value: fmtHours(stats.avgDeliveryHours) },
+    { label: "Returned/Failed", value: stats.returned + stats.failed },
+    { label: "In Transit", value: stats.inTransit },
+    { label: "Avg Attempts", value: stats.avgAttempts.toFixed(1) },
+  ];
+
+  const kpiCards = [
+    { label: "Delivered", value: stats.delivered, color: "var(--ne-success)" },
+    { label: "Returned", value: stats.returned, color: "var(--ne-danger)" },
+    { label: "In Transit", value: stats.inTransit, color: "var(--ne-accent)" },
+    { label: "Failed", value: stats.failed, color: "var(--ne-orange)" },
   ];
 
   return (
@@ -134,7 +293,7 @@ export default function CourierDashboard({ storeId }) {
       {/* Hero */}
       <div style={{ background: "var(--ne-grad)", borderRadius: 18, padding: "1.4rem", marginBottom: "0.75rem", display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "center", flexWrap: "wrap", gap: 16 }}>
         <div>
-          <div style={{ fontSize: 12, color: "rgba(255,255,255,.75)", fontWeight: 600, marginBottom: 4 }}>Success Rate</div>
+          <div style={{ fontSize: 12, color: "rgba(255,255,255,.75)", fontWeight: 600, marginBottom: 4 }}>Overall Delivery Success Rate</div>
           <div style={{ fontSize: 30, fontWeight: 800, color: "#fff" }}>{stats.successRate}%</div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -146,6 +305,22 @@ export default function CourierDashboard({ storeId }) {
           ))}
         </div>
       </div>
+
+      {/* KPI Row */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: "0.6rem", marginBottom: "0.75rem" }}>
+        {kpiCards.map((k) => {
+          const p = stats.total ? Math.round((k.value / stats.total) * 100) : 0;
+          return (
+            <div key={k.label} style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderLeft: `4px solid ${k.color}`, borderRadius: 10, padding: "10px 14px" }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: k.color }}>{k.value}</div>
+              <div style={{ fontSize: 11, color: "var(--ne-muted)", fontWeight: 600, marginTop: 2 }}>{k.label} ({p}%)</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Trend Chart */}
+      <DeliveredVsReturnedChart orders={orders} />
 
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" }}>
         {/* Status Funnel */}
@@ -167,28 +342,48 @@ export default function CourierDashboard({ storeId }) {
           </div>
         </div>
 
-        {/* Failed Reason Breakdown */}
+        {/* Courier Split */}
         <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem" }}>
-          <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>⚠️ Failed Delivery Reasons</h2>
-          {stats.topReasons.length === 0 ? (
-            <p style={{ color: "var(--ne-muted-2)", fontSize: 12 }}>Koi failed-attempt data nahi</p>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-              {stats.topReasons.map(([reason, count]) => {
-                const p = stats.total ? Math.round((count / stats.total) * 100) : 0;
-                return (
-                  <div key={reason} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 11, color: "var(--ne-text)", minWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 }}>{reason}</span>
-                    <div style={{ flex: 1, background: "var(--ne-bg)", borderRadius: 999, height: 10, overflow: "hidden" }}>
-                      <div style={{ width: `${p}%`, background: "var(--ne-danger)", height: "100%", borderRadius: 999 }} />
-                    </div>
-                    <span style={{ fontSize: 11, color: "var(--ne-muted)", minWidth: 30, textAlign: "right", fontWeight: 600 }}>{count}</span>
+          <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>🚚 Courier Split</h2>
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {stats.courierSplit.map(([courier, count]) => {
+              const p = stats.total ? Math.round((count / stats.total) * 100) : 0;
+              const color = courierColor(courier);
+              return (
+                <div key={courier} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ padding: "2px 9px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: `${color}22`, color, minWidth: 90, textAlign: "center" }}>{courier}</span>
+                  <div style={{ flex: 1, background: "var(--ne-bg)", borderRadius: 999, height: 10, overflow: "hidden" }}>
+                    <div style={{ width: `${p}%`, background: color, height: "100%", borderRadius: 999 }} />
                   </div>
-                );
-              })}
-            </div>
-          )}
+                  <span style={{ fontSize: 11, color: "var(--ne-muted)", minWidth: 55, textAlign: "right", fontWeight: 600 }}>{count} ({p}%)</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
+      </div>
+
+      {/* Failed Delivery Reasons */}
+      <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem", marginBottom: "0.75rem" }}>
+        <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>⚠️ Failed Delivery Reasons</h2>
+        {stats.topReasons.length === 0 ? (
+          <p style={{ color: "var(--ne-muted-2)", fontSize: 12 }}>Koi failed-attempt data nahi</p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {stats.topReasons.map(([reason, count]) => {
+              const p = stats.total ? Math.round((count / stats.total) * 100) : 0;
+              return (
+                <div key={reason} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 11, color: "var(--ne-text)", minWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 }}>{reason}</span>
+                  <div style={{ flex: 1, background: "var(--ne-bg)", borderRadius: 999, height: 10, overflow: "hidden" }}>
+                    <div style={{ width: `${p}%`, background: "linear-gradient(90deg, var(--ne-orange) 0%, var(--ne-danger) 100%)", height: "100%", borderRadius: 999 }} />
+                  </div>
+                  <span style={{ fontSize: 11, color: "var(--ne-muted)", minWidth: 30, textAlign: "right", fontWeight: 600 }}>{count}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* City Performance */}
@@ -198,17 +393,20 @@ export default function CourierDashboard({ storeId }) {
           <p style={{ color: "var(--ne-muted-2)", fontSize: 12 }}>Koi data nahi</p>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-            {stats.topCities.map(({ city, total, delivered, rate }) => (
-              <div key={city} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 11, color: "var(--ne-text)", minWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 }}>{city}</span>
-                <div style={{ flex: 1, background: "var(--ne-bg)", borderRadius: 999, height: 12, overflow: "hidden" }}>
-                  <div style={{ width: `${rate}%`, background: "var(--ne-grad)", height: "100%", borderRadius: 999 }} />
+            {stats.topCities.map(({ city, total, delivered, rate }) => {
+              const rateColor = rate >= 65 ? "var(--ne-success)" : rate >= 50 ? "var(--ne-warning)" : "var(--ne-danger)";
+              return (
+                <div key={city} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 11, color: "var(--ne-text)", minWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 }}>{city}</span>
+                  <div style={{ flex: 1, background: "var(--ne-bg)", borderRadius: 999, height: 12, overflow: "hidden" }}>
+                    <div style={{ width: `${rate}%`, background: rateColor, height: "100%", borderRadius: 999 }} />
+                  </div>
+                  <span style={{ fontSize: 11, color: rateColor, minWidth: 130, textAlign: "right", fontWeight: 700 }}>
+                    {delivered}/{total} delivered ({rate}%)
+                  </span>
                 </div>
-                <span style={{ fontSize: 11, color: "var(--ne-muted)", minWidth: 110, textAlign: "right", fontWeight: 600 }}>
-                  {delivered}/{total} delivered ({rate}%)
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

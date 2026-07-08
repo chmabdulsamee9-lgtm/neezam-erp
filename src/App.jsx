@@ -1000,7 +1000,7 @@ function App() {
               <AdsAnalytics ordersData={ordersData} storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
             )}
             {activeMenu === 'courier' && hasAccess('courier') && (
-              <BookedOrders ordersData={ordersData} setOrdersData={setOrdersData} storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
+              <BookedOrders storeId={selectedStoreId} ordersStore={ordersStore} />
             )}
             {activeMenu === 'courier-connect' && hasAccess('courier-connect') && (
               <CourierConnect storeId={selectedStoreId} />
