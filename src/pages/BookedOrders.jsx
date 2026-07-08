@@ -1,7 +1,9 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../supabase";
+import { getCachedBookedOrders, saveBookedOrdersBulk, getMeta, setMeta } from "../ordersCache";
 
 const PAGE_SIZE = 1000;
+const PER_PAGE_OPTIONS = [20, 50, 100];
 
 // Courier company brand colors — jaise Dashboard.jsx ke SOURCE_COLORS (Meta/TikTok/etc),
 // yeh company-identity colors hain, theme-reactive semantic vars nahi
@@ -56,6 +58,29 @@ async function fetchBookedStatuses(storeId) {
   return allRows;
 }
 
+// Orders.jsx ke delta-sync jaisa: sirf woh rows jo lastSyncedAt ke baad update hui hon —
+// updated_at hi teeno write-paths (call-center edit, live Dex API, Excel import) se touch
+// hota hai, isliye yehi field "row change ho gayi" ka reliable signal hai
+async function fetchBookedStatusesDelta(storeId, since) {
+  let allRows = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from("order_statuses")
+      .select("*")
+      .eq("store_id", storeId)
+      .not("dex_tracking_number", "is", null)
+      .gt("updated_at", since)
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    allRows = allRows.concat(data);
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return allRows;
+}
+
 async function fetchCachedOrdersByIds(storeId, ids) {
   if (ids.length === 0) return [];
   let allRows = [];
@@ -73,6 +98,24 @@ async function fetchCachedOrdersByIds(storeId, ids) {
   return allRows;
 }
 
+async function buildMergedBookedOrders(storeId, statuses) {
+  const orderIds = statuses.filter((s) => s.order_id).map((s) => s.order_id);
+  const cachedRows = await fetchCachedOrdersByIds(storeId, orderIds);
+  const cacheMap = {};
+  cachedRows.forEach((r) => { cacheMap[String(r.id)] = r.raw_data; });
+  return statuses.map((s) => {
+    const raw = s.order_id ? cacheMap[String(s.order_id)] : null;
+    return {
+      id: s.order_id || `manual-${s.manual_order_number}`,
+      name: raw?.name || s.manual_order_number || "—",
+      customer: raw?.customer || null,
+      shipping_address: raw?.shipping_address || null,
+      agent_data: s,
+      isManual: !s.order_id,
+    };
+  });
+}
+
 const fmtDateTime = (iso) => (iso ? new Date(iso).toLocaleString("en-PK", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : null);
 
 export default function BookedOrders({ storeId, ordersStore }) {
@@ -84,6 +127,8 @@ export default function BookedOrders({ storeId, ordersStore }) {
   const [activeTab, setActiveTab] = useState("All");
   const [courierFilter, setCourierFilter] = useState("All");
   const [expandedIds, setExpandedIds] = useState(new Set());
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(20);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
@@ -95,32 +140,56 @@ export default function BookedOrders({ storeId, ordersStore }) {
     if (storeId) loadBooked();
   }, [storeId]);
 
+  const metaKey = `bookedLastSyncedAt-${storeId}`;
+
+  // Orders.jsx ke autoLoadOrders() jaisa hi pattern: cache mein data ho to FORAN dikhao
+  // (koi spinner nahi), phir background mein sirf changed rows (updated_at > lastSyncedAt)
+  // silently fetch kar ke merge/cache update karo
   const loadBooked = async () => {
-    setLoading(true);
     setError("");
     try {
-      const statuses = await fetchBookedStatuses(storeId);
-      const orderIds = statuses.filter((s) => s.order_id).map((s) => s.order_id);
-      const cachedRows = await fetchCachedOrdersByIds(storeId, orderIds);
-      const cacheMap = {};
-      cachedRows.forEach((r) => { cacheMap[String(r.id)] = r.raw_data; });
+      const cached = await getCachedBookedOrders();
+      const cachedForStore = cached.filter((o) => o.agent_data?.store_id === storeId);
 
-      const merged = statuses.map((s) => {
-        const raw = s.order_id ? cacheMap[String(s.order_id)] : null;
-        return {
-          id: s.order_id || `manual-${s.manual_order_number}`,
-          name: raw?.name || s.manual_order_number || "—",
-          customer: raw?.customer || null,
-          shipping_address: raw?.shipping_address || null,
-          agent_data: s,
-          isManual: !s.order_id,
-        };
-      });
+      if (cachedForStore.length > 0) {
+        setOrders(cachedForStore);
+        setLoading(false);
+        refreshBookedDelta();
+        return;
+      }
+
+      setLoading(true);
+      const loadStartTime = new Date().toISOString();
+      const statuses = await fetchBookedStatuses(storeId);
+      const merged = await buildMergedBookedOrders(storeId, statuses);
       setOrders(merged);
+      await saveBookedOrdersBulk(merged);
+      await setMeta(metaKey, loadStartTime);
     } catch (err) {
       setError(err.message);
     }
     setLoading(false);
+  };
+
+  const refreshBookedDelta = async () => {
+    try {
+      const lastSyncedAt = (await getMeta(metaKey)) || "2000-01-01T00:00:00Z";
+      const loadStartTime = new Date().toISOString();
+      const deltaStatuses = await fetchBookedStatusesDelta(storeId, lastSyncedAt);
+      if (deltaStatuses.length > 0) {
+        const deltaMerged = await buildMergedBookedOrders(storeId, deltaStatuses);
+        setOrders((prev) => {
+          const map = {};
+          prev.forEach((o) => { map[o.id] = o; });
+          deltaMerged.forEach((o) => { map[o.id] = o; });
+          return Object.values(map);
+        });
+        await saveBookedOrdersBulk(deltaMerged);
+      }
+      await setMeta(metaKey, loadStartTime);
+    } catch (err) {
+      console.log("Booked delta sync error:", err.message);
+    }
   };
 
   const toggleExpand = (id) => {
@@ -153,6 +222,9 @@ export default function BookedOrders({ storeId, ordersStore }) {
     return matchSearch && matchTab && matchCourier;
   });
 
+  const totalPages = Math.ceil(filtered.length / perPage) || 1;
+  const pagedFiltered = filtered.slice((page - 1) * perPage, page * perPage);
+
   const cardStyle = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "12px 14px", marginBottom: 8 };
 
   if (error) return <div style={{ padding: "2rem", color: "var(--ne-danger)" }}>❌ {error}</div>;
@@ -164,13 +236,17 @@ export default function BookedOrders({ storeId, ordersStore }) {
           <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>🚚 Booked Orders</h1>
           <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{ordersStore?.store_name} — {filtered.length} shipments</p>
         </div>
+        <select value={perPage} onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); }}
+          style={{ padding: "5px 8px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
+          {PER_PAGE_OPTIONS.map((n) => <option key={n} value={n}>{n} / page</option>)}
+        </select>
       </div>
 
       {/* Search + Courier Filter */}
       <div style={{ display: "flex", gap: 6, marginBottom: "0.6rem", flexWrap: "wrap" }}>
-        <input type="text" placeholder="🔍 Naam, phone, order#, tracking#..." value={search} onChange={(e) => setSearch(e.target.value)}
+        <input type="text" placeholder="🔍 Naam, phone, order#, tracking#..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           style={{ flex: 1, minWidth: 160, padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
-        <select value={courierFilter} onChange={(e) => setCourierFilter(e.target.value)}
+        <select value={courierFilter} onChange={(e) => { setCourierFilter(e.target.value); setPage(1); }}
           style={{ padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }}>
           {availableCouriers.map((c) => <option key={c} value={c}>{c === "All" ? "All Couriers" : c}</option>)}
         </select>
@@ -179,7 +255,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
       {/* Status Tabs */}
       <div style={{ display: "flex", gap: 7, marginBottom: "0.75rem", flexWrap: "wrap" }}>
         {STATUS_TABS.map((tab) => (
-          <button key={tab} onClick={() => setActiveTab(tab)}
+          <button key={tab} onClick={() => { setActiveTab(tab); setPage(1); }}
             style={{ padding: "7px 14px", borderRadius: 20, fontSize: 11.5, cursor: "pointer", fontWeight: 700, border: "1px solid",
               borderColor: activeTab === tab ? "transparent" : "var(--ne-border)",
               background: activeTab === tab ? "var(--ne-grad)" : "var(--ne-surface-2)",
@@ -200,7 +276,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
         <div style={{ ...cardStyle, textAlign: "center", color: "var(--ne-muted-2)", fontSize: 12 }}>Is filter mein koi booked order nahi.</div>
       ) : (
         <div>
-          {filtered.map((o) => {
+          {pagedFiltered.map((o) => {
             const ad = o.agent_data;
             const bucket = bucketCourierStatus(ad.courier_order_status);
             const meta = STATUS_BUCKET_META[bucket] || { color: "var(--ne-muted-2)", bg: "var(--ne-surface)" };
@@ -287,6 +363,25 @@ export default function BookedOrders({ storeId, ordersStore }) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Pagination — Orders.jsx wala exact pattern */}
+      {!loading && filtered.length > 0 && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.6rem", flexWrap: "wrap", gap: 8 }}>
+          <span style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>
+            Showing {((page - 1) * perPage) + 1}–{Math.min(page * perPage, filtered.length)} of {filtered.length}
+          </span>
+          <div style={{ display: "flex", gap: 4 }}>
+            <button onClick={() => setPage(1)} disabled={page === 1} style={{ padding: "4px 9px", borderRadius: 7, border: "1px solid var(--ne-border)", background: page === 1 ? "transparent" : "var(--ne-surface-2)", color: page === 1 ? "var(--ne-muted-2)" : "var(--ne-muted)", fontSize: 11, cursor: page === 1 ? "default" : "pointer" }}>«</button>
+            <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} style={{ padding: "4px 9px", borderRadius: 7, border: "1px solid var(--ne-border)", background: page === 1 ? "transparent" : "var(--ne-surface-2)", color: page === 1 ? "var(--ne-muted-2)" : "var(--ne-muted)", fontSize: 11, cursor: page === 1 ? "default" : "pointer" }}>‹</button>
+            {[...Array(Math.min(5, totalPages))].map((_, idx) => {
+              const p = Math.max(1, Math.min(page - 2, totalPages - 4)) + idx;
+              return <button key={p} onClick={() => setPage(p)} style={{ padding: "4px 9px", borderRadius: 7, border: "1px solid var(--ne-border)", background: page === p ? "var(--ne-grad)" : "var(--ne-surface-2)", color: page === p ? "#fff" : "var(--ne-muted)", fontSize: 11, cursor: "pointer", fontWeight: page === p ? 700 : 400 }}>{p}</button>;
+            })}
+            <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={{ padding: "4px 9px", borderRadius: 7, border: "1px solid var(--ne-border)", background: page === totalPages ? "transparent" : "var(--ne-surface-2)", color: page === totalPages ? "var(--ne-muted-2)" : "var(--ne-muted)", fontSize: 11, cursor: page === totalPages ? "default" : "pointer" }}>›</button>
+            <button onClick={() => setPage(totalPages)} disabled={page === totalPages} style={{ padding: "4px 9px", borderRadius: 7, border: "1px solid var(--ne-border)", background: page === totalPages ? "transparent" : "var(--ne-surface-2)", color: page === totalPages ? "var(--ne-muted-2)" : "var(--ne-muted)", fontSize: 11, cursor: page === totalPages ? "default" : "pointer" }}>»</button>
+          </div>
         </div>
       )}
     </div>

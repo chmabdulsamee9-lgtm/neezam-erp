@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useId } from "react";
 import { supabase } from "../supabase";
+import { getCachedBookedOrders, saveBookedOrdersBulk, getMeta, setMeta } from "../ordersCache";
 
 const PAGE_SIZE = 1000;
 
@@ -61,6 +62,49 @@ async function fetchCachedOrdersByIds(storeId, ids) {
     allRows = allRows.concat(data || []);
   }
   return allRows;
+}
+
+// Orders.jsx ke delta-sync jaisa: sirf woh rows jo lastSyncedAt ke baad update hui hon —
+// updated_at hi teeno write-paths (call-center edit, live Dex API, Excel import) se touch
+// hota hai, isliye yehi field "row change ho gayi" ka reliable signal hai
+async function fetchBookedStatusesDelta(storeId, since) {
+  let allRows = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from("order_statuses")
+      .select("*")
+      .eq("store_id", storeId)
+      .not("dex_tracking_number", "is", null)
+      .gt("updated_at", since)
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    allRows = allRows.concat(data);
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return allRows;
+}
+
+// BookedOrders.jsx ke buildMergedBookedOrders() jaisa hi (same shape) — dono pages ek hi
+// shared IndexedDB cache-store (booked_orders) use karte hain
+async function buildMergedBookedOrders(storeId, statuses) {
+  const orderIds = statuses.filter((s) => s.order_id).map((s) => s.order_id);
+  const cachedRows = await fetchCachedOrdersByIds(storeId, orderIds);
+  const cacheMap = {};
+  cachedRows.forEach((r) => { cacheMap[String(r.id)] = r.raw_data; });
+  return statuses.map((s) => {
+    const raw = s.order_id ? cacheMap[String(s.order_id)] : null;
+    return {
+      id: s.order_id || `manual-${s.manual_order_number}`,
+      name: raw?.name || s.manual_order_number || "—",
+      customer: raw?.customer || null,
+      shipping_address: raw?.shipping_address || null,
+      agent_data: s,
+      isManual: !s.order_id,
+    };
+  });
 }
 
 const fmtHours = (h) => {
@@ -196,24 +240,59 @@ export default function CourierDashboard({ storeId }) {
   }, []);
 
   useEffect(() => {
-    if (!storeId) return;
-    setLoading(true);
-    setErrorMsg("");
-    fetchBookedStatuses(storeId)
-      .then(async (statuses) => {
-        const orderIds = statuses.filter((s) => s.order_id).map((s) => s.order_id);
-        const cachedRows = await fetchCachedOrdersByIds(storeId, orderIds);
-        const cacheMap = {};
-        cachedRows.forEach((r) => { cacheMap[String(r.id)] = r.raw_data; });
-        const merged = statuses.map((s) => ({
-          shipping_address: s.order_id ? cacheMap[String(s.order_id)]?.shipping_address || null : null,
-          agent_data: s,
-        }));
-        setOrders(merged);
-      })
-      .catch((err) => setErrorMsg(err.message))
-      .finally(() => setLoading(false));
+    if (storeId) loadBooked();
   }, [storeId]);
+
+  const metaKey = `bookedLastSyncedAt-${storeId}`;
+
+  // BookedOrders.jsx wala exact pattern: cache mein data ho to FORAN dikhao (koi spinner
+  // nahi), phir background mein sirf changed rows silently fetch/merge/cache-update karo
+  const loadBooked = async () => {
+    setErrorMsg("");
+    try {
+      const cached = await getCachedBookedOrders();
+      const cachedForStore = cached.filter((o) => o.agent_data?.store_id === storeId);
+
+      if (cachedForStore.length > 0) {
+        setOrders(cachedForStore);
+        setLoading(false);
+        refreshBookedDelta();
+        return;
+      }
+
+      setLoading(true);
+      const loadStartTime = new Date().toISOString();
+      const statuses = await fetchBookedStatuses(storeId);
+      const merged = await buildMergedBookedOrders(storeId, statuses);
+      setOrders(merged);
+      await saveBookedOrdersBulk(merged);
+      await setMeta(metaKey, loadStartTime);
+    } catch (err) {
+      setErrorMsg(err.message);
+    }
+    setLoading(false);
+  };
+
+  const refreshBookedDelta = async () => {
+    try {
+      const lastSyncedAt = (await getMeta(metaKey)) || "2000-01-01T00:00:00Z";
+      const loadStartTime = new Date().toISOString();
+      const deltaStatuses = await fetchBookedStatusesDelta(storeId, lastSyncedAt);
+      if (deltaStatuses.length > 0) {
+        const deltaMerged = await buildMergedBookedOrders(storeId, deltaStatuses);
+        setOrders((prev) => {
+          const map = {};
+          prev.forEach((o) => { map[o.id] = o; });
+          deltaMerged.forEach((o) => { map[o.id] = o; });
+          return Object.values(map);
+        });
+        await saveBookedOrdersBulk(deltaMerged);
+      }
+      await setMeta(metaKey, loadStartTime);
+    } catch (err) {
+      console.log("Booked delta sync error:", err.message);
+    }
+  };
 
   const stats = useMemo(() => {
     const total = orders.length;
