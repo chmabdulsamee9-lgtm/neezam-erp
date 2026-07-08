@@ -20,6 +20,16 @@ const asRows = (data) => {
 
 const money = (v) => (v === null || v === undefined ? "—" : `Rs. ${Number(v).toLocaleString()}`);
 
+// Dex externalOrderId format: "PREFIX[-VARIANT]_shopifyId_suffix" (jaise DWK2366_7859021644086_362,
+// DWK2265-F1_6105674187062_264) — Shopify order name ("#DWK2366") sirf prefix (variant/suffix
+// hataa kar) hota hai, isliye Shopify orders se match/display karne ke liye hamesha yehi extract karte hain.
+const extractOrderRef = (externalOrderId) => {
+  if (!externalOrderId) return null;
+  const beforeUnderscore = String(externalOrderId).split("_")[0];
+  const prefix = beforeUnderscore.split("-")[0];
+  return prefix ? `#${prefix}` : null;
+};
+
 export default function Payments({ storeId, cfUrl }) {
   const [activeTab, setActiveTab] = useState("statement");
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
@@ -154,7 +164,7 @@ export default function Payments({ storeId, cfUrl }) {
     const rowDate = pick(row, ["date", "transactionDate", "createdAt"]);
 
     const matchStatement = !txFilters.statementNo || String(statementNo || "").toLowerCase().includes(txFilters.statementNo.toLowerCase());
-    const matchSearch = !txFilters.search || [orderNo, externalOrderNo, trackingNo].some(v => String(v || "").toLowerCase().includes(txFilters.search.toLowerCase()));
+    const matchSearch = !txFilters.search || [orderNo, externalOrderNo, extractOrderRef(externalOrderNo), trackingNo].some(v => String(v || "").toLowerCase().includes(txFilters.search.toLowerCase()));
     const matchFrom = !txFilters.dateFrom || (rowDate && new Date(rowDate) >= new Date(txFilters.dateFrom));
     const matchTo = !txFilters.dateTo || (rowDate && new Date(rowDate) <= new Date(txFilters.dateTo + "T23:59:59"));
     return matchStatement && matchSearch && matchFrom && matchTo;
@@ -202,7 +212,7 @@ export default function Payments({ storeId, cfUrl }) {
                   <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "center", gap: 8 }}>
                     <div>
                       <div style={{ fontWeight: 700, fontSize: 13, color: "var(--ne-text)" }}>{orderNo ?? "—"}</div>
-                      <div style={{ fontSize: 11, color: "var(--ne-muted)" }}>Ext. Order: {externalOrderNo ?? "—"} · Tracking: {trackingNo ?? "—"}</div>
+                      <div style={{ fontSize: 11, color: "var(--ne-muted)" }}>Ext. Order: {extractOrderRef(externalOrderNo) ?? "—"} · Tracking: {trackingNo ?? "—"}</div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                       <div style={{ textAlign: "right" }}>

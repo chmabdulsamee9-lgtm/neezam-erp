@@ -273,7 +273,7 @@ export default function Login() {
               <Monogram size={64} />
             </div>
             <div style={{ marginBottom: 14 }}>
-              <Wordmark size={34} />
+              <Wordmark size={34} dark />
             </div>
             <p style={{ color: 'rgba(255,255,255,.6)', fontSize: 14, maxWidth: 320, lineHeight: 1.6, margin: '0 auto' }}>
               Multi-tenant order management ERP — Shopify, COD couriers, ads, aur finance sab ek jagah.

@@ -21,7 +21,6 @@
 .ne-sidebar.collapsed{width:64px; align-items:center; padding:20px 8px;}
 .ne-brand-row{display:flex; align-items:center; gap:9px; padding:6px 8px 18px;}
 .ne-sidebar.collapsed .ne-brand-row{padding:6px 0 18px; justify-content:center;}
-.ne-brand{font-size:18px; font-weight:800; color:#fff;}
 .ne-live-dot{width:7px; height:7px; border-radius:50%; background:var(--ne-success); box-shadow:0 0 0 0 rgba(52,216,142,.6); animation:ne-pulse 2s infinite; flex-shrink:0;}
 @keyframes ne-pulse{0%{box-shadow:0 0 0 0 rgba(52,216,142,.5);} 70%{box-shadow:0 0 0 6px rgba(52,216,142,0);} 100%{box-shadow:0 0 0 0 rgba(52,216,142,0);}}
 

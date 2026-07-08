@@ -57,7 +57,7 @@ function SplashScreen() {
   return (
     <div className="ne-app-shell" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18, background: '#0A0E26' }}>
       <Monogram size={90} animated />
-      <Wordmark size={26} animated />
+      <Wordmark size={26} animated dark />
     </div>
   )
 }
@@ -874,7 +874,8 @@ function App() {
 
         <div className={`ne-sidebar${sidebarOpen ? '' : ' collapsed'}${mobileDrawerOpen ? ' open' : ''}`}>
           <div className="ne-brand-row">
-            <span className="ne-brand">نظام</span>
+            <Monogram size={22} />
+            {(sidebarOpen || mobileDrawerOpen) && <Wordmark size={15} dark />}
             <span className="ne-live-dot" title="Realtime connected" />
             {(sidebarOpen || mobileDrawerOpen) && (
               <button className="ne-collapse-btn" onClick={() => setSidebarOpen(!sidebarOpen)} style={{ marginLeft: 'auto' }}>◀</button>

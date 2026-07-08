@@ -33,11 +33,14 @@ export function Monogram({ size = 32, animated = false }) {
 
 // "e" gradient + "Neezam" solid — poori app mein wordmark ka single source of truth.
 // animated=true wordmark ko fade+slide-up deta hai (splash ke liye, delay CSS mein set hai).
-export function Wordmark({ size = 22, animated = false, className = "" }) {
+// dark=true "Neezam" hissay ko explicit white kar deta hai — sirf un jagah pass karo jahan
+// background hamesha dark navy ho (splash, sidebar, Login ka left panel); jahan background
+// theme-reactive surface ho (jaise mobile Login card), dark chhod do taake --ne-text inherit ho.
+export function Wordmark({ size = 22, animated = false, className = "", dark = false }) {
   return (
     <span
       className={`${animated ? "ne-splash-wordmark" : ""} ${className}`.trim()}
-      style={{ fontSize: size, fontWeight: 700, letterSpacing: "-0.5px" }}
+      style={{ fontSize: size, fontWeight: 700, letterSpacing: "-0.5px", color: dark ? "#fff" : undefined }}
     >
       <span className="ne-wordmark-e">e</span>Neezam
     </span>
