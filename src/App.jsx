@@ -21,6 +21,7 @@ import SupplierLedger from './pages/SupplierLedger'
 import BudgetCalculator from './pages/BudgetCalculator'
 import CourierConnect from './pages/CourierConnect'
 import CourierDashboard from './pages/CourierDashboard'
+import CourierDetailedView from './pages/CourierDetailedView'
 import BookedOrders from './pages/BookedOrders'
 import Payments from './pages/Payments'
 import MetaConnect from './pages/MetaConnect'
@@ -858,7 +859,7 @@ function App() {
 
   const alwaysVisibleIds = ['team', 'activity-log', 'settings']
   const menuItems = menuItemsWithExtras.filter(m => hasAccess(m.id) || alwaysVisibleIds.includes(m.id))
-  const fullScreenModules = ['orders']
+  const fullScreenModules = ['orders', 'courier-dashboard/detailed']
   const currentStoreInfo = userStoresList.find(us => us.store_id === selectedStoreId)?.stores
 
   // Group nav items in original order, preserving group sequence
@@ -1046,7 +1047,10 @@ function App() {
             {activeMenu === 'courier-dashboard' && hasAccess('courier-dashboard') && (
               <CourierDashboard storeId={selectedStoreId} />
             )}
-            {!['dashboard', 'store-connect', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'payments'].includes(activeMenu) && (
+            {activeMenu === 'courier-dashboard/detailed' && hasAccess('courier-dashboard') && (
+              <CourierDetailedView storeId={selectedStoreId} />
+            )}
+            {!['dashboard', 'store-connect', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments'].includes(activeMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{menuItems.find(m => m.id === activeMenu)?.label}</h2>

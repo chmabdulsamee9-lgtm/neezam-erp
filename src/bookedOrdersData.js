@@ -92,6 +92,49 @@ export async function fetchCachedOrdersByIds(storeId, ids) {
   return allRows;
 }
 
+// Granular 6-category bucketing (Status Funnel donut + CourierDetailedView tables) —
+// BookedOrders.jsx ke apne 4-category bucketCourierStatus() se ALAG/independent hai, wahan
+// koi change nahi kiya. Priority order (confirmed): Cancelled > Lost > Pickup Failed >
+// Returned > Delivered > In Transit (default) — pehle jo match ho jaye wahi jeetta hai.
+export const GRANULAR_STATUS_CATEGORIES = ["Delivered", "Returned", "Pickup Failed", "Cancelled", "Lost", "In Transit"];
+
+export function bucketCourierStatusGranular(raw) {
+  const s = (raw || "").toLowerCase();
+  if (!s) return "In Transit";
+  if (s.includes("cancel")) return "Cancelled";
+  if (s.includes("lost")) return "Lost";
+  if (s.includes("pickup") && s.includes("fail")) return "Pickup Failed";
+  if (s.includes("return")) return "Returned";
+  if (s.includes("deliver")) return "Delivered";
+  return "In Transit";
+}
+
+// Dashboard.jsx ke DATE_FILTERS/getDateRange() jaisa hi pattern — Courier Dashboard aur
+// Detailed View dono ke top-level date-filter ke liye reuse hota hai.
+export const DATE_FILTERS = [
+  { label: "Today", value: "today" },
+  { label: "Yesterday", value: "yesterday" },
+  { label: "Last 7 Days", value: "7days" },
+  { label: "Last 30 Days", value: "30days" },
+  { label: "Custom", value: "custom" },
+];
+
+export function getDateRange(dateFilter, customFrom, customTo) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (dateFilter === "today") return { from: today, to: new Date(today.getTime() + 86400000) };
+  if (dateFilter === "yesterday") {
+    const y = new Date(today.getTime() - 86400000);
+    return { from: y, to: today };
+  }
+  if (dateFilter === "7days") return { from: new Date(today.getTime() - 7 * 86400000), to: new Date(today.getTime() + 86400000) };
+  if (dateFilter === "30days") return { from: new Date(today.getTime() - 30 * 86400000), to: new Date(today.getTime() + 86400000) };
+  if (dateFilter === "custom" && customFrom && customTo) {
+    return { from: new Date(customFrom), to: new Date(new Date(customTo).getTime() + 86400000) };
+  }
+  return { from: today, to: new Date(today.getTime() + 86400000) };
+}
+
 export function mergeStatusesWithCache(statuses, cacheMap) {
   return statuses.map((s) => {
     const raw = s.order_id ? cacheMap[String(s.order_id)] : null;
