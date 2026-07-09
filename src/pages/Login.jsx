@@ -6,6 +6,47 @@ import Logo, { Monogram, Wordmark } from '../components/Logo'
 const CF_URL = 'https://neezam-erp.chmabdulsamee9.workers.dev'
 const isValidPhone = (p) => /^\d{11}$/.test(p.trim())
 
+// ---------- SPLIT-LAYOUT SHELL (PostEx-style, Aurora Ledger theme) ----------
+// Module-level (NOT inside Login()) — pehle yeh Login() ke render-body ke andar define hoti thi,
+// isliye har keystroke (state update -> re-render) par React isay nayi component-identity samajh
+// kar poora subtree unmount+remount karta tha, jis se har character ke baad input focus chala
+// jata tha. Ab yahan hoist karne se Shell ki identity render-to-render stable rehti hai.
+function Shell({ children, isMobile }) {
+  return (
+    <div className="ne-app-shell" style={{ minHeight: '100dvh', display: 'flex', flexDirection: isMobile ? 'column' : 'row' }}>
+      {!isMobile && (
+        <div style={{ flex: 1, background: '#0A0E26', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
+          <div style={{
+            position: 'absolute', inset: 0,
+            background: 'radial-gradient(60% 50% at 30% 20%, rgba(92,124,250,.28), transparent 60%), radial-gradient(50% 45% at 80% 80%, rgba(168,85,247,.22), transparent 60%)',
+          }} />
+          <div style={{ position: 'relative', zIndex: 1, textAlign: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>
+              <Monogram size={64} />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <Wordmark size={34} dark />
+            </div>
+            <p style={{ color: 'rgba(255,255,255,.6)', fontSize: 14, maxWidth: 320, lineHeight: 1.6, margin: '0 auto' }}>
+              Multi-tenant order management ERP — Shopify, COD couriers, ads, aur finance sab ek jagah.
+            </p>
+          </div>
+        </div>
+      )}
+      <div style={{ flex: isMobile ? 'none' : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', minHeight: isMobile ? '100dvh' : 'auto', boxSizing: 'border-box' }}>
+        <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', padding: isMobile ? '1.25rem' : '2rem', borderRadius: '16px', width: '100%', maxWidth: '400px', boxShadow: '0 12px 40px rgba(0,0,0,.35)' }}>
+          {isMobile && (
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 20 }}>
+              <Logo size={40} wordmarkSize={24} gap={10} />
+            </div>
+          )}
+          {children}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Login() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -267,44 +308,9 @@ export default function Login() {
   }
   const labelStyle = { color: 'var(--ne-muted)', fontSize: '13px', display: 'block', marginBottom: '4px' }
 
-  // ---------- SPLIT-LAYOUT SHELL (PostEx-style, Aurora Ledger theme) ----------
-  const Shell = ({ children }) => (
-    <div className="ne-app-shell" style={{ minHeight: '100dvh', display: 'flex', flexDirection: isMobile ? 'column' : 'row' }}>
-      {!isMobile && (
-        <div style={{ flex: 1, background: '#0A0E26', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
-          <div style={{
-            position: 'absolute', inset: 0,
-            background: 'radial-gradient(60% 50% at 30% 20%, rgba(92,124,250,.28), transparent 60%), radial-gradient(50% 45% at 80% 80%, rgba(168,85,247,.22), transparent 60%)',
-          }} />
-          <div style={{ position: 'relative', zIndex: 1, textAlign: 'center' }}>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>
-              <Monogram size={64} />
-            </div>
-            <div style={{ marginBottom: 14 }}>
-              <Wordmark size={34} dark />
-            </div>
-            <p style={{ color: 'rgba(255,255,255,.6)', fontSize: 14, maxWidth: 320, lineHeight: 1.6, margin: '0 auto' }}>
-              Multi-tenant order management ERP — Shopify, COD couriers, ads, aur finance sab ek jagah.
-            </p>
-          </div>
-        </div>
-      )}
-      <div style={{ flex: isMobile ? 'none' : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', minHeight: isMobile ? '100dvh' : 'auto', boxSizing: 'border-box' }}>
-        <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', padding: isMobile ? '1.25rem' : '2rem', borderRadius: '16px', width: '100%', maxWidth: '400px', boxShadow: '0 12px 40px rgba(0,0,0,.35)' }}>
-          {isMobile && (
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 20 }}>
-              <Logo size={40} wordmarkSize={24} gap={10} />
-            </div>
-          )}
-          {children}
-        </div>
-      </div>
-    </div>
-  )
-
   if (signupDone) {
     return (
-      <Shell>
+      <Shell isMobile={isMobile}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>⏳</div>
           <h2 style={{ color: 'var(--ne-text)', margin: '0 0 8px', fontSize: 18 }}>Account ban gaya!</h2>
@@ -323,7 +329,7 @@ export default function Login() {
   }
 
   return (
-    <Shell>
+    <Shell isMobile={isMobile}>
       {mode !== 'signup-otp' && mode !== 'forgot' && mode !== 'forgot-otp' && mode !== 'forgot-reset' && (
         <div style={{ display: 'flex', gap: 6, marginBottom: 20, background: 'var(--ne-bg)', border: '1px solid var(--ne-border)', borderRadius: 12, padding: 4 }}>
           <button

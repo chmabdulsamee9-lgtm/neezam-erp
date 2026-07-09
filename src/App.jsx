@@ -397,12 +397,24 @@ function App() {
   }
 
   useEffect(() => {
+    // onAuthStateChange apna PEHLA event (restored session ke sath) subscribe hote hi almost
+    // turant fire kar deta hai — yeh alag se call ki gayi getSession() ke against RACE karta hai.
+    // lastUserIdRef.current shuru mein null hota hai, aur agar onAuthStateChange ka pehla fire
+    // getSession().then() se PEHLE aa jaye, to woh dekhta hai newUserId !== null aur galti se
+    // reload ko "naya login" samajh kar resetUserState() chala deta hai — jo localStorage store-id
+    // (clearPersistedStoreId) aur IndexedDB cache (clearCache) dono wipe kar deta hai, HAR reload
+    // pe. Yehi asal wajah thi Master-Dashboard-bounce, cache-kabhi-persist-na-hone, aur Booked
+    // Orders har baar poora slow-path se reload hone ki. Fix: jab tak getSession() apna baseline
+    // set na kare, onAuthStateChange ke initial fire ko ignore karo.
+    let baselineSet = false
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
       lastUserIdRef.current = session?.user?.id || null
+      baselineSet = true
       setLoading(false)
     })
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      if (!baselineSet) return
       const newUserId = newSession?.user?.id || null
       if (newUserId !== lastUserIdRef.current) {
         resetUserState()
