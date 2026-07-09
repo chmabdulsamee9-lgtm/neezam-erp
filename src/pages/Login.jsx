@@ -11,7 +11,7 @@ const isValidPhone = (p) => /^\d{11}$/.test(p.trim())
 // isliye har keystroke (state update -> re-render) par React isay nayi component-identity samajh
 // kar poora subtree unmount+remount karta tha, jis se har character ke baad input focus chala
 // jata tha. Ab yahan hoist karne se Shell ki identity render-to-render stable rehti hai.
-function Shell({ children, isMobile, wide }) {
+function Shell({ children, isMobile }) {
   return (
     <div className="ne-app-shell" style={{ minHeight: '100dvh', display: 'flex', flexDirection: isMobile ? 'column' : 'row' }}>
       {!isMobile && (
@@ -33,15 +33,13 @@ function Shell({ children, isMobile, wide }) {
           </div>
         </div>
       )}
-      <div style={{ flex: isMobile ? 'none' : 1, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '1rem', minHeight: isMobile ? '100dvh' : 'auto', maxHeight: '100dvh', overflowY: 'auto', boxSizing: 'border-box' }}>
-        <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', padding: isMobile ? '1.25rem' : '2rem', borderRadius: '16px', width: '100%', maxWidth: wide ? '640px' : '400px', boxShadow: '0 12px 40px rgba(0,0,0,.35)', margin: '1rem 0' }}>
-          {isMobile && (
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 20 }}>
-              <Logo size={40} wordmarkSize={24} gap={10} />
-            </div>
-          )}
-          {children}
-        </div>
+      <div style={{ flex: isMobile ? 'none' : 1, display: 'flex', flexDirection: 'column', padding: isMobile ? '1.5rem' : '2.5rem 4rem', minHeight: isMobile ? '100dvh' : 'auto', maxHeight: '100dvh', overflowY: 'auto', boxSizing: 'border-box', background: 'var(--ne-surface-2)' }}>
+        {isMobile && (
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 20 }}>
+            <Logo size={40} wordmarkSize={24} gap={10} />
+          </div>
+        )}
+        {children}
       </div>
     </div>
   )
@@ -370,7 +368,7 @@ export default function Login() {
   }
 
   return (
-    <Shell isMobile={isMobile} wide={mode === 'signup-plan'}>
+    <Shell isMobile={isMobile}>
       {mode !== 'signup-plan' && mode !== 'signup-otp' && mode !== 'forgot' && mode !== 'forgot-otp' && mode !== 'forgot-reset' && (
         <div style={{ display: 'flex', gap: 6, marginBottom: 20, background: 'var(--ne-bg)', border: '1px solid var(--ne-border)', borderRadius: 12, padding: 4 }}>
           <button
