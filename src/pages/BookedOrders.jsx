@@ -6,13 +6,6 @@ import dexLogo from "../assets/couriers/dex.png";
 
 const PER_PAGE_OPTIONS = [20, 50, 100];
 
-// courier_name -> logo asset. Jis courier ka logo yahan na ho, uske liye fallback
-// chhota colored-text badge dikhta hai (COURIER_COLORS wala)
-const courierLogos = {
-  "PK-DEX": dexLogo,
-  // future couriers yahan add honge: PK-TCS, PK-LCS, PK-TRAX, waghera
-};
-
 // Courier company brand colors — jaise Dashboard.jsx ke SOURCE_COLORS (Meta/TikTok/etc),
 // yeh company-identity colors hain, theme-reactive semantic vars nahi
 const COURIER_COLORS = {
@@ -334,7 +327,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
   const totalPages = Math.ceil(filtered.length / perPage) || 1;
   const pagedFiltered = filtered.slice((page - 1) * perPage, page * perPage);
 
-  const cardStyle = { background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "18px 20px", marginBottom: 16 };
+  const cardStyle = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "18px 20px", marginBottom: 16 };
 
   if (error) return <div style={{ padding: "2rem", color: "var(--ne-danger)" }}>❌ {error}</div>;
 
@@ -403,24 +396,20 @@ export default function BookedOrders({ storeId, ordersStore }) {
             const remarksLog = ad.remarks_log || [];
             const agingDay = computeAgingDay(o);
             const aging = agingDay ? agingMeta(agingDay) : null;
-            const logo = courierLogos[ad.courier_name];
-
             return (
               <div key={o.id} style={cardStyle}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      {logo ? (
-                        <img src={logo} alt={ad.courier_name} style={{ height: 16, width: "auto", display: "block" }} />
-                      ) : ad.courier_name ? (
-                        <span style={{ fontSize: 8.5, fontWeight: 700, padding: "1px 6px", borderRadius: 5, background: `${courierColor(ad.courier_name)}26`, color: courierColor(ad.courier_name) }}>
-                          {ad.courier_name}
-                        </span>
-                      ) : null}
                       <a href={trackingUrl(ad.dex_tracking_number)} target="_blank" rel="noreferrer"
                         style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 14 }}>
                         {o.name}
                       </a>
+                      {/* Is page pe har row hi Dex-booked hai (fetchBookedStatuses sirf
+                          dex_tracking_number IS NOT NULL rows leta hai) — courier_name to
+                          sirf Dex ka last-mile sub-carrier (PK-TRAX/PK-LCS/waghera) batata
+                          hai, booking-platform nahi, isliye logo har card pe unconditional */}
+                      <img src={dexLogo} alt="Dex" style={{ height: 16, width: "auto", display: "block" }} />
                     </div>
                     <div style={{ fontSize: 11, color: "var(--ne-muted-2)", marginTop: 3 }}>
                       {fullName || "—"} · {phone || "—"} · {city || "—"}
@@ -431,6 +420,11 @@ export default function BookedOrders({ storeId, ordersStore }) {
                     {o.isManual && (
                       <span title="Shopify mein match nahi mila — sirf Excel se courier data" style={{ padding: "4px 10px", borderRadius: 8, fontSize: 10.5, fontWeight: 700, background: "var(--ne-warning-soft)", color: "var(--ne-warning)" }}>
                         ⚠️ Unmatched/Manual
+                      </span>
+                    )}
+                    {ad.courier_name && (
+                      <span style={{ padding: "4px 10px", borderRadius: 8, fontSize: 10.5, fontWeight: 700, background: `${courierColor(ad.courier_name)}26`, color: courierColor(ad.courier_name) }}>
+                        {ad.courier_name}
                       </span>
                     )}
                     <span style={{ padding: "4px 10px", borderRadius: 8, fontSize: 10.5, fontWeight: 700, background: meta.bg, color: meta.color }}>
