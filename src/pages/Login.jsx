@@ -11,7 +11,7 @@ const isValidPhone = (p) => /^\d{11}$/.test(p.trim())
 // isliye har keystroke (state update -> re-render) par React isay nayi component-identity samajh
 // kar poora subtree unmount+remount karta tha, jis se har character ke baad input focus chala
 // jata tha. Ab yahan hoist karne se Shell ki identity render-to-render stable rehti hai.
-function Shell({ children, isMobile }) {
+function Shell({ children, isMobile, wide }) {
   return (
     <div className="ne-app-shell" style={{ minHeight: '100dvh', display: 'flex', flexDirection: isMobile ? 'column' : 'row' }}>
       {!isMobile && (
@@ -33,8 +33,8 @@ function Shell({ children, isMobile }) {
           </div>
         </div>
       )}
-      <div style={{ flex: isMobile ? 'none' : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', minHeight: isMobile ? '100dvh' : 'auto', boxSizing: 'border-box' }}>
-        <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', padding: isMobile ? '1.25rem' : '2rem', borderRadius: '16px', width: '100%', maxWidth: '400px', boxShadow: '0 12px 40px rgba(0,0,0,.35)' }}>
+      <div style={{ flex: isMobile ? 'none' : 1, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '1rem', minHeight: isMobile ? '100dvh' : 'auto', maxHeight: '100dvh', overflowY: 'auto', boxSizing: 'border-box' }}>
+        <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', padding: isMobile ? '1.25rem' : '2rem', borderRadius: '16px', width: '100%', maxWidth: wide ? '640px' : '400px', boxShadow: '0 12px 40px rgba(0,0,0,.35)', margin: '1rem 0' }}>
           {isMobile && (
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 20 }}>
               <Logo size={40} wordmarkSize={24} gap={10} />
@@ -370,7 +370,7 @@ export default function Login() {
   }
 
   return (
-    <Shell isMobile={isMobile}>
+    <Shell isMobile={isMobile} wide={mode === 'signup-plan'}>
       {mode !== 'signup-plan' && mode !== 'signup-otp' && mode !== 'forgot' && mode !== 'forgot-otp' && mode !== 'forgot-reset' && (
         <div style={{ display: 'flex', gap: 6, marginBottom: 20, background: 'var(--ne-bg)', border: '1px solid var(--ne-border)', borderRadius: 12, padding: 4 }}>
           <button
@@ -557,6 +557,46 @@ export default function Login() {
               </div>
             </>
           )}
+
+          {(() => {
+            const selectedPlan = plans.find((p) => p.id === selectedPlanId)
+            if (!selectedPlan) return null
+            const planVolume = selectedPlan.order_range_max || selectedPlan.order_range_min || 0
+            const planEstimate = Number(selectedPlan.rate_per_order) * planVolume
+            const addonsTotal = addons.filter((a) => selectedAddonIds.includes(a.id)).reduce((sum, a) => sum + Number(a.monthly_price), 0)
+            const grandTotal = planEstimate + addonsTotal
+            const fmt = (n) => `Rs. ${Number(n).toLocaleString()}`
+            return (
+              <div style={{ border: '1px solid var(--ne-border)', borderRadius: 12, padding: '14px', marginBottom: '1.25rem', background: 'var(--ne-bg)' }}>
+                <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--ne-text)', margin: '0 0 8px' }}>Estimate</p>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--ne-muted)', marginBottom: 4 }}>
+                  <span>{selectedPlan.name} plan (max volume)</span>
+                  <span>{fmt(planEstimate)}</span>
+                </div>
+                {addons.filter((a) => selectedAddonIds.includes(a.id)).map((a) => (
+                  <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--ne-muted)', marginBottom: 4 }}>
+                    <span>{a.name}</span>
+                    <span>{fmt(a.monthly_price)}/mo</span>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 800, color: 'var(--ne-text)', borderTop: '1px solid var(--ne-border)', marginTop: 8, paddingTop: 8 }}>
+                  <span>Total (illustrative)</span>
+                  <span>{fmt(grandTotal)}/mo</span>
+                </div>
+                <p style={{ fontSize: 10, color: 'var(--ne-muted-2)', margin: '8px 0 0' }}>
+                  * Plan ka charge order-volume par depend karta hai — yeh max-volume ka illustrative estimate hai, actual bill actual orders ke hisab se banega.
+                </p>
+              </div>
+            )
+          })()}
+
+          <div style={{ border: '1px solid var(--ne-accent)', borderRadius: 12, padding: '14px', marginBottom: '1.25rem', background: 'var(--ne-accent-soft)' }}>
+            <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--ne-text)', margin: '0 0 8px' }}>Bank Transfer Details</p>
+            <p style={{ fontSize: 12, color: 'var(--ne-text)', margin: '0 0 3px' }}>Muhammad Abdul Samee</p>
+            <p style={{ fontSize: 12, color: 'var(--ne-text)', margin: '0 0 3px' }}>MCB (Muslim Commercial Bank)</p>
+            <p style={{ fontSize: 12, color: 'var(--ne-text)', margin: '0 0 8px', fontFamily: 'monospace' }}>PK75MUCB1101500011009142</p>
+            <p style={{ fontSize: 11, color: 'var(--ne-muted)', margin: 0 }}>Payment Invoice Screenshot share karein <strong>support@eneezam.com</strong> par</p>
+          </div>
 
           <button type="submit" disabled={loading}
             style={{ width: '100%', padding: '12px', background: loading ? 'var(--ne-border)' : 'var(--ne-success)', color: loading ? 'var(--ne-muted)' : '#0A2E1A', border: 'none', borderRadius: '10px', fontSize: '16px', cursor: 'pointer', fontWeight: '700' }}>
