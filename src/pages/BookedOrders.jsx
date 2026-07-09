@@ -17,7 +17,6 @@ const COURIER_COLORS = {
 };
 const courierColor = (name) => COURIER_COLORS[name] || "#8C93C4";
 
-const STATUS_TABS = ["All", "Delivered", "Returned", "In Transit", "Failed Delivery"];
 const STATUS_BUCKET_META = {
   Delivered: { color: "var(--ne-success)", bg: "var(--ne-success-soft)" },
   Returned: { color: "var(--ne-danger)", bg: "var(--ne-danger-soft)" },
@@ -35,6 +34,55 @@ function bucketCourierStatus(raw) {
   if (s.includes("fail")) return "Failed Delivery";
   if (s.includes("deliver")) return "Delivered";
   return "In Transit";
+}
+
+// Top filter-tabs ka nested taxonomy (bucketCourierStatus/STATUS_BUCKET_META se ALAG/independent
+// hai — woh sirf per-card status-badge color ke liye hai, yeh sirf tab-filtering ke liye).
+// "To Ship" aur "Shipped" ke apne sub-buckets hain, baaki standalone final-outcome tabs hain.
+// Real dex_status/courier_order_status distinct-values (2026-07-09 query) ke against confirmed:
+// har value neeche kisi na kisi bucket mein saaf saaf aata hai, koi unclassified case nahi bacha.
+const TAB_STRUCTURE = [
+  { key: "All", label: "All" },
+  { key: "To Ship", label: "To Ship", subs: [
+      { key: "Booked", label: "Booked" },
+      { key: "Pickup Failed", label: "Pickup Failed" },
+    ] },
+  { key: "Shipped", label: "Shipped", subs: [
+      { key: "Pickup Success", label: "Pickup Success" },
+      { key: "Transit to Ship", label: "Transit to Ship" },
+      { key: "Arrived at Destination City", label: "Arrived at Destination City" },
+      { key: "Out for Delivery", label: "Out for Delivery" },
+      { key: "Failed Delivery", label: "Failed Delivery" },
+    ] },
+  { key: "Delivered", label: "Delivered" },
+  { key: "Pending Return", label: "Pending Return" },
+  { key: "Returned", label: "Returned" },
+  { key: "Lost & Damage", label: "Lost & Damage" },
+  { key: "Cancel", label: "Cancel" },
+];
+
+// Har order ko exactly ek {tab, sub} mein classify karta hai. bucketFinalStatus() (order_statuses
+// ka authoritative courier_order_status-based final-state) pehle check hoti hai; agar abhi koi
+// final state nahi hai to pickup_success_at/arrived_at_destination_at/out_for_delivery_at/dex_status
+// (jo already Timeline ke liye track ho rahe hain) se in-progress position decide hoti hai.
+function classifyTab(o) {
+  const ad = o.agent_data;
+  const finalStatus = bucketFinalStatus(ad.courier_order_status);
+
+  if (finalStatus === "Delivered") return { tab: "Delivered", sub: null };
+  if (finalStatus === "Return Pending") return { tab: "Pending Return", sub: null };
+  if (finalStatus === "Returned") return { tab: "Returned", sub: null };
+  if (finalStatus === "Lost") return { tab: "Lost & Damage", sub: null };
+  if (finalStatus === "Cancelled") return { tab: "Cancel", sub: null };
+  if (finalStatus === "Pickup Failed") return { tab: "To Ship", sub: "Pickup Failed" };
+
+  if (!ad.pickup_success_at) return { tab: "To Ship", sub: "Booked" };
+
+  if (finalStatus === "Delivery Failed") return { tab: "Shipped", sub: "Failed Delivery" };
+  if (ad.out_for_delivery_at) return { tab: "Shipped", sub: "Out for Delivery" };
+  if (ad.arrived_at_destination_at) return { tab: "Shipped", sub: "Arrived at Destination City" };
+  if ((ad.dex_status || "").toLowerCase().includes("handover_accepted")) return { tab: "Shipped", sub: "Pickup Success" };
+  return { tab: "Shipped", sub: "Transit to Ship" };
 }
 
 const fmtDateTime = (iso) => (iso ? new Date(iso).toLocaleString("en-PK", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : null);
@@ -194,6 +242,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState("All");
+  const [activeSubTab, setActiveSubTab] = useState(null);
   const [courierFilter, setCourierFilter] = useState("All");
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(20);
@@ -304,11 +353,19 @@ export default function BookedOrders({ storeId, ordersStore }) {
 
   const availableCouriers = ["All", ...new Set(orders.map((o) => o.agent_data.courier_name).filter(Boolean))].sort();
 
+  const classified = orders.map((o) => ({ o, cls: classifyTab(o) }));
+  const activeTabDef = TAB_STRUCTURE.find((t) => t.key === activeTab);
+
   const tabCounts = Object.fromEntries(
-    STATUS_TABS.map((t) => [t, t === "All" ? orders.length : orders.filter((o) => bucketCourierStatus(o.agent_data.courier_order_status) === t).length])
+    TAB_STRUCTURE.map((t) => [t.key, t.key === "All" ? orders.length : classified.filter((c) => c.cls.tab === t.key).length])
+  );
+  const subTabCounts = Object.fromEntries(
+    TAB_STRUCTURE.filter((t) => t.subs).flatMap((t) =>
+      t.subs.map((s) => [`${t.key}::${s.key}`, classified.filter((c) => c.cls.tab === t.key && c.cls.sub === s.key).length])
+    )
   );
 
-  const filtered = orders.filter((o) => {
+  const filtered = classified.filter(({ o, cls }) => {
     const ad = o.agent_data;
     const fullName = `${o.customer?.first_name || ""} ${o.customer?.last_name || ""}`.toLowerCase();
     const phone = o.customer?.phone || o.shipping_address?.phone || "";
@@ -319,10 +376,10 @@ export default function BookedOrders({ storeId, ordersStore }) {
       fullName.includes(q) ||
       phone.includes(search) ||
       (ad.dex_tracking_number || "").toLowerCase().includes(q);
-    const matchTab = activeTab === "All" || bucketCourierStatus(ad.courier_order_status) === activeTab;
+    const matchTab = activeTab === "All" || (cls.tab === activeTab && (!activeSubTab || cls.sub === activeSubTab));
     const matchCourier = courierFilter === "All" || ad.courier_name === courierFilter;
     return matchSearch && matchTab && matchCourier;
-  }).sort((a, b) => extractOrderNum(b) - extractOrderNum(a));
+  }).map(({ o }) => o).sort((a, b) => extractOrderNum(b) - extractOrderNum(a));
 
   const totalPages = Math.ceil(filtered.length / perPage) || 1;
   const pagedFiltered = filtered.slice((page - 1) * perPage, page * perPage);
@@ -355,23 +412,48 @@ export default function BookedOrders({ storeId, ordersStore }) {
         </select>
       </div>
 
-      {/* Status Tabs */}
-      <div style={{ display: "flex", gap: 7, marginBottom: "0.75rem", flexWrap: "wrap" }}>
-        {STATUS_TABS.map((tab) => (
-          <button key={tab} onClick={() => { setActiveTab(tab); setPage(1); }}
+      {/* Top-level Tabs — "To Ship"/"Shipped" ke apne nested sub-buckets hain, baaki
+          (Delivered/Pending Return/Returned/Lost & Damage/Cancel) standalone hain */}
+      <div style={{ display: "flex", gap: 7, marginBottom: activeTabDef?.subs ? 6 : "0.75rem", flexWrap: "wrap" }}>
+        {TAB_STRUCTURE.map((tab) => (
+          <button key={tab.key} onClick={() => { setActiveTab(tab.key); setActiveSubTab(null); setPage(1); }}
             style={{ padding: "7px 14px", borderRadius: 20, fontSize: 11.5, cursor: "pointer", fontWeight: 700, border: "1px solid",
-              borderColor: activeTab === tab ? "transparent" : "var(--ne-border)",
-              background: activeTab === tab ? "var(--ne-grad)" : "var(--ne-surface-2)",
-              color: activeTab === tab ? "#fff" : "var(--ne-muted)" }}>
-            {tab}
+              borderColor: activeTab === tab.key ? "transparent" : "var(--ne-border)",
+              background: activeTab === tab.key ? "var(--ne-grad)" : "var(--ne-surface-2)",
+              color: activeTab === tab.key ? "#fff" : "var(--ne-muted)" }}>
+            {tab.label}
             <span style={{ marginLeft: 6, padding: "1px 7px", borderRadius: 10, fontSize: 10,
-              background: activeTab === tab ? "rgba(255,255,255,0.22)" : "var(--ne-bg)",
-              color: activeTab === tab ? "#fff" : "var(--ne-muted-2)" }}>
-              {tabCounts[tab] || 0}
+              background: activeTab === tab.key ? "rgba(255,255,255,0.22)" : "var(--ne-bg)",
+              color: activeTab === tab.key ? "#fff" : "var(--ne-muted-2)" }}>
+              {tabCounts[tab.key] || 0}
             </span>
           </button>
         ))}
       </div>
+
+      {/* Nested sub-tabs — sirf jab active top-level tab ("To Ship"/"Shipped") ke subs hon */}
+      {activeTabDef?.subs && (
+        <div style={{ display: "flex", gap: 6, marginBottom: "0.75rem", flexWrap: "wrap", paddingLeft: 10, borderLeft: "2px solid var(--ne-border)" }}>
+          <button onClick={() => { setActiveSubTab(null); setPage(1); }}
+            style={{ padding: "5px 12px", borderRadius: 16, fontSize: 10.5, cursor: "pointer", fontWeight: 700, border: "1px solid",
+              borderColor: !activeSubTab ? "transparent" : "var(--ne-border)",
+              background: !activeSubTab ? "var(--ne-accent-soft)" : "var(--ne-surface)",
+              color: !activeSubTab ? "var(--ne-accent)" : "var(--ne-muted)" }}>
+            All {activeTabDef.label}
+            <span style={{ marginLeft: 5, opacity: 0.75 }}>{tabCounts[activeTabDef.key] || 0}</span>
+          </button>
+          {activeTabDef.subs.map((s) => (
+            <button key={s.key} onClick={() => { setActiveSubTab(s.key); setPage(1); }}
+              style={{ padding: "5px 12px", borderRadius: 16, fontSize: 10.5, cursor: "pointer", fontWeight: 700, border: "1px solid",
+                borderColor: activeSubTab === s.key ? "transparent" : "var(--ne-border)",
+                background: activeSubTab === s.key ? "var(--ne-accent-soft)" : "var(--ne-surface)",
+                color: activeSubTab === s.key ? "var(--ne-accent)" : "var(--ne-muted)" }}>
+              {s.label}
+              <span style={{ marginLeft: 5, opacity: 0.75 }}>{subTabCounts[`${activeTabDef.key}::${s.key}`] || 0}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {loading ? (
         <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>
