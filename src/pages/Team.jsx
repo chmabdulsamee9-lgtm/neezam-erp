@@ -19,7 +19,7 @@ const MODULES = [
 
 const isValidPhone = (p) => /^\d{11}$/.test(String(p || "").trim());
 
-export default function Team({ storeId, storeName, cfUrl }) {
+export default function Team({ storeId, storeName, eneezamId, cfUrl }) {
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -221,7 +221,10 @@ export default function Team({ storeId, storeName, cfUrl }) {
   return (
     <div style={{ padding: isMobile ? "1rem" : "1.5rem", maxWidth: 900, margin: "0 auto" }}>
       <div style={{ marginBottom: "1.5rem" }}>
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "var(--ne-text)" }}>👥 Team — {storeName}</h1>
+        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "var(--ne-text)" }}>
+          👥 Team — {storeName}
+          {eneezamId && <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ne-accent)", marginLeft: 8 }}>{eneezamId}</span>}
+        </h1>
         <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--ne-muted)" }}>Apne staff ko add karo aur unhe access do</p>
       </div>
 

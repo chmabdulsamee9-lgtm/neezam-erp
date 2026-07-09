@@ -206,6 +206,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
             <div key={s.id} style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '16px', display: 'flex', flexDirection: 'column', gap: 10, boxShadow: '0 2px 8px rgba(0,0,0,.18)' }}>
               <div>
                 <div style={{ fontWeight: 700, fontSize: 15 }}>{s.store_name}</div>
+                <div style={{ fontSize: 11, color: 'var(--ne-accent)', fontWeight: 600 }}>{s.eneezam_id || '—'}</div>
                 <div style={{ fontSize: 12, color: 'var(--ne-muted)' }}>{s.shopify_url || 'Shopify connected nahi'}</div>
               </div>
 
@@ -517,7 +518,7 @@ function App() {
     } else if (profileData?.approved) {
       const { data: us } = await supabase
         .from('user_stores')
-        .select('store_id, permissions, stores(store_name, shopify_url, id)')
+        .select('store_id, permissions, stores(store_name, shopify_url, id, eneezam_id)')
         .eq('user_id', userId)
       setUserStoresList(us || [])
       const persistedId = getPersistedStoreId()
@@ -954,6 +955,7 @@ function App() {
           {currentStoreInfo && (sidebarOpen || mobileDrawerOpen) && (
             <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: 8, padding: '8px 10px', fontSize: 11.5, color: '#8C93C4', marginBottom: 10 }}>
               🏪 {currentStoreInfo.store_name}
+              {currentStoreInfo.eneezam_id && <span style={{ opacity: 0.7 }}> · {currentStoreInfo.eneezam_id}</span>}
             </div>
           )}
 
@@ -1073,7 +1075,7 @@ function App() {
             )}
             {activeMenu === 'whatsapp' && hasAccess('whatsapp') && <WhatsApp />}
             {activeMenu === 'team' && (profile.role === 'admin' || profile.role === 'creator') && (
-              <Team storeId={selectedStoreId} storeName={currentStoreInfo?.store_name || ordersStore?.store_name} cfUrl={CF_URL} />
+              <Team storeId={selectedStoreId} storeName={currentStoreInfo?.store_name || ordersStore?.store_name} eneezamId={currentStoreInfo?.eneezam_id || ordersStore?.eneezam_id} cfUrl={CF_URL} />
             )}
             {activeMenu === 'activity-log' && (profile.role === 'admin' || profile.role === 'creator') && (
               <ActivityLog storeId={selectedStoreId} />

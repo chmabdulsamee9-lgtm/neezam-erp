@@ -325,6 +325,9 @@ export default function StoreConnect({ storeId }) {
                     <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: "var(--ne-text)" }}>
                       {store.store_name}
                     </p>
+                    <p style={{ margin: "2px 0 0", fontSize: 12, fontWeight: 600, color: "var(--ne-accent)" }}>
+                      {store.eneezam_id || "—"}
+                    </p>
                     <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--ne-muted-2)" }}>
                       {store.shopify_url || "Shopify connect nahi hua abhi"}
                     </p>
