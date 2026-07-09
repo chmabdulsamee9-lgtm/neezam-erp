@@ -68,6 +68,12 @@ export default function Login() {
   const [resetSuccess, setResetSuccess] = useState(false)
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth <= 900)
 
+  // Signup — plan/add-on selection (Block C)
+  const [plans, setPlans] = useState([])
+  const [addons, setAddons] = useState([])
+  const [selectedPlanId, setSelectedPlanId] = useState(null)
+  const [selectedAddonIds, setSelectedAddonIds] = useState([])
+
   // Signup OTP
   const [signupOtp, setSignupOtp] = useState('')
 
@@ -91,6 +97,23 @@ export default function Login() {
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
+
+  // Plans/addons — sirf ek dafa fetch, signup-plan step tak pahunchne se pehle hi ready rahein
+  useEffect(() => {
+    (async () => {
+      const [{ data: planRows }, { data: addonRows }] = await Promise.all([
+        supabase.from('plans').select('*').order('display_order', { ascending: true }),
+        supabase.from('addons').select('*'),
+      ])
+      setPlans(planRows || [])
+      setAddons(addonRows || [])
+      if (planRows && planRows.length > 0) setSelectedPlanId(planRows[0].id)
+    })()
+  }, [])
+
+  const toggleAddon = (id) => {
+    setSelectedAddonIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])
+  }
 
   const switchMode = (m) => {
     setMode(m)
@@ -119,7 +142,8 @@ export default function Login() {
   }
 
   // ---------- SIGNUP (OTP-gated) ----------
-  const handleSignupSubmit = async (e) => {
+  // Step 1: account details validate karo, plan-selection step pe le jao (koi OTP abhi nahi bheja)
+  const handleSignupDetailsContinue = (e) => {
     e.preventDefault()
     setError('')
     if (!brandName.trim()) { setError('Brand name daalo'); return }
@@ -127,6 +151,14 @@ export default function Login() {
     if (!isValidPhone(phone)) { setError('Phone number exactly 11 digits ka hona chahiye (sirf numbers)'); return }
     if (password.length < 6) { setError('Password kam az kam 6 characters ka ho'); return }
     if (password !== confirmPassword) { setError('Password aur Confirm Password match nahi karte'); return }
+    setMode('signup-plan')
+  }
+
+  // Step 2: plan select ho chuka ho to OTP bhejo, verification step pe le jao
+  const handleSignupPlanContinue = async (e) => {
+    e.preventDefault()
+    setError('')
+    if (!selectedPlanId) { setError('Ek plan chuno'); return }
 
     setLoading(true)
     try {
@@ -199,6 +231,15 @@ export default function Login() {
       })
 
       await supabase.from('user_stores').insert({ user_id: userId, store_id: storeData.id })
+
+      // Subscription request — pending_approval, creator Master Dashboard se approve karega
+      // (Block C). store_id yahan eneezam_id-based hai (Block A), stores.id (UUID) nahi.
+      await supabase.from('store_subscriptions').insert({
+        store_id: storeData.eneezam_id,
+        plan_id: selectedPlanId,
+        selected_addon_ids: selectedAddonIds,
+        status: 'pending_approval',
+      })
 
       // Welcome email best-effort hai — fail ho to bhi signup complete maana jayega
       fetch(`${CF_URL}/send-welcome-email`, {
@@ -319,7 +360,7 @@ export default function Login() {
             Jaise hi admin approve karega, aap login karke eNeezam use kar sakenge.
           </p>
           <button
-            onClick={() => { setSignupDone(false); switchMode('login'); setEmail(''); setPassword(''); setConfirmPassword(''); setBrandName(''); setFullName(''); setPhone('') }}
+            onClick={() => { setSignupDone(false); switchMode('login'); setEmail(''); setPassword(''); setConfirmPassword(''); setBrandName(''); setFullName(''); setPhone(''); setSelectedAddonIds([]) }}
             style={{ marginTop: 16, padding: '9px 20px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-muted)', fontSize: 13, cursor: 'pointer' }}>
             ← Login page pe jao
           </button>
@@ -330,7 +371,7 @@ export default function Login() {
 
   return (
     <Shell isMobile={isMobile}>
-      {mode !== 'signup-otp' && mode !== 'forgot' && mode !== 'forgot-otp' && mode !== 'forgot-reset' && (
+      {mode !== 'signup-plan' && mode !== 'signup-otp' && mode !== 'forgot' && mode !== 'forgot-otp' && mode !== 'forgot-reset' && (
         <div style={{ display: 'flex', gap: 6, marginBottom: 20, background: 'var(--ne-bg)', border: '1px solid var(--ne-border)', borderRadius: 12, padding: 4 }}>
           <button
             onClick={() => switchMode('login')}
@@ -410,7 +451,7 @@ export default function Login() {
       )}
 
       {mode === 'signup' && (
-        <form onSubmit={handleSignupSubmit}>
+        <form onSubmit={handleSignupDetailsContinue}>
           <div style={{ marginBottom: '1rem' }}>
             <label style={labelStyle}>Apna Naam</label>
             <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Apna naam type karein" required style={inputBoxStyle} />
@@ -462,6 +503,61 @@ export default function Login() {
             )}
           </div>
 
+          <button type="submit"
+            style={{ width: '100%', padding: '12px', background: 'var(--ne-success)', color: '#0A2E1A', border: 'none', borderRadius: '10px', fontSize: '16px', cursor: 'pointer', fontWeight: '700' }}>
+            Continue → Plan Chuno
+          </button>
+        </form>
+      )}
+
+      {mode === 'signup-plan' && (
+        <form onSubmit={handleSignupPlanContinue}>
+          <button type="button" onClick={() => setMode('signup')} style={{ background: 'none', border: 'none', color: 'var(--ne-muted)', fontSize: 12, cursor: 'pointer', padding: 0, marginBottom: 14 }}>
+            ← Wapas
+          </button>
+          <p style={{ color: 'var(--ne-muted)', fontSize: '13px', margin: '0 0 1rem' }}>Apna plan chuno:</p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: '1.25rem' }}>
+            {plans.map((p) => (
+              <label key={p.id} onClick={() => setSelectedPlanId(p.id)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, cursor: 'pointer',
+                  border: selectedPlanId === p.id ? '1px solid var(--ne-accent)' : '1px solid var(--ne-border)',
+                  background: selectedPlanId === p.id ? 'var(--ne-accent-soft)' : 'transparent',
+                }}>
+                <input type="radio" name="plan" checked={selectedPlanId === p.id} onChange={() => setSelectedPlanId(p.id)} style={{ accentColor: '#5C7CFA', flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ne-text)' }}>{p.name}</div>
+                  <div style={{ fontSize: 11, color: 'var(--ne-muted)' }}>
+                    Rs. {Number(p.rate_per_order).toLocaleString()}/order · {p.order_range_max ? `up to ${p.order_range_max.toLocaleString()}/mo` : `${p.order_range_min.toLocaleString()}+/mo`}
+                  </div>
+                </div>
+              </label>
+            ))}
+          </div>
+
+          {addons.length > 0 && (
+            <>
+              <p style={{ color: 'var(--ne-muted)', fontSize: '13px', margin: '0 0 0.75rem' }}>Add-ons (optional):</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: '1.25rem' }}>
+                {addons.map((a) => (
+                  <label key={a.id} onClick={() => toggleAddon(a.id)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, cursor: 'pointer',
+                      border: selectedAddonIds.includes(a.id) ? '1px solid var(--ne-accent)' : '1px solid var(--ne-border)',
+                      background: selectedAddonIds.includes(a.id) ? 'var(--ne-accent-soft)' : 'transparent',
+                    }}>
+                    <input type="checkbox" checked={selectedAddonIds.includes(a.id)} onChange={() => toggleAddon(a.id)} style={{ accentColor: '#5C7CFA', flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ne-text)' }}>{a.name}</span>
+                      <span style={{ fontSize: 12, color: 'var(--ne-muted)' }}>Rs. {Number(a.monthly_price).toLocaleString()}/mo</span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+
           <button type="submit" disabled={loading}
             style={{ width: '100%', padding: '12px', background: loading ? 'var(--ne-border)' : 'var(--ne-success)', color: loading ? 'var(--ne-muted)' : '#0A2E1A', border: 'none', borderRadius: '10px', fontSize: '16px', cursor: 'pointer', fontWeight: '700' }}>
             {loading ? 'Code bhej rahe hain...' : 'Sign Up'}
@@ -474,7 +570,7 @@ export default function Login() {
 
       {mode === 'signup-otp' && (
         <form onSubmit={handleVerifySignupOtp}>
-          <button type="button" onClick={() => switchMode('signup')} style={{ background: 'none', border: 'none', color: 'var(--ne-muted)', fontSize: 12, cursor: 'pointer', padding: 0, marginBottom: 14 }}>
+          <button type="button" onClick={() => setMode('signup-plan')} style={{ background: 'none', border: 'none', color: 'var(--ne-muted)', fontSize: 12, cursor: 'pointer', padding: 0, marginBottom: 14 }}>
             ← Wapas
           </button>
           <p style={{ color: 'var(--ne-muted)', fontSize: '13px', margin: '0 0 1rem', lineHeight: 1.6 }}>

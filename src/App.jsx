@@ -8,6 +8,7 @@ import { Monogram, Wordmark } from './components/Logo'
 import { SunIcon, MoonIcon, GlobeIcon } from './components/Icons'
 import { useLanguage, useTranslation } from './i18n'
 import Login from './pages/Login'
+import Homepage from './pages/Homepage'
 import StoreConnect from './pages/StoreConnect'
 import ShopifyCallback from './pages/ShopifyCallback'
 import Orders from './pages/Orders'
@@ -99,6 +100,16 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState('')
   const [editPasswordSuccess, setEditPasswordSuccess] = useState(false)
+  // Creator ka add-on override, approve se pehle — profileId -> array of selected addon-ids
+  const [addonOverrides, setAddonOverrides] = useState({})
+
+  const toggleOverrideAddon = (profileId, addonId, defaultIds) => {
+    setAddonOverrides((prev) => {
+      const current = prev[profileId] ?? defaultIds
+      const next = current.includes(addonId) ? current.filter((x) => x !== addonId) : [...current, addonId]
+      return { ...prev, [profileId]: next }
+    })
+  }
 
   const statCard = (value, label, color, softBg) => (
     <div style={{ flex: 1, background: softBg, borderRadius: 10, padding: '8px 4px', textAlign: 'center' }}>
@@ -184,18 +195,43 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
           <div style={{ marginBottom: '2rem' }}>
             <h2 style={{ fontSize: 14, color: '#F2A83E', marginBottom: 10 }}>⏳ Pending Approvals ({pendingProfiles.length})</h2>
             <div style={{ display: 'grid', gap: 8 }}>
-              {pendingProfiles.map(p => (
-                <div key={p.id} style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 12, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 2px 8px rgba(0,0,0,.18)' }}>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>{p.full_name || '—'}</div>
-                    <div style={{ fontSize: 12, color: 'var(--ne-muted)' }}>{p.email} · {p.phone || 'no phone'} · {p.role}</div>
+              {pendingProfiles.map(p => {
+                const defaultAddonIds = p.subscription?.selected_addon_ids || []
+                const currentAddonIds = addonOverrides[p.id] ?? defaultAddonIds
+                return (
+                  <div key={p.id} style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 12, padding: '12px 16px', boxShadow: '0 2px 8px rgba(0,0,0,.18)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: 14 }}>{p.full_name || '—'} {p.storeName && <span style={{ color: 'var(--ne-muted)', fontWeight: 400 }}>· {p.storeName}</span>}</div>
+                        <div style={{ fontSize: 12, color: 'var(--ne-muted)' }}>{p.email} · {p.phone || 'no phone'} · {p.role}</div>
+                      </div>
+                      <button onClick={() => onApprove(p.id, p.subscription?.id, currentAddonIds)}
+                        style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: 'var(--ne-grad)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                        ✓ Approve
+                      </button>
+                    </div>
+
+                    {p.subscription && (
+                      <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--ne-border)' }}>
+                        <div style={{ fontSize: 12, color: 'var(--ne-text)', fontWeight: 700 }}>
+                          Plan: {p.subscription.plans?.name || '—'} <span style={{ color: 'var(--ne-muted)', fontWeight: 400 }}>(Rs. {Number(p.subscription.plans?.rate_per_order || 0).toLocaleString()}/order)</span>
+                        </div>
+                        {p.addonDetails.length > 0 && (
+                          <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            <div style={{ fontSize: 11, color: 'var(--ne-muted)' }}>Add-ons (override karne ke liye untick/tick karo):</div>
+                            {p.addonDetails.map((a) => (
+                              <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
+                                <input type="checkbox" checked={currentAddonIds.includes(a.id)} onChange={() => toggleOverrideAddon(p.id, a.id, defaultAddonIds)} style={{ accentColor: '#5C7CFA' }} />
+                                {a.name} <span style={{ color: 'var(--ne-muted)' }}>(Rs. {Number(a.monthly_price).toLocaleString()}/mo)</span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <button onClick={() => onApprove(p.id)}
-                    style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: 'var(--ne-grad)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                    ✓ Approve
-                  </button>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         )}
@@ -314,9 +350,11 @@ function App() {
   const setActiveMenu = (id) => navigate(`/${id}`)
 
   // Root-redirect ab auth-aware hai — pehle yeh session check kiye bina hi /dashboard
-  // navigate kar deta tha, isliye Login form khule hone par bhi URL "/dashboard" dikhta tha
+  // navigate kar deta tha, isliye Login form khule hone par bhi URL "/dashboard" dikhta tha.
+  // Logged-out state mein "/" ab /login pe force-redirect NAHI hoti (Block C) — "/" khud
+  // public Homepage (Pricing) hai, sirf logged-IN session ke liye "/" se /dashboard bounce hota hai.
   useEffect(() => {
-    if (location.pathname === '/') navigate(session ? '/dashboard' : '/login', { replace: true })
+    if (location.pathname === '/' && session) navigate('/dashboard', { replace: true })
   }, [location.pathname, session])
 
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -326,6 +364,33 @@ function App() {
   const [ordersStore, setOrdersStore] = useState(null)
   const [ordersLoading, setOrdersLoading] = useState(false)
   const [syncStatusText, setSyncStatusText] = useState("")
+  // Module-Visibility (Block C) — store ki APPROVED subscription ke plan.included_modules +
+  // uske selected addons ke module_key ka union. Koi approved subscription na mile to empty
+  // Set (fail-closed) — sirf Finance/Ads/WhatsApp jaise gated modules hide hote hain, baaki
+  // (orders/dashboard/courier waghera) har plan mein hote hain isliye gate hi nahi hote (neeche dekho).
+  const [accessibleModuleKeys, setAccessibleModuleKeys] = useState(new Set())
+
+  useEffect(() => {
+    if (!ordersStore?.eneezam_id) { setAccessibleModuleKeys(new Set()); return }
+    (async () => {
+      const { data: sub } = await supabase
+        .from('store_subscriptions')
+        .select('plan_id, selected_addon_ids')
+        .eq('store_id', ordersStore.eneezam_id)
+        .eq('status', 'approved')
+        .order('approved_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (!sub) { setAccessibleModuleKeys(new Set()); return }
+      const [{ data: plan }, { data: addonRows }] = await Promise.all([
+        supabase.from('plans').select('included_modules').eq('id', sub.plan_id).single(),
+        sub.selected_addon_ids?.length > 0
+          ? supabase.from('addons').select('module_key').in('id', sub.selected_addon_ids)
+          : Promise.resolve({ data: [] }),
+      ])
+      setAccessibleModuleKeys(new Set([...(plan?.included_modules || []), ...(addonRows || []).map((a) => a.module_key)]))
+    })()
+  }, [ordersStore?.eneezam_id])
 
   const [profile, setProfile] = useState(null)
   const [lang, setLang] = useLanguage(profile?.id)
@@ -503,7 +568,33 @@ function App() {
       }))
       setAllStores(storesWithStats)
       const { data: pending } = await supabase.from('profiles').select('*').eq('approved', false).neq('role', 'creator')
-      setPendingProfiles(pending || [])
+      // Har pending admin ki apni store + us store ki pending subscription (plan+addons) bhi
+      // attach karte hain, taake Approval-Review mein plan/add-ons dikh sakein (Block C)
+      const pendingWithSubs = await Promise.all((pending || []).map(async (p) => {
+        const { data: us } = await supabase
+          .from('user_stores')
+          .select('stores(eneezam_id, store_name)')
+          .eq('user_id', p.id)
+          .limit(1)
+          .maybeSingle()
+        const eneezamId = us?.stores?.eneezam_id
+        if (!eneezamId) return { ...p, storeName: us?.stores?.store_name || null, subscription: null, addonDetails: [] }
+        const { data: sub } = await supabase
+          .from('store_subscriptions')
+          .select('*, plans(name, rate_per_order)')
+          .eq('store_id', eneezamId)
+          .eq('status', 'pending_approval')
+          .order('requested_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        let addonDetails = []
+        if (sub?.selected_addon_ids?.length > 0) {
+          const { data: addonRows } = await supabase.from('addons').select('*').in('id', sub.selected_addon_ids)
+          addonDetails = addonRows || []
+        }
+        return { ...p, storeName: us.stores.store_name, subscription: sub, addonDetails }
+      }))
+      setPendingProfiles(pendingWithSubs)
 
       // Reload pe pichli baar wali store restore karo (agar abhi bhi accessible hai) —
       // warna hi Master Dashboard pe fallback karo (creator har store access kar sakta hai,
@@ -533,9 +624,19 @@ function App() {
     setProfileLoaded(true)
   }
 
-  const handleApprove = async (profileId) => {
+  // finalAddonIds — creator ka override (add-on hata/de sakta hai) approve se pehle;
+  // subscriptionId na ho (koi subscription record hi na mila) to sirf profile approve hota hai
+  const handleApprove = async (profileId, subscriptionId, finalAddonIds) => {
     const approvedProfile = pendingProfiles.find(p => p.id === profileId)
     await supabase.from('profiles').update({ approved: true }).eq('id', profileId)
+    if (subscriptionId) {
+      await supabase.from('store_subscriptions').update({
+        status: 'approved',
+        approved_at: new Date().toISOString(),
+        approved_by: session.user.id,
+        selected_addon_ids: finalAddonIds || [],
+      }).eq('id', subscriptionId)
+    }
     setPendingProfiles(prev => prev.filter(p => p.id !== profileId))
     if (approvedProfile?.email) {
       const { data: { session: currentSession } } = await supabase.auth.getSession()
@@ -791,7 +892,10 @@ function App() {
   }
 
   if (loading || !minSplashDone) return <SplashScreen />
-  if (!session) return <Login />
+  if (!session) {
+    if (location.pathname === '/') return <Homepage />
+    return <Login />
+  }
   if (!profileLoaded) return <SplashScreen />
   if (!profile) return <PendingApprovalScreen onSignOut={() => supabase.auth.signOut()} />
   if (profile.role !== 'creator' && !profile.approved) return <PendingApprovalScreen onSignOut={() => supabase.auth.signOut()} />
@@ -874,7 +978,15 @@ function App() {
   const currentUserStoreEntry = userStoresList.find(us => us.store_id === selectedStoreId)
   const isStaff = profile.role === 'staff'
   const staffPermissions = currentUserStoreEntry?.permissions || []
-  const hasAccess = (moduleId) => !isStaff || staffPermissions.includes(moduleId)
+  // Sirf explicitly listed modules subscription-gated hain (jaisa Block C mein ask kiya gaya
+  // tha — "Finance/Ads/WhatsApp") — baaki menu items (orders/dashboard/courier waghera) har
+  // plan mein already included hote hain, unhe gate karne ki zaroorat nahi.
+  const SUBSCRIPTION_GATED_MODULES = { ledger: ['finance'], ads: ['ads'], whatsapp: ['whatsapp_linked', 'whatsapp_meta'] }
+  const hasSubscriptionAccess = (moduleId) => {
+    const requiredKeys = SUBSCRIPTION_GATED_MODULES[moduleId]
+    return !requiredKeys || requiredKeys.some((k) => accessibleModuleKeys.has(k))
+  }
+  const hasAccess = (moduleId) => (!isStaff || staffPermissions.includes(moduleId)) && hasSubscriptionAccess(moduleId)
 
   const allMenuItems = [
     { id: 'dashboard', label: t('nav.dashboard'), group: t('nav.group.overview') },
