@@ -48,7 +48,7 @@ export default function Homepage() {
   }
 
   return (
-    <div className="ne-app-shell" style={{ minHeight: '100dvh', color: 'var(--ne-text)' }}>
+    <div className="ne-app-shell" style={{ height: '100dvh', overflowY: 'auto', color: 'var(--ne-text)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: isMobile ? '1rem' : '1.25rem 2rem', borderBottom: '1px solid var(--ne-border)' }}>
         <Logo size={32} wordmarkSize={18} gap={8} />
         <div style={{ display: 'flex', gap: 8 }}>
