@@ -596,7 +596,7 @@ function App() {
       const { data: adminLinks } = await supabase
         .from('user_stores')
         .select('store_id, profiles!inner(id, email, full_name, phone, role, approved)')
-        .eq('profiles.role', 'admin')
+        .in('profiles.role', ['admin', 'creator'])
       const adminByStore = {}
       ;(adminLinks || []).forEach(l => { adminByStore[l.store_id] = l.profiles })
       const storesWithStats = await Promise.all((stores || []).map(async (s) => {
@@ -611,7 +611,7 @@ function App() {
           approved_count: stats.approved_count ?? 0,
         }
       }))
-      const approvedStoresOnly = storesWithStats.filter(s => s.admin?.approved === true)
+      const approvedStoresOnly = storesWithStats.filter(s => s.admin?.approved !== false)
       setAllStores(approvedStoresOnly)
       const { data: pending } = await supabase.from('profiles').select('*').eq('approved', false).neq('role', 'creator')
       // Har pending admin ki apni store + us store ki pending subscription (plan+addons) bhi
