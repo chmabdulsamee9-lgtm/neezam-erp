@@ -91,7 +91,7 @@ function PendingApprovalScreen({ onSignOut }) {
   )
 }
 
-function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, onSignOut, userEmail, cfUrl, onDataChanged }) {
+function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, onSignOut, userEmail, cfUrl, onDataChanged, allPlansList, onDenyOrDelete }) {
   const [editingAdmin, setEditingAdmin] = useState(null)
   const [editFullName, setEditFullName] = useState('')
   const [editPhone, setEditPhone] = useState('')
@@ -102,6 +102,8 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
   const [editPasswordSuccess, setEditPasswordSuccess] = useState(false)
   // Creator ka add-on override, approve se pehle — profileId -> array of selected addon-ids
   const [addonOverrides, setAddonOverrides] = useState({})
+  const [planOverrides, setPlanOverrides] = useState({})
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null)
 
   const toggleOverrideAddon = (profileId, addonId, defaultIds) => {
     setAddonOverrides((prev) => {
@@ -198,6 +200,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
               {pendingProfiles.map(p => {
                 const defaultAddonIds = p.subscription?.selected_addon_ids || []
                 const currentAddonIds = addonOverrides[p.id] ?? defaultAddonIds
+                const currentPlanId = planOverrides[p.id] ?? p.subscription?.plan_id
                 return (
                   <div key={p.id} style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 12, padding: '12px 16px', boxShadow: '0 2px 8px rgba(0,0,0,.18)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -205,17 +208,27 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
                         <div style={{ fontWeight: 600, fontSize: 14 }}>{p.full_name || '—'} {p.storeName && <span style={{ color: 'var(--ne-muted)', fontWeight: 400 }}>· {p.storeName}</span>}</div>
                         <div style={{ fontSize: 12, color: 'var(--ne-muted)' }}>{p.email} · {p.phone || 'no phone'} · {p.role}</div>
                       </div>
-                      <button onClick={() => onApprove(p.id, p.subscription?.id, currentAddonIds)}
-                        style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: 'var(--ne-grad)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                        ✓ Approve
-                      </button>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button onClick={() => onApprove(p.id, p.subscription?.id, currentAddonIds, currentPlanId)}
+                          style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: 'var(--ne-grad)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                          ✓ Approve
+                        </button>
+                        <button onClick={() => { if (confirm('Yeh signup permanently delete ho jayegi (profile + store + sara data). Confirm?')) onDenyOrDelete(p.storeId) }}
+                          style={{ padding: '7px 16px', borderRadius: 8, border: '1px solid var(--ne-danger)', background: 'transparent', color: 'var(--ne-danger)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                          ✕ Deny
+                        </button>
+                      </div>
                     </div>
 
                     {p.subscription && (
                       <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--ne-border)' }}>
-                        <div style={{ fontSize: 12, color: 'var(--ne-text)', fontWeight: 700 }}>
-                          Plan: {p.subscription.plans?.name || '—'} <span style={{ color: 'var(--ne-muted)', fontWeight: 400 }}>(Rs. {Number(p.subscription.plans?.rate_per_order || 0).toLocaleString()}/order)</span>
-                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--ne-muted)', marginBottom: 6 }}>Plan (dropdown se override kar sakte ho):</div>
+                        <select value={currentPlanId || ''} onChange={(e) => setPlanOverrides(prev => ({ ...prev, [p.id]: e.target.value }))}
+                          style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--ne-border)', background: 'var(--ne-bg)', color: 'var(--ne-text)', fontSize: 12, marginBottom: 8 }}>
+                          {allPlansList.map((pl) => (
+                            <option key={pl.id} value={pl.id}>{pl.name} (Rs. {Number(pl.rate_per_order).toLocaleString()}/order)</option>
+                          ))}
+                        </select>
                         {p.addonDetails.length > 0 && (
                           <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
                             <div style={{ fontSize: 11, color: 'var(--ne-muted)' }}>Add-ons (override karne ke liye untick/tick karo):</div>
@@ -265,10 +278,16 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
                 {statCard(s.approved_count ?? '—', 'Approved', 'var(--ne-warning)', 'var(--ne-warning-soft)')}
                 {statCard(s.lifetime_count ?? '—', 'Lifetime', '#A855F7', 'rgba(168,85,247,.15)')}
               </div>
-              <button onClick={() => onEnterStore(s)}
-                style={{ padding: '9px', borderRadius: 10, border: 'none', background: 'var(--ne-grad)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                → Enter
-              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => onEnterStore(s)}
+                  style={{ flex: 1, padding: '9px', borderRadius: 10, border: 'none', background: 'var(--ne-grad)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                  → Enter
+                </button>
+                <button onClick={() => setDeleteConfirmId(s.id)}
+                  style={{ padding: '9px 12px', borderRadius: 10, border: '1px solid var(--ne-danger)', background: 'transparent', color: 'var(--ne-danger)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                  🗑
+                </button>
+              </div>
             </div>
           ))}
           {allStores.length === 0 && (
@@ -276,6 +295,27 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
           )}
         </div>
       </div>
+
+      {deleteConfirmId && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000000 }}>
+          <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 16, width: 380, maxWidth: '92vw', padding: '20px' }}>
+            <h3 style={{ margin: '0 0 10px', fontSize: 15, color: 'var(--ne-danger)' }}>⚠️ Store delete karein?</h3>
+            <p style={{ fontSize: 13, color: 'var(--ne-muted)', margin: '0 0 18px', lineHeight: 1.5 }}>
+              Yeh store, iska sara data (orders, courier-data, expenses waghera), aur admin ka login account — sab PERMANENTLY delete ho jayega. Yeh action wapis nahi ho sakti.
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setDeleteConfirmId(null)}
+                style={{ flex: 1, padding: '10px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 13, cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button onClick={() => { onDenyOrDelete(deleteConfirmId); setDeleteConfirmId(null) }}
+                style={{ flex: 1, padding: '10px', borderRadius: 9, border: 'none', background: 'var(--ne-danger)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                Haan, Delete Karo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {editingAdmin && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000000 }}>
@@ -398,6 +438,7 @@ function App() {
   const [profileLoaded, setProfileLoaded] = useState(false)
   const [userStoresList, setUserStoresList] = useState([])
   const [allStores, setAllStores] = useState([])
+  const [allPlansList, setAllPlansList] = useState([])
   const [pendingProfiles, setPendingProfiles] = useState([])
   const [selectedStoreId, setSelectedStoreId] = useState(null)
   // isMasterView ab URL se derive hoti hai (koi alag state nahi) — pehle yeh independent
@@ -547,10 +588,12 @@ function App() {
     setProfile(profileData || null)
 
     if (profileData?.role === 'creator') {
+      const { data: plansData } = await supabase.from('plans').select('id, name, rate_per_order').order('rate_per_order', { ascending: false })
+      setAllPlansList(plansData || [])
       const { data: stores } = await supabase.from('stores').select('*').order('created_at', { ascending: false })
       const { data: adminLinks } = await supabase
         .from('user_stores')
-        .select('store_id, profiles!inner(id, email, full_name, phone, role)')
+        .select('store_id, profiles!inner(id, email, full_name, phone, role, approved)')
         .eq('profiles.role', 'admin')
       const adminByStore = {}
       ;(adminLinks || []).forEach(l => { adminByStore[l.store_id] = l.profiles })
@@ -566,19 +609,20 @@ function App() {
           approved_count: stats.approved_count ?? 0,
         }
       }))
-      setAllStores(storesWithStats)
+      const approvedStoresOnly = storesWithStats.filter(s => s.admin?.approved === true)
+      setAllStores(approvedStoresOnly)
       const { data: pending } = await supabase.from('profiles').select('*').eq('approved', false).neq('role', 'creator')
       // Har pending admin ki apni store + us store ki pending subscription (plan+addons) bhi
       // attach karte hain, taake Approval-Review mein plan/add-ons dikh sakein (Block C)
       const pendingWithSubs = await Promise.all((pending || []).map(async (p) => {
         const { data: us } = await supabase
           .from('user_stores')
-          .select('stores(eneezam_id, store_name)')
+          .select('stores(id, eneezam_id, store_name)')
           .eq('user_id', p.id)
           .limit(1)
           .maybeSingle()
         const eneezamId = us?.stores?.eneezam_id
-        if (!eneezamId) return { ...p, storeName: us?.stores?.store_name || null, subscription: null, addonDetails: [] }
+        if (!eneezamId) return { ...p, storeName: us?.stores?.store_name || null, storeId: us?.stores?.id || null, subscription: null, addonDetails: [] }
         const { data: sub } = await supabase
           .from('store_subscriptions')
           .select('*, plans(name, rate_per_order)')
@@ -592,7 +636,7 @@ function App() {
           const { data: addonRows } = await supabase.from('addons').select('*').in('id', sub.selected_addon_ids)
           addonDetails = addonRows || []
         }
-        return { ...p, storeName: us.stores.store_name, subscription: sub, addonDetails }
+        return { ...p, storeName: us.stores.store_name, storeId: us.stores.id, subscription: sub, addonDetails }
       }))
       setPendingProfiles(pendingWithSubs)
 
@@ -626,16 +670,18 @@ function App() {
 
   // finalAddonIds — creator ka override (add-on hata/de sakta hai) approve se pehle;
   // subscriptionId na ho (koi subscription record hi na mila) to sirf profile approve hota hai
-  const handleApprove = async (profileId, subscriptionId, finalAddonIds) => {
+  const handleApprove = async (profileId, subscriptionId, finalAddonIds, finalPlanId) => {
     const approvedProfile = pendingProfiles.find(p => p.id === profileId)
     await supabase.from('profiles').update({ approved: true }).eq('id', profileId)
     if (subscriptionId) {
-      await supabase.from('store_subscriptions').update({
+      const updatePayload = {
         status: 'approved',
         approved_at: new Date().toISOString(),
         approved_by: session.user.id,
         selected_addon_ids: finalAddonIds || [],
-      }).eq('id', subscriptionId)
+      }
+      if (finalPlanId) updatePayload.plan_id = finalPlanId
+      await supabase.from('store_subscriptions').update(updatePayload).eq('id', subscriptionId)
     }
     setPendingProfiles(prev => prev.filter(p => p.id !== profileId))
     if (approvedProfile?.email) {
@@ -646,6 +692,20 @@ function App() {
         body: JSON.stringify({ email: approvedProfile.email, fullName: approvedProfile.full_name || '' }),
       }).catch(() => {})
     }
+  }
+
+  const handleDenyOrDeleteStore = async (storeId) => {
+    if (!storeId) return
+    const { data: { session: currentSession } } = await supabase.auth.getSession()
+    const res = await fetch(`${CF_URL}/admin-delete-store`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${currentSession?.access_token}` },
+      body: JSON.stringify({ store_id: storeId }),
+    })
+    const data = await res.json()
+    if (data.error) { alert('Delete fail hui: ' + data.error); return }
+    setPendingProfiles(prev => prev.filter(p => p.storeId !== storeId))
+    setAllStores(prev => prev.filter(s => s.id !== storeId))
   }
 
   const handleEnterStore = (store) => {
@@ -904,6 +964,8 @@ function App() {
     return (
       <MasterDashboard
         allStores={allStores}
+        allPlansList={allPlansList}
+        onDenyOrDelete={handleDenyOrDeleteStore}
         pendingProfiles={pendingProfiles}
         onApprove={handleApprove}
         onEnterStore={handleEnterStore}
