@@ -91,7 +91,7 @@ function PendingApprovalScreen({ onSignOut }) {
   )
 }
 
-function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, onSignOut, userEmail, cfUrl, onDataChanged, allPlansList, onDenyOrDelete }) {
+function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, onSignOut, userEmail, cfUrl, onDataChanged, allPlansList, onDenyOrDelete, allAddonsList }) {
   const [editingAdmin, setEditingAdmin] = useState(null)
   const [editFullName, setEditFullName] = useState('')
   const [editPhone, setEditPhone] = useState('')
@@ -209,7 +209,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
                         <div style={{ fontSize: 12, color: 'var(--ne-muted)' }}>{p.email} · {p.phone || 'no phone'} · {p.role}</div>
                       </div>
                       <div style={{ display: 'flex', gap: 8 }}>
-                        <button onClick={() => onApprove(p.id, p.subscription?.id, currentAddonIds, currentPlanId)}
+                        <button onClick={() => onApprove(p.id, p.subscription?.id, currentAddonIds, currentPlanId, p.eneezamId)}
                           style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: 'var(--ne-grad)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
                           ✓ Approve
                         </button>
@@ -220,28 +220,27 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
                       </div>
                     </div>
 
-                    {p.subscription && (
-                      <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--ne-border)' }}>
-                        <div style={{ fontSize: 12, color: 'var(--ne-muted)', marginBottom: 6 }}>Plan (dropdown se override kar sakte ho):</div>
-                        <select value={currentPlanId || ''} onChange={(e) => setPlanOverrides(prev => ({ ...prev, [p.id]: e.target.value }))}
-                          style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--ne-border)', background: 'var(--ne-bg)', color: 'var(--ne-text)', fontSize: 12, marginBottom: 8 }}>
-                          {allPlansList.map((pl) => (
-                            <option key={pl.id} value={pl.id}>{pl.name} (Rs. {Number(pl.rate_per_order).toLocaleString()}/order)</option>
+                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--ne-border)' }}>
+                      <div style={{ fontSize: 12, color: 'var(--ne-muted)', marginBottom: 6 }}>Plan (dropdown se select/override karo):</div>
+                      <select value={currentPlanId || ''} onChange={(e) => setPlanOverrides(prev => ({ ...prev, [p.id]: e.target.value }))}
+                        style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--ne-border)', background: 'var(--ne-bg)', color: 'var(--ne-text)', fontSize: 12, marginBottom: 8 }}>
+                        <option value="">— Plan chuno —</option>
+                        {allPlansList.map((pl) => (
+                          <option key={pl.id} value={pl.id}>{pl.name} (Rs. {Number(pl.rate_per_order).toLocaleString()}/order)</option>
+                        ))}
+                      </select>
+                      {allAddonsList.length > 0 && (
+                        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <div style={{ fontSize: 11, color: 'var(--ne-muted)' }}>Add-ons:</div>
+                          {allAddonsList.map((a) => (
+                            <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
+                              <input type="checkbox" checked={currentAddonIds.includes(a.id)} onChange={() => toggleOverrideAddon(p.id, a.id, defaultAddonIds)} style={{ accentColor: '#5C7CFA' }} />
+                              {a.name} <span style={{ color: 'var(--ne-muted)' }}>(Rs. {Number(a.monthly_price).toLocaleString()}/mo)</span>
+                            </label>
                           ))}
-                        </select>
-                        {p.addonDetails.length > 0 && (
-                          <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                            <div style={{ fontSize: 11, color: 'var(--ne-muted)' }}>Add-ons (override karne ke liye untick/tick karo):</div>
-                            {p.addonDetails.map((a) => (
-                              <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
-                                <input type="checkbox" checked={currentAddonIds.includes(a.id)} onChange={() => toggleOverrideAddon(p.id, a.id, defaultAddonIds)} style={{ accentColor: '#5C7CFA' }} />
-                                {a.name} <span style={{ color: 'var(--ne-muted)' }}>(Rs. {Number(a.monthly_price).toLocaleString()}/mo)</span>
-                              </label>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )
               })}
@@ -439,6 +438,7 @@ function App() {
   const [userStoresList, setUserStoresList] = useState([])
   const [allStores, setAllStores] = useState([])
   const [allPlansList, setAllPlansList] = useState([])
+  const [allAddonsList, setAllAddonsList] = useState([])
   const [pendingProfiles, setPendingProfiles] = useState([])
   const [selectedStoreId, setSelectedStoreId] = useState(null)
   // isMasterView ab URL se derive hoti hai (koi alag state nahi) — pehle yeh independent
@@ -590,6 +590,8 @@ function App() {
     if (profileData?.role === 'creator') {
       const { data: plansData } = await supabase.from('plans').select('id, name, rate_per_order').order('rate_per_order', { ascending: false })
       setAllPlansList(plansData || [])
+      const { data: addonsData } = await supabase.from('addons').select('id, name, monthly_price')
+      setAllAddonsList(addonsData || [])
       const { data: stores } = await supabase.from('stores').select('*').order('created_at', { ascending: false })
       const { data: adminLinks } = await supabase
         .from('user_stores')
@@ -622,7 +624,7 @@ function App() {
           .limit(1)
           .maybeSingle()
         const eneezamId = us?.stores?.eneezam_id
-        if (!eneezamId) return { ...p, storeName: us?.stores?.store_name || null, storeId: us?.stores?.id || null, subscription: null, addonDetails: [] }
+        if (!eneezamId) return { ...p, storeName: us?.stores?.store_name || null, storeId: us?.stores?.id || null, eneezamId: eneezamId || null, subscription: null, addonDetails: [] }
         const { data: sub } = await supabase
           .from('store_subscriptions')
           .select('*, plans(name, rate_per_order)')
@@ -636,7 +638,7 @@ function App() {
           const { data: addonRows } = await supabase.from('addons').select('*').in('id', sub.selected_addon_ids)
           addonDetails = addonRows || []
         }
-        return { ...p, storeName: us.stores.store_name, storeId: us.stores.id, subscription: sub, addonDetails }
+        return { ...p, storeName: us.stores.store_name, storeId: us.stores.id, eneezamId, subscription: sub, addonDetails }
       }))
       setPendingProfiles(pendingWithSubs)
 
@@ -670,7 +672,7 @@ function App() {
 
   // finalAddonIds — creator ka override (add-on hata/de sakta hai) approve se pehle;
   // subscriptionId na ho (koi subscription record hi na mila) to sirf profile approve hota hai
-  const handleApprove = async (profileId, subscriptionId, finalAddonIds, finalPlanId) => {
+  const handleApprove = async (profileId, subscriptionId, finalAddonIds, finalPlanId, eneezamId) => {
     const approvedProfile = pendingProfiles.find(p => p.id === profileId)
     await supabase.from('profiles').update({ approved: true }).eq('id', profileId)
     if (subscriptionId) {
@@ -682,6 +684,15 @@ function App() {
       }
       if (finalPlanId) updatePayload.plan_id = finalPlanId
       await supabase.from('store_subscriptions').update(updatePayload).eq('id', subscriptionId)
+    } else if (finalPlanId && eneezamId) {
+      await supabase.from('store_subscriptions').insert({
+        store_id: eneezamId,
+        plan_id: finalPlanId,
+        selected_addon_ids: finalAddonIds || [],
+        status: 'approved',
+        approved_at: new Date().toISOString(),
+        approved_by: session.user.id,
+      })
     }
     setPendingProfiles(prev => prev.filter(p => p.id !== profileId))
     if (approvedProfile?.email) {
@@ -965,6 +976,7 @@ function App() {
       <MasterDashboard
         allStores={allStores}
         allPlansList={allPlansList}
+        allAddonsList={allAddonsList}
         onDenyOrDelete={handleDenyOrDeleteStore}
         pendingProfiles={pendingProfiles}
         onApprove={handleApprove}
