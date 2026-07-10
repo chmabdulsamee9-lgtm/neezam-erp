@@ -195,9 +195,9 @@ async function repairPoisonedRows(storeId, poisoned) {
 // CourierDashboard.jsx isi function ko apne mount-time refresh ke liye bhi use karte hain,
 // aur returned rows se apna local state update kar lete hain. onProgress(count) sirf
 // full-load path mein call hota hai (order_statuses page-by-page) — loading-count UI ke liye.
-export async function syncBookedOrdersCache(storeId, onProgress) {
-  const metaKey = bookedMetaKey(storeId);
-  const cached = await getCachedBookedOrders();
+export async function syncBookedOrdersCache(storeId, eneezamId, onProgress) {
+  const metaKey = bookedMetaKey(eneezamId);
+  const cached = await getCachedBookedOrders(eneezamId);
   const cachedForStore = cached.filter((o) => o.agent_data?.store_id === storeId);
   const hasCacheForStore = cachedForStore.length > 0;
 
@@ -208,7 +208,7 @@ export async function syncBookedOrdersCache(storeId, onProgress) {
     // updated_at badalne par hi us row ko dobara chhuta hai)
     const poisoned = findPoisonedRows(cachedForStore);
     const repaired = await repairPoisonedRows(storeId, poisoned);
-    if (repaired.length > 0) await saveBookedOrdersBulk(repaired);
+    if (repaired.length > 0) await saveBookedOrdersBulk(eneezamId, repaired);
 
     const lastSyncedAt = (await getMeta(metaKey)) || "2000-01-01T00:00:00Z";
     const loadStartTime = new Date().toISOString();
@@ -220,7 +220,7 @@ export async function syncBookedOrdersCache(storeId, onProgress) {
       const cacheMap = {};
       cachedRows.forEach((r) => { cacheMap[String(r.id)] = r.raw_data; });
       deltaMerged = mergeStatusesWithCache(deltaStatuses, cacheMap);
-      await saveBookedOrdersBulk(deltaMerged);
+      await saveBookedOrdersBulk(eneezamId, deltaMerged);
     }
     await setMeta(metaKey, loadStartTime);
     return { full: false, rows: [...repaired, ...deltaMerged] };
@@ -234,7 +234,7 @@ export async function syncBookedOrdersCache(storeId, onProgress) {
   // wajah thi "kabhi 140 pe atak, kabhi 3000 pe" wale slow-load ki — do bhari network fetches
   // ek sath chal rahi hoti thi. Sirf agar local cache bhi khali ho (bilkul first-ever
   // app-open, dono cache cold) tabhi purana network-fallback chalta hai.
-  const localOrders = await getCachedOrders();
+  const localOrders = await getCachedOrders(eneezamId);
   const [statuses, cacheMap] = await (async () => {
     if (localOrders.length > 0) {
       const s = await fetchBookedStatuses(storeId, onProgress);
@@ -259,7 +259,7 @@ export async function syncBookedOrdersCache(storeId, onProgress) {
   }
 
   const merged = mergeStatusesWithCache(statuses, cacheMap);
-  await saveBookedOrdersBulk(merged);
+  await saveBookedOrdersBulk(eneezamId, merged);
   await setMeta(metaKey, loadStartTime);
   return { full: true, rows: merged };
 }

@@ -280,13 +280,13 @@ export default function BookedOrders({ storeId, ordersStore }) {
   const loadBooked = async () => {
     setError("");
     try {
-      const cached = await getCachedBookedOrders();
+      const cached = await getCachedBookedOrders(ordersStore?.eneezam_id);
       const cachedForStore = cached.filter((o) => o.agent_data?.store_id === storeId);
 
       if (cachedForStore.length > 0) {
         setOrders(cachedForStore);
         setLoading(false);
-        syncBookedOrdersCache(storeId)
+        syncBookedOrdersCache(storeId, ordersStore?.eneezam_id)
           .then(({ rows }) => {
             if (rows.length === 0) return;
             setOrders((prev) => {
@@ -302,7 +302,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
 
       setLoading(true);
       setLoadingCount(0);
-      const { rows } = await syncBookedOrdersCache(storeId, (count) => setLoadingCount(count));
+      const { rows } = await syncBookedOrdersCache(storeId, ordersStore?.eneezam_id, (count) => setLoadingCount(count));
       setOrders(rows);
     } catch (err) {
       setError(err.message);

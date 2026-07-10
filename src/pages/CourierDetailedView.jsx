@@ -196,7 +196,7 @@ function GranularTable({ rows, periodLabel }) {
   );
 }
 
-export default function CourierDetailedView({ storeId }) {
+export default function CourierDetailedView({ storeId, ordersStore }) {
   const navigate = useNavigate();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -213,12 +213,12 @@ export default function CourierDetailedView({ storeId }) {
   const loadBooked = async () => {
     setErrorMsg("");
     try {
-      const cached = await getCachedBookedOrders();
+      const cached = await getCachedBookedOrders(ordersStore?.eneezam_id);
       const cachedForStore = cached.filter((o) => o.agent_data?.store_id === storeId);
       if (cachedForStore.length > 0) {
         setOrders(cachedForStore);
         setLoading(false);
-        syncBookedOrdersCache(storeId)
+        syncBookedOrdersCache(storeId, ordersStore?.eneezam_id)
           .then(({ rows }) => {
             if (rows.length === 0) return;
             setOrders((prev) => {
@@ -232,7 +232,7 @@ export default function CourierDetailedView({ storeId }) {
         return;
       }
       setLoading(true);
-      const { rows } = await syncBookedOrdersCache(storeId);
+      const { rows } = await syncBookedOrdersCache(storeId, ordersStore?.eneezam_id);
       setOrders(rows);
     } catch (err) {
       setErrorMsg(err.message);

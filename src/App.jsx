@@ -555,7 +555,7 @@ function App() {
   useEffect(() => {
     if (session && profile?.approved && selectedStoreId && !hasStartedBookedLoadRef.current) {
       hasStartedBookedLoadRef.current = true
-      syncBookedOrdersCache(selectedStoreId).catch(err => console.log('Booked orders preload error:', err.message))
+      syncBookedOrdersCache(selectedStoreId, ordersStore?.eneezam_id).catch(err => console.log('Booked orders preload error:', err.message))
     }
   }, [session, profile, selectedStoreId])
 
@@ -769,7 +769,7 @@ function App() {
     return sorted.map(o => mergeOrder(o, statusMap))
   }
 
-  const setupRealtime = (storeId) => {
+  const setupRealtime = (storeId, cacheId) => {
     if (realtimeChannelRef.current) {
       supabase.removeChannel(realtimeChannelRef.current)
       realtimeChannelRef.current = null
@@ -783,7 +783,7 @@ function App() {
           const row = payload.new
           if (!row || !row.raw_data) return
           const rawOrder = row.raw_data
-          upsertOrder(rawOrder)
+          upsertOrder(cacheId, rawOrder)
 
           setOrdersData(prev => {
             const idx = prev.findIndex(o => o.id === rawOrder.id)
@@ -821,7 +821,7 @@ function App() {
       .subscribe((status) => {
         if (status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
           setTimeout(() => {
-            setupRealtime(storeId)
+            setupRealtime(storeId, cacheId)
           }, 3000)
         }
       })
@@ -838,6 +838,7 @@ function App() {
       if (isStale()) return
       if (!storeData) { setOrdersLoading(false); return }
       setOrdersStore(storeData)
+      const cacheId = storeData.eneezam_id
 
       const statuses = await fetchAllOrderStatuses()
       if (isStale()) return
@@ -846,7 +847,7 @@ function App() {
       statusMapRef.current = statusMap
 
       const loadStartTime = new Date().toISOString()
-      const cachedRaw = await getCachedOrders()
+      const cachedRaw = await getCachedOrders(cacheId)
       if (isStale()) return
 
       if (cachedRaw.length > 0) {
@@ -854,9 +855,9 @@ function App() {
         setOrdersData(rebuildOrdersData(cachedRaw, statusMap))
         setOrdersLoaded(true)
         setOrdersLoading(false)
-        setupRealtime(storeId)
+        setupRealtime(storeId, cacheId)
 
-        const lastSyncedAt = (await getMeta("lastSyncedAt")) || "2000-01-01T00:00:00Z"
+        const lastSyncedAt = (await getMeta(`lastSyncedAt-${cacheId}`)) || "2000-01-01T00:00:00Z"
         setSyncStatusText("⏳ naye orders check ho rahe hain...")
         try {
           let from = 0
@@ -878,7 +879,7 @@ function App() {
           }
           if (isStale()) return
           if (deltaOrders.length > 0) {
-            await saveOrdersBulk(deltaOrders)
+            await saveOrdersBulk(cacheId, deltaOrders)
             if (isStale()) return
             const merged = [...rawOrdersRef.current]
             deltaOrders.forEach(o => {
@@ -889,7 +890,7 @@ function App() {
             rawOrdersRef.current = merged
             setOrdersData(rebuildOrdersData(merged, statusMap))
           }
-          await setMeta("lastSyncedAt", loadStartTime)
+          await setMeta(`lastSyncedAt-${cacheId}`, loadStartTime)
         } catch (err) {
           console.log("Delta sync error:", err.message)
         }
@@ -913,8 +914,8 @@ function App() {
       setOrdersData(rebuildOrdersData(recentRaw, statusMap))
       setOrdersLoaded(true)
       setOrdersLoading(false)
-      setupRealtime(storeId)
-      await saveOrdersBulk(recentRaw)
+      setupRealtime(storeId, cacheId)
+      await saveOrdersBulk(cacheId, recentRaw)
       if (isStale()) return
 
       setSyncStatusText("⏳ purane orders background mein load ho rahe hain...")
@@ -932,7 +933,7 @@ function App() {
           if (isStale()) return
           if (!olderBatch || olderBatch.length === 0) break
           const olderRaw = olderBatch.map(r => r.raw_data)
-          await saveOrdersBulk(olderRaw)
+          await saveOrdersBulk(cacheId, olderRaw)
           if (isStale()) return
           const merged = [...rawOrdersRef.current, ...olderRaw]
           rawOrdersRef.current = merged
@@ -940,7 +941,7 @@ function App() {
           if (olderBatch.length < BATCH_SIZE) break
           from += BATCH_SIZE
         }
-        await setMeta("lastSyncedAt", loadStartTime)
+        await setMeta(`lastSyncedAt-${cacheId}`, loadStartTime)
       } catch (err) {
         console.log("Background load error:", err.message)
       }
@@ -1279,10 +1280,10 @@ function App() {
               <BudgetCalculator ordersData={ordersData} />
             )}
             {activeMenu === 'courier-dashboard' && hasAccess('courier-dashboard') && (
-              <CourierDashboard storeId={selectedStoreId} />
+              <CourierDashboard storeId={selectedStoreId} ordersStore={ordersStore} />
             )}
             {activeMenu === 'courier-dashboard/detailed' && hasAccess('courier-dashboard') && (
-              <CourierDetailedView storeId={selectedStoreId} />
+              <CourierDetailedView storeId={selectedStoreId} ordersStore={ordersStore} />
             )}
             {!['dashboard', 'store-connect', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments'].includes(activeMenu) && (
               <div style={{ padding: '1.25rem' }}>
