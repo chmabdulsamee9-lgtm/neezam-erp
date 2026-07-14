@@ -4,6 +4,8 @@ import { getCachedBookedOrders } from "../ordersCache";
 import { syncBookedOrdersCache, bucketFinalStatus } from "../bookedOrdersData";
 import dexLogo from "../assets/couriers/dex.png";
 
+const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
+
 const PER_PAGE_OPTIONS = [20, 50, 100];
 
 // Courier company brand colors — jaise Dashboard.jsx ke SOURCE_COLORS (Meta/TikTok/etc),
@@ -43,6 +45,7 @@ function bucketCourierStatus(raw) {
 // har value neeche kisi na kisi bucket mein saaf saaf aata hai, koi unclassified case nahi bacha.
 const TAB_STRUCTURE = [
   { key: "All", label: "All" },
+  { key: "Ready for Booking", label: "Ready for Booking" },
   { key: "To Ship", label: "To Ship", subs: [
       { key: "Booked", label: "Booked" },
       { key: "Pickup Failed", label: "Pickup Failed" },
@@ -251,6 +254,15 @@ export default function BookedOrders({ storeId, ordersStore }) {
   const [remarkDrafts, setRemarkDrafts] = useState({});
   const [remarkSubmitting, setRemarkSubmitting] = useState(null);
   const [loadingCount, setLoadingCount] = useState(0);
+  const [readyOrders, setReadyOrders] = useState([]);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [showBookModal, setShowBookModal] = useState(false);
+  const [bookCourier, setBookCourier] = useState("dex");
+  const [bookAddressId, setBookAddressId] = useState("");
+  const [pickupAddresses, setPickupAddresses] = useState([]);
+  const [booking, setBooking] = useState(false);
+  const [bookError, setBookError] = useState("");
+  const [cancellingId, setCancellingId] = useState(null);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
@@ -260,6 +272,37 @@ export default function BookedOrders({ storeId, ordersStore }) {
 
   useEffect(() => {
     if (storeId) loadBooked();
+  }, [storeId]);
+
+  // "Ready for Booking" = order_statuses.status "Approved" hai (agent_status, Orders.jsx wala
+  // exact value) lekin abhi tak dex_tracking_number set nahi hua (kabhi booked hi nahi hua).
+  // shopify_orders_cache mein flat columns nahi hote — asal order raw_data JSONB mein hai
+  // (bookedOrdersData.js/App.jsx ka established pattern), isliye targeted order_statuses lookup
+  // pehle karte hain phir sirf un-hi order_ids ka shopify_orders_cache .in() fetch — poori table
+  // scan karne ke bajaye.
+  useEffect(() => {
+    if (!storeId) return;
+    (async () => {
+      const { data: statusRows } = await supabase
+        .from("order_statuses")
+        .select("order_id")
+        .eq("store_id", storeId)
+        .eq("status", "Approved")
+        .is("dex_tracking_number", null);
+      const orderIds = (statusRows || []).map((s) => s.order_id).filter(Boolean);
+      if (orderIds.length === 0) {
+        setReadyOrders([]);
+      } else {
+        const { data: cachedRows } = await supabase
+          .from("shopify_orders_cache")
+          .select("id, raw_data")
+          .in("id", orderIds);
+        setReadyOrders((cachedRows || []).map((r) => ({ id: r.id, ...r.raw_data })));
+      }
+      const { data: addrs } = await supabase.from("pickup_addresses").select("*").eq("store_id", storeId).order("created_at");
+      setPickupAddresses(addrs || []);
+      if (addrs && addrs.length > 0) setBookAddressId((addrs.find((a) => a.is_default) || addrs[0]).id);
+    })();
   }, [storeId]);
 
   // Remarks ke "author" field ke liye current user ka naam (Orders.jsx ke currentProfile
@@ -316,6 +359,70 @@ export default function BookedOrders({ storeId, ordersStore }) {
       n.has(id) ? n.delete(id) : n.add(id);
       return n;
     });
+  };
+
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  };
+
+  const handleBookSingle = async (orderId) => {
+    setSelectedIds(new Set([orderId]));
+    setShowBookModal(true);
+  };
+
+  const handleBookConfirm = async () => {
+    setBooking(true);
+    setBookError("");
+    const { data: { session } } = await supabase.auth.getSession();
+    for (const orderId of selectedIds) {
+      try {
+        const res = await fetch(`${CF_URL}/dex-book-order`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+          body: JSON.stringify({ store_id: storeId, order_id: orderId, pickup_address_id: bookAddressId }),
+        });
+        const data = await res.json();
+        if (data.error) setBookError((prev) => prev + `Order ${orderId}: ${data.error}\n`);
+      } catch (err) {
+        setBookError((prev) => prev + `Order ${orderId}: ${err.message}\n`);
+      }
+    }
+    setBooking(false);
+    setShowBookModal(false);
+    setSelectedIds(new Set());
+    loadBooked();
+    setReadyOrders((prev) => prev.filter((o) => !selectedIds.has(o.id)));
+  };
+
+  const handleCancelBooking = async (orderId) => {
+    setCancellingId(orderId);
+    const { data: { session } } = await supabase.auth.getSession();
+    await fetch(`${CF_URL}/dex-cancel-order`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+      body: JSON.stringify({ store_id: storeId, order_id: orderId }),
+    });
+    setCancellingId(null);
+    loadBooked();
+  };
+
+  const handleBulkPrintAwb = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    for (const orderId of selectedIds) {
+      const order = orders.find((o) => o.id === orderId);
+      const packageCode = order?.agent_data?.dex_package_code;
+      if (!packageCode) continue;
+      const res = await fetch(`${CF_URL}/dex-print-awb?store_id=${storeId}&package_code=${packageCode}`, {
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      const data = await res.json();
+      const pdfUrl = data.data?.url || data.url;
+      if (pdfUrl) window.open(pdfUrl, "_blank");
+    }
   };
 
   const submitRemark = async (order) => {
@@ -455,7 +562,34 @@ export default function BookedOrders({ storeId, ordersStore }) {
         </div>
       )}
 
-      {loading ? (
+      {activeTab === "Ready for Booking" ? (
+        <div>
+          {selectedIds.size > 0 && (
+            <div style={{ display: "flex", gap: 8, marginBottom: 12, padding: "10px 14px", background: "var(--ne-accent-soft)", borderRadius: 10, alignItems: "center" }}>
+              <span style={{ fontSize: 12, color: "var(--ne-text)", fontWeight: 600 }}>{selectedIds.size} selected</span>
+              <button onClick={() => setShowBookModal(true)} style={{ padding: "7px 16px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                📦 Book Selected
+              </button>
+            </div>
+          )}
+          {readyOrders.length === 0 ? (
+            <div style={{ ...cardStyle, textAlign: "center", color: "var(--ne-muted-2)", fontSize: 12 }}>Koi order booking ke liye ready nahi.</div>
+          ) : readyOrders.map((o) => (
+            <div key={o.id} style={{ ...cardStyle, display: "flex", alignItems: "center", gap: 12 }}>
+              <input type="checkbox" checked={selectedIds.has(o.id)} onChange={() => toggleSelect(o.id)} style={{ accentColor: "#5C7CFA" }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: "var(--ne-text)" }}>{o.name}</div>
+                <div style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>
+                  {o.customer?.first_name} {o.customer?.last_name} · {o.shipping_address?.city} · Rs. {Number(o.total_price).toLocaleString()}
+                </div>
+              </div>
+              <button onClick={() => handleBookSingle(o.id)} style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>
+                📦 Book
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : loading ? (
         <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>
           Loading{loadingCount > 0 ? ` (${loadingCount} loaded)` : "..."}
         </div>
@@ -478,8 +612,11 @@ export default function BookedOrders({ storeId, ordersStore }) {
             const remarksLog = ad.remarks_log || [];
             const agingDay = computeAgingDay(o);
             const aging = agingDay ? agingMeta(agingDay) : null;
+            const cls = classifyTab(o);
             return (
-              <div key={o.id} style={cardStyle}>
+              <div key={o.id} style={{ ...cardStyle, display: "flex", gap: 10 }}>
+                <input type="checkbox" checked={selectedIds.has(o.id)} onChange={() => toggleSelect(o.id)} style={{ accentColor: "#5C7CFA", marginTop: 4 }} />
+                <div style={{ flex: 1 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -596,6 +733,13 @@ export default function BookedOrders({ storeId, ordersStore }) {
                     </div>
                   )}
                 </div>
+                </div>
+                {(cls.tab === "To Ship") && (
+                  <button onClick={() => handleCancelBooking(o.id)} disabled={cancellingId === o.id}
+                    style={{ alignSelf: "flex-start", padding: "6px 12px", borderRadius: 8, border: "1px solid var(--ne-danger)", background: "transparent", color: "var(--ne-danger)", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                    {cancellingId === o.id ? "..." : "✕ Cancel Booking"}
+                  </button>
+                )}
               </div>
             );
           })}
@@ -617,6 +761,43 @@ export default function BookedOrders({ storeId, ordersStore }) {
             })}
             <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={{ padding: "4px 9px", borderRadius: 7, border: "1px solid var(--ne-border)", background: page === totalPages ? "transparent" : "var(--ne-surface-2)", color: page === totalPages ? "var(--ne-muted-2)" : "var(--ne-muted)", fontSize: 11, cursor: page === totalPages ? "default" : "pointer" }}>›</button>
             <button onClick={() => setPage(totalPages)} disabled={page === totalPages} style={{ padding: "4px 9px", borderRadius: 7, border: "1px solid var(--ne-border)", background: page === totalPages ? "transparent" : "var(--ne-surface-2)", color: page === totalPages ? "var(--ne-muted-2)" : "var(--ne-muted)", fontSize: 11, cursor: page === totalPages ? "default" : "pointer" }}>»</button>
+          </div>
+        </div>
+      )}
+
+      {showBookModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
+          <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 380, maxWidth: "92vw", padding: "20px" }}>
+            <h3 style={{ margin: "0 0 14px", fontSize: 15, color: "var(--ne-text)" }}>📦 Book Shipment ({selectedIds.size} order{selectedIds.size > 1 ? "s" : ""})</h3>
+
+            <label style={{ fontSize: 12, color: "var(--ne-muted)", display: "block", marginBottom: 4 }}>Courier</label>
+            <select value={bookCourier} onChange={(e) => setBookCourier(e.target.value)}
+              style={{ width: "100%", padding: "9px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, marginBottom: 12 }}>
+              <option value="dex">Dex</option>
+            </select>
+
+            {pickupAddresses.length > 1 && (
+              <>
+                <label style={{ fontSize: 12, color: "var(--ne-muted)", display: "block", marginBottom: 4 }}>Pickup Address</label>
+                <select value={bookAddressId} onChange={(e) => setBookAddressId(e.target.value)}
+                  style={{ width: "100%", padding: "9px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, marginBottom: 12 }}>
+                  {pickupAddresses.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+                </select>
+              </>
+            )}
+
+            {bookError && <p style={{ color: "var(--ne-danger)", fontSize: 11, whiteSpace: "pre-wrap", marginBottom: 10 }}>{bookError}</p>}
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => { setShowBookModal(false); setSelectedIds(new Set()); }}
+                style={{ flex: 1, padding: "10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 13, cursor: "pointer" }}>
+                Cancel
+              </button>
+              <button onClick={handleBookConfirm} disabled={booking}
+                style={{ flex: 1, padding: "10px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                {booking ? "Booking..." : "Book Now"}
+              </button>
+            </div>
           </div>
         </div>
       )}
