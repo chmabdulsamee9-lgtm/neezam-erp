@@ -131,6 +131,11 @@ export default function CourierConnect({ storeId }) {
   const [newAddrLabel, setNewAddrLabel] = useState("");
   const [newAddrLine, setNewAddrLine] = useState("");
   const [newAddrCity, setNewAddrCity] = useState("");
+  const [newAddrContactName, setNewAddrContactName] = useState("");
+  const [newAddrContactPhone, setNewAddrContactPhone] = useState("");
+  const [defaultLength, setDefaultLength] = useState("");
+  const [defaultWidth, setDefaultWidth] = useState("");
+  const [defaultHeight, setDefaultHeight] = useState("");
   const [addingAddr, setAddingAddr] = useState(false);
   const [defaultWeight, setDefaultWeight] = useState("");
   const [savingWeight, setSavingWeight] = useState(false);
@@ -152,6 +157,9 @@ export default function CourierConnect({ storeId }) {
     const { data } = await supabase.from("stores").select("*").eq("id", storeId).single();
     setStore(data || null);
     setDefaultWeight(data?.default_weight_kg ?? "0.5");
+    setDefaultLength(data?.default_length_cm ?? "20");
+    setDefaultWidth(data?.default_width_cm ?? "20");
+    setDefaultHeight(data?.default_height_cm ?? "10");
     setLoading(false);
   };
 
@@ -161,13 +169,14 @@ export default function CourierConnect({ storeId }) {
   };
 
   const handleAddAddress = async () => {
-    if (!newAddrLabel.trim() || !newAddrLine.trim() || !newAddrCity.trim()) return;
+    if (!newAddrLabel.trim() || !newAddrLine.trim() || !newAddrCity.trim() || !newAddrContactName.trim() || !newAddrContactPhone.trim()) return;
     setAddingAddr(true);
     const isFirst = pickupAddresses.length === 0;
     await supabase.from("pickup_addresses").insert({
-      store_id: storeId, label: newAddrLabel.trim(), address_line: newAddrLine.trim(), city: newAddrCity.trim(), is_default: isFirst,
+      store_id: storeId, label: newAddrLabel.trim(), address_line: newAddrLine.trim(), city: newAddrCity.trim(),
+      contact_name: newAddrContactName.trim(), contact_phone: newAddrContactPhone.trim(), is_default: isFirst,
     });
-    setNewAddrLabel(""); setNewAddrLine(""); setNewAddrCity("");
+    setNewAddrLabel(""); setNewAddrLine(""); setNewAddrCity(""); setNewAddrContactName(""); setNewAddrContactPhone("");
     await fetchPickupAddresses();
     setAddingAddr(false);
   };
@@ -185,7 +194,12 @@ export default function CourierConnect({ storeId }) {
 
   const handleSaveWeight = async () => {
     setSavingWeight(true);
-    await supabase.from("stores").update({ default_weight_kg: Number(defaultWeight) || 0.5 }).eq("id", storeId);
+    await supabase.from("stores").update({
+      default_weight_kg: Number(defaultWeight) || 0.5,
+      default_length_cm: Number(defaultLength) || 20,
+      default_width_cm: Number(defaultWidth) || 20,
+      default_height_cm: Number(defaultHeight) || 10,
+    }).eq("id", storeId);
     setSavingWeight(false);
   };
 
@@ -363,6 +377,7 @@ export default function CourierConnect({ storeId }) {
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ne-text)" }}>{a.label} {a.is_default && <span style={{ fontSize: 10, color: "var(--ne-accent)" }}>(Default)</span>}</div>
                 <div style={{ fontSize: 11.5, color: "var(--ne-muted)" }}>{a.address_line}, {a.city}</div>
+                <div style={{ fontSize: 11, color: "var(--ne-muted-2)", marginTop: 2 }}>{a.contact_name} · {a.contact_phone}</div>
               </div>
               <div style={{ display: "flex", gap: 6 }}>
                 {!a.is_default && <button onClick={() => handleSetDefaultAddress(a.id)} style={{ fontSize: 11, padding: "5px 10px", borderRadius: 7, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", cursor: "pointer" }}>Set Default</button>}
@@ -372,9 +387,16 @@ export default function CourierConnect({ storeId }) {
           ))}
 
           <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--ne-border)" }}>
-            <input placeholder="Label (jaise Main Warehouse)" value={newAddrLabel} onChange={(e) => setNewAddrLabel(e.target.value)} style={inputStyle} />
-            <input placeholder="Address" value={newAddrLine} onChange={(e) => setNewAddrLine(e.target.value)} style={inputStyle} />
-            <input placeholder="City" value={newAddrCity} onChange={(e) => setNewAddrCity(e.target.value)} style={inputStyle} />
+            <label style={{ color: "var(--ne-muted)", fontSize: 11.5, display: "block", marginBottom: 4, fontWeight: 600 }}>Address Name</label>
+            <input placeholder="Jaise Main Warehouse" value={newAddrLabel} onChange={(e) => setNewAddrLabel(e.target.value)} style={inputStyle} />
+            <label style={{ color: "var(--ne-muted)", fontSize: 11.5, display: "block", marginBottom: 4, fontWeight: 600 }}>Address</label>
+            <input placeholder="Poora address" value={newAddrLine} onChange={(e) => setNewAddrLine(e.target.value)} style={inputStyle} />
+            <label style={{ color: "var(--ne-muted)", fontSize: 11.5, display: "block", marginBottom: 4, fontWeight: 600 }}>City</label>
+            <input placeholder="Shehar" value={newAddrCity} onChange={(e) => setNewAddrCity(e.target.value)} style={inputStyle} />
+            <label style={{ color: "var(--ne-muted)", fontSize: 11.5, display: "block", marginBottom: 4, fontWeight: 600 }}>Contact Person Name</label>
+            <input placeholder="Naam" value={newAddrContactName} onChange={(e) => setNewAddrContactName(e.target.value)} style={inputStyle} />
+            <label style={{ color: "var(--ne-muted)", fontSize: 11.5, display: "block", marginBottom: 4, fontWeight: 600 }}>Contact Person Mobile Number</label>
+            <input placeholder="03XXXXXXXXX" value={newAddrContactPhone} onChange={(e) => setNewAddrContactPhone(e.target.value)} style={inputStyle} />
             <button onClick={handleAddAddress} disabled={addingAddr}
               style={{ width: "100%", padding: "9px", background: "var(--ne-grad)", color: "#fff", border: "none", borderRadius: 9, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
               + Address Add Karo
@@ -387,14 +409,28 @@ export default function CourierConnect({ storeId }) {
         <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1.5rem", marginTop: "1rem" }}>
           <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: 15, color: "var(--ne-text)" }}>⚖️ Default Package Weight</p>
           <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--ne-muted-2)" }}>Sab bookings mein yeh weight automatically use hogi.</p>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input type="number" step="0.1" value={defaultWeight} onChange={(e) => setDefaultWeight(e.target.value)} style={{ ...inputStyle, marginBottom: 0, width: 100 }} />
-            <span style={{ alignSelf: "center", fontSize: 12, color: "var(--ne-muted)" }}>kg</span>
-            <button onClick={handleSaveWeight} disabled={savingWeight}
-              style={{ padding: "9px 18px", background: "var(--ne-grad)", color: "#fff", border: "none", borderRadius: 9, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
-              Save
-            </button>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
+            <div>
+              <label style={{ color: "var(--ne-muted)", fontSize: 11, display: "block", marginBottom: 3 }}>Weight (kg)</label>
+              <input type="number" step="0.1" value={defaultWeight} onChange={(e) => setDefaultWeight(e.target.value)} style={{ ...inputStyle, marginBottom: 0, width: 90 }} />
+            </div>
+            <div>
+              <label style={{ color: "var(--ne-muted)", fontSize: 11, display: "block", marginBottom: 3 }}>Length (cm)</label>
+              <input type="number" value={defaultLength} onChange={(e) => setDefaultLength(e.target.value)} style={{ ...inputStyle, marginBottom: 0, width: 90 }} />
+            </div>
+            <div>
+              <label style={{ color: "var(--ne-muted)", fontSize: 11, display: "block", marginBottom: 3 }}>Width (cm)</label>
+              <input type="number" value={defaultWidth} onChange={(e) => setDefaultWidth(e.target.value)} style={{ ...inputStyle, marginBottom: 0, width: 90 }} />
+            </div>
+            <div>
+              <label style={{ color: "var(--ne-muted)", fontSize: 11, display: "block", marginBottom: 3 }}>Height (cm)</label>
+              <input type="number" value={defaultHeight} onChange={(e) => setDefaultHeight(e.target.value)} style={{ ...inputStyle, marginBottom: 0, width: 90 }} />
+            </div>
           </div>
+          <button onClick={handleSaveWeight} disabled={savingWeight}
+            style={{ padding: "9px 18px", background: "var(--ne-grad)", color: "#fff", border: "none", borderRadius: 9, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+            Save
+          </button>
         </div>
       )}
     </div>
