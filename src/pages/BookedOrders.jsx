@@ -464,7 +464,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
   const activeTabDef = TAB_STRUCTURE.find((t) => t.key === activeTab);
 
   const tabCounts = Object.fromEntries(
-    TAB_STRUCTURE.map((t) => [t.key, t.key === "All" ? orders.length : classified.filter((c) => c.cls.tab === t.key).length])
+    TAB_STRUCTURE.map((t) => [t.key, t.key === "All" ? orders.length : t.key === "Ready for Booking" ? readyOrders.length : classified.filter((c) => c.cls.tab === t.key).length])
   );
   const subTabCounts = Object.fromEntries(
     TAB_STRUCTURE.filter((t) => t.subs).flatMap((t) =>
