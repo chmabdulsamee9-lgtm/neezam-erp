@@ -127,6 +127,14 @@ export default function CourierConnect({ storeId }) {
   const [uploadError, setUploadError] = useState("");
   const [uploadResult, setUploadResult] = useState(null);
 
+  const [pickupAddresses, setPickupAddresses] = useState([]);
+  const [newAddrLabel, setNewAddrLabel] = useState("");
+  const [newAddrLine, setNewAddrLine] = useState("");
+  const [newAddrCity, setNewAddrCity] = useState("");
+  const [addingAddr, setAddingAddr] = useState(false);
+  const [defaultWeight, setDefaultWeight] = useState("");
+  const [savingWeight, setSavingWeight] = useState(false);
+
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
     window.addEventListener("resize", onResize);
@@ -137,11 +145,48 @@ export default function CourierConnect({ storeId }) {
     if (storeId) fetchStore();
   }, [storeId]);
 
+  useEffect(() => { if (storeId) fetchPickupAddresses(); }, [storeId]);
+
   const fetchStore = async () => {
     setLoading(true);
     const { data } = await supabase.from("stores").select("*").eq("id", storeId).single();
     setStore(data || null);
+    setDefaultWeight(data?.default_weight_kg ?? "0.5");
     setLoading(false);
+  };
+
+  const fetchPickupAddresses = async () => {
+    const { data } = await supabase.from("pickup_addresses").select("*").eq("store_id", storeId).order("created_at");
+    setPickupAddresses(data || []);
+  };
+
+  const handleAddAddress = async () => {
+    if (!newAddrLabel.trim() || !newAddrLine.trim() || !newAddrCity.trim()) return;
+    setAddingAddr(true);
+    const isFirst = pickupAddresses.length === 0;
+    await supabase.from("pickup_addresses").insert({
+      store_id: storeId, label: newAddrLabel.trim(), address_line: newAddrLine.trim(), city: newAddrCity.trim(), is_default: isFirst,
+    });
+    setNewAddrLabel(""); setNewAddrLine(""); setNewAddrCity("");
+    await fetchPickupAddresses();
+    setAddingAddr(false);
+  };
+
+  const handleSetDefaultAddress = async (id) => {
+    await supabase.from("pickup_addresses").update({ is_default: false }).eq("store_id", storeId);
+    await supabase.from("pickup_addresses").update({ is_default: true }).eq("id", id);
+    fetchPickupAddresses();
+  };
+
+  const handleDeleteAddress = async (id) => {
+    await supabase.from("pickup_addresses").delete().eq("id", id);
+    fetchPickupAddresses();
+  };
+
+  const handleSaveWeight = async () => {
+    setSavingWeight(true);
+    await supabase.from("stores").update({ default_weight_kg: Number(defaultWeight) || 0.5 }).eq("id", storeId);
+    setSavingWeight(false);
   };
 
   const handleConnect = async (e) => {
@@ -305,6 +350,51 @@ export default function CourierConnect({ storeId }) {
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {!loading && (
+        <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1.5rem", marginTop: "1rem" }}>
+          <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: 15, color: "var(--ne-text)" }}>📍 Pickup Addresses</p>
+          <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--ne-muted-2)" }}>Booking ke waqt yahan se address select hoga.</p>
+
+          {pickupAddresses.map((a) => (
+            <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--ne-border)", marginBottom: 8 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ne-text)" }}>{a.label} {a.is_default && <span style={{ fontSize: 10, color: "var(--ne-accent)" }}>(Default)</span>}</div>
+                <div style={{ fontSize: 11.5, color: "var(--ne-muted)" }}>{a.address_line}, {a.city}</div>
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {!a.is_default && <button onClick={() => handleSetDefaultAddress(a.id)} style={{ fontSize: 11, padding: "5px 10px", borderRadius: 7, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", cursor: "pointer" }}>Set Default</button>}
+                <button onClick={() => handleDeleteAddress(a.id)} style={{ fontSize: 11, padding: "5px 10px", borderRadius: 7, border: "1px solid var(--ne-danger)", background: "transparent", color: "var(--ne-danger)", cursor: "pointer" }}>Delete</button>
+              </div>
+            </div>
+          ))}
+
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--ne-border)" }}>
+            <input placeholder="Label (jaise Main Warehouse)" value={newAddrLabel} onChange={(e) => setNewAddrLabel(e.target.value)} style={inputStyle} />
+            <input placeholder="Address" value={newAddrLine} onChange={(e) => setNewAddrLine(e.target.value)} style={inputStyle} />
+            <input placeholder="City" value={newAddrCity} onChange={(e) => setNewAddrCity(e.target.value)} style={inputStyle} />
+            <button onClick={handleAddAddress} disabled={addingAddr}
+              style={{ width: "100%", padding: "9px", background: "var(--ne-grad)", color: "#fff", border: "none", borderRadius: 9, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+              + Address Add Karo
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!loading && (
+        <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1.5rem", marginTop: "1rem" }}>
+          <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: 15, color: "var(--ne-text)" }}>⚖️ Default Package Weight</p>
+          <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--ne-muted-2)" }}>Sab bookings mein yeh weight automatically use hogi.</p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input type="number" step="0.1" value={defaultWeight} onChange={(e) => setDefaultWeight(e.target.value)} style={{ ...inputStyle, marginBottom: 0, width: 100 }} />
+            <span style={{ alignSelf: "center", fontSize: 12, color: "var(--ne-muted)" }}>kg</span>
+            <button onClick={handleSaveWeight} disabled={savingWeight}
+              style={{ padding: "9px 18px", background: "var(--ne-grad)", color: "#fff", border: "none", borderRadius: 9, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+              Save
+            </button>
+          </div>
         </div>
       )}
     </div>
