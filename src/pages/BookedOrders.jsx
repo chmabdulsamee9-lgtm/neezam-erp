@@ -263,6 +263,10 @@ export default function BookedOrders({ storeId, ordersStore }) {
   const [booking, setBooking] = useState(false);
   const [bookError, setBookError] = useState("");
   const [cancellingId, setCancellingId] = useState(null);
+  const [bookResults, setBookResults] = useState([]);
+  const [showBookResultModal, setShowBookResultModal] = useState(false);
+  const [awbResults, setAwbResults] = useState([]);
+  const [showAwbResultModal, setShowAwbResultModal] = useState(false);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
@@ -378,7 +382,9 @@ export default function BookedOrders({ storeId, ordersStore }) {
     setBooking(true);
     setBookError("");
     const { data: { session } } = await supabase.auth.getSession();
+    const results = [];
     for (const orderId of selectedIds) {
+      const orderName = readyOrders.find((o) => o.id === orderId)?.name || orderId;
       try {
         const res = await fetch(`${CF_URL}/dex-book-order`, {
           method: "POST",
@@ -386,16 +392,25 @@ export default function BookedOrders({ storeId, ordersStore }) {
           body: JSON.stringify({ store_id: storeId, order_id: orderId, pickup_address_id: bookAddressId }),
         });
         const data = await res.json();
-        if (data.error) setBookError((prev) => prev + `Order ${orderId}: ${data.error}\n`);
+        if (data.error) {
+          results.push({ orderId, orderName, success: false, error: data.error });
+        } else {
+          results.push({ orderId, orderName, success: true, trackingNumber: data.trackingNumber });
+        }
       } catch (err) {
-        setBookError((prev) => prev + `Order ${orderId}: ${err.message}\n`);
+        results.push({ orderId, orderName, success: false, error: err.message });
       }
     }
     setBooking(false);
     setShowBookModal(false);
+    setBookResults(results);
+    setShowBookResultModal(true);
     setSelectedIds(new Set());
     loadBooked();
-    setReadyOrders((prev) => prev.filter((o) => !selectedIds.has(o.id)));
+    setReadyOrders((prev) => prev.filter((o) => {
+      const r = results.find((res) => res.orderId === o.id);
+      return r ? !r.success : true;
+    }));
   };
 
   const handleCancelBooking = async (orderId) => {
@@ -412,17 +427,29 @@ export default function BookedOrders({ storeId, ordersStore }) {
 
   const handleBulkPrintAwb = async () => {
     const { data: { session } } = await supabase.auth.getSession();
+    const results = [];
     for (const orderId of selectedIds) {
       const order = orders.find((o) => o.id === orderId);
       const packageCode = order?.agent_data?.dex_package_code;
-      if (!packageCode) continue;
-      const res = await fetch(`${CF_URL}/dex-print-awb?store_id=${storeId}&package_code=${packageCode}`, {
-        headers: { Authorization: `Bearer ${session?.access_token}` },
-      });
-      const data = await res.json();
-      const pdfUrl = data.data?.url || data.url;
-      if (pdfUrl) window.open(pdfUrl, "_blank");
+      const orderName = order?.name || orderId;
+      if (!packageCode) {
+        results.push({ orderId, orderName, error: "Package code nahi mila" });
+        continue;
+      }
+      try {
+        const res = await fetch(`${CF_URL}/dex-print-awb?store_id=${storeId}&package_code=${packageCode}`, {
+          headers: { Authorization: `Bearer ${session?.access_token}` },
+        });
+        const data = await res.json();
+        const pdfUrl = data.data?.url || data.url;
+        if (pdfUrl) results.push({ orderId, orderName, pdfUrl });
+        else results.push({ orderId, orderName, error: data.error || "AWB URL nahi mila" });
+      } catch (err) {
+        results.push({ orderId, orderName, error: err.message });
+      }
     }
+    setAwbResults(results);
+    setShowAwbResultModal(true);
   };
 
   const submitRemark = async (order) => {
@@ -809,6 +836,62 @@ export default function BookedOrders({ storeId, ordersStore }) {
                 {booking ? "Booking..." : "Book Now"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showBookResultModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000001 }}>
+          <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 420, maxWidth: "92vw", maxHeight: "80vh", overflowY: "auto", padding: "20px" }}>
+            <h3 style={{ margin: "0 0 14px", fontSize: 15, color: "var(--ne-text)" }}>
+              📦 Booking Result ({bookResults.filter((r) => r.success).length}/{bookResults.length} successful)
+            </h3>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+              {bookResults.map((r) => (
+                <div key={r.orderId} style={{ padding: "10px 12px", borderRadius: 8, border: `1px solid ${r.success ? "var(--ne-success)" : "var(--ne-danger)"}`, background: r.success ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)" }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ne-text)" }}>{r.orderName}</div>
+                  {r.success ? (
+                    <div style={{ fontSize: 12, color: "var(--ne-success)" }}>✓ Booked — Tracking: {r.trackingNumber}</div>
+                  ) : (
+                    <div style={{ fontSize: 12, color: "var(--ne-danger)" }}>✕ {r.error}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <button onClick={() => setShowBookResultModal(false)}
+              style={{ width: "100%", padding: "10px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showAwbResultModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000001 }}>
+          <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 420, maxWidth: "92vw", maxHeight: "80vh", overflowY: "auto", padding: "20px" }}>
+            <h3 style={{ margin: "0 0 14px", fontSize: 15, color: "var(--ne-text)" }}>
+              🖨️ AWB Print ({awbResults.filter((r) => r.pdfUrl).length}/{awbResults.length} ready)
+            </h3>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+              {awbResults.map((r) => (
+                <div key={r.orderId} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", borderRadius: 8, border: `1px solid ${r.pdfUrl ? "var(--ne-border)" : "var(--ne-danger)"}` }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ne-text)" }}>{r.orderName}</div>
+                    {!r.pdfUrl && <div style={{ fontSize: 12, color: "var(--ne-danger)" }}>✕ {r.error}</div>}
+                  </div>
+                  {r.pdfUrl && (
+                    <button onClick={() => window.open(r.pdfUrl, "_blank")}
+                      style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>
+                      Open AWB
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <button onClick={() => setShowAwbResultModal(false)}
+              style={{ width: "100%", padding: "10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 13, cursor: "pointer" }}>
+              Close
+            </button>
           </div>
         </div>
       )}
