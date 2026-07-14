@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import Papa from "papaparse";
 import { supabase } from "../supabase";
+import dexLogo from "../assets/couriers/dex.png";
 
 const STATUSES = [
   { label: "Approved", color: "#34D88E", bg: "#11402A" },
@@ -1271,9 +1272,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                     <div style={{ width: 90, minWidth: 90, flexShrink: 0, overflow: "hidden", textAlign: "center" }}>
                       {order.agent_data?.dex_tracking_number && (
                         <>
-                          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 16, height: 16, borderRadius: 4, background: "var(--ne-accent-soft)", fontSize: 9, fontWeight: 700, color: "var(--ne-accent)", marginBottom: 2 }}>
-                            {(order.agent_data.courier_name || "D")[0].toUpperCase()}
-                          </span>
+                          <img src={dexLogo} alt="Dex" style={{ height: 14, width: "auto", display: "block", margin: "0 auto 2px" }} />
                           <div>
                             <a href={`https://www.dex.com.pk/tracking?references=${encodeURIComponent(order.agent_data.dex_tracking_number)}`} target="_blank" rel="noreferrer"
                               style={{ fontSize: 10, color: "var(--ne-accent)", textDecoration: "underline" }}>
