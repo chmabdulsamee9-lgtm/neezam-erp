@@ -597,6 +597,17 @@ export default function BookedOrders({ storeId, ordersStore }) {
         <div style={{ ...cardStyle, textAlign: "center", color: "var(--ne-muted-2)", fontSize: 12 }}>Is filter mein koi booked order nahi.</div>
       ) : (
         <div>
+          {selectedIds.size > 0 && (
+            <div style={{ display: "flex", gap: 8, marginBottom: 12, padding: "10px 14px", background: "var(--ne-accent-soft)", borderRadius: 10, alignItems: "center" }}>
+              <span style={{ fontSize: 12, color: "var(--ne-text)", fontWeight: 600 }}>{selectedIds.size} selected</span>
+              <button onClick={handleBulkPrintAwb} style={{ padding: "7px 16px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                🖨️ Print AWB
+              </button>
+              <button onClick={() => setSelectedIds(new Set())} style={{ padding: "7px 16px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 12, cursor: "pointer" }}>
+                Clear
+              </button>
+            </div>
+          )}
           {pagedFiltered.map((o) => {
             const ad = o.agent_data;
             const bucket = bucketCourierStatus(ad.courier_order_status);
