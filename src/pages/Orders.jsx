@@ -21,7 +21,7 @@ const PER_PAGE_OPTIONS = [20, 50, 100];
 const TABS = ["All", "New", "Approved", "Pending", "Ready to Sync", "Cancelled"];
 const CANCEL_REASONS = ["Not Interested", "Wrong Number", "Duplicate Order", "Customer Cancelled", "Out of Stock", "Other"];
 const PAGE_SIZE = 1000;
-const MIDDLE_CONTENT_WIDTH = 935; // Customer+Address+Items+Pricing+Total+Source+Remarks + gaps — single source of truth so header/rows/scrollbar always match
+const MIDDLE_CONTENT_WIDTH = 980; // Customer+Address+Items+Pricing+Total+Source+Courier+Remarks + gaps — single source of truth so header/rows/scrollbar always match
 const SYNC_CONFIRM_PER_PAGE = 20;
 const HISTORY_VALID_MS = 2 * 24 * 60 * 60 * 1000; // 2 din
 const BULK_PREVIEW_PER_PAGE = 20;
@@ -1198,12 +1198,13 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                 style={{ overflowX: "auto", flex: "1 1 auto", minWidth: 0 }}>
                 <div style={{ display: "flex", gap: 10, width: MIDDLE_CONTENT_WIDTH }}>
                   <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 140, flexShrink: 0 }}>Customer</span>
-                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 190, flexShrink: 0 }}>Address</span>
-                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 160, flexShrink: 0 }}>Items</span>
+                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 165, flexShrink: 0 }}>Address</span>
+                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 145, flexShrink: 0 }}>Items</span>
                   <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 115, flexShrink: 0 }}>Pricing</span>
                   <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 85, flexShrink: 0 }}>Total</span>
                   <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 75, flexShrink: 0 }}>Source</span>
-                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 110, flexShrink: 0 }}>Remarks</span>
+                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 90, flexShrink: 0, textAlign: "center" }}>Courier</span>
+                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 95, flexShrink: 0 }}>Remarks</span>
                 </div>
               </div>
               <div style={{ width: 130, flexShrink: 0, padding: "0 12px 0 14px", boxSizing: "border-box" }}>
@@ -1267,8 +1268,27 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                       <span style={{ padding: "2px 7px", borderRadius: 8, fontSize: 10, background: "var(--ne-surface)", color: SOURCE_COLORS[source], fontWeight: 700 }}>{source}</span>
                     </div>
 
-                    <div style={{ width: 110, minWidth: 110, flexShrink: 0, overflow: "hidden" }}>
-                      <EditableCell orderId={order.id} field="remarks" value={remarks} width={100} multiline clampLines={2} />
+                    <div style={{ width: 90, minWidth: 90, flexShrink: 0, overflow: "hidden", textAlign: "center" }}>
+                      {order.agent_data?.dex_tracking_number && (
+                        <>
+                          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 16, height: 16, borderRadius: 4, background: "var(--ne-accent-soft)", fontSize: 9, fontWeight: 700, color: "var(--ne-accent)", marginBottom: 2 }}>
+                            {(order.agent_data.courier_name || "D")[0].toUpperCase()}
+                          </span>
+                          <div>
+                            <a href={`https://www.dex.com.pk/tracking?references=${encodeURIComponent(order.agent_data.dex_tracking_number)}`} target="_blank" rel="noreferrer"
+                              style={{ fontSize: 10, color: "var(--ne-accent)", textDecoration: "underline" }}>
+                              {order.agent_data.dex_tracking_number}
+                            </a>
+                          </div>
+                          <div style={{ fontSize: 9, color: "var(--ne-muted)", marginTop: 1 }}>
+                            {(order.agent_data.courier_order_status || "").replace(/_/g, " ")}
+                          </div>
+                        </>
+                      )}
+                    </div>
+
+                    <div style={{ width: 95, minWidth: 95, flexShrink: 0, overflow: "hidden" }}>
+                      <EditableCell orderId={order.id} field="remarks" value={remarks} width={85} multiline clampLines={2} />
                     </div>
                   </div>
                 </div>
