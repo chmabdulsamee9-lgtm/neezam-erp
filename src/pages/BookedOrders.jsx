@@ -263,6 +263,8 @@ export default function BookedOrders({ storeId, ordersStore }) {
   const [booking, setBooking] = useState(false);
   const [bookError, setBookError] = useState("");
   const [cancellingId, setCancellingId] = useState(null);
+  const [showCancelResultModal, setShowCancelResultModal] = useState(false);
+  const [cancelResult, setCancelResult] = useState(null);
   const [bookResults, setBookResults] = useState([]);
   const [showBookResultModal, setShowBookResultModal] = useState(false);
   const [awbResults, setAwbResults] = useState([]);
@@ -422,12 +424,23 @@ export default function BookedOrders({ storeId, ordersStore }) {
   const handleCancelBooking = async (orderId) => {
     setCancellingId(orderId);
     const { data: { session } } = await supabase.auth.getSession();
-    await fetch(`${CF_URL}/dex-cancel-order`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-      body: JSON.stringify({ store_id: storeId, order_id: orderId }),
-    });
+    try {
+      const res = await fetch(`${CF_URL}/dex-cancel-order`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ store_id: storeId, order_id: orderId }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setCancelResult({ success: false, error: data.error });
+      } else {
+        setCancelResult({ success: true });
+      }
+    } catch (err) {
+      setCancelResult({ success: false, error: err.message });
+    }
     setCancellingId(null);
+    setShowCancelResultModal(true);
     loadBooked();
   };
 
@@ -530,7 +543,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
 
   return (
     <div style={{ padding: isMobile ? "1rem" : "1.5rem", color: "var(--ne-text)" }}>
-      <style>{"@keyframes ne-aging-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }"}</style>
+      <style>{"@keyframes ne-aging-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } } @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }"}</style>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: 8 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>🚚 Booked Orders</h1>
@@ -816,8 +829,23 @@ export default function BookedOrders({ storeId, ordersStore }) {
                 </div>
                 {(cls.tab === "To Ship") && (
                   <button onClick={() => handleCancelBooking(o.id)} disabled={cancellingId === o.id}
-                    style={{ alignSelf: "flex-start", padding: "6px 12px", borderRadius: 8, border: "1px solid var(--ne-danger)", background: "transparent", color: "var(--ne-danger)", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
-                    {cancellingId === o.id ? "..." : "✕ Cancel Booking"}
+                    style={{ display: "flex", alignItems: "center", gap: 6, alignSelf: "flex-start", padding: "6px 12px", borderRadius: 8, border: "1px solid var(--ne-danger)", background: "transparent", color: "var(--ne-danger)", fontSize: 11, fontWeight: 700, cursor: cancellingId === o.id ? "default" : "pointer", opacity: cancellingId === o.id ? 0.7 : 1 }}>
+                    {cancellingId === o.id ? (
+                      <>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ animation: "spin 0.8s linear infinite" }}>
+                          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                        </svg>
+                        Cancelling...
+                      </>
+                    ) : (
+                      <>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="18" y1="6" x2="6" y2="18" />
+                          <line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
+                        Cancel Booking
+                      </>
+                    )}
                   </button>
                 )}
               </div>
@@ -932,6 +960,23 @@ export default function BookedOrders({ storeId, ordersStore }) {
             </div>
             <button onClick={() => setShowAwbResultModal(false)}
               style={{ width: "100%", padding: "10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 13, cursor: "pointer" }}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showCancelResultModal && cancelResult && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000001 }}>
+          <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 360, maxWidth: "92vw", padding: "20px" }}>
+            <h3 style={{ margin: "0 0 12px", fontSize: 15, color: "var(--ne-text)" }}>
+              {cancelResult.success ? "✓ Cancel Successful" : "✕ Cancel Failed"}
+            </h3>
+            <p style={{ fontSize: 12.5, color: cancelResult.success ? "var(--ne-success)" : "var(--ne-danger)", marginBottom: 16 }}>
+              {cancelResult.success ? "Booking cancel ho gayi hai." : cancelResult.error}
+            </p>
+            <button onClick={() => setShowCancelResultModal(false)}
+              style={{ width: "100%", padding: "10px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
               Close
             </button>
           </div>
