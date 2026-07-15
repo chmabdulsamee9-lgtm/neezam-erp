@@ -601,20 +601,43 @@ export default function BookedOrders({ storeId, ordersStore }) {
           )}
           {readyOrders.length === 0 ? (
             <div style={{ ...cardStyle, textAlign: "center", color: "var(--ne-muted-2)", fontSize: 12 }}>Koi order booking ke liye ready nahi.</div>
-          ) : readyOrders.map((o) => (
-            <div key={o.id} style={{ ...cardStyle, display: "flex", alignItems: "center", gap: 12 }}>
-              <input type="checkbox" checked={selectedIds.has(o.id)} onChange={() => toggleSelect(o.id)} style={{ accentColor: "#5C7CFA" }} />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 700, fontSize: 13, color: "var(--ne-text)" }}>{o.name}</div>
-                <div style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>
-                  {o.customer?.first_name} {o.customer?.last_name} · {o.shipping_address?.city} · Rs. {Number(o.total_price).toLocaleString()}
-                </div>
+          ) : (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "0.3fr 1.1fr 1.3fr 1.3fr 1.3fr 0.8fr", gap: 10, padding: "8px 14px", fontSize: 11, color: "var(--ne-muted-2)", fontWeight: 700 }}>
+                <div></div><div>ORDER#</div><div>CUSTOMER</div><div>ADDRESS</div><div>ITEMS / SKU</div><div>TOTAL</div>
               </div>
-              <button onClick={() => handleBookSingle(o.id)} style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>
-                📦 Book
-              </button>
-            </div>
-          ))}
+              {readyOrders.map((o) => {
+                const customerName = `${o.customer?.first_name || ""} ${o.customer?.last_name || ""}`.trim() || "—";
+                const phone = o.customer?.phone || o.shipping_address?.phone || "";
+                const address = o.shipping_address ? `${o.shipping_address.address1 || ""}, ${o.shipping_address.city || ""}` : "—";
+                const products = (o.line_items || []).map((li) => `${li.quantity > 1 ? li.quantity + "x " : ""}${li.title}`).join(" + ") || "—";
+                const skus = (o.line_items || []).map((li) => `${li.quantity > 1 ? li.quantity : ""}${li.sku || ""}`).join(" + ") || "—";
+                return (
+                  <div key={o.id} style={{ ...cardStyle, display: "grid", gridTemplateColumns: "0.3fr 1.1fr 1.3fr 1.3fr 1.3fr 0.8fr", gap: 10, alignItems: "center" }}>
+                    <input type="checkbox" checked={selectedIds.has(o.id)} onChange={() => toggleSelect(o.id)} style={{ accentColor: "#5C7CFA" }} />
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: "var(--ne-text)" }}>{o.name}</div>
+                      <button onClick={() => handleBookSingle(o.id)} style={{ marginTop: 6, padding: "5px 12px", borderRadius: 7, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                        📦 Book
+                      </button>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 12.5, color: "var(--ne-text)", fontWeight: 500 }}>{customerName}</div>
+                      <div style={{ fontSize: 11.5, color: phone ? "var(--ne-muted)" : "var(--ne-danger)", fontWeight: phone ? 400 : 700 }}>
+                        {phone || "⚠ Phone missing"}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--ne-muted)" }}>{address}</div>
+                    <div>
+                      <div style={{ fontSize: 12, color: "var(--ne-muted)" }}>{products}</div>
+                      <div style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>SKU: {skus}</div>
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ne-text)" }}>Rs. {Number(o.total_price).toLocaleString()}</div>
+                  </div>
+                );
+              })}
+            </>
+          )}
         </div>
       ) : loading ? (
         <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>
