@@ -45,7 +45,7 @@ function bucketCourierStatus(raw) {
 // har value neeche kisi na kisi bucket mein saaf saaf aata hai, koi unclassified case nahi bacha.
 const TAB_STRUCTURE = [
   { key: "All", label: "All" },
-  { key: "Ready for Booking", label: "Ready for Booking" },
+  { key: "Ready for Booking", label: "Ready to Ship" },
   { key: "To Ship", label: "To Ship", subs: [
       { key: "Booked", label: "Booked" },
       { key: "Pickup Failed", label: "Pickup Failed" },
@@ -301,7 +301,13 @@ export default function BookedOrders({ storeId, ordersStore }) {
           .from("shopify_orders_cache")
           .select("id, raw_data")
           .in("id", orderIds);
-        setReadyOrders((cachedRows || []).map((r) => ({ id: r.id, ...r.raw_data })));
+        const mapped = (cachedRows || []).map((r) => ({ id: r.id, ...r.raw_data }));
+        mapped.sort((a, b) => {
+          const numA = parseInt((a.name || "").replace(/\D/g, ""), 10) || 0;
+          const numB = parseInt((b.name || "").replace(/\D/g, ""), 10) || 0;
+          return numB - numA;
+        });
+        setReadyOrders(mapped);
       }
       const { data: addrs } = await supabase.from("pickup_addresses").select("*").eq("store_id", storeId).order("created_at");
       setPickupAddresses(addrs || []);
@@ -602,41 +608,54 @@ export default function BookedOrders({ storeId, ordersStore }) {
           {readyOrders.length === 0 ? (
             <div style={{ ...cardStyle, textAlign: "center", color: "var(--ne-muted-2)", fontSize: 12 }}>Koi order booking ke liye ready nahi.</div>
           ) : (
-            <>
-              <div style={{ display: "grid", gridTemplateColumns: "0.3fr 1.1fr 1.3fr 1.3fr 1.3fr 0.8fr", gap: 10, padding: "8px 14px", fontSize: 11, color: "var(--ne-muted-2)", fontWeight: 700 }}>
-                <div></div><div>ORDER#</div><div>CUSTOMER</div><div>ADDRESS</div><div>ITEMS / SKU</div><div>TOTAL</div>
-              </div>
-              {readyOrders.map((o) => {
-                const customerName = `${o.customer?.first_name || ""} ${o.customer?.last_name || ""}`.trim() || "—";
-                const phone = o.customer?.phone || o.shipping_address?.phone || "";
-                const address = o.shipping_address ? `${o.shipping_address.address1 || ""}, ${o.shipping_address.city || ""}` : "—";
-                const products = (o.line_items || []).map((li) => `${li.quantity > 1 ? li.quantity + "x " : ""}${li.title}`).join(" + ") || "—";
-                const skus = (o.line_items || []).map((li) => `${li.quantity > 1 ? li.quantity : ""}${li.sku || ""}`).join(" + ") || "—";
-                return (
-                  <div key={o.id} style={{ ...cardStyle, display: "grid", gridTemplateColumns: "0.3fr 1.1fr 1.3fr 1.3fr 1.3fr 0.8fr", gap: 10, alignItems: "center" }}>
-                    <input type="checkbox" checked={selectedIds.has(o.id)} onChange={() => toggleSelect(o.id)} style={{ accentColor: "#5C7CFA" }} />
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 13, color: "var(--ne-text)" }}>{o.name}</div>
-                      <button onClick={() => handleBookSingle(o.id)} style={{ marginTop: 6, padding: "5px 12px", borderRadius: 7, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
-                        📦 Book
-                      </button>
+            readyOrders.map((o) => {
+              const customerName = `${o.customer?.first_name || ""} ${o.customer?.last_name || ""}`.trim() || "—";
+              const phone = o.customer?.phone || o.shipping_address?.phone || "";
+              const address = o.shipping_address ? `${o.shipping_address.address1 || ""}, ${o.shipping_address.city || ""}` : "—";
+              const products = (o.line_items || []).map((li) => `${li.quantity > 1 ? li.quantity + "x " : ""}${li.title}`).join(" + ") || "—";
+              const skus = (o.line_items || []).map((li) => `${li.quantity > 1 ? li.quantity : ""}${li.sku || ""}`).join(" + ") || "—";
+              const createdDate = o.created_at ? new Date(o.created_at).toLocaleDateString("en-GB") : "";
+              return (
+                <div key={o.id} style={{ display: "flex", alignItems: "stretch", gap: 0, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "hidden" }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 8px 10px 12px", flexShrink: 0, width: 136, boxSizing: "border-box" }}>
+                    <input type="checkbox" checked={selectedIds.has(o.id)} onChange={() => toggleSelect(o.id)} style={{ cursor: "pointer", flexShrink: 0, marginTop: 2 }} />
+                    <div style={{ width: 100, minWidth: 100 }}>
+                      <span style={{ color: "var(--ne-accent)", fontWeight: 700, fontSize: 11.5 }}>{o.name}</span>
+                      <div style={{ fontSize: 10.5, color: "var(--ne-muted)", marginTop: 2 }}>{createdDate}</div>
                     </div>
-                    <div>
-                      <div style={{ fontSize: 12.5, color: "var(--ne-text)", fontWeight: 500 }}>{customerName}</div>
-                      <div style={{ fontSize: 11.5, color: phone ? "var(--ne-muted)" : "var(--ne-danger)", fontWeight: phone ? 400 : 700 }}>
+                  </div>
+
+                  <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 16, padding: "10px 12px", overflow: "hidden" }}>
+                    <div style={{ width: 150, minWidth: 150 }}>
+                      <div style={{ fontSize: 12, color: "var(--ne-text)", fontWeight: 600 }}>{customerName}</div>
+                      <div style={{ fontSize: 11, color: phone ? "var(--ne-muted)" : "var(--ne-danger)", fontWeight: phone ? 400 : 700 }}>
                         {phone || "⚠ Phone missing"}
                       </div>
                     </div>
-                    <div style={{ fontSize: 12, color: "var(--ne-muted)" }}>{address}</div>
-                    <div>
-                      <div style={{ fontSize: 12, color: "var(--ne-muted)" }}>{products}</div>
-                      <div style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>SKU: {skus}</div>
+                    <div style={{ width: 170, minWidth: 170, fontSize: 11.5, color: "var(--ne-muted)" }}>{address}</div>
+                    <div style={{ width: 190, minWidth: 190 }}>
+                      <div style={{ fontSize: 11.5, color: "var(--ne-text)" }}>{products}</div>
+                      <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)", marginTop: 2 }}>SKU: {skus}</div>
                     </div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ne-text)" }}>Rs. {Number(o.total_price).toLocaleString()}</div>
+                    <div style={{ flex: 1, textAlign: "right", fontSize: 13, fontWeight: 700, color: "var(--ne-text)" }}>
+                      Rs. {Number(o.total_price).toLocaleString()}
+                    </div>
                   </div>
-                );
-              })}
-            </>
+
+                  <div style={{ display: "flex", alignItems: "center", padding: "0 14px", flexShrink: 0 }}>
+                    <button onClick={() => handleBookSingle(o.id)}
+                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                        <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+                        <line x1="12" y1="22.08" x2="12" y2="12" />
+                      </svg>
+                      Book
+                    </button>
+                  </div>
+                </div>
+              );
+            })
           )}
         </div>
       ) : loading ? (
