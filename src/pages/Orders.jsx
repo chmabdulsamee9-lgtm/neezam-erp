@@ -348,7 +348,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     if (orderForSnapshot) await ensureHistorySnapshot(orderForSnapshot);
     const now = new Date().toISOString();
     const { error } = await supabase.from("order_statuses").upsert(
-      { order_id: String(orderId), status, updated_at: now, last_edited_at: now },
+      { order_id: String(orderId), store_id: ordersStore?.id, status, updated_at: now, last_edited_at: now },
       { onConflict: "order_id" }
     );
     if (!error) {
@@ -774,7 +774,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     const ids = [...selectedIds];
     for (const orderId of ids) {
       await supabase.from("order_statuses").upsert(
-        { order_id: String(orderId), status, updated_at: now, last_edited_at: now },
+        { order_id: String(orderId), store_id: ordersStore?.id, status, updated_at: now, last_edited_at: now },
         { onConflict: "order_id" }
       );
     }
