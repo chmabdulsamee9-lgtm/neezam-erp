@@ -43,7 +43,7 @@ export async function fetchBookedStatusesDelta(storeId, since) {
       .from("order_statuses")
       .select("*")
       .eq("store_id", storeId)
-      .not("dex_tracking_number", "is", null)
+      .or("dex_tracking_number.not.is.null,courier_order_status.eq.Cancelled")
       .gt("updated_at", since)
       .range(from, from + PAGE_SIZE - 1);
     if (error) throw error;
