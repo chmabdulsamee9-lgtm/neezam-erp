@@ -3,6 +3,8 @@ import { supabase } from "../supabase";
 import { getCachedBookedOrders } from "../ordersCache";
 import { syncBookedOrdersCache, bucketFinalStatus } from "../bookedOrdersData";
 import dexLogo from "../assets/couriers/dex.png";
+import Icon from "../components/Icon";
+import { useLanguage, useTranslation } from "../i18n";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 
@@ -43,25 +45,25 @@ function bucketCourierStatus(raw) {
 // "To Ship" aur "Shipped" ke apne sub-buckets hain, baaki standalone final-outcome tabs hain.
 // Real dex_status/courier_order_status distinct-values (2026-07-09 query) ke against confirmed:
 // har value neeche kisi na kisi bucket mein saaf saaf aata hai, koi unclassified case nahi bacha.
-const TAB_STRUCTURE = [
-  { key: "All", label: "All" },
-  { key: "Ready for Booking", label: "Ready to Ship" },
-  { key: "To Ship", label: "To Ship", subs: [
-      { key: "Booked", label: "Booked" },
-      { key: "Pickup Failed", label: "Pickup Failed" },
+const TAB_KEYS = [
+  { key: "All", labelKey: "booked.tab.all" },
+  { key: "Ready for Booking", labelKey: "booked.tab.readyForBooking" },
+  { key: "To Ship", labelKey: "booked.tab.toShip", subs: [
+      { key: "Booked", labelKey: "booked.tab.booked" },
+      { key: "Pickup Failed", labelKey: "booked.tab.pickupFailed" },
     ] },
-  { key: "Shipped", label: "Shipped", subs: [
-      { key: "Pickup Success", label: "Pickup Success" },
-      { key: "Transit to Ship", label: "Transit to Ship" },
-      { key: "Arrived at Destination City", label: "Arrived at Destination City" },
-      { key: "Out for Delivery", label: "Out for Delivery" },
-      { key: "Failed Delivery", label: "Failed Delivery" },
+  { key: "Shipped", labelKey: "booked.tab.shipped", subs: [
+      { key: "Pickup Success", labelKey: "booked.tab.pickupSuccess" },
+      { key: "Transit to Ship", labelKey: "booked.tab.transitToShip" },
+      { key: "Arrived at Destination City", labelKey: "booked.tab.arrivedAtDestination" },
+      { key: "Out for Delivery", labelKey: "booked.tab.outForDelivery" },
+      { key: "Failed Delivery", labelKey: "booked.tab.failedDelivery" },
     ] },
-  { key: "Delivered", label: "Delivered" },
-  { key: "Pending Return", label: "Pending Return" },
-  { key: "Returned", label: "Returned" },
-  { key: "Lost & Damage", label: "Lost & Damage" },
-  { key: "Cancel", label: "Cancel" },
+  { key: "Delivered", labelKey: "booked.tab.delivered" },
+  { key: "Pending Return", labelKey: "booked.tab.pendingReturn" },
+  { key: "Returned", labelKey: "booked.tab.returned" },
+  { key: "Lost & Damage", labelKey: "booked.tab.lostDamage" },
+  { key: "Cancel", labelKey: "booked.tab.cancel" },
 ];
 
 // Har order ko exactly ek {tab, sub} mein classify karta hai. bucketFinalStatus() (order_statuses
@@ -106,12 +108,12 @@ function computeAgingDay(o) {
 }
 
 function agingMeta(day) {
-  if (day <= 1) return { color: "#22C55E", label: "Great" };
-  if (day === 2) return { color: "#84CC16", label: "On Track" };
-  if (day === 3) return { color: "#EAB308", label: "Normal" };
-  if (day === 4) return { color: "#F97316", label: "Concerning" };
-  if (day === 5) return { color: "#EF4444", label: "Alarming" };
-  return { color: "#DC2626", label: "Urgent Action Needed", pulse: true };
+  if (day <= 1) return { color: "#22C55E", labelKey: "booked.aging.great" };
+  if (day === 2) return { color: "#84CC16", labelKey: "booked.aging.onTrack" };
+  if (day === 3) return { color: "#EAB308", labelKey: "booked.aging.normal" };
+  if (day === 4) return { color: "#F97316", labelKey: "booked.aging.concerning" };
+  if (day === 5) return { color: "#EF4444", labelKey: "booked.aging.alarming" };
+  return { color: "#DC2626", labelKey: "booked.aging.urgent", pulse: true };
 }
 
 // Final-state color ramp (Aurora Ledger palette, confirmed) — jab order apne final/terminal
@@ -239,6 +241,8 @@ function extractOrderNum(o) {
 }
 
 export default function BookedOrders({ storeId, ordersStore }) {
+  const [lang] = useLanguage();
+  const t = useTranslation(lang);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [orders, setOrders] = useState([]);
@@ -328,6 +332,22 @@ export default function BookedOrders({ storeId, ordersStore }) {
     })();
   }, []);
 
+  const logActivity = async (actionType, orderId, details) => {
+    if (!currentProfile || !ordersStore) return;
+    try {
+      await supabase.from("activity_log").insert({
+        store_id: ordersStore.id,
+        user_id: currentProfile.id,
+        user_name: currentProfile.full_name || currentProfile.email,
+        action_type: actionType,
+        order_id: orderId ? String(orderId) : null,
+        details: details || null,
+      });
+    } catch (err) {
+      console.log("logActivity error:", err.message);
+    }
+  };
+
   // App.jsx ka background preload agar pehle hi cache warm kar chuka ho, to yahan turant
   // (spinner ke bina) dikhega — warna yehi function full-load karega. syncBookedOrdersCache()
   // (src/bookedOrdersData.js) hi asal fetch/merge/cache-write karta hai, App.jsx ka
@@ -402,11 +422,14 @@ export default function BookedOrders({ storeId, ordersStore }) {
         const data = await res.json();
         if (data.error) {
           results.push({ orderId, orderName, success: false, error: data.error });
+          logActivity("booking_failed", orderId, { orderName, error: data.error });
         } else {
           results.push({ orderId, orderName, success: true, trackingNumber: data.trackingNumber });
+          logActivity("booking_success", orderId, { orderName, trackingNumber: data.trackingNumber });
         }
       } catch (err) {
         results.push({ orderId, orderName, success: false, error: err.message });
+        logActivity("booking_failed", orderId, { orderName, error: err.message });
       }
     }
     setBooking(false);
@@ -433,11 +456,14 @@ export default function BookedOrders({ storeId, ordersStore }) {
       const data = await res.json();
       if (data.error) {
         setCancelResult({ success: false, error: data.error });
+        logActivity("cancel_failed", orderId, { error: data.error });
       } else {
         setCancelResult({ success: true });
+        logActivity("cancel_success", orderId, {});
       }
     } catch (err) {
       setCancelResult({ success: false, error: err.message });
+      logActivity("cancel_failed", orderId, { error: err.message });
     }
     setCancellingId(null);
     setShowCancelResultModal(true);
@@ -452,7 +478,8 @@ export default function BookedOrders({ storeId, ordersStore }) {
       const packageCode = order?.agent_data?.dex_package_code;
       const orderName = order?.name || orderId;
       if (!packageCode) {
-        results.push({ orderId, orderName, error: "Package code nahi mila" });
+        results.push({ orderId, orderName, error: t("booked.packageCodeMissing") });
+        logActivity("awb_print_failed", orderId, { orderName, error: t("booked.packageCodeMissing") });
         continue;
       }
       try {
@@ -461,10 +488,17 @@ export default function BookedOrders({ storeId, ordersStore }) {
         });
         const data = await res.json();
         const pdfUrl = data.data?.url || data.url;
-        if (pdfUrl) results.push({ orderId, orderName, pdfUrl });
-        else results.push({ orderId, orderName, error: data.error || "AWB URL nahi mila" });
+        if (pdfUrl) {
+          results.push({ orderId, orderName, pdfUrl });
+          logActivity("awb_print_success", orderId, { orderName });
+        } else {
+          const errMsg = data.error || t("booked.awbUrlMissing");
+          results.push({ orderId, orderName, error: errMsg });
+          logActivity("awb_print_failed", orderId, { orderName, error: errMsg });
+        }
       } catch (err) {
         results.push({ orderId, orderName, error: err.message });
+        logActivity("awb_print_failed", orderId, { orderName, error: err.message });
       }
     }
     setAwbResults(results);
@@ -506,15 +540,21 @@ export default function BookedOrders({ storeId, ordersStore }) {
 
   const availableCouriers = ["All", ...new Set(orders.map((o) => o.agent_data.courier_name).filter(Boolean))].sort();
 
+  const TAB_STRUCTURE = TAB_KEYS.map((td) => ({
+    ...td,
+    label: t(td.labelKey),
+    subs: td.subs?.map((s) => ({ ...s, label: t(s.labelKey) })),
+  }));
+
   const classified = orders.map((o) => ({ o, cls: classifyTab(o) }));
-  const activeTabDef = TAB_STRUCTURE.find((t) => t.key === activeTab);
+  const activeTabDef = TAB_STRUCTURE.find((td) => td.key === activeTab);
 
   const tabCounts = Object.fromEntries(
-    TAB_STRUCTURE.map((t) => [t.key, t.key === "All" ? orders.length : t.key === "Ready for Booking" ? readyOrders.length : classified.filter((c) => c.cls.tab === t.key).length])
+    TAB_STRUCTURE.map((td) => [td.key, td.key === "All" ? orders.length : td.key === "Ready for Booking" ? readyOrders.length : classified.filter((c) => c.cls.tab === td.key).length])
   );
   const subTabCounts = Object.fromEntries(
-    TAB_STRUCTURE.filter((t) => t.subs).flatMap((t) =>
-      t.subs.map((s) => [`${t.key}::${s.key}`, classified.filter((c) => c.cls.tab === t.key && c.cls.sub === s.key).length])
+    TAB_STRUCTURE.filter((td) => td.subs).flatMap((td) =>
+      td.subs.map((s) => [`${td.key}::${s.key}`, classified.filter((c) => c.cls.tab === td.key && c.cls.sub === s.key).length])
     )
   );
 
@@ -539,15 +579,15 @@ export default function BookedOrders({ storeId, ordersStore }) {
 
   const cardStyle = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "18px 20px", marginBottom: 16 };
 
-  if (error) return <div style={{ padding: "2rem", color: "var(--ne-danger)" }}>❌ {error}</div>;
+  if (error) return <div style={{ padding: "2rem", color: "var(--ne-danger)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="error" size={16} /> {error}</div>;
 
   return (
     <div style={{ padding: isMobile ? "1rem" : "1.5rem", color: "var(--ne-text)" }}>
       <style>{"@keyframes ne-aging-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } } @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }"}</style>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: 8 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>🚚 Booked Orders</h1>
-          <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{ordersStore?.store_name} — {filtered.length} shipments</p>
+          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><Icon name="truck" size={17} /> {t("booked.title")}</h1>
+          <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{ordersStore?.store_name} — {filtered.length} {t("booked.shipments")}</p>
         </div>
         <select value={perPage} onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); }}
           style={{ padding: "5px 8px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
@@ -557,11 +597,14 @@ export default function BookedOrders({ storeId, ordersStore }) {
 
       {/* Search + Courier Filter */}
       <div style={{ display: "flex", gap: 6, marginBottom: "0.6rem", flexWrap: "wrap" }}>
-        <input type="text" placeholder="🔍 Naam, phone, order#, tracking#..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-          style={{ flex: 1, minWidth: 160, padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
+        <div style={{ position: "relative", flex: 1, minWidth: 160 }}>
+          <Icon name="search" size={13} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--ne-muted-2)" }} />
+          <input type="text" placeholder={t("booked.searchPlaceholder")} value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            style={{ width: "100%", padding: "7px 10px 7px 30px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5, boxSizing: "border-box" }} />
+        </div>
         <select value={courierFilter} onChange={(e) => { setCourierFilter(e.target.value); setPage(1); }}
           style={{ padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }}>
-          {availableCouriers.map((c) => <option key={c} value={c}>{c === "All" ? "All Couriers" : c}</option>)}
+          {availableCouriers.map((c) => <option key={c} value={c}>{c === "All" ? t("booked.allCouriers") : c}</option>)}
         </select>
       </div>
 
@@ -592,7 +635,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
               borderColor: !activeSubTab ? "transparent" : "var(--ne-border)",
               background: !activeSubTab ? "var(--ne-accent-soft)" : "var(--ne-surface)",
               color: !activeSubTab ? "var(--ne-accent)" : "var(--ne-muted)" }}>
-            All {activeTabDef.label}
+            {t("booked.allPrefix")} {activeTabDef.label}
             <span style={{ marginLeft: 5, opacity: 0.75 }}>{tabCounts[activeTabDef.key] || 0}</span>
           </button>
           {activeTabDef.subs.map((s) => (
@@ -612,14 +655,14 @@ export default function BookedOrders({ storeId, ordersStore }) {
         <div>
           {selectedIds.size > 0 && (
             <div style={{ display: "flex", gap: 8, marginBottom: 12, padding: "10px 14px", background: "var(--ne-accent-soft)", borderRadius: 10, alignItems: "center" }}>
-              <span style={{ fontSize: 12, color: "var(--ne-text)", fontWeight: 600 }}>{selectedIds.size} selected</span>
-              <button onClick={() => setShowBookModal(true)} style={{ padding: "7px 16px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-                📦 Book Selected
+              <span style={{ fontSize: 12, color: "var(--ne-text)", fontWeight: 600 }}>{selectedIds.size} {t("booked.selected")}</span>
+              <button onClick={() => setShowBookModal(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                <Icon name="package" size={13} /> {t("booked.bookSelected")}
               </button>
             </div>
           )}
           {readyOrders.length === 0 ? (
-            <div style={{ ...cardStyle, textAlign: "center", color: "var(--ne-muted-2)", fontSize: 12 }}>Koi order booking ke liye ready nahi.</div>
+            <div style={{ ...cardStyle, textAlign: "center", color: "var(--ne-muted-2)", fontSize: 12 }}>{t("booked.noReadyOrders")}</div>
           ) : (
             readyOrders.map((o) => {
               const customerName = `${o.customer?.first_name || ""} ${o.customer?.last_name || ""}`.trim() || "—";
@@ -641,8 +684,8 @@ export default function BookedOrders({ storeId, ordersStore }) {
                   <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 16, padding: "10px 12px", overflow: "hidden" }}>
                     <div style={{ width: 150, minWidth: 150 }}>
                       <div style={{ fontSize: 12, color: "var(--ne-text)", fontWeight: 600 }}>{customerName}</div>
-                      <div style={{ fontSize: 11, color: phone ? "var(--ne-muted)" : "var(--ne-danger)", fontWeight: phone ? 400 : 700 }}>
-                        {phone || "⚠ Phone missing"}
+                      <div style={{ fontSize: 11, color: phone ? "var(--ne-muted)" : "var(--ne-danger)", fontWeight: phone ? 400 : 700, display: "flex", alignItems: "center", gap: 4 }}>
+                        {phone || (<><Icon name="warning" size={11} /> {t("booked.phoneMissing")}</>)}
                       </div>
                     </div>
                     <div style={{ width: 170, minWidth: 170, fontSize: 11.5, color: "var(--ne-muted)" }}>{address}</div>
@@ -658,12 +701,8 @@ export default function BookedOrders({ storeId, ordersStore }) {
                   <div style={{ display: "flex", alignItems: "center", padding: "0 14px", flexShrink: 0 }}>
                     <button onClick={() => handleBookSingle(o.id)}
                       style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-                        <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-                        <line x1="12" y1="22.08" x2="12" y2="12" />
-                      </svg>
-                      Book
+                      <Icon name="package" size={14} />
+                      {t("booked.book")}
                     </button>
                   </div>
                 </div>
@@ -673,20 +712,20 @@ export default function BookedOrders({ storeId, ordersStore }) {
         </div>
       ) : loading ? (
         <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>
-          Loading{loadingCount > 0 ? ` (${loadingCount} loaded)` : "..."}
+          {t("booked.loading")}{loadingCount > 0 ? ` (${loadingCount} ${t("booked.loaded")})` : "..."}
         </div>
       ) : filtered.length === 0 ? (
-        <div style={{ ...cardStyle, textAlign: "center", color: "var(--ne-muted-2)", fontSize: 12 }}>Is filter mein koi booked order nahi.</div>
+        <div style={{ ...cardStyle, textAlign: "center", color: "var(--ne-muted-2)", fontSize: 12 }}>{t("booked.noBookedInFilter")}</div>
       ) : (
         <div>
           {selectedIds.size > 0 && (
             <div style={{ display: "flex", gap: 8, marginBottom: 12, padding: "10px 14px", background: "var(--ne-accent-soft)", borderRadius: 10, alignItems: "center" }}>
-              <span style={{ fontSize: 12, color: "var(--ne-text)", fontWeight: 600 }}>{selectedIds.size} selected</span>
-              <button onClick={handleBulkPrintAwb} style={{ padding: "7px 16px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-                🖨️ Print AWB
+              <span style={{ fontSize: 12, color: "var(--ne-text)", fontWeight: 600 }}>{selectedIds.size} {t("booked.selected")}</span>
+              <button onClick={handleBulkPrintAwb} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                <Icon name="printer" size={13} /> {t("booked.printAwb")}
               </button>
               <button onClick={() => setSelectedIds(new Set())} style={{ padding: "7px 16px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 12, cursor: "pointer" }}>
-                Clear
+                {t("booked.clear")}
               </button>
             </div>
           )}
@@ -730,8 +769,8 @@ export default function BookedOrders({ storeId, ordersStore }) {
                   </div>
                   <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
                     {o.isManual && (
-                      <span title="Shopify mein match nahi mila — sirf Excel se courier data" style={{ padding: "4px 10px", borderRadius: 8, fontSize: 10.5, fontWeight: 700, background: "var(--ne-warning-soft)", color: "var(--ne-warning)" }}>
-                        ⚠️ Unmatched/Manual
+                      <span title={t("booked.unmatchedTooltip")} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 8, fontSize: 10.5, fontWeight: 700, background: "var(--ne-warning-soft)", color: "var(--ne-warning)" }}>
+                        <Icon name="warning" size={10} /> {t("booked.unmatchedManual")}
                       </span>
                     )}
                     {ad.courier_name && (
@@ -743,8 +782,8 @@ export default function BookedOrders({ storeId, ordersStore }) {
                       {ad.courier_order_status || bucket}
                     </span>
                     {ad.delivery_attempt_count > 1 && (
-                      <span style={{ padding: "4px 10px", borderRadius: 8, fontSize: 10.5, fontWeight: 700, background: "var(--ne-warning-soft)", color: "var(--ne-warning)" }}>
-                        ⚠️ {ad.delivery_attempt_count} attempts
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 8, fontSize: 10.5, fontWeight: 700, background: "var(--ne-warning-soft)", color: "var(--ne-warning)" }}>
+                        <Icon name="warning" size={10} /> {ad.delivery_attempt_count} {t("booked.attempts")}
                       </span>
                     )}
                     {aging && (
@@ -753,7 +792,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
                         background: `${aging.color}22`, color: aging.color,
                       }}>
                         <span style={{ width: 7, height: 7, borderRadius: "50%", background: aging.color, animation: aging.pulse ? "ne-aging-pulse 1.4s ease-in-out infinite" : "none" }} />
-                        Day {agingDay} — {aging.label}
+                        {t("booked.day")} {agingDay} — {t(aging.labelKey)}
                       </span>
                     )}
                   </div>
@@ -765,19 +804,19 @@ export default function BookedOrders({ storeId, ordersStore }) {
                   padding: "14px 0", borderTop: "1px solid var(--ne-border)", borderBottom: "1px solid var(--ne-border)", marginTop: 12, marginBottom: 14,
                 }}>
                   <div>
-                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 4 }}>Tracking No</div>
+                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 4 }}>{t("booked.trackingNo")}</div>
                     <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ne-text)", fontFamily: "monospace" }}>{ad.dex_tracking_number || "—"}</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 4 }}>Status</div>
+                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 4 }}>{t("booked.status")}</div>
                     <div style={{ fontSize: 13, fontWeight: 600, color: meta.color }}>{ad.courier_order_status || bucket}</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 4 }}>Amount (COD)</div>
+                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 4 }}>{t("booked.amountCod")}</div>
                     <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ne-text)" }}>{o.total_price ? `Rs. ${Number(o.total_price).toLocaleString()}` : "—"}</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 4 }}>Delivery Attempts</div>
+                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 4 }}>{t("booked.deliveryAttempts")}</div>
                     <div style={{ fontSize: 13, fontWeight: 600, color: ad.delivery_attempt_count > 0 ? "var(--ne-warning)" : "var(--ne-text)" }}>{ad.delivery_attempt_count || 0}</div>
                   </div>
                 </div>
@@ -788,8 +827,8 @@ export default function BookedOrders({ storeId, ordersStore }) {
                 </div>
 
                 {ad.latest_fail_reason && (
-                  <div style={{ marginBottom: 14, padding: "5px 9px", borderRadius: 8, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, width: "fit-content" }}>
-                    ⚠️ {ad.latest_fail_reason}
+                  <div style={{ marginBottom: 14, padding: "5px 9px", borderRadius: 8, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, width: "fit-content", display: "flex", alignItems: "center", gap: 6 }}>
+                    <Icon name="warning" size={12} /> {ad.latest_fail_reason}
                   </div>
                 )}
 
@@ -799,7 +838,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
                 <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, padding: "14px 16px", boxShadow: "0 2px 8px rgba(0,0,0,.18)" }}>
                   <button onClick={() => toggleRemarks(o.id)}
                     style={{ background: "none", border: "none", color: "var(--ne-text)", fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, padding: 0 }}>
-                    💬 Remarks <span style={{ fontSize: 10.5, background: "var(--ne-accent)", color: "#fff", padding: "1px 8px", borderRadius: 10 }}>{remarksLog.length}</span>
+                    <Icon name="comment" size={14} /> {t("booked.remarks")} <span style={{ fontSize: 10.5, background: "var(--ne-accent)", color: "#fff", padding: "1px 8px", borderRadius: 10 }}>{remarksLog.length}</span>
                   </button>
 
                   {isRemarksOpen && (
@@ -813,14 +852,14 @@ export default function BookedOrders({ storeId, ordersStore }) {
                         </div>
                       ))}
                       <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                        <input type="text" placeholder="Naya remark likhein..."
+                        <input type="text" placeholder={t("booked.remarkPlaceholder")}
                           value={remarkDrafts[o.id] || ""}
                           onChange={(e) => setRemarkDrafts((prev) => ({ ...prev, [o.id]: e.target.value }))}
                           onKeyDown={(e) => { if (e.key === "Enter") submitRemark(o); }}
                           style={{ flex: 1, background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 8, padding: "9px 12px", color: "var(--ne-text)", fontSize: 12, outline: "none" }} />
                         <button onClick={() => submitRemark(o)} disabled={remarkSubmitting === o.id || !(remarkDrafts[o.id] || "").trim()}
                           style={{ background: "var(--ne-grad)", border: "none", color: "#fff", padding: "9px 18px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: remarkSubmitting === o.id ? "default" : "pointer", whiteSpace: "nowrap" }}>
-                          {remarkSubmitting === o.id ? "..." : "Add"}
+                          {remarkSubmitting === o.id ? "..." : t("booked.add")}
                         </button>
                       </div>
                     </div>
@@ -835,15 +874,12 @@ export default function BookedOrders({ storeId, ordersStore }) {
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ animation: "spin 0.8s linear infinite" }}>
                           <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                         </svg>
-                        Cancelling...
+                        {t("booked.cancelling")}
                       </>
                     ) : (
                       <>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <line x1="18" y1="6" x2="6" y2="18" />
-                          <line x1="6" y1="6" x2="18" y2="18" />
-                        </svg>
-                        Cancel Booking
+                        <Icon name="close" size={12} />
+                        {t("booked.cancelBooking")}
                       </>
                     )}
                   </button>
@@ -858,7 +894,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
       {!loading && filtered.length > 0 && (
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.6rem", flexWrap: "wrap", gap: 8 }}>
           <span style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>
-            Showing {((page - 1) * perPage) + 1}–{Math.min(page * perPage, filtered.length)} of {filtered.length}
+            {t("booked.showing")} {((page - 1) * perPage) + 1}–{Math.min(page * perPage, filtered.length)} {t("booked.of")} {filtered.length}
           </span>
           <div style={{ display: "flex", gap: 4 }}>
             <button onClick={() => setPage(1)} disabled={page === 1} style={{ padding: "4px 9px", borderRadius: 7, border: "1px solid var(--ne-border)", background: page === 1 ? "transparent" : "var(--ne-surface-2)", color: page === 1 ? "var(--ne-muted-2)" : "var(--ne-muted)", fontSize: 11, cursor: page === 1 ? "default" : "pointer" }}>«</button>
@@ -876,9 +912,9 @@ export default function BookedOrders({ storeId, ordersStore }) {
       {showBookModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
           <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 380, maxWidth: "92vw", padding: "20px" }}>
-            <h3 style={{ margin: "0 0 14px", fontSize: 15, color: "var(--ne-text)" }}>📦 Book Shipment ({selectedIds.size} order{selectedIds.size > 1 ? "s" : ""})</h3>
+            <h3 style={{ margin: "0 0 14px", fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="package" size={14} /> {t("booked.bookShipment")} ({selectedIds.size} {selectedIds.size > 1 ? t("booked.orders") : t("booked.order")})</h3>
 
-            <label style={{ fontSize: 12, color: "var(--ne-muted)", display: "block", marginBottom: 4 }}>Courier</label>
+            <label style={{ fontSize: 12, color: "var(--ne-muted)", display: "block", marginBottom: 4 }}>{t("booked.courier")}</label>
             <select value={bookCourier} onChange={(e) => setBookCourier(e.target.value)}
               style={{ width: "100%", padding: "9px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, marginBottom: 12 }}>
               <option value="dex">Dex</option>
@@ -886,7 +922,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
 
             {pickupAddresses.length > 1 && (
               <>
-                <label style={{ fontSize: 12, color: "var(--ne-muted)", display: "block", marginBottom: 4 }}>Pickup Address</label>
+                <label style={{ fontSize: 12, color: "var(--ne-muted)", display: "block", marginBottom: 4 }}>{t("booked.pickupAddress")}</label>
                 <select value={bookAddressId} onChange={(e) => setBookAddressId(e.target.value)}
                   style={{ width: "100%", padding: "9px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, marginBottom: 12 }}>
                   {pickupAddresses.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
@@ -899,11 +935,11 @@ export default function BookedOrders({ storeId, ordersStore }) {
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => { setShowBookModal(false); setSelectedIds(new Set()); }}
                 style={{ flex: 1, padding: "10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 13, cursor: "pointer" }}>
-                Cancel
+                {t("action.cancel")}
               </button>
               <button onClick={handleBookConfirm} disabled={booking}
                 style={{ flex: 1, padding: "10px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-                {booking ? "Booking..." : "Book Now"}
+                {booking ? t("booked.bookingDots") : t("booked.bookNow")}
               </button>
             </div>
           </div>
@@ -913,24 +949,24 @@ export default function BookedOrders({ storeId, ordersStore }) {
       {showBookResultModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000001 }}>
           <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 420, maxWidth: "92vw", maxHeight: "80vh", overflowY: "auto", padding: "20px" }}>
-            <h3 style={{ margin: "0 0 14px", fontSize: 15, color: "var(--ne-text)" }}>
-              📦 Booking Result ({bookResults.filter((r) => r.success).length}/{bookResults.length} successful)
+            <h3 style={{ margin: "0 0 14px", fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}>
+              <Icon name="package" size={14} /> {t("booked.bookingResult")} ({bookResults.filter((r) => r.success).length}/{bookResults.length} {t("booked.successfulSuffix")})
             </h3>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
               {bookResults.map((r) => (
                 <div key={r.orderId} style={{ padding: "10px 12px", borderRadius: 8, border: `1px solid ${r.success ? "var(--ne-success)" : "var(--ne-danger)"}`, background: r.success ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)" }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ne-text)" }}>{r.orderName}</div>
                   {r.success ? (
-                    <div style={{ fontSize: 12, color: "var(--ne-success)" }}>✓ Booked — Tracking: {r.trackingNumber}</div>
+                    <div style={{ fontSize: 12, color: "var(--ne-success)", display: "flex", alignItems: "center", gap: 5 }}><Icon name="check" size={11} /> {t("booked.bookedTrackingPrefix")} {r.trackingNumber}</div>
                   ) : (
-                    <div style={{ fontSize: 12, color: "var(--ne-danger)" }}>✕ {r.error}</div>
+                    <div style={{ fontSize: 12, color: "var(--ne-danger)", display: "flex", alignItems: "center", gap: 5 }}><Icon name="close" size={11} /> {r.error}</div>
                   )}
                 </div>
               ))}
             </div>
             <button onClick={() => setShowBookResultModal(false)}
               style={{ width: "100%", padding: "10px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-              Close
+              {t("booked.close")}
             </button>
           </div>
         </div>
@@ -939,20 +975,20 @@ export default function BookedOrders({ storeId, ordersStore }) {
       {showAwbResultModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000001 }}>
           <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 420, maxWidth: "92vw", maxHeight: "80vh", overflowY: "auto", padding: "20px" }}>
-            <h3 style={{ margin: "0 0 14px", fontSize: 15, color: "var(--ne-text)" }}>
-              🖨️ AWB Print ({awbResults.filter((r) => r.pdfUrl).length}/{awbResults.length} ready)
+            <h3 style={{ margin: "0 0 14px", fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}>
+              <Icon name="printer" size={14} /> {t("booked.awbPrint")} ({awbResults.filter((r) => r.pdfUrl).length}/{awbResults.length} {t("booked.readySuffix")})
             </h3>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
               {awbResults.map((r) => (
                 <div key={r.orderId} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", borderRadius: 8, border: `1px solid ${r.pdfUrl ? "var(--ne-border)" : "var(--ne-danger)"}` }}>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ne-text)" }}>{r.orderName}</div>
-                    {!r.pdfUrl && <div style={{ fontSize: 12, color: "var(--ne-danger)" }}>✕ {r.error}</div>}
+                    {!r.pdfUrl && <div style={{ fontSize: 12, color: "var(--ne-danger)", display: "flex", alignItems: "center", gap: 5 }}><Icon name="close" size={11} /> {r.error}</div>}
                   </div>
                   {r.pdfUrl && (
                     <button onClick={() => window.open(r.pdfUrl, "_blank")}
                       style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>
-                      Open AWB
+                      {t("booked.openAwb")}
                     </button>
                   )}
                 </div>
@@ -960,7 +996,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
             </div>
             <button onClick={() => setShowAwbResultModal(false)}
               style={{ width: "100%", padding: "10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 13, cursor: "pointer" }}>
-              Close
+              {t("booked.close")}
             </button>
           </div>
         </div>
@@ -969,15 +1005,15 @@ export default function BookedOrders({ storeId, ordersStore }) {
       {showCancelResultModal && cancelResult && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000001 }}>
           <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 360, maxWidth: "92vw", padding: "20px" }}>
-            <h3 style={{ margin: "0 0 12px", fontSize: 15, color: "var(--ne-text)" }}>
-              {cancelResult.success ? "✓ Cancel Successful" : "✕ Cancel Failed"}
+            <h3 style={{ margin: "0 0 12px", fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}>
+              {cancelResult.success ? (<><Icon name="check" size={14} /> {t("booked.cancelSuccessful")}</>) : (<><Icon name="close" size={14} /> {t("booked.cancelFailed")}</>)}
             </h3>
             <p style={{ fontSize: 12.5, color: cancelResult.success ? "var(--ne-success)" : "var(--ne-danger)", marginBottom: 16 }}>
-              {cancelResult.success ? "Booking cancel ho gayi hai." : cancelResult.error}
+              {cancelResult.success ? t("booked.cancelledMessage") : cancelResult.error}
             </p>
             <button onClick={() => setShowCancelResultModal(false)}
               style={{ width: "100%", padding: "10px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-              Close
+              {t("booked.close")}
             </button>
           </div>
         </div>
