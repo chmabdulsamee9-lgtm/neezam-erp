@@ -6,6 +6,7 @@ import { getCachedOrders, saveOrdersBulk, upsertOrder, getMeta, setMeta, clearCa
 import { syncBookedOrdersCache } from './bookedOrdersData'
 import { Monogram, Wordmark } from './components/Logo'
 import { SunIcon, MoonIcon, GlobeIcon } from './components/Icons'
+import Icon from './components/Icon'
 import { useLanguage, useTranslation } from './i18n'
 import Login from './pages/Login'
 import Homepage from './pages/Homepage'
@@ -41,6 +42,57 @@ const persistStoreId = (id) => { try { localStorage.setItem(STORE_STORAGE_KEY, i
 const getPersistedStoreId = () => { try { return localStorage.getItem(STORE_STORAGE_KEY) } catch { return null } }
 const clearPersistedStoreId = () => { try { localStorage.removeItem(STORE_STORAGE_KEY) } catch {} }
 
+// Dev-monitoring frontend-infra — sirf localhost/dev build par active hota hai, production
+// users ke liye koi extra network call ya overhead nahi. `monitoredFetch` baaki pages
+// (BookedOrders/CourierConnect/StoreConnect waghera) apne CF worker calls wrap karne ke
+// liye import kar sakte hain taake un endpoints ki timing/errors bhi dev_monitoring_log mein aayein.
+export function isDevEnv() {
+  if (typeof window === 'undefined') return false
+  return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || Boolean(import.meta.env?.DEV)
+}
+
+export async function logDevMonitoring(fields) {
+  if (!isDevEnv()) return
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    await supabase.from('dev_monitoring_log').insert({
+      source: 'frontend',
+      user_id: session?.user?.id || null,
+      user_name: session?.user?.email || null,
+      store_id: null,
+      ...fields,
+    })
+  } catch (err) {
+    console.log('Dev monitoring log error:', err.message)
+  }
+}
+
+export async function monitoredFetch(url, options = {}) {
+  if (!isDevEnv()) return fetch(url, options)
+  const start = performance.now()
+  const headers = { ...(options.headers || {}), 'X-Client-Env': 'dev' }
+  try {
+    const res = await fetch(url, { ...options, headers })
+    logDevMonitoring({
+      page_or_endpoint: url,
+      action: options.method || 'GET',
+      status: res.ok ? 'success' : 'error',
+      error_message: res.ok ? null : `HTTP ${res.status}`,
+      duration_ms: Math.round(performance.now() - start),
+    })
+    return res
+  } catch (err) {
+    logDevMonitoring({
+      page_or_endpoint: url,
+      action: options.method || 'GET',
+      status: 'error',
+      error_message: err.message,
+      duration_ms: Math.round(performance.now() - start),
+    })
+    throw err
+  }
+}
+
 const NAV_ICONS = {
   dashboard: <svg viewBox="0 0 20 20"><rect x="2.5" y="2.5" width="6.5" height="6.5" rx="1.5"/><rect x="11" y="2.5" width="6.5" height="6.5" rx="1.5"/><rect x="2.5" y="11" width="6.5" height="6.5" rx="1.5"/><rect x="11" y="11" width="6.5" height="6.5" rx="1.5"/></svg>,
   orders: <svg viewBox="0 0 20 20"><path d="M10 2.5 17 6.5v7L10 17.5 3 13.5v-7Z"/><path d="M3 6.5 10 10.5 17 6.5"/><path d="M10 10.5v7"/></svg>,
@@ -62,6 +114,8 @@ const NAV_ICONS = {
   team: <svg viewBox="0 0 20 20"><circle cx="7" cy="7" r="2.6"/><circle cx="14" cy="8" r="2"/><path d="M2.5 17c.5-3 2.2-4.5 4.5-4.5s4 1.5 4.5 4.5"/><path d="M12 17c.4-2.3 1.6-3.7 3.5-3.7s2.7 1.1 3 3.2"/></svg>,
   'activity-log': <svg viewBox="0 0 20 20"><rect x="3" y="2.5" width="14" height="15" rx="2"/><path d="M6.5 7h7M6.5 10.5h7M6.5 14h4"/></svg>,
   settings: <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.5v2M10 15.5v2M17.5 10h-2M4.5 10h-2M15.1 4.9l-1.4 1.4M6.3 13.7l-1.4 1.4M15.1 15.1l-1.4-1.4M6.3 6.3 4.9 4.9"/></svg>,
+  inventory: <svg viewBox="0 0 20 20"><rect x="2.5" y="4" width="15" height="4" rx="1"/><rect x="3.5" y="9" width="13" height="7" rx="1"/><path d="M8 12.5h4"/></svg>,
+  'dev-monitor': <svg viewBox="0 0 20 20"><rect x="2" y="3.5" width="16" height="10.5" rx="1.5"/><path d="M7 17h6M10 14v3"/><path d="M5 8l2.5 2.5L10 7l2 2 3-3"/></svg>,
 }
 
 function SplashScreen() {
@@ -73,25 +127,25 @@ function SplashScreen() {
   )
 }
 
-function PendingApprovalScreen({ onSignOut }) {
+function PendingApprovalScreen({ onSignOut, t }) {
   return (
     <div className="ne-app-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 18, padding: '2.5rem', maxWidth: 380, textAlign: 'center' }}>
-        <div style={{ fontSize: 40, marginBottom: 12 }}>⏳</div>
-        <h2 style={{ color: '#fff', margin: '0 0 8px', fontSize: 18 }}>Approval ka wait hai</h2>
+        <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'center' }}><Icon name="pending" size={36} /></div>
+        <h2 style={{ color: '#fff', margin: '0 0 8px', fontSize: 18 }}>{t('pending.title')}</h2>
         <p style={{ color: 'var(--ne-muted)', fontSize: 13, lineHeight: 1.6 }}>
-          Aapka account abhi approve nahi hua. Jaise hi admin approve karega, aap Neezam use kar sakenge.
+          {t('pending.body')}
         </p>
         <button onClick={onSignOut}
-          style={{ marginTop: 16, padding: '9px 20px', borderRadius: 10, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-muted)', fontSize: 13, cursor: 'pointer' }}>
-          🚪 Logout
+          style={{ marginTop: 16, padding: '9px 20px', borderRadius: 10, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-muted)', fontSize: 13, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Icon name="logout" size={13} /> {t('action.logout')}
         </button>
       </div>
     </div>
   )
 }
 
-function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, onSignOut, userEmail, cfUrl, onDataChanged, allPlansList, onDenyOrDelete, allAddonsList }) {
+function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, onSignOut, userEmail, cfUrl, onDataChanged, allPlansList, onDenyOrDelete, allAddonsList, t }) {
   const [editingAdmin, setEditingAdmin] = useState(null)
   const [editFullName, setEditFullName] = useState('')
   const [editPhone, setEditPhone] = useState('')
@@ -139,8 +193,8 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
   const saveAdminProfile = async (e) => {
     e.preventDefault()
     setEditError('')
-    if (!editFullName.trim() || !editEmail.trim()) { setEditError('Naam aur email zaroori hain'); return }
-    if (!isValidPhone(editPhone)) { setEditError('Phone number exactly 11 digits ka hona chahiye'); return }
+    if (!editFullName.trim() || !editEmail.trim()) { setEditError(t('master.nameEmailRequired')); return }
+    if (!isValidPhone(editPhone)) { setEditError(t('master.phoneError')); return }
     setEditSaving(true)
     const { error } = await supabase.from('profiles').update({
       full_name: editFullName.trim(), phone: editPhone.trim(), email: editEmail.trim(),
@@ -153,7 +207,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
 
   const resetAdminPassword = async () => {
     setEditError(''); setEditPasswordSuccess(false)
-    if (!editNewPassword || editNewPassword.length < 6) { setEditError('Naya password kam az kam 6 characters ka ho'); return }
+    if (!editNewPassword || editNewPassword.length < 6) { setEditError(t('master.passwordMinError')); return }
     setEditSaving(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -179,15 +233,15 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Monogram size={24} />
             <Wordmark size={18} />
-            <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--ne-text)' }}>— Master Dashboard</span>
+            <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--ne-text)' }}>{t('master.headerSuffix')}</span>
           </div>
-          <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--ne-muted)' }}>Creator view — saare brands</p>
+          <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--ne-muted)' }}>{t('master.headerSubtitle')}</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontSize: 12, color: 'var(--ne-muted)' }}>{userEmail}</span>
           <button onClick={onSignOut}
-            style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid var(--ne-border)', background: 'transparent', color: '#F26D6D', fontSize: 12, cursor: 'pointer' }}>
-            🚪 Logout
+            style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid var(--ne-border)', background: 'transparent', color: '#F26D6D', fontSize: 12, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="logout" size={13} /> {t('action.logout')}
           </button>
         </div>
       </div>
@@ -195,7 +249,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
       <div style={{ padding: '1.5rem' }}>
         {pendingProfiles.length > 0 && (
           <div style={{ marginBottom: '2rem' }}>
-            <h2 style={{ fontSize: 14, color: '#F2A83E', marginBottom: 10 }}>⏳ Pending Approvals ({pendingProfiles.length})</h2>
+            <h2 style={{ fontSize: 14, color: '#F2A83E', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="pending" size={14} /> {t('master.pendingApprovals')} ({pendingProfiles.length})</h2>
             <div style={{ display: 'grid', gap: 8 }}>
               {pendingProfiles.map(p => {
                 const defaultAddonIds = p.subscription?.selected_addon_ids || []
@@ -206,16 +260,16 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <div>
                         <div style={{ fontWeight: 600, fontSize: 14 }}>{p.full_name || '—'} {p.storeName && <span style={{ color: 'var(--ne-muted)', fontWeight: 400 }}>· {p.storeName}</span>}</div>
-                        <div style={{ fontSize: 12, color: 'var(--ne-muted)' }}>{p.email} · {p.phone || 'no phone'} · {p.role}</div>
+                        <div style={{ fontSize: 12, color: 'var(--ne-muted)' }}>{p.email} · {p.phone || t('common.noPhone')} · {p.role}</div>
                       </div>
                       <div style={{ display: 'flex', gap: 8 }}>
                         <button onClick={() => onApprove(p.id, p.subscription?.id, currentAddonIds, currentPlanId, p.eneezamId)}
-                          style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: 'var(--ne-grad)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                          ✓ Approve
+                          style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: 'var(--ne-grad)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <Icon name="check" size={12} /> {t('master.approve')}
                         </button>
-                        <button onClick={() => { if (confirm('Yeh signup permanently delete ho jayegi (profile + store + sara data). Confirm?')) onDenyOrDelete(p.storeId) }}
-                          style={{ padding: '7px 16px', borderRadius: 8, border: '1px solid var(--ne-danger)', background: 'transparent', color: 'var(--ne-danger)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                          ✕ Deny
+                        <button onClick={() => { if (confirm(t('master.denyConfirm'))) onDenyOrDelete(p.storeId) }}
+                          style={{ padding: '7px 16px', borderRadius: 8, border: '1px solid var(--ne-danger)', background: 'transparent', color: 'var(--ne-danger)', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <Icon name="close" size={12} /> {t('master.deny')}
                         </button>
                       </div>
                     </div>
@@ -224,14 +278,14 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
                       <div style={{ fontSize: 12, color: 'var(--ne-muted)', marginBottom: 6 }}>Plan (dropdown se select/override karo):</div>
                       <select value={currentPlanId || ''} onChange={(e) => setPlanOverrides(prev => ({ ...prev, [p.id]: e.target.value }))}
                         style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--ne-border)', background: 'var(--ne-bg)', color: 'var(--ne-text)', fontSize: 12, marginBottom: 8 }}>
-                        <option value="">— Plan chuno —</option>
+                        <option value="">{t('master.choosePlanPlaceholder')}</option>
                         {allPlansList.map((pl) => (
                           <option key={pl.id} value={pl.id}>{pl.name} (Rs. {Number(pl.rate_per_order).toLocaleString()}/order)</option>
                         ))}
                       </select>
                       {allAddonsList.length > 0 && (
                         <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          <div style={{ fontSize: 11, color: 'var(--ne-muted)' }}>Add-ons:</div>
+                          <div style={{ fontSize: 11, color: 'var(--ne-muted)' }}>{t('master.addonsLabel')}</div>
                           {allAddonsList.map((a) => (
                             <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
                               <input type="checkbox" checked={currentAddonIds.includes(a.id)} onChange={() => toggleOverrideAddon(p.id, a.id, defaultAddonIds)} style={{ accentColor: '#5C7CFA' }} />
@@ -248,49 +302,49 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
           </div>
         )}
 
-        <h2 style={{ fontSize: 14, color: 'var(--ne-muted)', marginBottom: 10 }}>🏪 Saare Brands ({allStores.length})</h2>
+        <h2 style={{ fontSize: 14, color: 'var(--ne-muted)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="store" size={14} /> {t('master.allBrands')} ({allStores.length})</h2>
         <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
           {allStores.map(s => (
             <div key={s.id} style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '16px', display: 'flex', flexDirection: 'column', gap: 10, boxShadow: '0 2px 8px rgba(0,0,0,.18)' }}>
               <div>
                 <div style={{ fontWeight: 700, fontSize: 15 }}>{s.store_name}</div>
                 <div style={{ fontSize: 11, color: 'var(--ne-accent)', fontWeight: 600 }}>{s.eneezam_id || '—'}</div>
-                <div style={{ fontSize: 12, color: 'var(--ne-muted)' }}>{s.shopify_url || 'Shopify connected nahi'}</div>
+                <div style={{ fontSize: 12, color: 'var(--ne-muted)' }}>{s.shopify_url || t('common.shopifyNotConnected')}</div>
               </div>
 
               {s.admin && (
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 10, padding: '8px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ne-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.admin.full_name || '—'}</div>
-                    <div style={{ fontSize: 10.5, color: 'var(--ne-muted-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.admin.email} · {s.admin.phone || 'no phone'}</div>
+                    <div style={{ fontSize: 10.5, color: 'var(--ne-muted-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.admin.email} · {s.admin.phone || t('common.noPhone')}</div>
                   </div>
                   <button onClick={() => openEditAdmin(s.admin)}
-                    style={{ background: 'transparent', border: 'none', color: 'var(--ne-accent)', cursor: 'pointer', fontSize: 11, fontWeight: 600, flexShrink: 0 }}>
-                    ✎ Edit
+                    style={{ background: 'transparent', border: 'none', color: 'var(--ne-accent)', cursor: 'pointer', fontSize: 11, fontWeight: 600, flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <Icon name="edit" size={11} /> {t('master.editAdmin')}
                   </button>
                 </div>
               )}
 
               <div style={{ display: 'flex', gap: 6 }}>
-                {statCard(s.today_count ?? '—', 'Today', 'var(--ne-success)', 'var(--ne-success-soft)')}
-                {statCard(s.yesterday_count ?? '—', 'Yesterday', 'var(--ne-accent)', 'var(--ne-accent-soft)')}
-                {statCard(s.approved_count ?? '—', 'Approved', 'var(--ne-warning)', 'var(--ne-warning-soft)')}
-                {statCard(s.lifetime_count ?? '—', 'Lifetime', '#A855F7', 'rgba(168,85,247,.15)')}
+                {statCard(s.today_count ?? '—', t('master.today'), 'var(--ne-success)', 'var(--ne-success-soft)')}
+                {statCard(s.yesterday_count ?? '—', t('master.yesterday'), 'var(--ne-accent)', 'var(--ne-accent-soft)')}
+                {statCard(s.approved_count ?? '—', t('master.approvedStat'), 'var(--ne-warning)', 'var(--ne-warning-soft)')}
+                {statCard(s.lifetime_count ?? '—', t('master.lifetime'), '#A855F7', 'rgba(168,85,247,.15)')}
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={() => onEnterStore(s)}
                   style={{ flex: 1, padding: '9px', borderRadius: 10, border: 'none', background: 'var(--ne-grad)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                  → Enter
+                  → {t('master.enter')}
                 </button>
                 <button onClick={() => setDeleteConfirmId(s.id)}
-                  style={{ padding: '9px 12px', borderRadius: 10, border: '1px solid var(--ne-danger)', background: 'transparent', color: 'var(--ne-danger)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                  🗑
+                  style={{ padding: '9px 12px', borderRadius: 10, border: '1px solid var(--ne-danger)', background: 'transparent', color: 'var(--ne-danger)', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}>
+                  <Icon name="trash" size={13} />
                 </button>
               </div>
             </div>
           ))}
           {allStores.length === 0 && (
-            <div style={{ color: 'var(--ne-muted)', fontSize: 13 }}>Abhi koi brand register nahi hua.</div>
+            <div style={{ color: 'var(--ne-muted)', fontSize: 13 }}>{t('master.noBrands')}</div>
           )}
         </div>
       </div>
@@ -298,18 +352,18 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
       {deleteConfirmId && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000000 }}>
           <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 16, width: 380, maxWidth: '92vw', padding: '20px' }}>
-            <h3 style={{ margin: '0 0 10px', fontSize: 15, color: 'var(--ne-danger)' }}>⚠️ Store delete karein?</h3>
+            <h3 style={{ margin: '0 0 10px', fontSize: 15, color: 'var(--ne-danger)', display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="warning" size={14} /> {t('master.deleteTitle')}</h3>
             <p style={{ fontSize: 13, color: 'var(--ne-muted)', margin: '0 0 18px', lineHeight: 1.5 }}>
-              Yeh store, iska sara data (orders, courier-data, expenses waghera), aur admin ka login account — sab PERMANENTLY delete ho jayega. Yeh action wapis nahi ho sakti.
+              {t('master.deleteBody')}
             </p>
             <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={() => setDeleteConfirmId(null)}
                 style={{ flex: 1, padding: '10px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 13, cursor: 'pointer' }}>
-                Cancel
+                {t('action.cancel')}
               </button>
               <button onClick={() => { onDenyOrDelete(deleteConfirmId); setDeleteConfirmId(null) }}
                 style={{ flex: 1, padding: '10px', borderRadius: 9, border: 'none', background: 'var(--ne-danger)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-                Haan, Delete Karo
+                {t('master.confirmDelete')}
               </button>
             </div>
           </div>
@@ -320,37 +374,37 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000000 }}>
           <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 16, width: 420, maxWidth: '94vw', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 12px 40px rgba(0,0,0,0.6)' }}>
             <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--ne-border)' }}>
-              <h2 style={{ margin: 0, fontSize: 15, color: 'var(--ne-text)' }}>✎ Edit Admin — {editingAdmin.full_name || editingAdmin.email}</h2>
+              <h2 style={{ margin: 0, fontSize: 15, color: 'var(--ne-text)', display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="edit" size={13} /> {t('master.editAdminTitlePrefix')} {editingAdmin.full_name || editingAdmin.email}</h2>
             </div>
             <form onSubmit={saveAdminProfile} style={{ padding: '16px 18px', borderBottom: '1px solid var(--ne-border)' }}>
-              <p style={{ fontSize: 12, color: 'var(--ne-muted)', margin: '0 0 10px', fontWeight: 700 }}>Profile Details</p>
-              <input type="text" placeholder="Naam" value={editFullName} onChange={e => setEditFullName(e.target.value)} style={inputStyle} />
-              <input type="tel" placeholder="Phone number (11 digits)" value={editPhone} maxLength={11}
+              <p style={{ fontSize: 12, color: 'var(--ne-muted)', margin: '0 0 10px', fontWeight: 700 }}>{t('master.profileDetails')}</p>
+              <input type="text" placeholder={t('master.namePlaceholder')} value={editFullName} onChange={e => setEditFullName(e.target.value)} style={inputStyle} />
+              <input type="tel" placeholder={t('master.phonePlaceholder')} value={editPhone} maxLength={11}
                 onChange={e => setEditPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} style={inputStyle} />
               {editPhone.length > 0 && !isValidPhone(editPhone) && (
-                <p style={{ color: 'var(--ne-danger)', fontSize: 11, margin: '-6px 0 10px' }}>Phone number exactly 11 digits ka hona chahiye</p>
+                <p style={{ color: 'var(--ne-danger)', fontSize: 11, margin: '-6px 0 10px' }}>{t('master.phoneError')}</p>
               )}
-              <input type="email" placeholder="Email" value={editEmail} onChange={e => setEditEmail(e.target.value)} style={inputStyle} />
+              <input type="email" placeholder={t('master.emailPlaceholder')} value={editEmail} onChange={e => setEditEmail(e.target.value)} style={inputStyle} />
               <button type="submit" disabled={editSaving}
-                style={{ width: '100%', padding: '10px', background: editSaving ? 'var(--ne-border)' : 'var(--ne-grad)', color: '#fff', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: editSaving ? 'default' : 'pointer' }}>
-                {editSaving ? 'Save ho raha hai...' : '✓ Save Details'}
+                style={{ width: '100%', padding: '10px', background: editSaving ? 'var(--ne-border)' : 'var(--ne-grad)', color: '#fff', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: editSaving ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                {editSaving ? t('master.saving') : (<><Icon name="check" size={13} /> {t('master.saveDetails')}</>)}
               </button>
             </form>
             <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--ne-border)' }}>
-              <p style={{ fontSize: 12, color: 'var(--ne-muted)', margin: '0 0 10px', fontWeight: 700 }}>Reset Password</p>
-              <input type="password" placeholder="Naya password (min 6 characters)" value={editNewPassword}
+              <p style={{ fontSize: 12, color: 'var(--ne-muted)', margin: '0 0 10px', fontWeight: 700 }}>{t('master.resetPassword')}</p>
+              <input type="password" placeholder={t('master.newPasswordPlaceholder')} value={editNewPassword}
                 onChange={e => setEditNewPassword(e.target.value)} style={inputStyle} />
-              {editPasswordSuccess && <p style={{ color: 'var(--ne-success)', fontSize: 11, margin: '-6px 0 10px' }}>✓ Password reset ho gaya</p>}
+              {editPasswordSuccess && <p style={{ color: 'var(--ne-success)', fontSize: 11, margin: '-6px 0 10px', display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="check" size={11} /> {t('master.passwordResetSuccess')}</p>}
               <button type="button" onClick={resetAdminPassword} disabled={editSaving}
-                style={{ width: '100%', padding: '10px', background: editSaving ? 'var(--ne-border)' : 'var(--ne-warning)', color: '#1A1300', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: editSaving ? 'default' : 'pointer' }}>
-                🔑 Password Reset Karo
+                style={{ width: '100%', padding: '10px', background: editSaving ? 'var(--ne-border)' : 'var(--ne-warning)', color: '#1A1300', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: editSaving ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <Icon name="key" size={13} /> {t('master.resetPasswordButton')}
               </button>
             </div>
             {editError && <p style={{ color: 'var(--ne-danger)', fontSize: 12, padding: '0 18px' }}>{editError}</p>}
             <div style={{ padding: '12px 18px', display: 'flex', justifyContent: 'flex-end' }}>
               <button onClick={closeEditAdmin}
                 style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-muted)', fontSize: 12, cursor: 'pointer' }}>
-                Close
+                {t('master.close')}
               </button>
             </div>
           </div>
@@ -382,6 +436,46 @@ function App() {
     const timer = setTimeout(() => setMinSplashDone(true), 1800)
     return () => clearTimeout(timer)
   }, [])
+
+  // Dev-monitoring: global JS-error/unhandled-rejection capture, sirf isDevEnv() par active
+  useEffect(() => {
+    if (!isDevEnv()) return
+    const onError = (event) => {
+      logDevMonitoring({
+        page_or_endpoint: window.location.pathname,
+        action: 'window.onerror',
+        status: 'error',
+        error_message: event.message || String(event.error || 'unknown error'),
+      })
+    }
+    const onRejection = (event) => {
+      logDevMonitoring({
+        page_or_endpoint: window.location.pathname,
+        action: 'unhandledrejection',
+        status: 'error',
+        error_message: event.reason?.message || String(event.reason || 'unknown rejection'),
+      })
+    }
+    window.addEventListener('error', onError)
+    window.addEventListener('unhandledrejection', onRejection)
+    return () => {
+      window.removeEventListener('error', onError)
+      window.removeEventListener('unhandledrejection', onRejection)
+    }
+  }, [])
+
+  // Dev-monitoring: per-page-navigation load timing, sirf isDevEnv() par active
+  useEffect(() => {
+    if (!isDevEnv()) return
+    const start = performance.now()
+    logDevMonitoring({
+      store_id: ordersStore?.eneezam_id || null,
+      page_or_endpoint: location.pathname,
+      action: 'page_load',
+      status: 'success',
+      duration_ms: Math.round(performance.now() - start),
+    })
+  }, [location.pathname])
 
   // activeMenu ab URL se derive hota hai (React Router) — setActiveMenu shim navigate() ko
   // call karta hai taake sidebar clicks real per-page URLs banayein (back/forward + direct-URL support)
@@ -670,10 +764,27 @@ function App() {
     setProfileLoaded(true)
   }
 
+  const logActivity = async (storeId, actionType, details = {}) => {
+    if (!storeId) return
+    try {
+      await supabase.from('activity_log').insert({
+        store_id: storeId,
+        user_id: session?.user?.id || null,
+        user_name: session?.user?.email || null,
+        action_type: actionType,
+        order_id: null,
+        details,
+      })
+    } catch (err) {
+      console.log('logActivity error:', err.message)
+    }
+  }
+
   // finalAddonIds — creator ka override (add-on hata/de sakta hai) approve se pehle;
   // subscriptionId na ho (koi subscription record hi na mila) to sirf profile approve hota hai
   const handleApprove = async (profileId, subscriptionId, finalAddonIds, finalPlanId, eneezamId) => {
     const approvedProfile = pendingProfiles.find(p => p.id === profileId)
+    const originalPlanId = approvedProfile?.subscription?.plan_id
     await supabase.from('profiles').update({ approved: true }).eq('id', profileId)
     if (subscriptionId) {
       const updatePayload = {
@@ -695,6 +806,10 @@ function App() {
       })
     }
     setPendingProfiles(prev => prev.filter(p => p.id !== profileId))
+    logActivity(approvedProfile?.storeId, 'store_approved', { profileId, email: approvedProfile?.email })
+    if (finalPlanId && originalPlanId && finalPlanId !== originalPlanId) {
+      logActivity(approvedProfile?.storeId, 'plan_overridden', { profileId, fromPlanId: originalPlanId, toPlanId: finalPlanId })
+    }
     if (approvedProfile?.email) {
       const { data: { session: currentSession } } = await supabase.auth.getSession()
       fetch(`${CF_URL}/send-approved-email`, {
@@ -707,6 +822,10 @@ function App() {
 
   const handleDenyOrDeleteStore = async (storeId) => {
     if (!storeId) return
+    // Ek hi function "Deny a pending signup" aur "Delete an approved store" dono handle karta
+    // hai — action_type ka faisla API-call se PEHLE karte hain (state update ke baad pendingProfiles
+    // se already hata diya jayega, isliye "wasPending" yahin capture karna zaroori hai).
+    const wasPending = pendingProfiles.some(p => p.storeId === storeId)
     const { data: { session: currentSession } } = await supabase.auth.getSession()
     const res = await fetch(`${CF_URL}/admin-delete-store`, {
       method: 'POST',
@@ -714,9 +833,10 @@ function App() {
       body: JSON.stringify({ store_id: storeId }),
     })
     const data = await res.json()
-    if (data.error) { alert('Delete fail hui: ' + data.error); return }
+    if (data.error) { alert(t('master.deleteFailPrefix') + data.error); return }
     setPendingProfiles(prev => prev.filter(p => p.storeId !== storeId))
     setAllStores(prev => prev.filter(s => s.id !== storeId))
+    logActivity(storeId, wasPending ? 'store_denied' : 'store_deleted', {})
   }
 
   const handleEnterStore = (store) => {
@@ -858,7 +978,7 @@ function App() {
         setupRealtime(storeId, cacheId)
 
         const lastSyncedAt = (await getMeta(`lastSyncedAt-${cacheId}`)) || "2000-01-01T00:00:00Z"
-        setSyncStatusText("⏳ naye orders check ho rahe hain...")
+        setSyncStatusText(t('sync.checkingNew'))
         try {
           let from = 0
           let deltaOrders = []
@@ -918,7 +1038,7 @@ function App() {
       await saveOrdersBulk(cacheId, recentRaw)
       if (isStale()) return
 
-      setSyncStatusText("⏳ purane orders background mein load ho rahe hain...")
+      setSyncStatusText(t('sync.loadingOld'))
       try {
         let from = 0
         while (true) {
@@ -969,8 +1089,8 @@ function App() {
     return <Login />
   }
   if (!profileLoaded) return <SplashScreen />
-  if (!profile) return <PendingApprovalScreen onSignOut={() => supabase.auth.signOut()} />
-  if (profile.role !== 'creator' && !profile.approved) return <PendingApprovalScreen onSignOut={() => supabase.auth.signOut()} />
+  if (!profile) return <PendingApprovalScreen onSignOut={() => supabase.auth.signOut()} t={t} />
+  if (profile.role !== 'creator' && !profile.approved) return <PendingApprovalScreen onSignOut={() => supabase.auth.signOut()} t={t} />
 
   if (profile.role === 'creator' && isMasterView) {
     return (
@@ -986,6 +1106,7 @@ function App() {
         userEmail={session.user.email}
         cfUrl={CF_URL}
         onDataChanged={loadProfileAndStores}
+        t={t}
       />
     )
   }
@@ -996,17 +1117,17 @@ function App() {
       <div className="ne-app-shell" style={{ height: '100%', overflow: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: '1px solid var(--ne-border)' }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>نظام — Meri Brands</h1>
+            <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{t('master.miniHeaderTitle')}</h1>
             <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--ne-muted)' }}>{session.user.email}</p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <button onClick={() => setIsAdminMasterView(false)}
               style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-muted)', fontSize: 12, cursor: 'pointer' }}>
-              ← Wapas
+              {t('master.wapas')}
             </button>
             <button onClick={() => supabase.auth.signOut()}
-              style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid var(--ne-border)', background: 'transparent', color: '#F26D6D', fontSize: 12, cursor: 'pointer' }}>
-              🚪 Logout
+              style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid var(--ne-border)', background: 'transparent', color: '#F26D6D', fontSize: 12, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="logout" size={13} /> {t('action.logout')}
             </button>
           </div>
         </div>
@@ -1018,25 +1139,25 @@ function App() {
                 <div key={us.store_id} style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '16px', display: 'flex', flexDirection: 'column', gap: 10, boxShadow: '0 2px 8px rgba(0,0,0,.18)' }}>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 15 }}>{us.stores?.store_name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--ne-muted)' }}>{us.stores?.shopify_url || 'Shopify connected nahi'}</div>
+                    <div style={{ fontSize: 12, color: 'var(--ne-muted)' }}>{us.stores?.shopify_url || t('common.shopifyNotConnected')}</div>
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <div style={{ flex: 1, background: 'var(--ne-success-soft)', borderRadius: 10, padding: '8px 4px', textAlign: 'center' }}>
                       <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ne-success)' }}>{stats.today_count ?? '—'}</div>
-                      <div style={{ fontSize: 9, color: 'var(--ne-muted)', marginTop: 2 }}>Today</div>
+                      <div style={{ fontSize: 9, color: 'var(--ne-muted)', marginTop: 2 }}>{t('master.today')}</div>
                     </div>
                     <div style={{ flex: 1, background: 'var(--ne-accent-soft)', borderRadius: 10, padding: '8px 4px', textAlign: 'center' }}>
                       <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ne-accent)' }}>{stats.yesterday_count ?? '—'}</div>
-                      <div style={{ fontSize: 9, color: 'var(--ne-muted)', marginTop: 2 }}>Yesterday</div>
+                      <div style={{ fontSize: 9, color: 'var(--ne-muted)', marginTop: 2 }}>{t('master.yesterday')}</div>
                     </div>
                     <div style={{ flex: 1, background: 'var(--ne-warning-soft)', borderRadius: 10, padding: '8px 4px', textAlign: 'center' }}>
                       <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ne-warning)' }}>{stats.approved_count ?? '—'}</div>
-                      <div style={{ fontSize: 9, color: 'var(--ne-muted)', marginTop: 2 }}>Approved</div>
+                      <div style={{ fontSize: 9, color: 'var(--ne-muted)', marginTop: 2 }}>{t('master.approvedStat')}</div>
                     </div>
                   </div>
                   <button onClick={() => { setIsAdminMasterView(false); handleSwitchStore(us.store_id) }}
                     style={{ padding: '9px', borderRadius: 10, border: 'none', background: 'var(--ne-grad)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                    → Enter
+                    → {t('master.enter')}
                   </button>
                 </div>
               )
@@ -1069,6 +1190,7 @@ function App() {
     { id: 'courier', label: t('nav.courier'), group: t('nav.group.operations') },
     { id: 'returns', label: t('nav.returns'), group: t('nav.group.operations') },
     { id: 'products', label: t('nav.products'), group: t('nav.group.operations') },
+    { id: 'inventory', label: t('nav.inventory'), group: t('nav.group.operations') },
     { id: 'ads', label: t('nav.ads'), group: t('nav.group.insights') },
     { id: 'pnl', label: t('nav.pnl'), group: t('nav.group.insights') },
     { id: 'ledger', label: t('nav.ledger'), group: t('nav.group.insights') },
@@ -1084,14 +1206,18 @@ function App() {
   ]
 
   const isPrivileged = profile.role === 'admin' || profile.role === 'creator'
+  // Dev Monitor sidebar item sirf isDevEnv() (localhost/dev build) mein dikhta hai —
+  // production users ke liye yeh menu item exist hi nahi karta
+  const devExtras = isDevEnv() ? [{ id: 'dev-monitor', label: t('nav.dev-monitor'), group: t('nav.group.channels') }] : []
   const menuItemsWithExtras = isPrivileged
     ? [...allMenuItems,
         { id: 'team', label: t('nav.team'), group: t('nav.group.channels') },
         { id: 'activity-log', label: t('nav.activity-log'), group: t('nav.group.channels') },
-        { id: 'settings', label: t('nav.settings'), group: t('nav.group.channels') }]
-    : [...allMenuItems, { id: 'settings', label: t('nav.settings'), group: t('nav.group.channels') }]
+        { id: 'settings', label: t('nav.settings'), group: t('nav.group.channels') },
+        ...devExtras]
+    : [...allMenuItems, { id: 'settings', label: t('nav.settings'), group: t('nav.group.channels') }, ...devExtras]
 
-  const alwaysVisibleIds = ['team', 'activity-log', 'settings']
+  const alwaysVisibleIds = ['team', 'activity-log', 'settings', 'dev-monitor']
   const menuItems = menuItemsWithExtras.filter(m => hasAccess(m.id) || alwaysVisibleIds.includes(m.id))
   const fullScreenModules = ['orders', 'courier-dashboard/detailed']
   const currentStoreInfo = userStoresList.find(us => us.store_id === selectedStoreId)?.stores
@@ -1140,8 +1266,8 @@ function App() {
               dark-mode ke fixed colors use karte hain — warna light mode mein dark text
               dark sidebar ke upar illegible ho jata */}
           {currentStoreInfo && (sidebarOpen || mobileDrawerOpen) && (
-            <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: 8, padding: '8px 10px', fontSize: 11.5, color: '#8C93C4', marginBottom: 10 }}>
-              🏪 {currentStoreInfo.store_name}
+            <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: 8, padding: '8px 10px', fontSize: 11.5, color: '#8C93C4', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="store" size={12} /> {currentStoreInfo.store_name}
               {currentStoreInfo.eneezam_id && <span style={{ opacity: 0.7 }}> · {currentStoreInfo.eneezam_id}</span>}
             </div>
           )}
@@ -1159,15 +1285,15 @@ function App() {
           {profile.role === 'creator' && (sidebarOpen || mobileDrawerOpen) && (
             <button onClick={() => { navigate('/master-dashboard'); setSelectedStoreId(null); setOrdersLoaded(false); hasStartedLoadRef.current = false; hasStartedBookedLoadRef.current = false; closeDrawer() }}
               style={{ width: '100%', padding: '7px', borderRadius: 8, border: '1px solid #232A52', background: 'transparent', color: '#8C93C4', fontSize: 11.5, cursor: 'pointer', marginBottom: 8 }}>
-              ← Master Dashboard
+              {t('master.backToMaster')}
             </button>
           )}
 
           {/* TASK 15: admin ke apne 2+ brands hon to mini master dashboard ka rasta */}
           {profile.role === 'admin' && userStoresList.length > 1 && (sidebarOpen || mobileDrawerOpen) && (
             <button onClick={() => { setIsAdminMasterView(true); closeDrawer() }}
-              style={{ width: '100%', padding: '7px', borderRadius: 8, border: '1px solid #232A52', background: 'transparent', color: '#8C93C4', fontSize: 11.5, cursor: 'pointer', marginBottom: 8 }}>
-              🏪 Meri Brands
+              style={{ width: '100%', padding: '7px', borderRadius: 8, border: '1px solid #232A52', background: 'transparent', color: '#8C93C4', fontSize: 11.5, cursor: 'pointer', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              <Icon name="store" size={12} /> {t('master.myBrands')}
             </button>
           )}
 
@@ -1211,7 +1337,7 @@ function App() {
               <button className="ne-hamburger" onClick={() => setMobileDrawerOpen(true)}>☰</button>
               <h1 className="ne-page-title">
                 {menuItems.find(m => m.id === activeMenu)?.label}
-                {syncStatusText && <span className="ne-sync-status">{syncStatusText}</span>}
+                {syncStatusText && <span className="ne-sync-status" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="pending" size={11} /> {syncStatusText}</span>}
               </h1>
               <div className="ne-userchip">
                 <div className="ne-avatar">{session.user.email[0].toUpperCase()}</div>
@@ -1236,10 +1362,10 @@ function App() {
             {activeMenu === 'dashboard' && hasAccess('dashboard') && (
               ordersData.length === 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '300px', color: 'var(--ne-muted)', fontSize: 14, gap: 8 }}>
-                  <div style={{ fontSize: 32 }}>📦</div>
-                  <div>Koi orders nahi mile</div>
-                  <button onClick={() => autoLoadOrders(selectedStoreId)} style={{ padding: '6px 16px', borderRadius: 8, background: 'var(--ne-grad)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, marginTop: 8 }}>
-                    🔄 Retry Load
+                  <Icon name="package" size={32} />
+                  <div>{t('dashboard.noOrders')}</div>
+                  <button onClick={() => autoLoadOrders(selectedStoreId)} style={{ padding: '6px 16px', borderRadius: 8, background: 'var(--ne-grad)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <Icon name="refresh" size={13} /> {t('dashboard.retryLoad')}
                   </button>
                 </div>
               ) : (
@@ -1289,7 +1415,7 @@ function App() {
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{menuItems.find(m => m.id === activeMenu)?.label}</h2>
-                  <p style={{ color: 'var(--ne-muted)', fontSize: 14 }}>Ye module jald aa raha hai!</p>
+                  <p style={{ color: 'var(--ne-muted)', fontSize: 14 }}>{t('common.comingSoon')}</p>
                 </div>
               </div>
             )}
