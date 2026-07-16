@@ -18,6 +18,11 @@ const PATHS = {
   printer: <><rect x="4" y="2.5" width="12" height="5.5" rx="1" /><rect x="2.5" y="7.5" width="15" height="7" rx="1.5" /><rect x="5.5" y="12" width="9" height="5.5" rx="1" /></>,
   error: <><circle cx="10" cy="10" r="7.3" /><path d="M10 6.5v4" /><circle cx="10" cy="13.3" r=".9" fill="currentColor" stroke="none" /></>,
   search: <><circle cx="8.5" cy="8.5" r="5.5" /><path d="M16.5 16.5 13 13" /></>,
+  link: <><path d="M8.5 11.5 11.5 8.5" /><path d="M9 6 11 4a3 3 0 0 1 4.2 4.2L13 10.5" /><path d="M11 14l-2 2a3 3 0 0 1-4.2-4.2L7 9.5" /></>,
+  folder: <path d="M2.5 5.5A1.5 1.5 0 0 1 4 4h3.5l1.5 2H16a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 16 16H4a1.5 1.5 0 0 1-1.5-1.5Z" />,
+  pin: <><path d="M10 18s5.5-5 5.5-9.3A5.5 5.5 0 0 0 4.5 8.7C4.5 13 10 18 10 18Z" /><circle cx="10" cy="8.3" r="2" /></>,
+  scale: <><path d="M10 3.5v13" /><path d="M4 6.5h12" /><path d="M4 6.5 1.5 12a2.5 2.5 0 0 0 5 0Z" /><path d="M16 6.5 13.5 12a2.5 2.5 0 0 0 5 0Z" /><path d="M7 16.5h6" /></>,
+  chart: <><path d="M3 17V9" /><path d="M9 17V3" /><path d="M15 17v-6" /></>,
 }
 
 export default function Icon({ name, size = 15, style, className, ...rest }) {
