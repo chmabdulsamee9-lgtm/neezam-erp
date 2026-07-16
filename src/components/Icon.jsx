@@ -23,6 +23,8 @@ const PATHS = {
   pin: <><path d="M10 18s5.5-5 5.5-9.3A5.5 5.5 0 0 0 4.5 8.7C4.5 13 10 18 10 18Z" /><circle cx="10" cy="8.3" r="2" /></>,
   scale: <><path d="M10 3.5v13" /><path d="M4 6.5h12" /><path d="M4 6.5 1.5 12a2.5 2.5 0 0 0 5 0Z" /><path d="M16 6.5 13.5 12a2.5 2.5 0 0 0 5 0Z" /><path d="M7 16.5h6" /></>,
   chart: <><path d="M3 17V9" /><path d="M9 17V3" /><path d="M15 17v-6" /></>,
+  shop: <><path d="M3 8.5 4 3h12l1 5.5" /><path d="M3 8.5a2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0" /><path d="M4.5 8.5V17h11V8.5" /><path d="M8 17v-4h4v4" /></>,
+  database: <><ellipse cx="10" cy="5" rx="6.5" ry="2.5" /><path d="M3.5 5v10c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5V5" /><path d="M3.5 10c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5" /></>,
 }
 
 export default function Icon({ name, size = 15, style, className, ...rest }) {

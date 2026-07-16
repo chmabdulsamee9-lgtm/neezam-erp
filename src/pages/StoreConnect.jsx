@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../supabase";
+import Icon from "../components/Icon";
+import { useLanguage, useTranslation } from "../i18n";
 
 const CLIENT_ID = import.meta.env.VITE_SHOPIFY_CLIENT_ID;
 const REDIRECT_URI = "https://neezam-erp.pages.dev/auth/callback";
@@ -56,6 +58,9 @@ const SCOPES = [
 ].join(",");
 
 export default function StoreConnect({ storeId }) {
+  const [lang] = useLanguage();
+  const t = useTranslation(lang);
+  const [currentProfile, setCurrentProfile] = useState(null);
   const [stores, setStores] = useState([]);
   const [loading, setLoading] = useState(true);
   const [shopUrl, setShopUrl] = useState("");
@@ -76,6 +81,33 @@ export default function StoreConnect({ storeId }) {
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+
+  // Activity-log ke "author" field ke liye current user ka naam (BookedOrders.jsx/CourierConnect.jsx
+  // ke currentProfile fetch jaisa hi pattern)
+  useEffect(() => {
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase.from("profiles").select("id, full_name, email").eq("id", user.id).single();
+      setCurrentProfile(data || null);
+    })();
+  }, []);
+
+  const logActivity = async (sId, actionType, details) => {
+    if (!currentProfile || !sId) return;
+    try {
+      await supabase.from("activity_log").insert({
+        store_id: sId,
+        user_id: currentProfile.id,
+        user_name: currentProfile.full_name || currentProfile.email,
+        action_type: actionType,
+        order_id: null,
+        details: details || null,
+      });
+    } catch (err) {
+      console.log("logActivity error:", err.message);
+    }
+  };
 
   // SECURITY: sirf current user ke apne brand ka store dikhana hai —
   // saare stores nahi (warna ek brand dusre ka data dekh leta)
@@ -108,7 +140,7 @@ export default function StoreConnect({ storeId }) {
   const handleConnect = () => {
     setError("");
     if (!shopUrl) {
-      setError("Store URL daalo");
+      setError(t("store.urlRequired"));
       return;
     }
     let cleanUrl = shopUrl
@@ -123,12 +155,18 @@ export default function StoreConnect({ storeId }) {
       `?client_id=${CLIENT_ID}` +
       `&scope=${SCOPES}` +
       `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
+    // Actual DB-write (shopify_url set) OAuth callback (ShopifyCallback.jsx) mein hoti hai, is
+    // component se navigate-away ho jane ke baad — is liye yahan connect-flow ke INITIATION
+    // par hi log karte hain (yehi ek pakka signal hai jo is file ke scope mein milta hai)
+    logActivity(storeId, "shopify_connected", { shopUrl: cleanUrl });
     window.location.href = authUrl;
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Yeh store delete karna chahte ho?")) return;
+    if (!window.confirm(t("store.deleteConfirm"))) return;
+    const store = stores.find((s) => s.id === id);
     await supabase.from("stores").delete().eq("id", id);
+    logActivity(id, "shopify_disconnected", { shopUrl: store?.shopify_url });
     fetchStores();
   };
 
@@ -177,11 +215,11 @@ export default function StoreConnect({ storeId }) {
 
       {/* Header */}
       <div style={{ marginBottom: "2rem" }}>
-        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "var(--ne-text)" }}>
-          🔗 Store Connect
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 10 }}>
+          <Icon name="link" size={19} /> {t("store.title")}
         </h1>
         <p style={{ margin: "4px 0 0", fontSize: 14, color: "var(--ne-muted)" }}>
-          Apna Shopify store connect karo
+          {t("store.subtitle")}
         </p>
       </div>
 
@@ -208,8 +246,8 @@ export default function StoreConnect({ storeId }) {
               boxShadow: "0 6px 20px rgba(92,124,250,.25)",
             }}
           >
-            <span style={{ fontSize: 20 }}>🛍️</span>
-            Login with Shopify — Apna Store Connect Karo
+            <Icon name="shop" size={20} />
+            {t("store.loginWithShopify")}
           </button>
         ) : (
           <div style={{
@@ -220,7 +258,7 @@ export default function StoreConnect({ storeId }) {
             marginBottom: "1.5rem",
           }}>
             <h2 style={{ margin: "0 0 1rem", fontSize: 16, color: "var(--ne-text)", fontWeight: 700 }}>
-              Store URL daalo
+              {t("store.enterUrl")}
             </h2>
             <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10 }}>
               <input
@@ -251,9 +289,12 @@ export default function StoreConnect({ storeId }) {
                   fontWeight: 700,
                   cursor: "pointer",
                   whiteSpace: "nowrap",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
                 }}
               >
-                🔗 Connect
+                <Icon name="link" size={13} /> {t("store.connect")}
               </button>
               <button
                 onClick={() => { setShowInput(false); setError(""); }}
@@ -265,16 +306,19 @@ export default function StoreConnect({ storeId }) {
                   padding: "10px 14px",
                   fontSize: 14,
                   cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
                 }}
               >
-                ✕
+                <Icon name="close" size={13} />
               </button>
             </div>
             {error && (
               <p style={{ color: "var(--ne-danger)", fontSize: 13, marginTop: 8 }}>{error}</p>
             )}
             <p style={{ fontSize: 12, color: "var(--ne-muted-2)", marginTop: 8 }}>
-              Store URL daalo — Shopify login page khulega — Allow karo — automatically connect!
+              {t("store.connectHint")}
             </p>
           </div>
         )
@@ -282,19 +326,19 @@ export default function StoreConnect({ storeId }) {
 
       {/* Connected Store */}
       <h2 style={{ fontSize: 15, color: "var(--ne-muted)", marginBottom: 12, fontWeight: 600 }}>
-        Aapka Store
+        {t("store.yourStore")}
       </h2>
 
       {loading ? (
         <div style={{ textAlign: "center", padding: "2rem", color: "var(--ne-muted)" }}>
-          Loading...
+          {t("store.loading")}
         </div>
       ) : stores.length === 0 ? (
         <div style={{
           textAlign: "center", padding: "3rem",
           background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, color: "var(--ne-muted)",
         }}>
-          <p style={{ margin: 0, fontSize: 14 }}>Abhi koi store connected nahi!</p>
+          <p style={{ margin: 0, fontSize: 14 }}>{t("store.noStoreConnected")}</p>
         </div>
       ) : (
         <div style={{ display: "grid", gap: 12 }}>
@@ -317,9 +361,9 @@ export default function StoreConnect({ storeId }) {
                     width: 44, height: 44, borderRadius: 12,
                     background: "var(--ne-surface)", display: "flex",
                     alignItems: "center", justifyContent: "center",
-                    fontSize: 22, border: "1px solid var(--ne-border)"
+                    border: "1px solid var(--ne-border)"
                   }}>
-                    🛍️
+                    <Icon name="shop" size={20} />
                   </div>
                   <div>
                     <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: "var(--ne-text)" }}>
@@ -329,7 +373,7 @@ export default function StoreConnect({ storeId }) {
                       {store.eneezam_id || "—"}
                     </p>
                     <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--ne-muted-2)" }}>
-                      {store.shopify_url || "Shopify connect nahi hua abhi"}
+                      {store.shopify_url || t("store.notConnectedYet")}
                     </p>
                   </div>
                 </div>
@@ -338,17 +382,17 @@ export default function StoreConnect({ storeId }) {
                     <span style={{
                       fontSize: 11, padding: "4px 12px",
                       background: "var(--ne-success-soft)", color: "var(--ne-success)",
-                      borderRadius: 20, fontWeight: 700,
+                      borderRadius: 20, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 5,
                     }}>
-                      ✅ Connected
+                      <Icon name="check" size={10} /> {t("store.connected")}
                     </span>
                   ) : (
                     <span style={{
                       fontSize: 11, padding: "4px 12px",
                       background: "var(--ne-warning-soft)", color: "var(--ne-warning)",
-                      borderRadius: 20, fontWeight: 700,
+                      borderRadius: 20, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 5,
                     }}>
-                      ⏳ Not Connected
+                      <Icon name="pending" size={10} /> {t("store.notConnected")}
                     </span>
                   )}
                 </div>
@@ -367,11 +411,11 @@ export default function StoreConnect({ storeId }) {
                   borderRadius: 10,
                   padding: "10px 14px",
                 }}>
-                  <div style={{ fontSize: 13, color: "var(--ne-muted)" }}>
-                    🗄️ <strong style={{ color: "var(--ne-text)" }}>{cacheCounts[store.id] ?? "..."}</strong> orders cached
+                  <div style={{ fontSize: 13, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <Icon name="database" size={13} /> <strong style={{ color: "var(--ne-text)" }}>{cacheCounts[store.id] ?? "..."}</strong> {t("store.ordersCached")}
                     {syncingStoreId === store.id && (
-                      <span style={{ color: "var(--ne-accent)", marginLeft: 10, fontWeight: 600 }}>
-                        ⏳ Syncing... {syncProgress} orders so far
+                      <span style={{ color: "var(--ne-accent)", marginLeft: 10, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                        <Icon name="pending" size={11} /> {t("store.syncing")} {syncProgress} {t("store.syncingSuffix")}
                       </span>
                     )}
                   </div>
@@ -388,15 +432,18 @@ export default function StoreConnect({ storeId }) {
                       fontWeight: 700,
                       cursor: syncingStoreId === store.id ? "not-allowed" : "pointer",
                       whiteSpace: "nowrap",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
                     }}
                   >
-                    {syncingStoreId === store.id ? "Syncing..." : "🔄 Sync Orders"}
+                    {syncingStoreId === store.id ? t("store.syncing") : (<><Icon name="refresh" size={13} /> {t("store.syncOrders")}</>)}
                   </button>
                 </div>
               )}
               {syncError && syncingStoreId === null && (
-                <p style={{ color: "var(--ne-danger)", fontSize: 12, marginTop: 8 }}>
-                  ❌ {syncError}
+                <p style={{ color: "var(--ne-danger)", fontSize: 12, marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                  <Icon name="error" size={12} /> {syncError}
                 </p>
               )}
             </div>
