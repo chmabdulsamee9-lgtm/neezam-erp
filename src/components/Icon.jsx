@@ -25,6 +25,7 @@ const PATHS = {
   chart: <><path d="M3 17V9" /><path d="M9 17V3" /><path d="M15 17v-6" /></>,
   shop: <><path d="M3 8.5 4 3h12l1 5.5" /><path d="M3 8.5a2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0" /><path d="M4.5 8.5V17h11V8.5" /><path d="M8 17v-4h4v4" /></>,
   database: <><ellipse cx="10" cy="5" rx="6.5" ry="2.5" /><path d="M3.5 5v10c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5V5" /><path d="M3.5 10c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5" /></>,
+  "activity-log": <><rect x="3" y="2.5" width="14" height="15" rx="2" /><path d="M6.5 7h7M6.5 10.5h7M6.5 14h4" /></>,
 }
 
 export default function Icon({ name, size = 15, style, className, ...rest }) {
