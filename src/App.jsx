@@ -9,7 +9,37 @@ import { SunIcon, MoonIcon, GlobeIcon } from './components/Icons'
 import Icon from './components/Icon'
 import { useLanguage, useTranslation } from './i18n'
 import Login from './pages/Login'
-import Homepage from './pages/Homepage'
+import Home from './pages/public/Home'
+import OrderManagementSolution from './pages/public/solutions/OrderManagement'
+import CourierIntegrationSolution from './pages/public/solutions/CourierIntegration'
+import CourierNetworkSolution from './pages/public/solutions/CourierNetwork'
+import AnalyticsSolution from './pages/public/solutions/Analytics'
+import ProductsInventorySolution from './pages/public/solutions/ProductsInventory'
+import AIAdsSolution from './pages/public/solutions/AIAds'
+import PublicPricing from './pages/public/Pricing'
+import PublicTracking from './pages/public/Tracking'
+import PublicAbout from './pages/public/About'
+import PublicContact from './pages/public/Contact'
+import PublicTerms from './pages/public/Terms'
+
+// Public marketing-site routes — sirf logged-out visitors ke liye (jaisa
+// pehle sirf "/" ke liye Homepage tha, ab poori 12-page site isi pattern
+// ko extend karti hai). Session hone par in paths ka koi special-case nahi —
+// wahi neeche wala Login/dashboard-shell flow chalta hai.
+const PUBLIC_ROUTES = {
+  '/': Home,
+  '/solutions/orders': OrderManagementSolution,
+  '/solutions/courier': CourierIntegrationSolution,
+  '/solutions/courier-network': CourierNetworkSolution,
+  '/solutions/analytics': AnalyticsSolution,
+  '/solutions/products': ProductsInventorySolution,
+  '/solutions/ads': AIAdsSolution,
+  '/pricing': PublicPricing,
+  '/tracking': PublicTracking,
+  '/about': PublicAbout,
+  '/contact': PublicContact,
+  '/terms': PublicTerms,
+}
 import StoreConnect from './pages/StoreConnect'
 import ProductsManagement from './pages/ProductsManagement'
 import InventoryManagement from './pages/InventoryManagement'
@@ -1087,7 +1117,8 @@ function App() {
 
   if (loading || !minSplashDone) return <SplashScreen />
   if (!session) {
-    if (location.pathname === '/') return <Homepage />
+    const PublicPage = PUBLIC_ROUTES[location.pathname]
+    if (PublicPage) return <PublicPage />
     return <Login />
   }
   if (!profileLoaded) return <SplashScreen />

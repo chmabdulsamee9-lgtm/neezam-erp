@@ -41,6 +41,12 @@ const PATHS = {
   card: <><rect x="2.5" y="4.5" width="15" height="11" rx="2" /><path d="M2.5 8.5h15" /><path d="M5.5 12.5h3" /></>,
   products: <><path d="M3 3h6l8 8-6 6-8-8Z" /><circle cx="7" cy="7" r="1.3" fill="currentColor" stroke="none" /></>,
   inventory: <><rect x="2.5" y="4" width="15" height="4" rx="1" /><rect x="3.5" y="9" width="13" height="7" rx="1" /><path d="M8 12.5h4" /></>,
+  menu: <><path d="M3 5.5h14" /><path d="M3 10h14" /><path d="M3 14.5h14" /></>,
+  chevronDown: <path d="M5 7.5 10 12.5 15 7.5" />,
+  arrowRight: <><path d="M3 10h14" /><path d="M11 4l6 6-6 6" /></>,
+  send: <path d="M17.5 2.5 9 11M17.5 2.5 12 17.5 9 11 2.5 8Z" />,
+  building: <><rect x="4" y="2.5" width="12" height="15" rx="1" /><path d="M7 6h2M11 6h2M7 9.5h2M11 9.5h2M7 13h2M11 13h2" /></>,
+  shield: <path d="M10 2.5 16 5v5c0 4-2.5 6.8-6 7.5-3.5-.7-6-3.5-6-7.5V5Z" />,
 }
 
 export default function Icon({ name, size = 15, style, className, ...rest }) {
