@@ -1119,6 +1119,21 @@ function App() {
   if (loading || !minSplashDone) return <SplashScreen />
   if (!session) {
     const PublicPage = PUBLIC_ROUTES[location.pathname]
+    // portal.eneezam.com serves the app (Login/Dashboard); eneezam.com (root) serves the
+    // marketing site. Same Cloudflare Pages deployment on both domains — decided purely at
+    // runtime via hostname, no separate build. Skipped on localhost/dev so local dev isn't
+    // bounced cross-domain.
+    if (!isDevEnv()) {
+      const isPortalDomain = window.location.hostname === 'portal.eneezam.com'
+      if (isPortalDomain && PublicPage) {
+        window.location.href = 'https://eneezam.com' + location.pathname
+        return <SplashScreen />
+      }
+      if (!PublicPage && !isPortalDomain) {
+        window.location.href = 'https://portal.eneezam.com' + location.pathname
+        return <SplashScreen />
+      }
+    }
     if (PublicPage) return <PublicPage />
     return <Login />
   }

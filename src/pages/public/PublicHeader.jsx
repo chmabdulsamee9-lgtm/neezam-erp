@@ -102,11 +102,11 @@ export default function PublicHeader() {
           </button>
           {!isMobile && (
             <>
-              <button onClick={() => go("/login")}
+              <button onClick={() => { window.location.href = "https://portal.eneezam.com/login"; }}
                 style={{ padding: "8px 16px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 12.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
                 {t("mkt.nav.login")}
               </button>
-              <button onClick={() => go("/signup")}
+              <button onClick={() => { window.location.href = "https://portal.eneezam.com/signup"; }}
                 style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
                 {t("mkt.nav.signup")}
               </button>
@@ -145,11 +145,11 @@ export default function PublicHeader() {
           <button onClick={() => go("/contact")} style={{ ...navLinkStyle("/contact"), textAlign: "left", padding: "10px 4px" }}>{t("mkt.nav.contact")}</button>
 
           <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-            <button onClick={() => go("/login")}
+            <button onClick={() => { window.location.href = "https://portal.eneezam.com/login"; }}
               style={{ flex: 1, padding: "10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
               {t("mkt.nav.login")}
             </button>
-            <button onClick={() => go("/signup")}
+            <button onClick={() => { window.location.href = "https://portal.eneezam.com/signup"; }}
               style={{ flex: 1, padding: "10px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
               {t("mkt.nav.signup")}
             </button>
