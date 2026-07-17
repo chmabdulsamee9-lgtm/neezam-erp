@@ -12,6 +12,7 @@ import Login from './pages/Login'
 import Homepage from './pages/Homepage'
 import StoreConnect from './pages/StoreConnect'
 import ProductsManagement from './pages/ProductsManagement'
+import InventoryManagement from './pages/InventoryManagement'
 import ShopifyCallback from './pages/ShopifyCallback'
 import Orders from './pages/Orders'
 import Dashboard from './pages/Dashboard'
@@ -1377,6 +1378,9 @@ function App() {
             {activeMenu === 'products' && hasAccess('products') && (
               <ProductsManagement storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
             )}
+            {activeMenu === 'inventory' && hasAccess('inventory') && (
+              <InventoryManagement storeId={selectedStoreId} />
+            )}
             {activeMenu === 'meta-connect' && hasAccess('meta-connect') && <MetaConnect storeId={selectedStoreId} />}
             {activeMenu === 'ads' && hasAccess('ads') && (
               <AdsAnalytics ordersData={ordersData} storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
@@ -1415,7 +1419,7 @@ function App() {
             {activeMenu === 'courier-dashboard/detailed' && hasAccess('courier-dashboard') && (
               <CourierDetailedView storeId={selectedStoreId} ordersStore={ordersStore} />
             )}
-            {!['dashboard', 'store-connect', 'products', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments'].includes(activeMenu) && (
+            {!['dashboard', 'store-connect', 'products', 'inventory', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments'].includes(activeMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{menuItems.find(m => m.id === activeMenu)?.label}</h2>
