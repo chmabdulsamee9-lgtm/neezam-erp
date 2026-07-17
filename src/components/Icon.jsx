@@ -26,6 +26,10 @@ const PATHS = {
   shop: <><path d="M3 8.5 4 3h12l1 5.5" /><path d="M3 8.5a2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0" /><path d="M4.5 8.5V17h11V8.5" /><path d="M8 17v-4h4v4" /></>,
   database: <><ellipse cx="10" cy="5" rx="6.5" ry="2.5" /><path d="M3.5 5v10c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5V5" /><path d="M3.5 10c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5" /></>,
   "activity-log": <><rect x="3" y="2.5" width="14" height="15" rx="2" /><path d="M6.5 7h7M6.5 10.5h7M6.5 14h4" /></>,
+  zap: <path d="M11 2 4 11.5h5L9 18l7-9.5h-5Z" />,
+  undo: <><path d="M4 8h8a4.5 4.5 0 0 1 0 9H8" /><path d="M7 4.5 4 8l3 3.5" /></>,
+  upload: <><path d="M10 13V4" /><path d="M6.5 7.5 10 4l3.5 3.5" /><path d="M3.5 13v2a1.5 1.5 0 0 0 1.5 1.5h10a1.5 1.5 0 0 0 1.5-1.5v-2" /></>,
+  download: <><path d="M10 4v9" /><path d="M6.5 9.5 10 13l3.5-3.5" /><path d="M3.5 14v1.5A1.5 1.5 0 0 0 5 17h10a1.5 1.5 0 0 0 1.5-1.5V14" /></>,
 }
 
 export default function Icon({ name, size = 15, style, className, ...rest }) {

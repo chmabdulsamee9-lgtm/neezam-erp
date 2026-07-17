@@ -2,6 +2,17 @@ import { useState, useEffect, useRef } from "react";
 import Papa from "papaparse";
 import { supabase } from "../supabase";
 import dexLogo from "../assets/couriers/dex.png";
+import Icon from "../components/Icon";
+import { useLanguage, useTranslation } from "../i18n";
+
+const TAB_KEYS = {
+  All: "orders.tab.all",
+  New: "orders.tab.new",
+  Approved: "orders.tab.approved",
+  Pending: "orders.tab.pending",
+  "Ready to Sync": "orders.tab.readyToSync",
+  Cancelled: "orders.tab.cancelled",
+};
 
 const STATUSES = [
   { label: "Approved", color: "#34D88E", bg: "#11402A" },
@@ -80,6 +91,8 @@ const toLocalDateStr = (d) =>
 const isHistoryValid = (h) => !!(h && h.created_at && (Date.now() - new Date(h.created_at).getTime()) < HISTORY_VALID_MS);
 
 export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrdersLoaded, ordersStore, setOrdersStore, cfUrl }) {
+  const [lang] = useLanguage();
+  const t = useTranslation(lang);
   const orders = ordersData;
   const setOrders = setOrdersData;
   const [loading, setLoading] = useState(!ordersLoaded);
@@ -222,7 +235,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       setOrdersStore(data);
       fetchOrders(data);
     } else {
-      setError("Pehle Store Connect karo!");
+      setError(t("orders.storeConnectFirst"));
       setLoading(false);
     }
   };
@@ -301,7 +314,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       setOrders(merged);
       setOrdersLoaded(true);
     } catch (err) {
-      setError("Error: " + err.message);
+      setError(`${t("orders.errorPrefix")} ${err.message}`);
     }
     setLoading(false);
   };
@@ -453,7 +466,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
   const doSyncOrder = async (order) => {
     const storeData = store || ordersStore;
-    if (!storeData) return { id: order.id, name: order.name, success: false, error: "Store connected nahi hai" };
+    if (!storeData) return { id: order.id, name: order.name, success: false, error: t("orders.storeNotConnected") };
     const { addressPayload, phoneToSync } = buildSyncPlan(order);
     try {
       await ensureHistorySnapshot(order);
@@ -505,7 +518,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     setSyncRunning(false);
     setSyncConfirmModal(null);
     setSelectedIds(new Set());
-    setSyncResultModal({ title: "Sync Result", results });
+    setSyncResultModal({ title: t("orders.syncResultTitle"), results });
   };
 
   // ---------- UNDO ----------
@@ -513,12 +526,12 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     const storeData = store || ordersStore;
     const h = historyMap[String(order.id)];
     if (!storeData || !isHistoryValid(h)) {
-      return { id: order.id, name: order.name, success: false, error: "Undo ke liye valid history nahi mili" };
+      return { id: order.id, name: order.name, success: false, error: t("orders.noValidHistoryForUndo") };
     }
     // Isi order ke liye pehle se ek undo chal raha ho to dobara start na karo
     // (do baar jaldi-jaldi click hone par historyMap/order_sync_history do baar consume na ho)
     if (undoInFlightRef.current.has(order.id)) {
-      return { id: order.id, name: order.name, success: false, error: "Is order ka undo pehle se process ho raha hai" };
+      return { id: order.id, name: order.name, success: false, error: t("orders.undoAlreadyProcessing") };
     }
     undoInFlightRef.current.add(order.id);
     try {
@@ -621,7 +634,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     setUndoRunning(false);
     setUndoConfirmModal(null);
     setSelectedIds(new Set());
-    setSyncResultModal({ title: "Undo Result", results });
+    setSyncResultModal({ title: t("orders.undoResultTitle"), results });
   };
 
   // ---------- CREATE NEW ORDER (TASK 10) ----------
@@ -648,9 +661,9 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     e.preventDefault();
     setNewOrderError("");
     const storeData = store || ordersStore;
-    if (!storeData) { setNewOrderError("Store connected nahi hai"); return; }
+    if (!storeData) { setNewOrderError(t("orders.storeNotConnected")); return; }
     if (!newOrderForm.name.trim() || !newOrderForm.phone.trim()) {
-      setNewOrderError("Naam aur phone zaroori hain");
+      setNewOrderError(t("orders.nameAndPhoneRequired"));
       return;
     }
     setNewOrderSaving(true);
@@ -902,9 +915,9 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         )}
         <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
           <button onClick={() => updateField(orderId, field, val)}
-            style={{ background: "var(--ne-grad)", border: "none", borderRadius: 5, color: "#fff", padding: "2px 8px", cursor: "pointer", fontSize: 10 }}>✓</button>
+            style={{ background: "var(--ne-grad)", border: "none", borderRadius: 5, color: "#fff", padding: "2px 8px", cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center" }}><Icon name="check" size={9} /></button>
           <button onClick={() => setEditingCell(null)}
-            style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 5, color: "var(--ne-text)", padding: "2px 8px", cursor: "pointer", fontSize: 10 }}>✕</button>
+            style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 5, color: "var(--ne-text)", padding: "2px 8px", cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center" }}><Icon name="close" size={9} /></button>
         </div>
       </div>
     );
@@ -917,7 +930,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     );
   };
 
-  if (error) return <div style={{ padding: "2rem", color: "var(--ne-danger)" }}>❌ {error}</div>;
+  if (error) return <div style={{ padding: "2rem", color: "var(--ne-danger)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="error" size={16} /> {error}</div>;
 
   const tdBase = { padding: "7px 6px", verticalAlign: "top" };
   const thBase = { padding: "7px 6px", textAlign: "left", color: "var(--ne-muted)", whiteSpace: "nowrap", fontWeight: 600, fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".03em", borderBottom: "1px solid var(--ne-border)", background: "var(--ne-surface-2)" };
@@ -960,26 +973,26 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     const isUndoing = undoingId === order.id;
     const isExpanded = expandedIds.has(order.id);
 
-    const sb = syncState === "pending" ? { bg: "var(--ne-warning-soft)", color: "var(--ne-warning)", label: "⚡ Ready to Sync" }
-      : syncState === "synced" ? { bg: "var(--ne-success-soft)", color: "var(--ne-success)", label: "✓ Synced" }
-      : { bg: "var(--ne-surface-2)", color: "var(--ne-muted-2)", label: "Sync" };
+    const sb = syncState === "pending" ? { bg: "var(--ne-warning-soft)", color: "var(--ne-warning)", label: t("orders.tab.readyToSync"), icon: "zap" }
+      : syncState === "synced" ? { bg: "var(--ne-success-soft)", color: "var(--ne-success)", label: t("orders.syncedLabel"), icon: "check" }
+      : { bg: "var(--ne-surface-2)", color: "var(--ne-muted-2)", label: t("orders.syncLabel"), icon: null };
 
     const statusBtn = (
       <button data-order-btn={order.id} onClick={(e) => handleStatusBtnClick(e, order.id)}
         style={{ padding: "3px 9px", borderRadius: 8, fontSize: 10, background: status?.bg || "var(--ne-surface-2)", color: status?.color || "var(--ne-muted-2)", border: "none", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" }}>
-        {order.agent_status || "Set ▼"}
+        {order.agent_status || `${t("orders.setStatus")} ▼`}
       </button>
     );
     const syncRow = (
       <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
         <button onClick={() => openSyncConfirm([order])}
-          style={{ padding: "2px 8px", borderRadius: 6, fontSize: 9, background: sb.bg, color: sb.color, border: "none", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" }}>
-          {sb.label}
+          style={{ padding: "2px 8px", borderRadius: 6, fontSize: 9, background: sb.bg, color: sb.color, border: "none", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 4 }}>
+          {sb.icon && <Icon name={sb.icon} size={9} />} {sb.label}
         </button>
         {hasValidHistory && (
-          <button onClick={() => openUndoConfirm([order])} disabled={isUndoing} title="Undo"
-            style={{ padding: "2px 5px", borderRadius: 6, fontSize: 11, lineHeight: 1, background: "var(--ne-warning-soft)", color: "var(--ne-warning)", border: "none", cursor: isUndoing ? "default" : "pointer" }}>
-            {isUndoing ? "⏳" : "↩️"}
+          <button onClick={() => openUndoConfirm([order])} disabled={isUndoing} title={t("orders.undoTitle")}
+            style={{ padding: "2px 5px", borderRadius: 6, fontSize: 11, lineHeight: 1, background: "var(--ne-warning-soft)", color: "var(--ne-warning)", border: "none", cursor: isUndoing ? "default" : "pointer", display: "flex", alignItems: "center" }}>
+            <Icon name={isUndoing ? "pending" : "undo"} size={11} />
           </button>
         )}
       </div>
@@ -994,17 +1007,17 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem", flexWrap: "wrap", gap: 8 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "var(--ne-text)" }}>📦 Orders</h1>
-          <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{currentStore?.store_name} — {tabFilteredOrders.length} orders</p>
+          <h1 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="package" size={15} /> {t("orders.title")}</h1>
+          <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{currentStore?.store_name} — {tabFilteredOrders.length} {t("orders.ordersSuffix")}</p>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <button onClick={() => { resetNewOrderForm(); setShowNewOrderModal(true); }}
             style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
-            + New Order
+            {t("orders.newOrder")}
           </button>
           <button onClick={() => setShowBulkModal(true)}
-            style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
-            📤 Bulk Upload
+            style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <Icon name="upload" size={12} /> {t("orders.bulkUpload")}
           </button>
           <select value={perPage} onChange={e => { setPerPage(Number(e.target.value)); setPage(1); }}
             style={{ padding: "5px 8px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
@@ -1016,24 +1029,27 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       {/* Date Quick Buttons */}
       <div style={{ display: "flex", gap: 6, marginBottom: "8px", alignItems: "center", flexWrap: "wrap" }}>
         <button style={dateBtnStyle("today")} onClick={() => handleDateBtn("today")}>
-          Today <span style={{ opacity: 0.85, fontWeight: 500 }}>({todayCount})</span>
+          {t("orders.today")} <span style={{ opacity: 0.85, fontWeight: 500 }}>({todayCount})</span>
         </button>
         <button style={dateBtnStyle("yesterday")} onClick={() => handleDateBtn("yesterday")}>
-          Yesterday <span style={{ opacity: 0.85, fontWeight: 500 }}>({yesterdayCount})</span>
+          {t("orders.yesterday")} <span style={{ opacity: 0.85, fontWeight: 500 }}>({yesterdayCount})</span>
         </button>
         <button style={dateBtnStyle("7days")} onClick={() => handleDateBtn("7days")}>
-          Last 7 Days <span style={{ opacity: 0.85, fontWeight: 500 }}>({last7Count})</span>
+          {t("orders.last7days")} <span style={{ opacity: 0.85, fontWeight: 500 }}>({last7Count})</span>
         </button>
         {(dateFrom || dateTo) && (
           <button onClick={() => { setDateFrom(""); setDateTo(""); setActiveDateBtn(null); }}
-            style={{ padding: "5px 10px", borderRadius: 18, border: "1px solid var(--ne-danger)", background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>✕ Clear</button>
+            style={{ padding: "5px 10px", borderRadius: 18, border: "1px solid var(--ne-danger)", background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontSize: 11, cursor: "pointer", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}><Icon name="close" size={9} /> {t("orders.clear")}</button>
         )}
       </div>
 
       {/* Search + Date Range */}
       <div style={{ display: "flex", gap: 6, marginBottom: "6px", flexWrap: "wrap" }}>
-        <input type="text" placeholder="🔍 Name, phone, order#..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
-          style={{ flex: 1, minWidth: 130, padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
+        <div style={{ position: "relative", flex: 1, minWidth: 130 }}>
+          <Icon name="search" size={12} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: "var(--ne-muted-2)" }} />
+          <input type="text" placeholder={t("orders.searchPlaceholder")} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
+            style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px 7px 27px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
+        </div>
         <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setActiveDateBtn(null); setPage(1); }}
           style={{ padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
         <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setActiveDateBtn(null); setPage(1); }}
@@ -1045,18 +1061,18 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         <div style={{ position: "relative" }} data-status-multi>
           <button onClick={() => setStatusMultiOpen(!statusMultiOpen)}
             style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap", fontWeight: 500 }}>
-            {statusFilters.length === 0 ? "All Status ▼" : `${statusFilters.length} selected ▼`}
+            {statusFilters.length === 0 ? `${t("orders.allStatus")} ▼` : `${statusFilters.length} ${t("orders.selectedSuffix")} ▼`}
           </button>
           {statusMultiOpen && (
             <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 9999, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "6px", minWidth: 180, marginTop: 4, boxShadow: "0 8px 30px rgba(0,0,0,.5)" }}>
               <div onClick={() => { setStatusFilters([]); setStatusMultiOpen(false); }}
-                style={{ padding: "6px 10px", borderRadius: 7, cursor: "pointer", color: "var(--ne-muted)", fontSize: 11 }}>✕ Clear All</div>
+                style={{ padding: "6px 10px", borderRadius: 7, cursor: "pointer", color: "var(--ne-muted)", fontSize: 11, display: "flex", alignItems: "center", gap: 5 }}><Icon name="close" size={9} /> {t("orders.clearAll")}</div>
               {STATUSES.map(s => (
                 <div key={s.label} onClick={() => { setStatusFilters(prev => prev.includes(s.label) ? prev.filter(x => x !== s.label) : [...prev, s.label]); setPage(1); }}
                   style={{ padding: "6px 10px", borderRadius: 7, cursor: "pointer", color: s.color, fontSize: 11, fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}
                   onMouseEnter={e => e.currentTarget.style.background = s.bg}
                   onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  <span>{statusFilters.includes(s.label) ? "✅" : "⬜"}</span>{s.label}
+                  <span style={{ display: "flex", alignItems: "center" }}>{statusFilters.includes(s.label) ? <Icon name="check" size={10} /> : <span style={{ width: 10, height: 10, border: "1px solid currentColor", borderRadius: 2, display: "inline-block" }} />}</span>{s.label}
                 </div>
               ))}
             </div>
@@ -1064,7 +1080,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         </div>
         <select value={sourceFilter} onChange={e => { setSourceFilter(e.target.value); setPage(1); }}
           style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
-          <option value="All">All Source</option>
+          <option value="All">{t("orders.allSource")}</option>
           {["Meta", "TikTok", "Snapchat", "Google", "Direct"].map(s => <option key={s}>{s}</option>)}
         </select>
         <select value={availableCities.includes(cityFilter) ? cityFilter : "All"} onChange={e => { setCityFilter(e.target.value); setPage(1); }}
@@ -1073,18 +1089,18 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         </select>
         <select value={availableSKUs.includes(skuFilter) ? skuFilter : "All"} onChange={e => { setSkuFilter(e.target.value); setPage(1); }}
           style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
-          <option value="All">All SKU</option>
+          <option value="All">{t("orders.allSku")}</option>
           {availableSKUs.map(s => <option key={s}>{s}</option>)}
         </select>
 
         {/* Bulk Actions */}
         {selectedIds.size > 0 && (
           <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: "auto", flexWrap: "wrap" }}>
-            <span style={{ fontSize: 11, color: "var(--ne-muted)", fontWeight: 600 }}>{selectedIds.size} selected</span>
+            <span style={{ fontSize: 11, color: "var(--ne-muted)", fontWeight: 600 }}>{selectedIds.size} {t("orders.selectedSuffix")}</span>
             <div style={{ position: "relative" }} data-bulk-status>
               <button onClick={() => setBulkStatusOpen(!bulkStatusOpen)}
                 style={{ padding: "6px 12px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-accent-soft)", color: "var(--ne-accent)", fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
-                Bulk Status ▼
+                {t("orders.bulkStatus")} ▼
               </button>
               {bulkStatusOpen && (
                 <div style={{ position: "absolute", top: "100%", right: 0, zIndex: 9999, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "6px", minWidth: 180, marginTop: 4, boxShadow: "0 8px 30px rgba(0,0,0,.5)" }}>
@@ -1100,17 +1116,17 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
               )}
             </div>
             <button onClick={() => openSyncConfirm(orders.filter(o => selectedIds.has(o.id)))}
-              style={{ padding: "6px 12px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
-              🔄 Bulk Sync ({selectedIds.size})
+              style={{ padding: "6px 12px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11, cursor: "pointer", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <Icon name="refresh" size={11} /> {t("orders.bulkSync")} ({selectedIds.size})
             </button>
             {selectedHaveValidHistory && (
               <button onClick={() => openUndoConfirm(orders.filter(o => selectedIds.has(o.id)))}
-                style={{ padding: "6px 12px", borderRadius: 9, border: "1px solid var(--ne-warning)", background: "var(--ne-warning-soft)", color: "var(--ne-warning)", fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
-                ↩️ Bulk Undo
+                style={{ padding: "6px 12px", borderRadius: 9, border: "1px solid var(--ne-warning)", background: "var(--ne-warning-soft)", color: "var(--ne-warning)", fontSize: 11, cursor: "pointer", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                <Icon name="undo" size={11} /> {t("orders.bulkUndo")}
               </button>
             )}
             <button onClick={() => setSelectedIds(new Set())}
-              style={{ padding: "6px 9px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-muted)", fontSize: 11, cursor: "pointer" }}>✕</button>
+              style={{ padding: "6px 9px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-muted)", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center" }}><Icon name="close" size={10} /></button>
           </div>
         )}
       </div>
@@ -1123,7 +1139,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
               borderColor: activeTab === tab ? "transparent" : "var(--ne-border)",
               background: activeTab === tab ? "var(--ne-grad)" : "var(--ne-surface-2)",
               color: activeTab === tab ? "#fff" : "var(--ne-muted)" }}>
-            {tab}
+            {t(TAB_KEYS[tab])}
             <span style={{ marginLeft: 6, padding: "1px 7px", borderRadius: 10, fontSize: 10,
               background: activeTab === tab ? "rgba(255,255,255,0.22)" : "var(--ne-bg)",
               color: activeTab === tab ? "#fff" : "var(--ne-muted-2)" }}>
@@ -1134,7 +1150,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       </div>
 
       {loading ? (
-        <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>Loading orders...</div>
+        <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>{t("orders.loadingOrders")}</div>
       ) : isMobile ? (
         <div ref={tableRef} style={{ flex: 1, overflowY: "auto" }}>
           {orderRows.map(({ order, source, phone, fullName, city, address, products, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, isExpanded, statusBtn, syncRow }) => (
@@ -1155,31 +1171,31 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
               <button onClick={() => toggleExpand(order.id)}
                 style={{ width: "100%", marginTop: 8, padding: "6px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-muted)", fontSize: 10.5, cursor: "pointer", fontWeight: 600 }}>
-                {isExpanded ? "▲ Kam dikhao" : "▼ Tafseel dikhao"}
+                {isExpanded ? t("orders.showLess") : t("orders.showMore")}
               </button>
 
               {isExpanded && (
                 <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--ne-border)", display: "flex", flexDirection: "column", gap: 6 }}>
-                  <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>Phone: </span><EditableCell orderId={order.id} field="phone" value={phone} width={200} /></div>
-                  <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>Address: </span><EditableCell orderId={order.id} field="address" value={address} width={260} /></div>
-                  <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>Product: </span><EditableCell orderId={order.id} field="product" value={products} width={260} /></div>
+                  <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{t("orders.phonePlaceholder")}: </span><EditableCell orderId={order.id} field="phone" value={phone} width={200} /></div>
+                  <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{t("orders.addressFieldPlaceholder")}: </span><EditableCell orderId={order.id} field="address" value={address} width={260} /></div>
+                  <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{t("orders.productPlaceholder")}: </span><EditableCell orderId={order.id} field="product" value={products} width={260} /></div>
                   <div style={{ display: "flex", gap: 14 }}>
-                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)" }}>Unit: {unitPrices}</div>
-                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 3 }}>Ship: <EditableCell orderId={order.id} field="shipping" value={String(shipping)} width={50} /></div>
-                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 3 }}>Disc: <EditableCell orderId={order.id} field="discount" value={String(discount)} width={50} /></div>
+                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)" }}>{t("orders.unit")}: {unitPrices}</div>
+                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 3 }}>{t("orders.ship")}: <EditableCell orderId={order.id} field="shipping" value={String(shipping)} width={50} /></div>
+                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 3 }}>{t("orders.disc")}: <EditableCell orderId={order.id} field="discount" value={String(discount)} width={50} /></div>
                   </div>
                   {isCancelled && cancellationReason && (
                     <span style={{ padding: "2px 7px", borderRadius: 6, fontSize: 10, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, width: "fit-content" }}>{cancellationReason}</span>
                   )}
                   <span style={{ padding: "2px 8px", borderRadius: 8, fontSize: 10, background: "var(--ne-surface-2)", color: SOURCE_COLORS[source], fontWeight: 700, width: "fit-content" }}>{source}</span>
-                  <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>Remarks: </span><EditableCell orderId={order.id} field="remarks" value={remarks} width={260} /></div>
+                  <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{t("orders.remarks")}: </span><EditableCell orderId={order.id} field="remarks" value={remarks} width={260} /></div>
                   {syncRow}
                 </div>
               )}
             </div>
           ))}
           {orderRows.length === 0 && (
-            <div style={{ textAlign: "center", padding: "3rem", color: "var(--ne-muted)" }}>Koi order nahi mila!</div>
+            <div style={{ textAlign: "center", padding: "3rem", color: "var(--ne-muted)" }}>{t("orders.noOrderFound")}</div>
           )}
         </div>
       ) : (
@@ -1193,23 +1209,23 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, width: 136, padding: "0 8px 0 12px", boxSizing: "border-box" }}>
                 <input type="checkbox" checked={selectedIds.size === pagedOrders.length && pagedOrders.length > 0}
                   onChange={toggleSelectAll} style={{ cursor: "pointer" }} />
-                <span style={{ ...thBase, background: "none", border: "none", padding: 0 }}>Order#</span>
+                <span style={{ ...thBase, background: "none", border: "none", padding: 0 }}>{t("orders.orderHash")}</span>
               </div>
               <div ref={registerMiddleRef("header")} onScroll={handleMiddleScroll("header")} className="ne-hide-scroll"
                 style={{ overflowX: "auto", flex: "1 1 auto", minWidth: 0 }}>
                 <div style={{ display: "flex", gap: 10, width: MIDDLE_CONTENT_WIDTH }}>
-                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 140, flexShrink: 0 }}>Customer</span>
-                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 165, flexShrink: 0 }}>Address</span>
-                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 145, flexShrink: 0 }}>Items</span>
-                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 115, flexShrink: 0 }}>Pricing</span>
-                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 85, flexShrink: 0 }}>Total</span>
-                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 75, flexShrink: 0 }}>Source</span>
-                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 90, flexShrink: 0, textAlign: "center" }}>Courier</span>
-                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 95, flexShrink: 0 }}>Remarks</span>
+                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 140, flexShrink: 0 }}>{t("orders.customer")}</span>
+                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 165, flexShrink: 0 }}>{t("orders.address")}</span>
+                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 145, flexShrink: 0 }}>{t("orders.items")}</span>
+                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 115, flexShrink: 0 }}>{t("orders.pricing")}</span>
+                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 85, flexShrink: 0 }}>{t("orders.total")}</span>
+                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 75, flexShrink: 0 }}>{t("orders.source")}</span>
+                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 90, flexShrink: 0, textAlign: "center" }}>{t("orders.courier")}</span>
+                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 95, flexShrink: 0 }}>{t("orders.remarks")}</span>
                 </div>
               </div>
               <div style={{ width: 130, flexShrink: 0, padding: "0 12px 0 14px", boxSizing: "border-box" }}>
-                <span style={{ ...thBase, background: "none", border: "none", padding: 0 }}>Status / Sync</span>
+                <span style={{ ...thBase, background: "none", border: "none", padding: 0 }}>{t("orders.statusSync")}</span>
               </div>
             </div>
 
@@ -1248,15 +1264,15 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
                     <div style={{ width: 115, minWidth: 115, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 3 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", gap: 4, fontSize: 10 }}>
-                        <span style={{ color: "var(--ne-muted-2)", flexShrink: 0 }}>Unit</span>
+                        <span style={{ color: "var(--ne-muted-2)", flexShrink: 0 }}>{t("orders.unit")}</span>
                         <span title={unitPrices} style={{ color: "var(--ne-muted)", display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden", textOverflow: "ellipsis", textAlign: "right" }}>{unitPrices}</span>
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
-                        <span style={{ color: "var(--ne-muted-2)" }}>Ship</span>
+                        <span style={{ color: "var(--ne-muted-2)" }}>{t("orders.ship")}</span>
                         <EditableCell orderId={order.id} field="shipping" value={String(shipping)} width={55} clampLines={1} />
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
-                        <span style={{ color: "var(--ne-muted-2)" }}>Disc</span>
+                        <span style={{ color: "var(--ne-muted-2)" }}>{t("orders.disc")}</span>
                         <EditableCell orderId={order.id} field="discount" value={String(discount)} width={55} clampLines={1} />
                       </div>
                     </div>
@@ -1300,7 +1316,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
             ))}
 
             {orderRows.length === 0 && (
-              <div style={{ textAlign: "center", padding: "3rem", color: "var(--ne-muted)" }}>Koi order nahi mila!</div>
+              <div style={{ textAlign: "center", padding: "3rem", color: "var(--ne-muted)" }}>{t("orders.noOrderFound")}</div>
             )}
           </div>
 
@@ -1330,7 +1346,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       {cancelReasonModal && (
         <div data-cancel-modal style={{ position: "fixed", top: dropdownPos.top, left: dropdownPos.left, zIndex: 999999, background: "var(--ne-surface-2)", border: "1px solid var(--ne-danger)", borderRadius: 10, padding: "8px", minWidth: 190, boxShadow: "0 8px 30px rgba(0,0,0,0.6)" }}>
           <div style={{ fontSize: 10, color: "var(--ne-danger)", fontWeight: 700, marginBottom: 6, paddingLeft: 4 }}>
-            Cancellation Reason
+            {t("orders.cancellationReasonTitle")}
           </div>
           {!cancelReasonOtherMode ? (
             <>
@@ -1354,7 +1370,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                 style={{ padding: "7px 10px", borderRadius: 7, cursor: "pointer", color: "var(--ne-muted-2)", fontSize: 10, marginTop: 2 }}
                 onMouseEnter={e => e.currentTarget.style.background = "var(--ne-border)"}
                 onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                Skip
+                {t("orders.skip")}
               </div>
             </>
           ) : (
@@ -1362,7 +1378,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
               <input
                 autoFocus
                 value={cancelReasonCustomText}
-                placeholder="Type custom reason..."
+                placeholder={t("orders.customReasonPlaceholder")}
                 onChange={e => setCancelReasonCustomText(e.target.value)}
                 onKeyDown={e => {
                   if (e.key === "Enter" && cancelReasonCustomText.trim()) {
@@ -1389,7 +1405,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                     }
                   }}
                   style={{ flex: 1, padding: "5px", borderRadius: 6, border: "none", background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontSize: 10, cursor: "pointer", fontWeight: 700 }}>
-                  Save
+                  {t("orders.save")}
                 </button>
                 <button
                   onClick={() => { setCancelReasonOtherMode(false); setCancelReasonCustomText(""); }}
@@ -1407,8 +1423,8 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
           <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 560, maxWidth: "94vw", maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
             <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)" }}>
-              <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)" }}>🔄 Sync Confirm — {syncConfirmItems.length} order{syncConfirmItems.length > 1 ? "s" : ""}</h2>
-              <p style={{ margin: "3px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>Yeh changes Shopify pe push honge. Confirm karne se pehle review kar lo.</p>
+              <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="refresh" size={14} /> {t("orders.syncConfirmTitle")} — {syncConfirmItems.length} order{syncConfirmItems.length > 1 ? "s" : ""}</h2>
+              <p style={{ margin: "3px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{t("orders.syncConfirmSubtitle")}</p>
             </div>
 
             <div style={{ flex: 1, overflowY: "auto", padding: "10px 18px" }}>
@@ -1416,7 +1432,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                 <div key={order.id} style={{ marginBottom: 12, background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "10px 12px" }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ne-accent)", marginBottom: 6 }}>{order.name}</div>
                   {diff.length === 0 ? (
-                    <div style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>Koi change detect nahi hua.</div>
+                    <div style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>{t("orders.noChangeDetected")}</div>
                   ) : (
                     diff.map(d => (
                       <div key={d.label} style={{ display: "flex", gap: 8, fontSize: 11, marginBottom: 4, alignItems: "baseline" }}>
@@ -1434,25 +1450,25 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
             {syncConfirmTotalPages > 1 && (
               <div style={{ display: "flex", justifyContent: "center", gap: 6, padding: "6px 0", borderTop: "1px solid var(--ne-border)" }}>
                 <button onClick={() => setSyncConfirmPage(p => Math.max(1, p - 1))} disabled={syncConfirmPage === 1}
-                  style={{ padding: "3px 10px", borderRadius: 7, border: "1px solid var(--ne-border)", background: "var(--ne-surface)", color: "var(--ne-muted)", fontSize: 11, cursor: syncConfirmPage === 1 ? "default" : "pointer" }}>‹ Prev</button>
-                <span style={{ fontSize: 11, color: "var(--ne-muted-2)", alignSelf: "center" }}>Page {syncConfirmPage} / {syncConfirmTotalPages}</span>
+                  style={{ padding: "3px 10px", borderRadius: 7, border: "1px solid var(--ne-border)", background: "var(--ne-surface)", color: "var(--ne-muted)", fontSize: 11, cursor: syncConfirmPage === 1 ? "default" : "pointer" }}>{t("orders.prev")}</button>
+                <span style={{ fontSize: 11, color: "var(--ne-muted-2)", alignSelf: "center" }}>{t("orders.pagePrefix")} {syncConfirmPage} / {syncConfirmTotalPages}</span>
                 <button onClick={() => setSyncConfirmPage(p => Math.min(syncConfirmTotalPages, p + 1))} disabled={syncConfirmPage === syncConfirmTotalPages}
-                  style={{ padding: "3px 10px", borderRadius: 7, border: "1px solid var(--ne-border)", background: "var(--ne-surface)", color: "var(--ne-muted)", fontSize: 11, cursor: syncConfirmPage === syncConfirmTotalPages ? "default" : "pointer" }}>Next ›</button>
+                  style={{ padding: "3px 10px", borderRadius: 7, border: "1px solid var(--ne-border)", background: "var(--ne-surface)", color: "var(--ne-muted)", fontSize: 11, cursor: syncConfirmPage === syncConfirmTotalPages ? "default" : "pointer" }}>{t("orders.next")}</button>
               </div>
             )}
 
             <div style={{ padding: "12px 18px", borderTop: "1px solid var(--ne-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>
-                {syncRunning ? `⏳ Syncing... ${syncProgressCount}/${syncConfirmItems.length}` : ""}
+              <span style={{ fontSize: 11, color: "var(--ne-muted-2)", display: "flex", alignItems: "center", gap: 5 }}>
+                {syncRunning ? (<><Icon name="pending" size={11} /> {t("orders.syncingSuffix")} {syncProgressCount}/{syncConfirmItems.length}</>) : ""}
               </span>
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={() => setSyncConfirmModal(null)} disabled={syncRunning}
                   style={{ padding: "8px 14px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-muted)", fontSize: 12, cursor: syncRunning ? "default" : "pointer" }}>
-                  Cancel
+                  {t("orders.cancel")}
                 </button>
                 <button onClick={confirmAndSync} disabled={syncRunning}
-                  style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: syncRunning ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: syncRunning ? "default" : "pointer" }}>
-                  {syncRunning ? "Syncing..." : "✓ Confirm & Sync"}
+                  style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: syncRunning ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: syncRunning ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                  {syncRunning ? t("orders.syncingSuffix") : (<><Icon name="check" size={12} /> {t("orders.confirmSync")}</>)}
                 </button>
               </div>
             </div>
@@ -1465,11 +1481,11 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
           <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 420, maxWidth: "94vw", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
             <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)" }}>
-              <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)" }}>↩️ Undo — {undoConfirmModal.orders.length} order{undoConfirmModal.orders.length > 1 ? "s" : ""}</h2>
+              <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="undo" size={14} /> {t("orders.undoTitle")} — {undoConfirmModal.orders.length} order{undoConfirmModal.orders.length > 1 ? "s" : ""}</h2>
             </div>
             <div style={{ padding: "14px 18px", maxHeight: 220, overflowY: "auto" }}>
               <p style={{ margin: "0 0 8px", fontSize: 12, color: "var(--ne-muted)" }}>
-                In order(s) ki sync se pehli (purani) value Shopify pe wapas chali jayegi:
+                {t("orders.undoBody")}
               </p>
               {undoConfirmModal.orders.map(o => (
                 <div key={o.id} style={{ fontSize: 11, color: "var(--ne-accent)", marginBottom: 3 }}>{o.name}</div>
@@ -1478,11 +1494,11 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
             <div style={{ padding: "12px 18px", borderTop: "1px solid var(--ne-border)", display: "flex", justifyContent: "flex-end", gap: 8 }}>
               <button onClick={() => setUndoConfirmModal(null)} disabled={undoRunning}
                 style={{ padding: "8px 14px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-muted)", fontSize: 12, cursor: undoRunning ? "default" : "pointer" }}>
-                Cancel
+                {t("orders.cancel")}
               </button>
               <button onClick={confirmUndo} disabled={undoRunning}
-                style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: undoRunning ? "var(--ne-border)" : "var(--ne-warning)", color: "#1A1300", fontSize: 12, fontWeight: 700, cursor: undoRunning ? "default" : "pointer" }}>
-                {undoRunning ? "Undoing..." : "↩️ Confirm Undo"}
+                style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: undoRunning ? "var(--ne-border)" : "var(--ne-warning)", color: "#1A1300", fontSize: 12, fontWeight: 700, cursor: undoRunning ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                {undoRunning ? t("orders.undoingSuffix") : (<><Icon name="undo" size={12} /> {t("orders.confirmUndo")}</>)}
               </button>
             </div>
           </div>
@@ -1495,14 +1511,15 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 460, maxWidth: "94vw", maxHeight: "75vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
             <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)" }}>
               <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)" }}>{syncResultModal.title}</h2>
-              <p style={{ margin: "3px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>
-                ✅ {syncResultModal.results.filter(r => r.success).length} success, ❌ {syncResultModal.results.filter(r => !r.success).length} failed
+              <p style={{ margin: "3px 0 0", fontSize: 11.5, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Icon name="check" size={11} /> {syncResultModal.results.filter(r => r.success).length} {t("orders.successSuffix")}</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Icon name="close" size={11} /> {syncResultModal.results.filter(r => !r.success).length} {t("orders.failedSuffix")}</span>
               </p>
             </div>
             <div style={{ flex: 1, overflowY: "auto", padding: "10px 18px" }}>
               {syncResultModal.results.map(r => (
                 <div key={r.id} style={{ display: "flex", gap: 8, fontSize: 11, marginBottom: 6, alignItems: "flex-start" }}>
-                  <span>{r.success ? "✅" : "❌"}</span>
+                  <span style={{ display: "flex", alignItems: "center" }}><Icon name={r.success ? "check" : "close"} size={11} /></span>
                   <div>
                     <div style={{ color: "var(--ne-text)", fontWeight: 600 }}>{r.name}</div>
                     {!r.success && <div style={{ color: "var(--ne-danger)" }}>{r.error}</div>}
@@ -1513,7 +1530,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
             <div style={{ padding: "12px 18px", borderTop: "1px solid var(--ne-border)", display: "flex", justifyContent: "flex-end" }}>
               <button onClick={() => setSyncResultModal(null)}
                 style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-                OK
+                {t("orders.ok")}
               </button>
             </div>
           </div>
@@ -1525,35 +1542,35 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
           <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 440, maxWidth: "94vw", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
             <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)" }}>
-              <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)" }}>+ New Order</h2>
+              <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)" }}>{t("orders.newOrderTitle")}</h2>
             </div>
             <form onSubmit={createNewOrder} style={{ padding: "16px 18px" }}>
-              <input type="text" placeholder="Naam" value={newOrderForm.name}
+              <input type="text" placeholder={t("orders.namePlaceholder")} value={newOrderForm.name}
                 onChange={e => setNewOrderForm(f => ({ ...f, name: e.target.value }))}
                 style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, boxSizing: "border-box", marginBottom: 10 }} />
-              <input type="tel" placeholder="Phone" value={newOrderForm.phone}
+              <input type="tel" placeholder={t("orders.phonePlaceholder")} value={newOrderForm.phone}
                 onChange={e => setNewOrderForm(f => ({ ...f, phone: e.target.value }))}
                 style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, boxSizing: "border-box", marginBottom: 10 }} />
-              <textarea placeholder="Address" value={newOrderForm.address} rows={2}
+              <textarea placeholder={t("orders.addressFieldPlaceholder")} value={newOrderForm.address} rows={2}
                 onChange={e => setNewOrderForm(f => ({ ...f, address: e.target.value }))}
                 style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, boxSizing: "border-box", marginBottom: 10, resize: "vertical", fontFamily: "inherit" }} />
-              <input type="text" placeholder="City" value={newOrderForm.city}
+              <input type="text" placeholder={t("orders.cityPlaceholder")} value={newOrderForm.city}
                 onChange={e => setNewOrderForm(f => ({ ...f, city: e.target.value }))}
                 style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, boxSizing: "border-box", marginBottom: 10 }} />
-              <input type="text" placeholder="Product" value={newOrderForm.product}
+              <input type="text" placeholder={t("orders.productPlaceholder")} value={newOrderForm.product}
                 onChange={e => setNewOrderForm(f => ({ ...f, product: e.target.value }))}
                 style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, boxSizing: "border-box", marginBottom: 10 }} />
-              <input type="text" placeholder="SKU" value={newOrderForm.sku}
+              <input type="text" placeholder={t("orders.skuPlaceholder")} value={newOrderForm.sku}
                 onChange={e => setNewOrderForm(f => ({ ...f, sku: e.target.value }))}
                 style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, boxSizing: "border-box", marginBottom: 10 }} />
-              <input type="number" placeholder="Price" value={newOrderForm.price} step="0.01"
+              <input type="number" placeholder={t("orders.pricePlaceholder")} value={newOrderForm.price} step="0.01"
                 onChange={e => setNewOrderForm(f => ({ ...f, price: e.target.value }))}
                 style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, boxSizing: "border-box", marginBottom: 10 }} />
 
               {currentStore?.shopify_url && (
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--ne-text)", cursor: "pointer", marginBottom: 12 }}>
                   <input type="checkbox" checked={newOrderCreateOnShopify} onChange={e => setNewOrderCreateOnShopify(e.target.checked)} />
-                  Shopify order bhi banao
+                  {t("orders.alsoCreateShopify")}
                 </label>
               )}
 
@@ -1561,12 +1578,12 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
               <div style={{ display: "flex", gap: 8 }}>
                 <button type="submit" disabled={newOrderSaving}
-                  style={{ flex: 1, padding: "10px", background: newOrderSaving ? "var(--ne-border)" : "var(--ne-success)", color: newOrderSaving ? "var(--ne-muted)" : "#0A2E1A", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: newOrderSaving ? "default" : "pointer" }}>
-                  {newOrderSaving ? "Create ho raha hai..." : "✓ Create Order"}
+                  style={{ flex: 1, padding: "10px", background: newOrderSaving ? "var(--ne-border)" : "var(--ne-success)", color: newOrderSaving ? "var(--ne-muted)" : "#0A2E1A", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: newOrderSaving ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  {newOrderSaving ? t("orders.creatingOrder") : (<><Icon name="check" size={13} /> {t("orders.createOrder")}</>)}
                 </button>
                 <button type="button" onClick={() => setShowNewOrderModal(false)}
                   style={{ padding: "10px 16px", background: "transparent", color: "var(--ne-muted)", border: "1px solid var(--ne-border)", borderRadius: 9, fontSize: 13, cursor: "pointer" }}>
-                  Cancel
+                  {t("orders.cancel")}
                 </button>
               </div>
             </form>
@@ -1579,33 +1596,33 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
           <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 640, maxWidth: "94vw", maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
             <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)" }}>
-              <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)" }}>📤 Bulk Order Upload</h2>
-              <p style={{ margin: "3px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>CSV template download karo, fill karo, phir upload karo.</p>
+              <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="upload" size={14} /> {t("orders.bulkUploadTitle")}</h2>
+              <p style={{ margin: "3px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{t("orders.bulkUploadSubtitle")}</p>
             </div>
 
             <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <button onClick={downloadCsvTemplate}
-                style={{ padding: "7px 14px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface)", color: "var(--ne-text)", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
-                ⬇ Download Template
+                style={{ padding: "7px 14px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface)", color: "var(--ne-text)", fontSize: 12, cursor: "pointer", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                <Icon name="download" size={12} /> {t("orders.downloadTemplate")}
               </button>
               <button onClick={() => fileInputRef.current?.click()}
-                style={{ padding: "7px 14px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, cursor: "pointer", fontWeight: 700 }}>
-                📁 CSV Upload Karo
+                style={{ padding: "7px 14px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, cursor: "pointer", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                <Icon name="folder" size={12} /> {t("orders.csvUploadButton")}
               </button>
               <input ref={fileInputRef} type="file" accept=".csv" onChange={handleCsvUpload} style={{ display: "none" }} />
-              {bulkRows.length > 0 && <span style={{ fontSize: 11.5, color: "var(--ne-muted)" }}>{bulkRows.length} rows mile</span>}
+              {bulkRows.length > 0 && <span style={{ fontSize: 11.5, color: "var(--ne-muted)" }}>{bulkRows.length} {t("orders.rowsFoundSuffix")}</span>}
             </div>
 
             <div style={{ flex: 1, overflowY: "auto", padding: "10px 18px" }}>
               {bulkRows.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "2rem", color: "var(--ne-muted)", fontSize: 12 }}>
-                  Koi CSV upload nahi hui abhi.
+                  {t("orders.noCsvUploaded")}
                 </div>
               ) : (
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
                   <thead>
                     <tr>
-                      {["Name", "Phone", "Address", "City", "Product", "SKU", "Price"].map(h => (
+                      {[t("orders.namePlaceholder"), t("orders.phonePlaceholder"), t("orders.addressFieldPlaceholder"), t("orders.cityPlaceholder"), t("orders.productPlaceholder"), t("orders.skuPlaceholder"), t("orders.pricePlaceholder")].map(h => (
                         <th key={h} style={{ textAlign: "left", padding: "5px 6px", color: "var(--ne-muted)", borderBottom: "1px solid var(--ne-border)", fontWeight: 600 }}>{h}</th>
                       ))}
                     </tr>
@@ -1630,27 +1647,32 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
             {bulkRows.length > BULK_PREVIEW_PER_PAGE && (
               <div style={{ display: "flex", justifyContent: "center", gap: 6, padding: "6px 0", borderTop: "1px solid var(--ne-border)" }}>
                 <button onClick={() => setBulkPage(p => Math.max(1, p - 1))} disabled={bulkPage === 1}
-                  style={{ padding: "3px 10px", borderRadius: 7, border: "1px solid var(--ne-border)", background: "var(--ne-surface)", color: "var(--ne-muted)", fontSize: 11, cursor: bulkPage === 1 ? "default" : "pointer" }}>‹ Prev</button>
+                  style={{ padding: "3px 10px", borderRadius: 7, border: "1px solid var(--ne-border)", background: "var(--ne-surface)", color: "var(--ne-muted)", fontSize: 11, cursor: bulkPage === 1 ? "default" : "pointer" }}>{t("orders.prev")}</button>
                 <span style={{ fontSize: 11, color: "var(--ne-muted-2)", alignSelf: "center" }}>
-                  Page {bulkPage} / {Math.ceil(bulkRows.length / BULK_PREVIEW_PER_PAGE)}
+                  {t("orders.pagePrefix")} {bulkPage} / {Math.ceil(bulkRows.length / BULK_PREVIEW_PER_PAGE)}
                 </span>
                 <button onClick={() => setBulkPage(p => Math.min(Math.ceil(bulkRows.length / BULK_PREVIEW_PER_PAGE), p + 1))} disabled={bulkPage === Math.ceil(bulkRows.length / BULK_PREVIEW_PER_PAGE)}
-                  style={{ padding: "3px 10px", borderRadius: 7, border: "1px solid var(--ne-border)", background: "var(--ne-surface)", color: "var(--ne-muted)", fontSize: 11, cursor: bulkPage === Math.ceil(bulkRows.length / BULK_PREVIEW_PER_PAGE) ? "default" : "pointer" }}>Next ›</button>
+                  style={{ padding: "3px 10px", borderRadius: 7, border: "1px solid var(--ne-border)", background: "var(--ne-surface)", color: "var(--ne-muted)", fontSize: 11, cursor: bulkPage === Math.ceil(bulkRows.length / BULK_PREVIEW_PER_PAGE) ? "default" : "pointer" }}>{t("orders.next")}</button>
               </div>
             )}
 
             <div style={{ padding: "12px 18px", borderTop: "1px solid var(--ne-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>
-                {bulkImporting ? `⏳ Import ho raha hai... ${bulkProgress}/${bulkRows.length}` : bulkResult ? `✅ ${bulkResult.success} success, ❌ ${bulkResult.fail} failed` : ""}
+              <span style={{ fontSize: 11, color: "var(--ne-muted-2)", display: "flex", alignItems: "center", gap: 10 }}>
+                {bulkImporting ? (<><Icon name="pending" size={11} /> {t("orders.importingSuffix")} {bulkProgress}/{bulkRows.length}</>) : bulkResult ? (
+                  <>
+                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Icon name="check" size={11} /> {bulkResult.success} {t("orders.successSuffix")}</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Icon name="close" size={11} /> {bulkResult.fail} {t("orders.failedSuffix")}</span>
+                  </>
+                ) : ""}
               </span>
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={closeBulkModal} disabled={bulkImporting}
                   style={{ padding: "8px 14px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-muted)", fontSize: 12, cursor: bulkImporting ? "default" : "pointer" }}>
-                  Close
+                  {t("orders.close")}
                 </button>
                 <button onClick={confirmBulkImport} disabled={bulkImporting || bulkRows.length === 0}
-                  style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: (bulkImporting || bulkRows.length === 0) ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: (bulkImporting || bulkRows.length === 0) ? "default" : "pointer" }}>
-                  {bulkImporting ? "Importing..." : "✓ Confirm & Import"}
+                  style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: (bulkImporting || bulkRows.length === 0) ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: (bulkImporting || bulkRows.length === 0) ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                  {bulkImporting ? t("orders.importing") : (<><Icon name="check" size={12} /> {t("orders.confirmImport")}</>)}
                 </button>
               </div>
             </div>
@@ -1661,7 +1683,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       {/* Pagination */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.6rem", flexWrap: "wrap", gap: 8 }}>
         <span style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>
-          Showing {((page - 1) * perPage) + 1}–{Math.min(page * perPage, tabFilteredOrders.length)} of {tabFilteredOrders.length}
+          {t("orders.showing")} {((page - 1) * perPage) + 1}–{Math.min(page * perPage, tabFilteredOrders.length)} {t("orders.of")} {tabFilteredOrders.length}
         </span>
         <div style={{ display: "flex", gap: 4 }}>
           <button onClick={() => setPage(1)} disabled={page === 1} style={{ padding: "4px 9px", borderRadius: 7, border: "1px solid var(--ne-border)", background: page === 1 ? "transparent" : "var(--ne-surface-2)", color: page === 1 ? "var(--ne-muted-2)" : "var(--ne-muted)", fontSize: 11, cursor: page === 1 ? "default" : "pointer" }}>«</button>
