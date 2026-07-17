@@ -42,7 +42,7 @@ export default function Tracking() {
   };
 
   return (
-    <div style={{ color: "var(--ne-text)" }}>
+    <div style={{ height: "100dvh", overflowY: "auto", boxSizing: "border-box", color: "var(--ne-text)" }}>
       <PublicHeader />
 
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "3.5rem 1.25rem 5rem" }}>

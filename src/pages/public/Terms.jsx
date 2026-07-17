@@ -24,7 +24,7 @@ export default function Terms() {
   const t = useTranslation(lang);
 
   return (
-    <div style={{ color: "var(--ne-text)" }}>
+    <div style={{ height: "100dvh", overflowY: "auto", boxSizing: "border-box", color: "var(--ne-text)" }}>
       <PublicHeader />
 
       <div style={{ maxWidth: 760, margin: "0 auto", padding: "3rem 1.25rem 4rem" }}>

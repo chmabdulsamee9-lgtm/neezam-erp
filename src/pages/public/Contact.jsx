@@ -49,7 +49,7 @@ export default function Contact() {
   };
 
   return (
-    <div style={{ color: "var(--ne-text)" }}>
+    <div style={{ height: "100dvh", overflowY: "auto", boxSizing: "border-box", color: "var(--ne-text)" }}>
       <PublicHeader />
 
       <div style={{ maxWidth: 900, margin: "0 auto", padding: "3.5rem 1.25rem 4rem", display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0,1.2fr) minmax(0,1fr)", gap: "2.5rem" }}>

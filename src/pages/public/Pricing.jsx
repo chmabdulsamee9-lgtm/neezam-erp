@@ -53,7 +53,7 @@ export default function Pricing() {
   };
 
   return (
-    <div style={{ color: "var(--ne-text)" }}>
+    <div style={{ height: "100dvh", overflowY: "auto", boxSizing: "border-box", color: "var(--ne-text)" }}>
       <PublicHeader />
 
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: isMobile ? "2rem 1rem" : "3rem 2rem" }}>

@@ -15,7 +15,7 @@ export default function About() {
   const cardStyle = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1.5rem" };
 
   return (
-    <div style={{ color: "var(--ne-text)" }}>
+    <div style={{ height: "100dvh", overflowY: "auto", boxSizing: "border-box", color: "var(--ne-text)" }}>
       <PublicHeader />
 
       <div style={{ maxWidth: 780, margin: "0 auto", padding: "3.5rem 1.25rem 2rem", textAlign: "center" }}>

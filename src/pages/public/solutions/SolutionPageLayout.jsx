@@ -16,7 +16,7 @@ export default function SolutionPageLayout({ icon, titleKey, subtitleKey, featur
   const cardStyle = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1.25rem", display: "flex", flexDirection: "column", gap: 8 };
 
   return (
-    <div style={{ color: "var(--ne-text)" }}>
+    <div style={{ height: "100dvh", overflowY: "auto", boxSizing: "border-box", color: "var(--ne-text)" }}>
       <PublicHeader />
 
       <div style={{ maxWidth: 900, margin: "0 auto", padding: "3rem 1.25rem 4rem" }}>
