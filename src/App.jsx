@@ -79,10 +79,10 @@ const clearPersistedStoreId = () => { try { localStorage.removeItem(STORE_STORAG
 // users ke liye koi extra network call ya overhead nahi. `monitoredFetch` baaki pages
 // (BookedOrders/CourierConnect/StoreConnect waghera) apne CF worker calls wrap karne ke
 // liye import kar sakte hain taake un endpoints ki timing/errors bhi dev_monitoring_log mein aayein.
-export function isDevEnv() {
-  if (typeof window === 'undefined') return false
-  return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || Boolean(import.meta.env?.DEV)
-}
+export const isDevEnv = () => {
+  const h = window.location.hostname;
+  return h.includes("pages.dev") || h.startsWith("dev.") || h === "localhost" || h === "127.0.0.1" || import.meta.env.DEV;
+};
 
 export async function logDevMonitoring(fields) {
   if (!isDevEnv()) return
