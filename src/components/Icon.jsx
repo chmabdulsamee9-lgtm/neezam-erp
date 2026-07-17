@@ -39,6 +39,7 @@ const PATHS = {
   team: <><circle cx="7" cy="7" r="2.6" /><circle cx="14" cy="8" r="2" /><path d="M2.5 17c.5-3 2.2-4.5 4.5-4.5s4 1.5 4.5 4.5" /><path d="M12 17c.4-2.3 1.6-3.7 3.5-3.7s2.7 1.1 3 3.2" /></>,
   settings: <><circle cx="10" cy="10" r="2.6" /><path d="M10 2.5v2M10 15.5v2M17.5 10h-2M4.5 10h-2M15.1 4.9l-1.4 1.4M6.3 13.7l-1.4 1.4M15.1 15.1l-1.4-1.4M6.3 6.3 4.9 4.9" /></>,
   card: <><rect x="2.5" y="4.5" width="15" height="11" rx="2" /><path d="M2.5 8.5h15" /><path d="M5.5 12.5h3" /></>,
+  products: <><path d="M3 3h6l8 8-6 6-8-8Z" /><circle cx="7" cy="7" r="1.3" fill="currentColor" stroke="none" /></>,
 }
 
 export default function Icon({ name, size = 15, style, className, ...rest }) {
