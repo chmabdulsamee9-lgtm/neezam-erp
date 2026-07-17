@@ -178,7 +178,7 @@ function PendingApprovalScreen({ onSignOut, t }) {
   )
 }
 
-function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, onSignOut, userEmail, cfUrl, onDataChanged, allPlansList, onDenyOrDelete, allAddonsList, t }) {
+function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, onSignOut, userEmail, cfUrl, onDataChanged, allPlansList, onDenyOrDelete, allAddonsList, t, session, logActivity }) {
   const [editingAdmin, setEditingAdmin] = useState(null)
   const [editFullName, setEditFullName] = useState('')
   const [editPhone, setEditPhone] = useState('')
@@ -191,6 +191,12 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
   const [addonOverrides, setAddonOverrides] = useState({})
   const [planOverrides, setPlanOverrides] = useState({})
   const [deleteConfirmId, setDeleteConfirmId] = useState(null)
+  const [accessModalStore, setAccessModalStore] = useState(null)
+  const [accessPlanId, setAccessPlanId] = useState('')
+  const [accessAddonIds, setAccessAddonIds] = useState([])
+  const [accessExistingSubId, setAccessExistingSubId] = useState(null)
+  const [accessSaving, setAccessSaving] = useState(false)
+  const [showActivityLog, setShowActivityLog] = useState(false)
 
   const toggleOverrideAddon = (profileId, addonId, defaultIds) => {
     setAddonOverrides((prev) => {
@@ -221,6 +227,50 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
     setEditError('')
     setEditPasswordSuccess(false)
   }
+  const openManageAccess = async (store) => {
+    setAccessModalStore(store)
+    setAccessPlanId('')
+    setAccessAddonIds([])
+    setAccessExistingSubId(null)
+    const { data: sub } = await supabase
+      .from('store_subscriptions')
+      .select('id, plan_id, selected_addon_ids')
+      .eq('store_id', store.eneezam_id)
+      .order('approved_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (sub) {
+      setAccessExistingSubId(sub.id)
+      setAccessPlanId(sub.plan_id || '')
+      setAccessAddonIds(
+        Array.isArray(sub.selected_addon_ids) ? sub.selected_addon_ids : JSON.parse(sub.selected_addon_ids || '[]')
+      )
+    }
+  }
+
+  const toggleAccessAddon = (addonId) => {
+    setAccessAddonIds((prev) => prev.includes(addonId) ? prev.filter((id) => id !== addonId) : [...prev, addonId])
+  }
+
+  const handleSaveAccess = async () => {
+    setAccessSaving(true)
+    const payload = {
+      plan_id: accessPlanId,
+      selected_addon_ids: JSON.stringify(accessAddonIds),
+      status: 'approved',
+      approved_at: new Date().toISOString(),
+      approved_by: session.user.id,
+    }
+    if (accessExistingSubId) {
+      await supabase.from('store_subscriptions').update(payload).eq('id', accessExistingSubId)
+    } else {
+      await supabase.from('store_subscriptions').insert({ store_id: accessModalStore.eneezam_id, ...payload })
+    }
+    setAccessSaving(false)
+    setAccessModalStore(null)
+    logActivity(accessModalStore.id, 'access_modified', { plan_id: accessPlanId, addon_ids: accessAddonIds })
+  }
+
   const closeEditAdmin = () => { setEditingAdmin(null); setEditError(''); setEditPasswordSuccess(false) }
 
   const saveAdminProfile = async (e) => {
@@ -335,6 +385,19 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
           </div>
         )}
 
+        <div style={{ marginBottom: 16 }}>
+          <button onClick={() => setShowActivityLog((v) => !v)}
+            style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: showActivityLog ? 'var(--ne-accent-soft)' : 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="activity-log" size={13} /> {showActivityLog ? t('master.hideActivityLog') : t('master.viewActivityLog')}
+          </button>
+        </div>
+
+        {showActivityLog && (
+          <div style={{ marginBottom: 20 }}>
+            <ActivityLog allStoresList={allStores} />
+          </div>
+        )}
+
         <h2 style={{ fontSize: 14, color: 'var(--ne-muted)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="store" size={14} /> {t('master.allBrands')} ({allStores.length})</h2>
         <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
           {allStores.map(s => (
@@ -369,6 +432,10 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
                   style={{ flex: 1, padding: '9px', borderRadius: 10, border: 'none', background: 'var(--ne-grad)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
                   → {t('master.enter')}
                 </button>
+                <button onClick={() => openManageAccess(s)}
+                  style={{ padding: '9px 12px', borderRadius: 10, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <Icon name="key" size={13} /> {t('master.manageAccess')}
+                </button>
                 <button onClick={() => setDeleteConfirmId(s.id)}
                   style={{ padding: '9px 12px', borderRadius: 10, border: '1px solid var(--ne-danger)', background: 'transparent', color: 'var(--ne-danger)', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}>
                   <Icon name="trash" size={13} />
@@ -397,6 +464,42 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
               <button onClick={() => { onDenyOrDelete(deleteConfirmId); setDeleteConfirmId(null) }}
                 style={{ flex: 1, padding: '10px', borderRadius: 9, border: 'none', background: 'var(--ne-danger)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
                 {t('master.confirmDelete')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {accessModalStore && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000000 }}>
+          <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 16, width: 380, maxWidth: '92vw', padding: '20px', maxHeight: '85vh', overflowY: 'auto' }}>
+            <h3 style={{ margin: '0 0 14px', fontSize: 15, color: 'var(--ne-text)' }}>{t('master.manageAccessFor')} — {accessModalStore.store_name}</h3>
+
+            <label style={{ fontSize: 12, color: 'var(--ne-muted)', display: 'block', marginBottom: 4 }}>{t('master.plan')}</label>
+            <select value={accessPlanId} onChange={(e) => setAccessPlanId(e.target.value)}
+              style={{ width: '100%', padding: '9px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'var(--ne-bg)', color: 'var(--ne-text)', fontSize: 13, marginBottom: 14 }}>
+              <option value="">— {t('master.selectPlan')} —</option>
+              {allPlansList.map((pl) => <option key={pl.id} value={pl.id}>{pl.name}</option>)}
+            </select>
+
+            <label style={{ fontSize: 12, color: 'var(--ne-muted)', display: 'block', marginBottom: 6 }}>{t('master.addons')}</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+              {allAddonsList.map((a) => (
+                <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={accessAddonIds.includes(a.id)} onChange={() => toggleAccessAddon(a.id)} style={{ accentColor: '#5C7CFA' }} />
+                  {a.name}
+                </label>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setAccessModalStore(null)}
+                style={{ flex: 1, padding: '10px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 13, cursor: 'pointer' }}>
+                {t('action.cancel')}
+              </button>
+              <button onClick={handleSaveAccess} disabled={accessSaving || !accessPlanId}
+                style={{ flex: 1, padding: '10px', borderRadius: 9, border: 'none', background: 'var(--ne-grad)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                {accessSaving ? '...' : t('action.save')}
               </button>
             </div>
           </div>
@@ -1155,6 +1258,8 @@ function App() {
         userEmail={session.user.email}
         cfUrl={CF_URL}
         onDataChanged={loadProfileAndStores}
+        session={session}
+        logActivity={logActivity}
         t={t}
       />
     )
