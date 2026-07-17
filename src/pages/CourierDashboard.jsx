@@ -2,6 +2,19 @@ import { useState, useEffect, useMemo, useId } from "react";
 import { useNavigate } from "react-router-dom";
 import { getCachedBookedOrders } from "../ordersCache";
 import { syncBookedOrdersCache, bucketCourierStatusGranular, DATE_FILTERS, getDateRange } from "../bookedOrdersData";
+import Icon from "../components/Icon";
+import { useLanguage, useTranslation } from "../i18n";
+
+// bucketCourierStatusGranular()/DATE_FILTERS bookedOrdersData.js (shared, out-of-scope helper
+// module) se aate hain, isliye unke canonical English string values badalna safe nahi —
+// yeh maps sirf DISPLAY translate karte hain, underlying data-keys wahi English rehte hain.
+const LABEL_KEYS = {
+  Delivered: "courierDash.delivered", Returned: "courierDash.returned", Others: "courierDash.others",
+  "In Transit": "courierDash.inTransit", Failed: "courierDash.failed", "Pickup Failed": "courierDash.pickupFailed",
+  Cancelled: "courierDash.cancelled", Lost: "courierDash.lost",
+};
+const SPEED_LABEL_KEYS = { "1-2 Days": "courierDash.speed.1_2", "3-5 Days": "courierDash.speed.3_5", "6+ Days": "courierDash.speed.6plus" };
+const DATE_FILTER_LABEL_KEYS = { today: "dashboard.dateFilter.today", yesterday: "dashboard.dateFilter.yesterday", "7days": "dashboard.dateFilter.7days", "30days": "dashboard.dateFilter.30days", custom: "dashboard.dateFilter.custom" };
 
 // Status Funnel donut ke 6-category palette — Aurora Ledger vars se
 const GRANULAR_COLORS = {
@@ -63,6 +76,8 @@ function smoothLinePath(points) {
 const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 function DeliveredVsReturnedChart({ orders }) {
+  const [lang] = useLanguage();
+  const t = useTranslation(lang);
   const gradUid = useId();
   const [hoveredDay, setHoveredDay] = useState(null);
 
@@ -106,7 +121,7 @@ function DeliveredVsReturnedChart({ orders }) {
 
   return (
     <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem", marginBottom: "0.75rem" }}>
-      <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>📈 Delivered vs Returned — Last 30 Days</h2>
+      <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon name="trending" size={13} /> {t("courierDash.trendTitle")}</h2>
       <div style={{ background: "var(--ne-bg)", borderRadius: 10, overflow: "hidden" }}>
         <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", display: "block" }} onMouseLeave={() => setHoveredDay(null)}>
           <defs>
@@ -144,8 +159,8 @@ function DeliveredVsReturnedChart({ orders }) {
             <g>
               <rect x={tooltipOnRight ? tooltipX + 6 : tooltipX - 96} y={PAD.top + 2} width={90} height={42} rx={4} fill="#161B45" stroke="#232A52" strokeWidth="0.5" />
               <text x={tooltipOnRight ? tooltipX + 11 : tooltipX - 90} y={PAD.top + 12} fontSize="7.5" fill="#8C93C4">{hovered.date}</text>
-              <text x={tooltipOnRight ? tooltipX + 11 : tooltipX - 90} y={PAD.top + 24} fontSize="8" fill="#34D88E" fontWeight="600">Delivered: {hovered.Delivered}</text>
-              <text x={tooltipOnRight ? tooltipX + 11 : tooltipX - 90} y={PAD.top + 36} fontSize="8" fill="#F26D6D" fontWeight="600">Returned: {hovered.Returned}</text>
+              <text x={tooltipOnRight ? tooltipX + 11 : tooltipX - 90} y={PAD.top + 24} fontSize="8" fill="#34D88E" fontWeight="600">{t(LABEL_KEYS.Delivered)}: {hovered.Delivered}</text>
+              <text x={tooltipOnRight ? tooltipX + 11 : tooltipX - 90} y={PAD.top + 36} fontSize="8" fill="#F26D6D" fontWeight="600">{t(LABEL_KEYS.Returned)}: {hovered.Returned}</text>
             </g>
           )}
         </svg>
@@ -156,6 +171,8 @@ function DeliveredVsReturnedChart({ orders }) {
 
 // Center-hole donut chart via SVG stroke-dasharray segments — legend side mein
 function StatusDonut({ segments }) {
+  const [lang] = useLanguage();
+  const t = useTranslation(lang);
   const size = 168, strokeWidth = 26, r = (size - strokeWidth) / 2, cx = size / 2, cy = size / 2;
   const circumference = 2 * Math.PI * r;
   const total = segments.reduce((s, x) => s + x.value, 0) || 1;
@@ -179,7 +196,7 @@ function StatusDonut({ segments }) {
           })}
         </g>
         <text x={cx} y={cy - 3} textAnchor="middle" fontSize="22" fontWeight="800" fill="var(--ne-text)">{total}</text>
-        <text x={cx} y={cy + 15} textAnchor="middle" fontSize="9" fill="var(--ne-muted)">Total</text>
+        <text x={cx} y={cy + 15} textAnchor="middle" fontSize="9" fill="var(--ne-muted)">{t("courierDash.total")}</text>
       </svg>
       <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
         {segments.map((seg) => {
@@ -187,7 +204,7 @@ function StatusDonut({ segments }) {
           return (
             <div key={seg.label} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11 }}>
               <span style={{ width: 9, height: 9, borderRadius: "50%", background: seg.color, display: "inline-block", flexShrink: 0 }} />
-              <span style={{ color: "var(--ne-text)", fontWeight: 600, minWidth: 90 }}>{seg.label}</span>
+              <span style={{ color: "var(--ne-text)", fontWeight: 600, minWidth: 90 }}>{t(LABEL_KEYS[seg.label] || seg.label)}</span>
               <span style={{ color: "var(--ne-muted)" }}>{seg.value} ({p}%)</span>
             </div>
           );
@@ -202,6 +219,8 @@ const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "S
 // Date-filter se EXCLUDE hota hai (hamesha all-time, last 12 months) — package_created_at
 // se group karta hai, granular status ko Delivered/Returned/Others mein collapse karta hai
 function MonthlyVolumeChart({ orders }) {
+  const [lang] = useLanguage();
+  const t = useTranslation(lang);
   const months = useMemo(() => {
     const now = new Date();
     const buckets = [];
@@ -243,11 +262,11 @@ function MonthlyVolumeChart({ orders }) {
 
   return (
     <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem", marginBottom: "0.75rem" }}>
-      <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>📦 Monthly Order Volume (All-Time)</h2>
+      <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon name="package" size={13} /> {t("courierDash.monthlyVolumeTitle")}</h2>
       <div style={{ display: "flex", gap: 14, marginBottom: 8, fontSize: 10, color: "var(--ne-muted)", fontWeight: 600 }}>
         {STACK_KEYS.map((s) => (
           <span key={s.key} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <span style={{ width: 9, height: 9, borderRadius: 3, background: s.color, display: "inline-block" }} /> {s.key}
+            <span style={{ width: 9, height: 9, borderRadius: 3, background: s.color, display: "inline-block" }} /> {t(LABEL_KEYS[s.key] || s.key)}
           </span>
         ))}
       </div>
@@ -280,6 +299,8 @@ function MonthlyVolumeChart({ orders }) {
 // Delivered vs Returned per province — shipping_address.province (Shopify ka apna field;
 // manual/unmatched orders is chart mein shamil nahi ho sakte, unka koi Shopify address nahi)
 function ProvinceDistribution({ orders }) {
+  const [lang] = useLanguage();
+  const t = useTranslation(lang);
   const provinces = useMemo(() => {
     const map = {};
     orders.forEach((o) => {
@@ -301,9 +322,9 @@ function ProvinceDistribution({ orders }) {
 
   return (
     <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem", marginBottom: "0.75rem" }}>
-      <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>📍 Province Distribution</h2>
+      <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon name="pin" size={13} /> {t("courierDash.provinceTitle")}</h2>
       {provinces.length === 0 ? (
-        <p style={{ color: "var(--ne-muted-2)", fontSize: 12 }}>Koi province data nahi mila (manual/unmatched orders is chart mein shamil nahi)</p>
+        <p style={{ color: "var(--ne-muted-2)", fontSize: 12 }}>{t("courierDash.noProvinceData")}</p>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
           {provinces.map((p) => {
@@ -329,6 +350,8 @@ function ProvinceDistribution({ orders }) {
 }
 
 export default function CourierDashboard({ storeId, ordersStore }) {
+  const [lang] = useLanguage();
+  const t = useTranslation(lang);
   const navigate = useNavigate();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -462,7 +485,7 @@ export default function CourierDashboard({ storeId, ordersStore }) {
   }, [dateFilteredOrders]);
 
   if (loading) {
-    return <div style={{ padding: "3rem", textAlign: "center", color: "var(--ne-muted)" }}>Loading courier data...</div>;
+    return <div style={{ padding: "3rem", textAlign: "center", color: "var(--ne-muted)" }}>{t("courierDash.loading")}</div>;
   }
   if (errorMsg) {
     return <div style={{ padding: "1.5rem", color: "var(--ne-danger)", fontSize: 13 }}>{errorMsg}</div>;
@@ -472,25 +495,25 @@ export default function CourierDashboard({ storeId, ordersStore }) {
   if (orders.length === 0) {
     return (
       <div style={{ padding: "2rem", textAlign: "center", color: "var(--ne-muted)" }}>
-        <div style={{ fontSize: 32, marginBottom: 8 }}>📦</div>
-        <p>Abhi koi booked shipment nahi mili. "Courier Connect" page se Excel upload karo ya live Dex se shipment banao.</p>
+        <div style={{ marginBottom: 8, display: "flex", justifyContent: "center" }}><Icon name="package" size={32} /></div>
+        <p>{t("courierDash.noShipmentsYet")}</p>
       </div>
     );
   }
 
   const heroChips = [
-    { label: "Total Shipments", value: stats.total },
-    { label: "Delivered", value: stats.delivered },
-    { label: "Returned/Failed", value: stats.returned + stats.failed },
-    { label: "In Transit", value: stats.inTransit },
-    { label: "Avg Attempts", value: stats.avgAttempts.toFixed(1) },
+    { label: t("courierDash.totalShipments"), value: stats.total },
+    { label: t(LABEL_KEYS.Delivered), value: stats.delivered },
+    { label: t("courierDash.returnedFailed"), value: stats.returned + stats.failed },
+    { label: t(LABEL_KEYS["In Transit"]), value: stats.inTransit },
+    { label: t("courierDash.avgAttempts"), value: stats.avgAttempts.toFixed(1) },
   ];
 
   const kpiCards = [
-    { label: "Delivered", value: stats.delivered, color: "var(--ne-success)" },
-    { label: "Returned", value: stats.returned, color: "var(--ne-danger)" },
-    { label: "In Transit", value: stats.inTransit, color: "var(--ne-accent)" },
-    { label: "Failed", value: stats.failed, color: "var(--ne-orange)" },
+    { label: t(LABEL_KEYS.Delivered), value: stats.delivered, color: "var(--ne-success)" },
+    { label: t(LABEL_KEYS.Returned), value: stats.returned, color: "var(--ne-danger)" },
+    { label: t(LABEL_KEYS["In Transit"]), value: stats.inTransit, color: "var(--ne-accent)" },
+    { label: t(LABEL_KEYS.Failed), value: stats.failed, color: "var(--ne-orange)" },
   ];
 
   return (
@@ -501,7 +524,7 @@ export default function CourierDashboard({ storeId, ordersStore }) {
           {DATE_FILTERS.map((f) => (
             <button key={f.value} onClick={() => setDateFilter(f.value)}
               style={{ padding: "6px 14px", borderRadius: 20, border: "1px solid", borderColor: dateFilter === f.value ? "transparent" : "var(--ne-border)", fontSize: 11, cursor: "pointer", fontWeight: 700, background: dateFilter === f.value ? "var(--ne-grad)" : "var(--ne-surface-2)", color: dateFilter === f.value ? "#fff" : "var(--ne-muted)" }}>
-              {f.label}
+              {t(DATE_FILTER_LABEL_KEYS[f.value] || "dashboard.dateFilter.today")}
             </button>
           ))}
           {dateFilter === "custom" && (
@@ -514,21 +537,21 @@ export default function CourierDashboard({ storeId, ordersStore }) {
           )}
         </div>
         <button onClick={() => navigate("/courier-dashboard/detailed")}
-          style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
-          📊 Detailed View
+          style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <Icon name="chart" size={13} /> {t("courierDash.detailedView")}
         </button>
       </div>
 
       {stats.total === 0 ? (
         <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "2rem", textAlign: "center", color: "var(--ne-muted)", marginBottom: "0.75rem" }}>
-          Is date range mein koi shipment nahi mili.
+          {t("courierDash.noShipmentsInRange")}
         </div>
       ) : (
         <>
           {/* Hero */}
           <div style={{ background: "var(--ne-grad)", borderRadius: 18, padding: "1.4rem", marginBottom: "0.75rem", display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "center", flexWrap: "wrap", gap: 16 }}>
             <div>
-              <div style={{ fontSize: 12, color: "rgba(255,255,255,.75)", fontWeight: 600, marginBottom: 4 }}>Overall Delivery Success Rate</div>
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,.75)", fontWeight: 600, marginBottom: 4 }}>{t("courierDash.successRateTitle")}</div>
               <div style={{ fontSize: 30, fontWeight: 800, color: "#fff" }}>{stats.successRate}%</div>
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -560,15 +583,15 @@ export default function CourierDashboard({ storeId, ordersStore }) {
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" }}>
             {/* Status Funnel — donut chart */}
             <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem" }}>
-              <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>📋 Status Funnel</h2>
+              <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon name="clipboard" size={13} /> {t("courierDash.statusFunnelTitle")}</h2>
               <StatusDonut segments={stats.donutSegments} />
             </div>
 
             {/* Delivery Speed */}
             <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem" }}>
-              <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>⏱️ Delivery Speed</h2>
+              <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon name="clock" size={13} /> {t("courierDash.deliverySpeedTitle")}</h2>
               {stats.speedCounted === 0 ? (
-                <p style={{ color: "var(--ne-muted-2)", fontSize: 12 }}>Koi delivered order nahi (dono timestamps chahiye)</p>
+                <p style={{ color: "var(--ne-muted-2)", fontSize: 12 }}>{t("courierDash.noDeliveredData")}</p>
               ) : (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
                   {[
@@ -581,7 +604,7 @@ export default function CourierDashboard({ storeId, ordersStore }) {
                     return (
                       <div key={b.label} style={{ background: b.bg, borderRadius: 10, padding: "10px 6px", textAlign: "center" }}>
                         <div style={{ fontSize: 18, fontWeight: 800, color: b.color }}>{count}</div>
-                        <div style={{ fontSize: 9.5, color: b.color, fontWeight: 600, marginTop: 2 }}>{b.label}</div>
+                        <div style={{ fontSize: 9.5, color: b.color, fontWeight: 600, marginTop: 2 }}>{t(SPEED_LABEL_KEYS[b.label])}</div>
                         <div style={{ fontSize: 9, color: "var(--ne-muted)", marginTop: 1 }}>{p}%</div>
                       </div>
                     );
@@ -594,7 +617,7 @@ export default function CourierDashboard({ storeId, ordersStore }) {
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" }}>
             {/* Courier Split */}
             <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem" }}>
-              <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>🚚 Courier Split</h2>
+              <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon name="truck" size={13} /> {t("courierDash.courierSplitTitle")}</h2>
               <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                 {stats.courierSplit.map(([courier, count]) => {
                   const p = stats.total ? Math.round((count / stats.total) * 100) : 0;
@@ -614,9 +637,9 @@ export default function CourierDashboard({ storeId, ordersStore }) {
 
             {/* Failed Delivery Reasons */}
             <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem" }}>
-              <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>⚠️ Failed Delivery Reasons</h2>
+              <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon name="warning" size={13} /> {t("courierDash.failedReasonsTitle")}</h2>
               {stats.topReasons.length === 0 ? (
-                <p style={{ color: "var(--ne-muted-2)", fontSize: 12 }}>Koi failed-attempt data nahi</p>
+                <p style={{ color: "var(--ne-muted-2)", fontSize: 12 }}>{t("courierDash.noFailedData")}</p>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                   {stats.topReasons.map(([reason, count]) => {
@@ -638,9 +661,9 @@ export default function CourierDashboard({ storeId, ordersStore }) {
 
           {/* City Performance */}
           <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem", marginBottom: "0.75rem" }}>
-            <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>🗺️ City Performance</h2>
+            <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon name="map" size={13} /> {t("courierDash.cityPerformanceTitle")}</h2>
             {stats.topCities.length === 0 ? (
-              <p style={{ color: "var(--ne-muted-2)", fontSize: 12 }}>Koi data nahi</p>
+              <p style={{ color: "var(--ne-muted-2)", fontSize: 12 }}>{t("courierDash.noData")}</p>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
                 {stats.topCities.map(({ city, total, delivered, rate }) => {
@@ -652,7 +675,7 @@ export default function CourierDashboard({ storeId, ordersStore }) {
                         <div style={{ width: `${rate}%`, background: rateColor, height: "100%", borderRadius: 999 }} />
                       </div>
                       <span style={{ fontSize: 11, color: rateColor, minWidth: 130, textAlign: "right", fontWeight: 700 }}>
-                        {delivered}/{total} delivered ({rate}%)
+                        {delivered}/{total} {t("courierDash.deliveredSuffix")} ({rate}%)
                       </span>
                     </div>
                   );

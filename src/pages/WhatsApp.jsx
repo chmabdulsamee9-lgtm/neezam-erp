@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "../supabase";
+import Icon from "../components/Icon";
+import { useLanguage, useTranslation } from "../i18n";
 
 const WHATSAPP_SERVER = "https://neezam-whatsapp-production.up.railway.app";
 
@@ -10,12 +12,14 @@ const DEFAULT_TEMPLATES = {
 };
 
 const TEMPLATE_DEFS = [
-  { key: "new_order", label: "New Order", icon: "📦", toggleKey: "auto_new_order", color: "#3b82f6" },
-  { key: "approved",  label: "Approved",  icon: "✅", toggleKey: "auto_approved",  color: "#16a34a" },
-  { key: "cancelled", label: "Cancelled", icon: "❌", toggleKey: "auto_cancelled", color: "#ef4444" },
+  { key: "new_order", labelKey: "whatsapp.template.newOrder", icon: "package", toggleKey: "auto_new_order", color: "#3b82f6" },
+  { key: "approved",  labelKey: "whatsapp.template.approved",  icon: "check", toggleKey: "auto_approved",  color: "#16a34a" },
+  { key: "cancelled", labelKey: "whatsapp.template.cancelled", icon: "close", toggleKey: "auto_cancelled", color: "#ef4444" },
 ];
 
 export default function WhatsApp() {
+  const [lang] = useLanguage();
+  const t = useTranslation(lang);
   const [clientId, setClientId]         = useState(null);
   const [status, setStatus]             = useState("idle"); // idle | loading | qr | connected | error
   const [qrDataUrl, setQrDataUrl]       = useState(null);
@@ -167,10 +171,10 @@ export default function WhatsApp() {
           } catch { /* ignore */ }
         }, 5000);
       } else {
-        setPairingError(data.error || "Code nahi mila. Dobara try karo.");
+        setPairingError(data.error || t("whatsapp.codeNotFound"));
       }
     } catch {
-      setPairingError("Server se connect nahi ho saka.");
+      setPairingError(t("whatsapp.serverConnectFailed"));
     }
     setPairingLoading(false);
   };
@@ -190,15 +194,15 @@ export default function WhatsApp() {
       {/* ── Connection card ── */}
       <div style={{ background: "#1e293b", borderRadius: 12, padding: "1.25rem", marginBottom: "1rem" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-          <h2 style={{ margin: 0, fontSize: 14, color: "#94a3b8", fontWeight: 500 }}>
-            💬 WhatsApp Connection
+          <h2 style={{ margin: 0, fontSize: 14, color: "#94a3b8", fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+            <Icon name="comment" size={13} /> {t("whatsapp.connectionTitle")}
           </h2>
           {status !== "connected" && (
             <div style={{ display: "flex", background: "#0f172a", borderRadius: 8, padding: 2, gap: 2 }}>
-              {["qr", "phone"].map(t => (
-                <button key={t} onClick={() => { setConnTab(t); setPairingCode(null); setPairingError(null); clearInterval(pollRef.current); setStatus("idle"); setQrDataUrl(null); }}
-                  style={{ padding: "4px 12px", borderRadius: 6, border: "none", background: connTab === t ? "#3b82f6" : "transparent", color: connTab === t ? "#fff" : "#64748b", fontSize: 11, cursor: "pointer", fontWeight: connTab === t ? 600 : 400, transition: "all 0.15s" }}>
-                  {t === "qr" ? "QR Code" : "Phone Number"}
+              {["qr", "phone"].map(tabKey => (
+                <button key={tabKey} onClick={() => { setConnTab(tabKey); setPairingCode(null); setPairingError(null); clearInterval(pollRef.current); setStatus("idle"); setQrDataUrl(null); }}
+                  style={{ padding: "4px 12px", borderRadius: 6, border: "none", background: connTab === tabKey ? "#3b82f6" : "transparent", color: connTab === tabKey ? "#fff" : "#64748b", fontSize: 11, cursor: "pointer", fontWeight: connTab === tabKey ? 600 : 400, transition: "all 0.15s" }}>
+                  {tabKey === "qr" ? t("whatsapp.qrTab") : t("whatsapp.phoneTab")}
                 </button>
               ))}
             </div>
@@ -210,11 +214,11 @@ export default function WhatsApp() {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#16a34a", boxShadow: "0 0 6px #16a34a" }} />
-              <span style={{ color: "#16a34a", fontWeight: 600, fontSize: 14 }}>Connected</span>
+              <span style={{ color: "#16a34a", fontWeight: 600, fontSize: 14 }}>{t("whatsapp.connected")}</span>
             </div>
             <button onClick={disconnect} disabled={disconnecting}
               style={{ padding: "5px 14px", borderRadius: 6, border: "1px solid #ef4444", background: "transparent", color: "#ef4444", fontSize: 12, cursor: disconnecting ? "default" : "pointer", fontWeight: 500 }}>
-              {disconnecting ? "Disconnecting..." : "Disconnect"}
+              {disconnecting ? t("whatsapp.disconnecting") : t("whatsapp.disconnect")}
             </button>
           </div>
         )}
@@ -226,18 +230,18 @@ export default function WhatsApp() {
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "1rem 0" }}>
                 {status === "error" && (
                   <p style={{ color: "#ef4444", fontSize: 12, margin: 0 }}>
-                    Server se connect nahi ho saka. Dobara try karo.
+                    {t("whatsapp.serverError")}
                   </p>
                 )}
                 <button onClick={startQR}
-                  style={{ padding: "8px 28px", borderRadius: 8, border: "none", background: "#16a34a", color: "#fff", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
-                  🔗 Connect WhatsApp
+                  style={{ padding: "8px 28px", borderRadius: 8, border: "none", background: "#16a34a", color: "#fff", fontSize: 13, cursor: "pointer", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <Icon name="link" size={13} /> {t("whatsapp.connectButton")}
                 </button>
               </div>
             )}
             {status === "loading" && (
               <div style={{ textAlign: "center", padding: "1.5rem", color: "#94a3b8", fontSize: 13 }}>
-                QR generate ho raha hai...
+                {t("whatsapp.generatingQr")}
               </div>
             )}
             {status === "qr" && qrDataUrl && (
@@ -245,11 +249,11 @@ export default function WhatsApp() {
                 <img src={qrDataUrl} alt="WhatsApp QR Code"
                   style={{ width: 230, height: 230, borderRadius: 10, border: "3px solid #16a34a", background: "#fff", display: "block" }} />
                 <p style={{ fontSize: 12, color: "#94a3b8", margin: 0, textAlign: "center" }}>
-                  WhatsApp pe{" "}
-                  <strong style={{ color: "#e2e8f0" }}>Linked Devices → Link a Device</strong>{" "}
-                  karo aur ye QR scan karo
+                  {t("whatsapp.qrInstructionPrefix")}{" "}
+                  <strong style={{ color: "#e2e8f0" }}>{t("whatsapp.qrInstructionBold")}</strong>{" "}
+                  {t("whatsapp.qrInstructionSuffix")}
                 </p>
-                <span style={{ fontSize: 10, color: "#475569" }}>Auto-refresh every 5s</span>
+                <span style={{ fontSize: 10, color: "#475569" }}>{t("whatsapp.autoRefresh")}</span>
               </div>
             )}
           </>
@@ -261,14 +265,14 @@ export default function WhatsApp() {
             <div style={{ display: "flex", gap: 8 }}>
               <input
                 type="text"
-                placeholder="Country code + number (e.g. 923001234567)"
+                placeholder={t("whatsapp.phonePlaceholder")}
                 value={phoneNumber}
                 onChange={e => setPhoneNumber(e.target.value)}
                 style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: "1px solid #334155", background: "#0f172a", color: "#fff", fontSize: 12, outline: "none" }}
               />
               <button onClick={requestCode} disabled={pairingLoading || !phoneNumber.trim()}
                 style={{ padding: "7px 18px", borderRadius: 7, border: "none", background: pairingLoading ? "#1e3a5f" : "#3b82f6", color: "#fff", fontSize: 12, cursor: pairingLoading ? "default" : "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>
-                {pairingLoading ? "..." : "Get Code"}
+                {pairingLoading ? "..." : t("whatsapp.getCode")}
               </button>
             </div>
 
@@ -278,16 +282,16 @@ export default function WhatsApp() {
 
             {pairingCode && (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "1rem", background: "#0f172a", borderRadius: 10, border: "1px solid #16a34a" }}>
-                <span style={{ fontSize: 11, color: "#94a3b8" }}>Tumhara pairing code:</span>
+                <span style={{ fontSize: 11, color: "#94a3b8" }}>{t("whatsapp.yourPairingCode")}</span>
                 <span style={{ fontSize: 32, fontWeight: 700, letterSpacing: 6, color: "#16a34a", fontFamily: "monospace" }}>
                   {pairingCode}
                 </span>
                 <p style={{ margin: 0, fontSize: 12, color: "#94a3b8", textAlign: "center", lineHeight: 1.6 }}>
-                  Yeh code WhatsApp mein{" "}
-                  <strong style={{ color: "#e2e8f0" }}>Linked Devices → Link with phone number</strong>{" "}
-                  mein enter karo
+                  {t("whatsapp.pairingInstructionPrefix")}{" "}
+                  <strong style={{ color: "#e2e8f0" }}>{t("whatsapp.pairingInstructionBold")}</strong>{" "}
+                  {t("whatsapp.pairingInstructionSuffix")}
                 </p>
-                <span style={{ fontSize: 10, color: "#475569" }}>Connection ka wait ho raha hai...</span>
+                <span style={{ fontSize: 10, color: "#475569" }}>{t("whatsapp.waitingForConnection")}</span>
               </div>
             )}
           </div>
@@ -297,24 +301,24 @@ export default function WhatsApp() {
       {/* ── Templates card ── */}
       <div style={{ background: "#1e293b", borderRadius: 12, padding: "1.25rem" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-          <h2 style={{ margin: 0, fontSize: 14, color: "#94a3b8", fontWeight: 500 }}>
-            📝 Message Templates &amp; Auto-Send
+          <h2 style={{ margin: 0, fontSize: 14, color: "#94a3b8", fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+            <Icon name="edit" size={13} /> {t("whatsapp.templatesTitle")}
           </h2>
-          {saving && <span style={{ fontSize: 10, color: "#3b82f6" }}>Saving...</span>}
+          {saving && <span style={{ fontSize: 10, color: "#3b82f6" }}>{t("whatsapp.saving")}</span>}
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-          {TEMPLATE_DEFS.map(({ key, label, icon, toggleKey, color }) => (
+          {TEMPLATE_DEFS.map(({ key, labelKey, icon, toggleKey, color }) => (
             <div key={key} style={{ background: "#0f172a", borderRadius: 10, padding: "0.9rem", border: "1px solid #1e293b" }}>
 
               {/* Row header */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 15 }}>{icon}</span>
-                  <span style={{ fontSize: 13, fontWeight: 600, color }}>{label}</span>
+                  <Icon name={icon} size={14} style={{ color }} />
+                  <span style={{ fontSize: 13, fontWeight: 600, color }}>{t(labelKey)}</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 10, color: "#64748b" }}>Auto-send</span>
+                  <span style={{ fontSize: 10, color: "#64748b" }}>{t("whatsapp.autoSend")}</span>
                   {/* Toggle pill */}
                   <div onClick={() => handleToggle(toggleKey)}
                     style={{ width: 38, height: 20, borderRadius: 10, background: settings[toggleKey] ? "#16a34a" : "#334155", position: "relative", cursor: "pointer", transition: "background 0.2s", flexShrink: 0 }}>
@@ -329,22 +333,22 @@ export default function WhatsApp() {
                   <textarea value={editText} onChange={e => setEditText(e.target.value)} rows={3}
                     style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid #3b82f6", background: "#1e293b", color: "#fff", fontSize: 12, resize: "vertical", fontFamily: "inherit", boxSizing: "border-box", outline: "none" }} />
                   <p style={{ margin: 0, fontSize: 10, color: "#475569" }}>
-                    Variables: <code style={{ color: "#94a3b8" }}>{"{name}"}</code>{" "}
+                    {t("whatsapp.variablesLabel")} <code style={{ color: "#94a3b8" }}>{"{name}"}</code>{" "}
                     <code style={{ color: "#94a3b8" }}>{"{orderNo}"}</code>{" "}
                     <code style={{ color: "#94a3b8" }}>{"{reason}"}</code>
                   </p>
                   <div style={{ display: "flex", gap: 6 }}>
                     <button onClick={handleSaveTemplate}
                       style={{ padding: "4px 14px", borderRadius: 6, border: "none", background: "#3b82f6", color: "#fff", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
-                      Save
+                      {t("whatsapp.save")}
                     </button>
                     <button onClick={() => setEditingTemplate(null)}
                       style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #334155", background: "transparent", color: "#94a3b8", fontSize: 11, cursor: "pointer" }}>
-                      Cancel
+                      {t("whatsapp.cancel")}
                     </button>
                     <button onClick={() => setEditText(DEFAULT_TEMPLATES[key])}
                       style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #334155", background: "transparent", color: "#64748b", fontSize: 11, cursor: "pointer" }}>
-                      Reset default
+                      {t("whatsapp.resetDefault")}
                     </button>
                   </div>
                 </div>
@@ -356,7 +360,7 @@ export default function WhatsApp() {
                   </p>
                   <button onClick={() => { setEditingTemplate(key); setEditText(settings[`template_${key}`]); }}
                     style={{ padding: "3px 10px", borderRadius: 6, border: "1px solid #334155", background: "transparent", color: "#64748b", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>
-                    Edit
+                    {t("whatsapp.edit")}
                   </button>
                 </div>
               )}

@@ -1,25 +1,24 @@
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
+import Icon from "../components/Icon";
+import { useLanguage, useTranslation } from "../i18n";
 
-const DATE_FILTERS = [
-  { label: "Today", value: "today" },
-  { label: "Yesterday", value: "yesterday" },
-  { label: "Last 7 Days", value: "7days" },
-  { label: "Last 30 Days", value: "30days" },
-  { label: "Custom", value: "custom" },
-];
+const DATE_FILTER_LABEL_KEYS = { today: "dashboard.dateFilter.today", yesterday: "dashboard.dateFilter.yesterday", "7days": "dashboard.dateFilter.7days", "30days": "dashboard.dateFilter.30days", custom: "dashboard.dateFilter.custom" };
+const DATE_FILTERS = ["today", "yesterday", "7days", "30days", "custom"];
 
 const EXPENSE_CATEGORIES = [
-  { value: "ad_spend", label: "Ad Spend" },
-  { value: "courier", label: "Courier" },
-  { value: "packaging", label: "Packaging" },
-  { value: "salary", label: "Salary" },
-  { value: "misc", label: "Misc" },
+  { value: "ad_spend", labelKey: "pnl.expenseCategory.ad_spend" },
+  { value: "courier", labelKey: "pnl.expenseCategory.courier" },
+  { value: "packaging", labelKey: "pnl.expenseCategory.packaging" },
+  { value: "salary", labelKey: "pnl.expenseCategory.salary" },
+  { value: "misc", labelKey: "pnl.expenseCategory.misc" },
 ];
 
 const rupees = (n) => `Rs. ${Math.round(Number(n) || 0).toLocaleString()}`;
 
 export default function ProfitLoss({ ordersData, storeId }) {
+  const [lang] = useLanguage();
+  const t = useTranslation(lang);
   const [dateFilter, setDateFilter] = useState("today");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
@@ -128,30 +127,30 @@ export default function ProfitLoss({ ordersData, storeId }) {
 
   const netProfit = revenue - totalCOGS - adSpend - courier - otherExpenses;
 
-  const dateFilterLabel = DATE_FILTERS.find(f => f.value === dateFilter)?.label || "Today";
+  const dateFilterLabel = t(DATE_FILTER_LABEL_KEYS[dateFilter] || "dashboard.dateFilter.today");
 
   const heroChips = [
-    { label: "Revenue", value: rupees(revenue) },
-    { label: "Total COGS", value: rupees(totalCOGS) },
-    { label: "Ad Spend", value: rupees(adSpend) },
-    { label: "Courier", value: rupees(courier) },
-    { label: "Other Expenses", value: rupees(otherExpenses) },
+    { label: t("pnl.chip.revenue"), value: rupees(revenue) },
+    { label: t("pnl.chip.totalCogs"), value: rupees(totalCOGS) },
+    { label: t("pnl.chip.adSpend"), value: rupees(adSpend) },
+    { label: t("pnl.chip.courier"), value: rupees(courier) },
+    { label: t("pnl.chip.otherExpenses"), value: rupees(otherExpenses) },
   ];
 
   const breakdownCards = [
-    { label: "Revenue", value: revenue, color: "var(--ne-success)", bg: "var(--ne-success-soft)" },
-    { label: "COGS", value: totalCOGS, color: "var(--ne-danger)", bg: "var(--ne-danger-soft)" },
-    { label: "Ad Spend", value: adSpend, color: "var(--ne-accent)", bg: "var(--ne-accent-soft)" },
-    { label: "Courier", value: courier, color: "var(--ne-warning)", bg: "var(--ne-warning-soft)" },
-    { label: "Packaging", value: packaging, color: "var(--ne-pink)", bg: "var(--ne-pink-soft)" },
-    { label: "Misc (Salary + Other)", value: otherExpenses, color: "var(--ne-orange)", bg: "var(--ne-orange-soft)" },
+    { label: t("pnl.breakdown.revenue"), value: revenue, color: "var(--ne-success)", bg: "var(--ne-success-soft)" },
+    { label: t("pnl.breakdown.cogs"), value: totalCOGS, color: "var(--ne-danger)", bg: "var(--ne-danger-soft)" },
+    { label: t("pnl.breakdown.adSpend"), value: adSpend, color: "var(--ne-accent)", bg: "var(--ne-accent-soft)" },
+    { label: t("pnl.breakdown.courier"), value: courier, color: "var(--ne-warning)", bg: "var(--ne-warning-soft)" },
+    { label: t("pnl.breakdown.packaging"), value: packaging, color: "var(--ne-pink)", bg: "var(--ne-pink-soft)" },
+    { label: t("pnl.breakdown.misc"), value: otherExpenses, color: "var(--ne-orange)", bg: "var(--ne-orange-soft)" },
   ];
 
   const addExpense = async (e) => {
     e.preventDefault();
     setExpenseError("");
     if (!expenseForm.amount || Number(expenseForm.amount) <= 0) {
-      setExpenseError("Valid amount daalo");
+      setExpenseError(t("pnl.validAmountRequired"));
       return;
     }
     setExpenseSaving(true);
@@ -206,25 +205,25 @@ export default function ProfitLoss({ ordersData, storeId }) {
           <input type="number" autoFocus value={editingCostValue} onChange={e => setEditingCostValue(e.target.value)}
             style={{ width: 70, padding: "3px 6px", borderRadius: 5, border: "1px solid var(--ne-accent)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11 }} />
           <button onClick={() => saveCost(row.sku)}
-            style={{ background: "var(--ne-grad)", border: "none", borderRadius: 5, color: "#fff", padding: "3px 8px", cursor: "pointer", fontSize: 10 }}>✓</button>
+            style={{ background: "var(--ne-grad)", border: "none", borderRadius: 5, color: "#fff", padding: "3px 8px", cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center" }}><Icon name="check" size={9} /></button>
           <button onClick={() => setEditingCostSku(null)}
-            style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 5, color: "var(--ne-text)", padding: "3px 8px", cursor: "pointer", fontSize: 10 }}>✕</button>
+            style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 5, color: "var(--ne-text)", padding: "3px 8px", cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center" }}><Icon name="close" size={9} /></button>
         </div>
       );
     }
     if (row.costPer == null) {
       return (
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <span style={{ color: "var(--ne-muted-2)", fontSize: 11 }}>Cost not set</span>
+          <span style={{ color: "var(--ne-muted-2)", fontSize: 11 }}>{t("pnl.costNotSet")}</span>
           <button onClick={() => openSetCost(row.sku, null)}
             style={{ background: "var(--ne-accent-soft)", border: "none", borderRadius: 6, color: "var(--ne-accent)", padding: "2px 8px", cursor: "pointer", fontSize: 10, fontWeight: 600 }}>
-            Set Cost
+            {t("pnl.setCost")}
           </button>
         </div>
       );
     }
     return (
-      <span onClick={() => openSetCost(row.sku, row.costPer)} style={{ cursor: "pointer", fontSize: 11.5, color: "var(--ne-text)" }} title="Edit cost">
+      <span onClick={() => openSetCost(row.sku, row.costPer)} style={{ cursor: "pointer", fontSize: 11.5, color: "var(--ne-text)" }} title={t("pnl.editCostTitle")}>
         {rupees(row.cost)}
       </span>
     );
@@ -235,19 +234,19 @@ export default function ProfitLoss({ ordersData, storeId }) {
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: 10 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>💹 Profit & Loss</h1>
-          <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>Approved orders ke basis pe</p>
+          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><Icon name="trending" size={17} /> {t("pnl.title")}</h1>
+          <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{t("pnl.subtitle")}</p>
         </div>
         <button onClick={() => setShowExpenseModal(true)}
           style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-          + Add Expense
+          {t("pnl.addExpense")}
         </button>
       </div>
 
       {/* Date Filter */}
       <div style={{ display: "flex", gap: 7, marginBottom: "1rem", flexWrap: "wrap", alignItems: "center" }}>
         {DATE_FILTERS.map(f => (
-          <button key={f.value} style={dateBtnStyle(f.value)} onClick={() => setDateFilter(f.value)}>{f.label}</button>
+          <button key={f} style={dateBtnStyle(f)} onClick={() => setDateFilter(f)}>{t(DATE_FILTER_LABEL_KEYS[f])}</button>
         ))}
         {dateFilter === "custom" && (
           <>
@@ -263,7 +262,7 @@ export default function ProfitLoss({ ordersData, storeId }) {
       <div style={{ background: "var(--ne-grad)", borderRadius: 18, padding: "1.4rem", marginBottom: "0.75rem", display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "center", flexWrap: "wrap", gap: 16 }}>
         <div>
           <div style={{ fontSize: 12, color: "rgba(255,255,255,.75)", fontWeight: 600, marginBottom: 4 }}>
-            {dateFilterLabel} — net profit
+            {dateFilterLabel} {t("pnl.netProfitSuffix")}
           </div>
           <div style={{ fontSize: 30, fontWeight: 800, color: "#fff" }}>
             {rupees(netProfit)}
@@ -291,22 +290,22 @@ export default function ProfitLoss({ ordersData, storeId }) {
 
       {/* Per-SKU Profitability */}
       <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem" }}>
-        <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>🏷️ Per-SKU Profitability</h2>
+        <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon name="tag" size={13} /> {t("pnl.perSkuTitle")}</h2>
 
         {loading ? (
-          <div style={{ textAlign: "center", padding: "2rem", color: "var(--ne-muted)" }}>Loading...</div>
+          <div style={{ textAlign: "center", padding: "2rem", color: "var(--ne-muted)" }}>{t("pnl.loading")}</div>
         ) : perSkuStats.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "2rem", color: "var(--ne-muted-2)", fontSize: 12 }}>Is date range mein koi approved order nahi mila.</div>
+          <div style={{ textAlign: "center", padding: "2rem", color: "var(--ne-muted-2)", fontSize: 12 }}>{t("pnl.noApprovedOrders")}</div>
         ) : isMobile ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {perSkuStats.map(row => (
               <div key={row.sku} style={{ background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "10px 12px" }}>
                 <div style={{ fontWeight: 700, fontSize: 12.5, color: "var(--ne-text)", marginBottom: 4 }}>{row.sku}</div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--ne-muted)", marginBottom: 2 }}>
-                  <span>Orders: {row.orders}</span><span>Revenue: {rupees(row.revenue)}</span>
+                  <span>{t("pnl.ordersLabel")} {row.orders}</span><span>{t("pnl.revenueLabel")} {rupees(row.revenue)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11 }}>
-                  <span style={{ color: "var(--ne-muted)" }}>Cost: <CostCell row={row} /></span>
+                  <span style={{ color: "var(--ne-muted)" }}>{t("pnl.costLabel")} <CostCell row={row} /></span>
                   <span style={{ color: row.profit == null ? "var(--ne-muted-2)" : row.profit >= 0 ? "var(--ne-success)" : "var(--ne-danger)", fontWeight: 700 }}>
                     {row.profit == null ? "—" : rupees(row.profit)}
                   </span>
@@ -319,7 +318,7 @@ export default function ProfitLoss({ ordersData, storeId }) {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5 }}>
               <thead>
                 <tr>
-                  {["SKU", "Orders", "Revenue", "Cost", "Profit"].map(h => (
+                  {[t("pnl.table.sku"), t("pnl.table.orders"), t("pnl.table.revenue"), t("pnl.table.cost"), t("pnl.table.profit")].map(h => (
                     <th key={h} style={{ textAlign: "left", padding: "6px 8px", color: "var(--ne-muted)", borderBottom: "1px solid var(--ne-border)", fontWeight: 600, fontSize: 10.5, textTransform: "uppercase" }}>{h}</th>
                   ))}
                 </tr>
@@ -347,17 +346,17 @@ export default function ProfitLoss({ ordersData, storeId }) {
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
           <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 380, maxWidth: "94vw", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
             <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)" }}>
-              <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)" }}>+ Add Expense</h2>
+              <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)" }}>{t("pnl.addExpense")}</h2>
             </div>
             <form onSubmit={addExpense} style={{ padding: "16px 18px" }}>
               <select value={expenseForm.category} onChange={e => setExpenseForm(f => ({ ...f, category: e.target.value }))} style={inputStyle}>
-                {EXPENSE_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                {EXPENSE_CATEGORIES.map(c => <option key={c.value} value={c.value}>{t(c.labelKey)}</option>)}
               </select>
-              <input type="number" placeholder="Amount (Rs.)" value={expenseForm.amount} step="0.01"
+              <input type="number" placeholder={t("pnl.amountPlaceholder")} value={expenseForm.amount} step="0.01"
                 onChange={e => setExpenseForm(f => ({ ...f, amount: e.target.value }))} style={inputStyle} />
               <input type="date" value={expenseForm.expense_date}
                 onChange={e => setExpenseForm(f => ({ ...f, expense_date: e.target.value }))} style={inputStyle} />
-              <textarea placeholder="Notes (optional)" rows={2} value={expenseForm.notes}
+              <textarea placeholder={t("pnl.notesPlaceholder")} rows={2} value={expenseForm.notes}
                 onChange={e => setExpenseForm(f => ({ ...f, notes: e.target.value }))}
                 style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }} />
 
@@ -365,12 +364,12 @@ export default function ProfitLoss({ ordersData, storeId }) {
 
               <div style={{ display: "flex", gap: 8 }}>
                 <button type="submit" disabled={expenseSaving}
-                  style={{ flex: 1, padding: "10px", background: expenseSaving ? "var(--ne-border)" : "var(--ne-success)", color: expenseSaving ? "var(--ne-muted)" : "#0A2E1A", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: expenseSaving ? "default" : "pointer" }}>
-                  {expenseSaving ? "Add ho raha hai..." : "✓ Add Expense"}
+                  style={{ flex: 1, padding: "10px", background: expenseSaving ? "var(--ne-border)" : "var(--ne-success)", color: expenseSaving ? "var(--ne-muted)" : "#0A2E1A", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: expenseSaving ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  {expenseSaving ? t("pnl.addingExpense") : (<><Icon name="check" size={13} /> {t("pnl.addExpenseButton")}</>)}
                 </button>
                 <button type="button" onClick={() => setShowExpenseModal(false)}
                   style={{ padding: "10px 16px", background: "transparent", color: "var(--ne-muted)", border: "1px solid var(--ne-border)", borderRadius: 9, fontSize: 13, cursor: "pointer" }}>
-                  Cancel
+                  {t("pnl.cancel")}
                 </button>
               </div>
             </form>

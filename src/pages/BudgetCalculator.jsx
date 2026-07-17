@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
+import Icon from "../components/Icon";
+import { useLanguage, useTranslation } from "../i18n";
 
 const rupees = (n) => `Rs. ${Math.round(Number(n) || 0).toLocaleString()}`;
 
@@ -12,6 +14,8 @@ const suggestDeliveryRate = (ordersData) => {
 };
 
 export default function BudgetCalculator({ ordersData }) {
+  const [lang] = useLanguage();
+  const t = useTranslation(lang);
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
   const [targetMode, setTargetMode] = useState("orders"); // "orders" | "revenue"
   const [targetOrders, setTargetOrders] = useState("50");
@@ -77,68 +81,68 @@ export default function BudgetCalculator({ ordersData }) {
   const labelStyle = { color: "var(--ne-muted)", fontSize: 11.5, display: "block", marginBottom: 4, fontWeight: 600 };
 
   const outputCards = [
-    { label: "Required Daily Ad Budget", value: rupees(requiredDailyAdBudget), color: "var(--ne-accent)", bg: "var(--ne-accent-soft)", note: `~${Math.ceil(requiredApprovedOrders)} confirmed orders chahiye ${Math.round(targetDelivered)} delivered ke liye` },
-    { label: "Break-even ROAS", value: breakEvenROAS ? `${breakEvenROAS.toFixed(2)}x` : "—", color: "var(--ne-warning)", bg: "var(--ne-warning-soft)", note: "Isse kam ROAS pe loss hoga" },
-    { label: "Net Profit / Day", value: rupees(netProfitPerDay), color: netProfitPerDay >= 0 ? "var(--ne-success)" : "var(--ne-danger)", bg: netProfitPerDay >= 0 ? "var(--ne-success-soft)" : "var(--ne-danger-soft)", note: `Month: ${rupees(netProfitPerMonth)}` },
-    { label: "Profit Margin", value: `${profitMargin.toFixed(1)}%`, color: profitMargin >= 0 ? "var(--ne-success)" : "var(--ne-danger)", bg: profitMargin >= 0 ? "var(--ne-success-soft)" : "var(--ne-danger-soft)", note: "Revenue ka % jo profit hai" },
+    { label: t("budget.output.requiredDailyAdBudget"), value: rupees(requiredDailyAdBudget), color: "var(--ne-accent)", bg: "var(--ne-accent-soft)", note: `~${Math.ceil(requiredApprovedOrders)} ${t("budget.output.requiredNote1")} ${Math.round(targetDelivered)} ${t("budget.output.requiredNote2")}` },
+    { label: t("budget.output.breakEvenRoas"), value: breakEvenROAS ? `${breakEvenROAS.toFixed(2)}x` : "—", color: "var(--ne-warning)", bg: "var(--ne-warning-soft)", note: t("budget.output.breakEvenNote") },
+    { label: t("budget.output.netProfitDay"), value: rupees(netProfitPerDay), color: netProfitPerDay >= 0 ? "var(--ne-success)" : "var(--ne-danger)", bg: netProfitPerDay >= 0 ? "var(--ne-success-soft)" : "var(--ne-danger-soft)", note: `${t("budget.output.monthPrefix")} ${rupees(netProfitPerMonth)}` },
+    { label: t("budget.output.profitMargin"), value: `${profitMargin.toFixed(1)}%`, color: profitMargin >= 0 ? "var(--ne-success)" : "var(--ne-danger)", bg: profitMargin >= 0 ? "var(--ne-success-soft)" : "var(--ne-danger-soft)", note: t("budget.output.profitMarginNote") },
   ];
 
   return (
     <div style={{ padding: isMobile ? "1rem" : "1.5rem", color: "var(--ne-text)" }}>
       <div style={{ marginBottom: "1rem" }}>
-        <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>🧮 Budget Calculator</h1>
-        <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>Ad budget aur profit ka andaza lagao — sab kuch real-time calculate hota hai</p>
+        <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><Icon name="chart" size={17} /> {t("budget.title")}</h1>
+        <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{t("budget.subtitle")}</p>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "1rem" }}>
 
         {/* Inputs */}
         <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1.25rem" }}>
-          <h2 style={{ margin: "0 0 1rem", fontSize: 14, color: "var(--ne-text)", fontWeight: 700 }}>Inputs</h2>
+          <h2 style={{ margin: "0 0 1rem", fontSize: 14, color: "var(--ne-text)", fontWeight: 700 }}>{t("budget.inputsHeading")}</h2>
 
-          <label style={labelStyle}>Target</label>
+          <label style={labelStyle}>{t("budget.targetLabel")}</label>
           <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
             <button type="button" onClick={() => setTargetMode("orders")}
               style={{ flex: 1, padding: "7px", borderRadius: 8, border: "1px solid", borderColor: targetMode === "orders" ? "transparent" : "var(--ne-border)", background: targetMode === "orders" ? "var(--ne-grad)" : "var(--ne-bg)", color: targetMode === "orders" ? "#fff" : "var(--ne-muted)", fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>
-              Orders / Day
+              {t("budget.ordersPerDay")}
             </button>
             <button type="button" onClick={() => setTargetMode("revenue")}
               style={{ flex: 1, padding: "7px", borderRadius: 8, border: "1px solid", borderColor: targetMode === "revenue" ? "transparent" : "var(--ne-border)", background: targetMode === "revenue" ? "var(--ne-grad)" : "var(--ne-bg)", color: targetMode === "revenue" ? "#fff" : "var(--ne-muted)", fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>
-              Revenue / Day
+              {t("budget.revenuePerDay")}
             </button>
           </div>
 
           {targetMode === "orders" ? (
             <>
-              <label style={labelStyle}>Target Delivered Orders / Day</label>
+              <label style={labelStyle}>{t("budget.targetDeliveredOrdersLabel")}</label>
               <input type="number" value={targetOrders} onChange={e => setTargetOrders(e.target.value)} style={inputStyle} />
             </>
           ) : (
             <>
-              <label style={labelStyle}>Target Revenue / Day (Rs.)</label>
+              <label style={labelStyle}>{t("budget.targetRevenueLabel")}</label>
               <input type="number" value={targetRevenue} onChange={e => setTargetRevenue(e.target.value)} style={inputStyle} />
             </>
           )}
 
-          <label style={labelStyle}>Average Order Value (Rs.)</label>
+          <label style={labelStyle}>{t("budget.aovLabel")}</label>
           <input type="number" value={aov} onChange={e => setAov(e.target.value)} style={inputStyle} />
 
-          <label style={labelStyle}>Product Cost per Order (Rs.)</label>
+          <label style={labelStyle}>{t("budget.productCostLabel")}</label>
           <input type="number" value={productCost} onChange={e => setProductCost(e.target.value)} style={inputStyle} />
 
-          <label style={labelStyle}>Courier Cost per Order (Rs.)</label>
+          <label style={labelStyle}>{t("budget.courierCostLabel")}</label>
           <input type="number" value={courierCost} onChange={e => setCourierCost(e.target.value)} style={inputStyle} />
 
-          <label style={labelStyle}>Packaging Cost per Order (Rs.)</label>
+          <label style={labelStyle}>{t("budget.packagingCostLabel")}</label>
           <input type="number" value={packagingCost} onChange={e => setPackagingCost(e.target.value)} style={inputStyle} />
 
           <label style={labelStyle}>
-            COD Approval/Delivery Rate (%)
-            {suggestedRate != null && <span style={{ color: "var(--ne-accent)", fontWeight: 400 }}> — suggested: {suggestedRate}%</span>}
+            {t("budget.deliveryRateLabel")}
+            {suggestedRate != null && <span style={{ color: "var(--ne-accent)", fontWeight: 400 }}> {t("budget.suggestedSuffix")} {suggestedRate}%</span>}
           </label>
-          <input type="number" value={deliveryRate} onChange={e => setDeliveryRate(e.target.value)} placeholder="e.g. 55" style={inputStyle} />
+          <input type="number" value={deliveryRate} onChange={e => setDeliveryRate(e.target.value)} placeholder={t("budget.deliveryRatePlaceholder")} style={inputStyle} />
 
-          <label style={labelStyle}>Current CPA — Cost per Confirmed/Approved Order (Rs.)</label>
+          <label style={labelStyle}>{t("budget.cpaLabel")}</label>
           <input type="number" value={cpa} onChange={e => setCpa(e.target.value)} style={inputStyle} />
         </div>
 
@@ -155,25 +159,25 @@ export default function BudgetCalculator({ ordersData }) {
           </div>
 
           <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem" }}>
-            <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>📐 Per-Order Cost Breakdown</h2>
+            <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon name="chart" size={13} /> {t("budget.perOrderBreakdownTitle")}</h2>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 11.5 }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: "var(--ne-muted)" }}>Per Confirmed Order — Ad Cost (CPA)</span>
+                <span style={{ color: "var(--ne-muted)" }}>{t("budget.perConfirmedAdCost")}</span>
                 <span style={{ color: "var(--ne-text)", fontWeight: 600 }}>{rupees(costPerApproved)}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: "var(--ne-muted)" }}>Per Delivered Order — Effective Ad Cost</span>
+                <span style={{ color: "var(--ne-muted)" }}>{t("budget.perDeliveredAdCost")}</span>
                 <span style={{ color: "var(--ne-warning)", fontWeight: 700 }}>{rupees(effectiveCostPerDelivered)}</span>
               </div>
               <p style={{ margin: "2px 0 4px", fontSize: 10.5, color: "var(--ne-muted-2)", lineHeight: 1.5 }}>
-                Delivery rate {Math.round(rate * 100)}% ka matlab: {Math.round(1 / rate * 100) / 100}x confirmed orders chahiye har ek delivered order ke liye — isliye per-delivered ad cost, per-confirmed CPA se zyada hoti hai.
+                {t("budget.deliveryRateExplanationPrefix")} {Math.round(rate * 100)}% {t("budget.deliveryRateExplanationMiddle")} {Math.round(1 / rate * 100) / 100}x {t("budget.deliveryRateExplanationSuffix")}
               </p>
               <div style={{ borderTop: "1px solid var(--ne-border)", paddingTop: 8, display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: "var(--ne-muted)" }}>Total Cost per Delivered Order</span>
+                <span style={{ color: "var(--ne-muted)" }}>{t("budget.totalCostPerDelivered")}</span>
                 <span style={{ color: "var(--ne-danger)", fontWeight: 700 }}>{rupees(totalCostPerDelivered)}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: "var(--ne-muted)" }}>Profit per Delivered Order</span>
+                <span style={{ color: "var(--ne-muted)" }}>{t("budget.profitPerDelivered")}</span>
                 <span style={{ color: (avgOrderValue - totalCostPerDelivered) >= 0 ? "var(--ne-success)" : "var(--ne-danger)", fontWeight: 700 }}>{rupees(avgOrderValue - totalCostPerDelivered)}</span>
               </div>
             </div>

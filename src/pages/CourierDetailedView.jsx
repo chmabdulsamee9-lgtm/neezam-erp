@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { getCachedBookedOrders } from "../ordersCache";
 import { syncBookedOrdersCache, bucketCourierStatusGranular } from "../bookedOrdersData";
+import Icon from "../components/Icon";
+import { useLanguage, useTranslation } from "../i18n";
 
 const GRANULAR_KEYS = ["Delivered", "Returned", "Pickup Failed", "Cancelled", "Lost", "In Transit"];
 const GRANULAR_COLORS = {
@@ -12,14 +14,22 @@ const GRANULAR_COLORS = {
   Lost: "var(--ne-accent2)",
   "In Transit": "var(--ne-accent)",
 };
+// CourierDashboard.jsx ke LABEL_KEYS jaisi hi mapping (courierDash.* keys reuse) — display-only,
+// underlying GRANULAR_KEYS/bucketCourierStatusGranular() ki English values nahi badalti
+const LABEL_KEYS = {
+  Delivered: "courierDash.delivered", Returned: "courierDash.returned", Others: "courierDash.others",
+  "In Transit": "courierDash.inTransit", "Pickup Failed": "courierDash.pickupFailed", Cancelled: "courierDash.cancelled", Lost: "courierDash.lost",
+  "Total Orders": "courierDetail.totalOrdersLegend",
+};
 
 const METRIC_OPTIONS = [
-  { value: "volume", label: "Order Volume" },
-  { value: "rate", label: "Delivery vs Return %" },
-  { value: "stacked", label: "All Status Stacked" },
+  { value: "volume", labelKey: "courierDetail.metric.volume" },
+  { value: "rate", labelKey: "courierDetail.metric.rate" },
+  { value: "stacked", labelKey: "courierDetail.metric.stacked" },
 ];
 
 const TABS = ["Monthly", "Weekly", "Province"];
+const TAB_LABEL_KEYS = { Monthly: "courierDetail.tab.monthly", Weekly: "courierDetail.tab.weekly", Province: "courierDetail.tab.province" };
 
 function emptyGranularRow() {
   const row = {};
@@ -79,6 +89,8 @@ const rateColor = (rate) => (rate >= 65 ? "var(--ne-success)" : rate >= 50 ? "va
 // Metric-aware stacked/simple bar chart — Monthly aur Weekly section dono is ek hi
 // component ko reuse karte hain (sirf data alag hota hai)
 function PeriodBarChart({ rows, metric }) {
+  const [lang] = useLanguage();
+  const t = useTranslation(lang);
   const W = 700, H = 220;
   const PAD = { top: 20, right: 10, bottom: 30, left: 10 };
   const cW = W - PAD.left - PAD.right;
@@ -103,7 +115,7 @@ function PeriodBarChart({ rows, metric }) {
       <div style={{ display: "flex", gap: 12, marginBottom: 8, fontSize: 10, color: "var(--ne-muted)", fontWeight: 600, flexWrap: "wrap" }}>
         {legend.map((l) => (
           <span key={l.key} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <span style={{ width: 9, height: 9, borderRadius: 3, background: l.color, display: "inline-block" }} /> {l.key}
+            <span style={{ width: 9, height: 9, borderRadius: 3, background: l.color, display: "inline-block" }} /> {t(LABEL_KEYS[l.key] || l.key)}
           </span>
         ))}
       </div>
@@ -151,6 +163,8 @@ function PeriodBarChart({ rows, metric }) {
 }
 
 function GranularTable({ rows, periodLabel }) {
+  const [lang] = useLanguage();
+  const t = useTranslation(lang);
   const th = { padding: "7px 8px", textAlign: "left", color: "var(--ne-muted)", whiteSpace: "nowrap", fontWeight: 600, fontSize: 10, textTransform: "uppercase", letterSpacing: ".03em", borderBottom: "1px solid var(--ne-border)" };
   const td = { padding: "7px 8px", fontSize: 11.5, color: "var(--ne-text)", whiteSpace: "nowrap" };
   return (
@@ -159,14 +173,14 @@ function GranularTable({ rows, periodLabel }) {
         <thead>
           <tr>
             <th style={th}>{periodLabel}</th>
-            <th style={th}>Total</th>
-            <th style={th}>Delivered</th>
-            <th style={th}>Returned</th>
-            <th style={th}>Pickup Failed</th>
-            <th style={th}>Cancelled</th>
-            <th style={th}>Lost</th>
-            <th style={th}>Delivery Rate</th>
-            <th style={th}>Return Rate</th>
+            <th style={th}>{t("courierDetail.table.total")}</th>
+            <th style={th}>{t(LABEL_KEYS.Delivered)}</th>
+            <th style={th}>{t(LABEL_KEYS.Returned)}</th>
+            <th style={th}>{t(LABEL_KEYS["Pickup Failed"])}</th>
+            <th style={th}>{t(LABEL_KEYS.Cancelled)}</th>
+            <th style={th}>{t(LABEL_KEYS.Lost)}</th>
+            <th style={th}>{t("courierDetail.table.deliveryRate")}</th>
+            <th style={th}>{t("courierDetail.table.returnRate")}</th>
           </tr>
         </thead>
         <tbody>
@@ -188,7 +202,7 @@ function GranularTable({ rows, periodLabel }) {
             );
           })}
           {rows.length === 0 && (
-            <tr><td colSpan={9} style={{ ...td, textAlign: "center", color: "var(--ne-muted-2)" }}>Koi data nahi</td></tr>
+            <tr><td colSpan={9} style={{ ...td, textAlign: "center", color: "var(--ne-muted-2)" }}>{t("courierDash.noData")}</td></tr>
           )}
         </tbody>
       </table>
@@ -197,6 +211,8 @@ function GranularTable({ rows, periodLabel }) {
 }
 
 export default function CourierDetailedView({ storeId, ordersStore }) {
+  const [lang] = useLanguage();
+  const t = useTranslation(lang);
   const navigate = useNavigate();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -246,7 +262,7 @@ export default function CourierDetailedView({ storeId, ordersStore }) {
 
   const maxProvinceTotal = Math.max(...provinceRows.map((p) => p.total), 1);
 
-  if (loading) return <div style={{ padding: "3rem", textAlign: "center", color: "var(--ne-muted)" }}>Loading courier data...</div>;
+  if (loading) return <div style={{ padding: "3rem", textAlign: "center", color: "var(--ne-muted)" }}>{t("courierDash.loading")}</div>;
   if (errorMsg) return <div style={{ padding: "1.5rem", color: "var(--ne-danger)", fontSize: 13 }}>{errorMsg}</div>;
 
   return (
@@ -255,14 +271,14 @@ export default function CourierDetailedView({ storeId, ordersStore }) {
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button onClick={() => navigate("/courier-dashboard")}
             style={{ padding: "7px 12px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-muted)", fontSize: 12, cursor: "pointer" }}>
-            ← Back
+            {t("courierDetail.back")}
           </button>
-          <h1 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>📊 Courier Detailed Analysis</h1>
+          <h1 style={{ margin: 0, fontSize: 16, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><Icon name="chart" size={15} /> {t("courierDetail.title")}</h1>
         </div>
         {activeTab !== "Province" && (
           <select value={metric} onChange={(e) => setMetric(e.target.value)}
             style={{ padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }}>
-            {METRIC_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+            {METRIC_OPTIONS.map((m) => <option key={m.value} value={m.value}>{t(m.labelKey)}</option>)}
           </select>
         )}
       </div>
@@ -275,7 +291,7 @@ export default function CourierDetailedView({ storeId, ordersStore }) {
               borderColor: activeTab === tab ? "transparent" : "var(--ne-border)",
               background: activeTab === tab ? "var(--ne-grad)" : "var(--ne-surface-2)",
               color: activeTab === tab ? "#fff" : "var(--ne-muted)" }}>
-            {tab}
+            {t(TAB_LABEL_KEYS[tab])}
           </button>
         ))}
       </div>
@@ -283,11 +299,11 @@ export default function CourierDetailedView({ storeId, ordersStore }) {
       {activeTab === "Monthly" && (
         <>
           <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem", marginBottom: "0.75rem" }}>
-            <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>📦 Monthly Analysis</h2>
+            <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon name="package" size={13} /> {t("courierDetail.monthlyAnalysisTitle")}</h2>
             <PeriodBarChart rows={monthlyRows} metric={metric} />
           </div>
           <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem" }}>
-            <GranularTable rows={monthlyRows} periodLabel="Month" />
+            <GranularTable rows={monthlyRows} periodLabel={t("courierDetail.table.month")} />
           </div>
         </>
       )}
@@ -295,11 +311,11 @@ export default function CourierDetailedView({ storeId, ordersStore }) {
       {activeTab === "Weekly" && (
         <>
           <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem", marginBottom: "0.75rem" }}>
-            <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>📅 Weekly Performance</h2>
+            <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon name="clock" size={13} /> {t("courierDetail.weeklyPerformanceTitle")}</h2>
             <PeriodBarChart rows={weeklyRows} metric={metric} />
           </div>
           <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem" }}>
-            <GranularTable rows={weeklyRows} periodLabel="Week" />
+            <GranularTable rows={weeklyRows} periodLabel={t("courierDetail.table.week")} />
           </div>
         </>
       )}
@@ -308,7 +324,7 @@ export default function CourierDetailedView({ storeId, ordersStore }) {
         <>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" }}>
             <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem" }}>
-              <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>📍 Orders by Province</h2>
+              <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon name="pin" size={13} /> {t("courierDetail.ordersByProvinceTitle")}</h2>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {provinceRows.map((p) => (
                   <div key={p.province} style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -319,11 +335,11 @@ export default function CourierDetailedView({ storeId, ordersStore }) {
                     <span style={{ fontSize: 11, color: "var(--ne-muted)", minWidth: 30, textAlign: "right", fontWeight: 600 }}>{p.total}</span>
                   </div>
                 ))}
-                {provinceRows.length === 0 && <p style={{ color: "var(--ne-muted-2)", fontSize: 12 }}>Koi data nahi</p>}
+                {provinceRows.length === 0 && <p style={{ color: "var(--ne-muted-2)", fontSize: 12 }}>{t("courierDash.noData")}</p>}
               </div>
             </div>
             <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem" }}>
-              <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>✅ Delivery Rate by Province</h2>
+              <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon name="check" size={13} /> {t("courierDetail.deliveryRateByProvinceTitle")}</h2>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {provinceRows.map((p) => {
                   const rate = p.total ? Math.round((p.Delivered / p.total) * 100) : 0;
@@ -337,7 +353,7 @@ export default function CourierDetailedView({ storeId, ordersStore }) {
                     </div>
                   );
                 })}
-                {provinceRows.length === 0 && <p style={{ color: "var(--ne-muted-2)", fontSize: 12 }}>Koi data nahi</p>}
+                {provinceRows.length === 0 && <p style={{ color: "var(--ne-muted-2)", fontSize: 12 }}>{t("courierDash.noData")}</p>}
               </div>
             </div>
           </div>
@@ -346,7 +362,7 @@ export default function CourierDetailedView({ storeId, ordersStore }) {
               <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 680 }}>
                 <thead>
                   <tr>
-                    {["Province", "Total", "Delivered", "Returned", "Pickup Failed", "Lost", "In Transit", "Delivery Rate", "Return Rate"].map((h) => (
+                    {[t("courierDetail.table.province"), t("courierDetail.table.total"), t(LABEL_KEYS.Delivered), t(LABEL_KEYS.Returned), t(LABEL_KEYS["Pickup Failed"]), t(LABEL_KEYS.Lost), t(LABEL_KEYS["In Transit"]), t("courierDetail.table.deliveryRate"), t("courierDetail.table.returnRate")].map((h) => (
                       <th key={h} style={{ padding: "7px 8px", textAlign: "left", color: "var(--ne-muted)", whiteSpace: "nowrap", fontWeight: 600, fontSize: 10, textTransform: "uppercase", letterSpacing: ".03em", borderBottom: "1px solid var(--ne-border)" }}>{h}</th>
                     ))}
                   </tr>
@@ -371,7 +387,7 @@ export default function CourierDetailedView({ storeId, ordersStore }) {
                     );
                   })}
                   {provinceRows.length === 0 && (
-                    <tr><td colSpan={9} style={{ padding: "7px 8px", fontSize: 11.5, textAlign: "center", color: "var(--ne-muted-2)" }}>Koi data nahi</td></tr>
+                    <tr><td colSpan={9} style={{ padding: "7px 8px", fontSize: 11.5, textAlign: "center", color: "var(--ne-muted-2)" }}>{t("courierDash.noData")}</td></tr>
                   )}
                 </tbody>
               </table>

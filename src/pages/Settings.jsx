@@ -1,9 +1,13 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../supabase";
+import Icon from "../components/Icon";
+import { useLanguage, useTranslation } from "../i18n";
 
 const isValidPhone = (p) => /^\d{11}$/.test(String(p || "").trim());
 
 export default function Settings({ profile, onProfileUpdated }) {
+  const [lang] = useLanguage();
+  const t = useTranslation(lang);
   // ---- Profile details (TASK 9) ----
   const [fullName, setFullName] = useState(profile?.full_name || "");
   const [phone, setPhone] = useState(profile?.phone || "");
@@ -46,11 +50,11 @@ export default function Settings({ profile, onProfileUpdated }) {
     setProfileError("");
     setProfileSuccess(false);
     if (!fullName.trim()) {
-      setProfileError("Naam zaroori hai");
+      setProfileError(t("settings.nameRequired"));
       return;
     }
     if (!isValidPhone(phone)) {
-      setProfileError("Phone number exactly 11 digits ka hona chahiye");
+      setProfileError(t("settings.phoneError"));
       return;
     }
     setProfileSaving(true);
@@ -73,11 +77,11 @@ export default function Settings({ profile, onProfileUpdated }) {
     setPasswordError("");
     setPasswordSuccess(false);
     if (newPassword.length < 6) {
-      setPasswordError("Naya password kam az kam 6 characters ka ho");
+      setPasswordError(t("settings.passwordMinError"));
       return;
     }
     if (newPassword !== confirmPassword) {
-      setPasswordError("Password aur Confirm Password match nahi karte");
+      setPasswordError(t("settings.passwordsDontMatch"));
       return;
     }
     setPasswordSaving(true);
@@ -98,7 +102,7 @@ export default function Settings({ profile, onProfileUpdated }) {
     setBrandError("");
     setBrandSuccess(false);
     if (!brandName.trim()) {
-      setBrandError("Brand name daalo");
+      setBrandError(t("settings.brandNameRequired"));
       return;
     }
     setBrandSaving(true);
@@ -133,56 +137,56 @@ export default function Settings({ profile, onProfileUpdated }) {
   return (
     <div style={{ padding: isMobile ? "1rem" : "1.5rem", maxWidth: 600, margin: "0 auto" }}>
       <div style={{ marginBottom: "1.5rem" }}>
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "var(--ne-text)" }}>⚙️ Settings</h1>
-        <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--ne-muted)" }}>Apna profile aur account manage karo</p>
+        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="settings" size={18} /> {t("settings.title")}</h1>
+        <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--ne-muted)" }}>{t("settings.subtitle")}</p>
       </div>
 
       {/* ---------- MY PROFILE ---------- */}
       <div style={cardStyle}>
-        <h2 style={{ margin: "0 0 1rem", fontSize: 15, color: "var(--ne-text)", fontWeight: 700 }}>My Profile</h2>
+        <h2 style={{ margin: "0 0 1rem", fontSize: 15, color: "var(--ne-text)", fontWeight: 700 }}>{t("settings.myProfile")}</h2>
         <form onSubmit={saveProfile}>
-          <label style={labelStyle}>Naam</label>
+          <label style={labelStyle}>{t("settings.nameLabel")}</label>
           <input type="text" value={fullName} onChange={e => setFullName(e.target.value)} style={inputStyle} />
 
-          <label style={labelStyle}>Phone Number</label>
+          <label style={labelStyle}>{t("settings.phoneLabel")}</label>
           <input type="tel" value={phone} maxLength={11}
             onChange={e => setPhone(e.target.value.replace(/\D/g, "").slice(0, 11))} style={inputStyle} />
           {phone.length > 0 && !isValidPhone(phone) && (
-            <p style={{ color: "var(--ne-danger)", fontSize: 11, margin: "-6px 0 10px" }}>Phone number exactly 11 digits ka hona chahiye</p>
+            <p style={{ color: "var(--ne-danger)", fontSize: 11, margin: "-6px 0 10px" }}>{t("settings.phoneError")}</p>
           )}
 
-          <label style={labelStyle}>Email</label>
+          <label style={labelStyle}>{t("settings.emailLabel")}</label>
           <input type="email" value={profile?.email || ""} disabled style={{ ...inputStyle, opacity: 0.6, cursor: "not-allowed" }} />
 
           {profileError && <p style={{ color: "var(--ne-danger)", fontSize: 12, marginBottom: 10 }}>{profileError}</p>}
-          {profileSuccess && <p style={{ color: "var(--ne-success)", fontSize: 12, marginBottom: 10 }}>✓ Profile update ho gaya</p>}
+          {profileSuccess && <p style={{ color: "var(--ne-success)", fontSize: 12, marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><Icon name="check" size={11} /> {t("settings.profileUpdated")}</p>}
 
           <button type="submit" disabled={profileSaving}
-            style={{ padding: "10px 20px", background: profileSaving ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: profileSaving ? "default" : "pointer" }}>
-            {profileSaving ? "Save ho raha hai..." : "✓ Save Profile"}
+            style={{ padding: "10px 20px", background: profileSaving ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: profileSaving ? "default" : "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+            {profileSaving ? t("settings.saving") : (<><Icon name="check" size={13} /> {t("settings.saveProfile")}</>)}
           </button>
         </form>
       </div>
 
       {/* ---------- CHANGE PASSWORD ---------- */}
       <div style={cardStyle}>
-        <h2 style={{ margin: "0 0 1rem", fontSize: 15, color: "var(--ne-text)", fontWeight: 700 }}>Change Password</h2>
+        <h2 style={{ margin: "0 0 1rem", fontSize: 15, color: "var(--ne-text)", fontWeight: 700 }}>{t("settings.changePassword")}</h2>
         <form onSubmit={changePassword}>
-          <label style={labelStyle}>Naya Password</label>
-          <input type="password" placeholder="Min 6 characters" value={newPassword} onChange={e => setNewPassword(e.target.value)} style={inputStyle} />
+          <label style={labelStyle}>{t("settings.newPasswordLabel")}</label>
+          <input type="password" placeholder={t("settings.min6chars")} value={newPassword} onChange={e => setNewPassword(e.target.value)} style={inputStyle} />
 
-          <label style={labelStyle}>Confirm Password</label>
-          <input type="password" placeholder="Password dobara type karein" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} style={inputStyle} />
+          <label style={labelStyle}>{t("settings.confirmPasswordLabel")}</label>
+          <input type="password" placeholder={t("settings.retypePassword")} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} style={inputStyle} />
           {confirmPassword.length > 0 && newPassword !== confirmPassword && (
-            <p style={{ color: "var(--ne-danger)", fontSize: 11, margin: "-6px 0 10px" }}>Password match nahi kar raha</p>
+            <p style={{ color: "var(--ne-danger)", fontSize: 11, margin: "-6px 0 10px" }}>{t("settings.passwordMismatch")}</p>
           )}
 
           {passwordError && <p style={{ color: "var(--ne-danger)", fontSize: 12, marginBottom: 10 }}>{passwordError}</p>}
-          {passwordSuccess && <p style={{ color: "var(--ne-success)", fontSize: 12, marginBottom: 10 }}>✓ Password change ho gaya</p>}
+          {passwordSuccess && <p style={{ color: "var(--ne-success)", fontSize: 12, marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><Icon name="check" size={11} /> {t("settings.passwordChanged")}</p>}
 
           <button type="submit" disabled={passwordSaving}
-            style={{ padding: "10px 20px", background: passwordSaving ? "var(--ne-border)" : "var(--ne-warning)", color: "#1A1300", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: passwordSaving ? "default" : "pointer" }}>
-            {passwordSaving ? "Change ho raha hai..." : "🔑 Change Password"}
+            style={{ padding: "10px 20px", background: passwordSaving ? "var(--ne-border)" : "var(--ne-warning)", color: "#1A1300", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: passwordSaving ? "default" : "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+            {passwordSaving ? t("settings.changing") : (<><Icon name="key" size={13} /> {t("settings.changePasswordButton")}</>)}
           </button>
         </form>
       </div>
@@ -190,20 +194,20 @@ export default function Settings({ profile, onProfileUpdated }) {
       {/* ---------- ADD NEW BRAND (sirf admin) ---------- */}
       {profile?.role === "admin" && (
         <div style={cardStyle}>
-          <h2 style={{ margin: "0 0 1rem", fontSize: 15, color: "var(--ne-text)", fontWeight: 700 }}>+ Add New Brand</h2>
+          <h2 style={{ margin: "0 0 1rem", fontSize: 15, color: "var(--ne-text)", fontWeight: 700 }}>{t("settings.addNewBrand")}</h2>
           <p style={{ fontSize: 12, color: "var(--ne-muted)", margin: "0 0 10px" }}>
-            Apne isi email se ek aur brand add karo — Brand Switcher se dono ke darmiyan switch kar sakoge.
+            {t("settings.addBrandHint")}
           </p>
           <form onSubmit={addBrand}>
-            <label style={labelStyle}>Brand / Store Name</label>
-            <input type="text" placeholder="Brand name type karein" value={brandName} onChange={e => setBrandName(e.target.value)} style={inputStyle} />
+            <label style={labelStyle}>{t("settings.brandNameLabel")}</label>
+            <input type="text" placeholder={t("settings.brandNamePlaceholder")} value={brandName} onChange={e => setBrandName(e.target.value)} style={inputStyle} />
 
             {brandError && <p style={{ color: "var(--ne-danger)", fontSize: 12, marginBottom: 10 }}>{brandError}</p>}
-            {brandSuccess && <p style={{ color: "var(--ne-success)", fontSize: 12, marginBottom: 10 }}>✓ Naya brand add ho gaya</p>}
+            {brandSuccess && <p style={{ color: "var(--ne-success)", fontSize: 12, marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><Icon name="check" size={11} /> {t("settings.brandAdded")}</p>}
 
             <button type="submit" disabled={brandSaving}
               style={{ padding: "10px 20px", background: brandSaving ? "var(--ne-border)" : "var(--ne-success)", color: brandSaving ? "var(--ne-muted)" : "#0A2E1A", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: brandSaving ? "default" : "pointer" }}>
-              {brandSaving ? "Add ho raha hai..." : "+ Brand Add Karo"}
+              {brandSaving ? t("settings.addingBrand") : t("settings.addBrandButton")}
             </button>
           </form>
         </div>

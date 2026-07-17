@@ -30,6 +30,15 @@ const PATHS = {
   undo: <><path d="M4 8h8a4.5 4.5 0 0 1 0 9H8" /><path d="M7 4.5 4 8l3 3.5" /></>,
   upload: <><path d="M10 13V4" /><path d="M6.5 7.5 10 4l3.5 3.5" /><path d="M3.5 13v2a1.5 1.5 0 0 0 1.5 1.5h10a1.5 1.5 0 0 0 1.5-1.5v-2" /></>,
   download: <><path d="M10 4v9" /><path d="M6.5 9.5 10 13l3.5-3.5" /><path d="M3.5 14v1.5A1.5 1.5 0 0 0 5 17h10a1.5 1.5 0 0 0 1.5-1.5V14" /></>,
+  trending: <><path d="M2.5 14.5 8 9l3.5 3.5L17.5 6" /><path d="M12.5 6h5v5" /></>,
+  clock: <><circle cx="10" cy="10" r="7.3" /><path d="M10 6v4l3 2" /></>,
+  megaphone: <><path d="M2.5 8.5v3l3 .8V7.7Z" /><path d="M5.5 7.7 14 4.5v11L5.5 12.3" /><path d="M7 12.5l1 4h2l-.7-3.8" /><path d="M14 8v3" /></>,
+  clipboard: <><rect x="5" y="4" width="10" height="13.5" rx="1.5" /><rect x="7.5" y="2.5" width="5" height="3" rx="1" /><path d="M7.5 9h5M7.5 12h5M7.5 15h3" /></>,
+  map: <><path d="M7 4 2.5 5.5v10L7 14l6 2 4.5-1.5v-10L13 6l-6-2Z" /><path d="M7 4v10M13 6v10" /></>,
+  tag: <><path d="M3 3h6l8 8-6 6-8-8Z" /><circle cx="7" cy="7" r="1.3" fill="currentColor" stroke="none" /></>,
+  team: <><circle cx="7" cy="7" r="2.6" /><circle cx="14" cy="8" r="2" /><path d="M2.5 17c.5-3 2.2-4.5 4.5-4.5s4 1.5 4.5 4.5" /><path d="M12 17c.4-2.3 1.6-3.7 3.5-3.7s2.7 1.1 3 3.2" /></>,
+  settings: <><circle cx="10" cy="10" r="2.6" /><path d="M10 2.5v2M10 15.5v2M17.5 10h-2M4.5 10h-2M15.1 4.9l-1.4 1.4M6.3 13.7l-1.4 1.4M15.1 15.1l-1.4-1.4M6.3 6.3 4.9 4.9" /></>,
+  card: <><rect x="2.5" y="4.5" width="15" height="11" rx="2" /><path d="M2.5 8.5h15" /><path d="M5.5 12.5h3" /></>,
 }
 
 export default function Icon({ name, size = 15, style, className, ...rest }) {

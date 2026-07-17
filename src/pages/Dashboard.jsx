@@ -1,4 +1,10 @@
 import { useState, useMemo, useEffect, useId } from "react";
+import Icon from "../components/Icon";
+import { useLanguage, useTranslation } from "../i18n";
+
+const CHART_LINE_LABEL_KEYS = { Orders: "dashboard.chart.orders", Revenue: "dashboard.chart.revenue", "Approved Orders": "dashboard.chart.approvedOrders" };
+const HOURLY_METRIC_LABEL_KEYS = { orders: "dashboard.hourly.orders", confirmed: "dashboard.hourly.confirmed", revenue: "dashboard.hourly.revenue" };
+const DATE_FILTER_LABEL_KEYS = { today: "dashboard.dateFilter.today", yesterday: "dashboard.dateFilter.yesterday", "7days": "dashboard.dateFilter.7days", "30days": "dashboard.dateFilter.30days", custom: "dashboard.dateFilter.custom" };
 
 // TASK Phase 7: hardcoded hex colors light mode mein illegible/wrong the (dark-tuned bg
 // values light theme mein bhi dark reh jate) — ab sab CSS vars use karte hain, jo
@@ -54,6 +60,8 @@ function smoothLinePath(points) {
 }
 
 function TrendChart({ ordersData }) {
+  const [lang] = useLanguage();
+  const t = useTranslation(lang);
   const [activeLines, setActiveLines] = useState(["Orders", "Revenue", "Approved Orders"]);
   const [hoveredDay, setHoveredDay] = useState(null);
   const gradUid = useId();
@@ -111,14 +119,14 @@ function TrendChart({ ordersData }) {
   return (
     <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem", marginBottom: "0.75rem" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: 6 }}>
-        <h2 style={{ margin: 0, fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>📈 30-Day Trend</h2>
+        <h2 style={{ margin: 0, fontSize: 13, color: "var(--ne-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon name="trending" size={13} /> {t("dashboard.trendTitle")}</h2>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {CHART_LINES.map(({ key, color }) => (
             <button key={key} onClick={() => toggleLine(key)}
               style={{ padding: "4px 12px", borderRadius: 20, border: `1px solid ${activeLines.includes(key) ? "transparent" : "var(--ne-border)"}`, fontSize: 10, cursor: "pointer", fontWeight: 600,
                 background: activeLines.includes(key) ? color : "var(--ne-surface)",
                 color: activeLines.includes(key) ? "#0A0E26" : color, transition: "all 0.15s" }}>
-              {key}
+              {t(CHART_LINE_LABEL_KEYS[key])}
             </button>
           ))}
         </div>
@@ -202,7 +210,7 @@ function TrendChart({ ordersData }) {
                   x={tooltipOnRight ? tooltipX + 11 : tooltipX - 100}
                   y={PAD.top + 24 + j * 13}
                   fontSize="8" fill={color} fontWeight="600">
-                  {key}: {key === "Revenue" ? `Rs.${hovered[key].toLocaleString()}` : hovered[key]}
+                  {t(CHART_LINE_LABEL_KEYS[key])}: {key === "Revenue" ? `Rs.${hovered[key].toLocaleString()}` : hovered[key]}
                 </text>
               ))}
             </g>
@@ -225,6 +233,8 @@ const HOURLY_METRICS = [
 // "aaj"/"kal" calendar din dikhata hai), taake Today/Yesterday ka apples-to-apples
 // hourly pattern dekha ja sake.
 function HourlyComparisonChart({ ordersData }) {
+  const [lang] = useLanguage();
+  const t = useTranslation(lang);
   const [metric, setMetric] = useState("orders");
   const gradUid = useId();
 
@@ -265,14 +275,14 @@ function HourlyComparisonChart({ ordersData }) {
   return (
     <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem", marginBottom: "0.75rem" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: 6 }}>
-        <h2 style={{ margin: 0, fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>⏱️ Hourly Comparison — Today vs Yesterday</h2>
+        <h2 style={{ margin: 0, fontSize: 13, color: "var(--ne-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon name="clock" size={13} /> {t("dashboard.hourlyTitle")}</h2>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {HOURLY_METRICS.map(m => (
             <button key={m.key} onClick={() => setMetric(m.key)}
               style={{ padding: "4px 12px", borderRadius: 20, border: `1px solid ${metric === m.key ? "transparent" : "var(--ne-border)"}`, fontSize: 10, cursor: "pointer", fontWeight: 600,
                 background: metric === m.key ? "var(--ne-grad)" : "var(--ne-surface)",
                 color: metric === m.key ? "#fff" : "var(--ne-muted)", transition: "all 0.15s" }}>
-              {m.label}
+              {t(HOURLY_METRIC_LABEL_KEYS[m.key])}
             </button>
           ))}
         </div>
@@ -280,10 +290,10 @@ function HourlyComparisonChart({ ordersData }) {
 
       <div style={{ display: "flex", gap: 14, marginBottom: 8, fontSize: 10, color: "var(--ne-muted)", fontWeight: 600 }}>
         <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-          <span style={{ width: 9, height: 9, borderRadius: 3, background: "var(--ne-grad)", display: "inline-block" }} /> Today
+          <span style={{ width: 9, height: 9, borderRadius: 3, background: "var(--ne-grad)", display: "inline-block" }} /> {t("dashboard.today")}
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-          <span style={{ width: 9, height: 9, borderRadius: 3, background: "var(--ne-border)", display: "inline-block" }} /> Yesterday
+          <span style={{ width: 9, height: 9, borderRadius: 3, background: "var(--ne-border)", display: "inline-block" }} /> {t("dashboard.yesterday")}
         </span>
       </div>
 
@@ -328,8 +338,8 @@ function HourlyComparisonChart({ ordersData }) {
                   <>
                     <rect x={boxX} y={PAD.top} width={92} height={40} rx={5} fill="#161B45" stroke="#232A52" strokeWidth="0.5" />
                     <text x={boxX + 6} y={PAD.top + 12} fontSize="7.5" fill="#8C93C4">{hoveredHour}:00 - {hoveredHour + 1}:00</text>
-                    <text x={boxX + 6} y={PAD.top + 24} fontSize="8" fill="#A855F7" fontWeight="600">Today: {fmtVal(todayHours[hoveredHour])}</text>
-                    <text x={boxX + 6} y={PAD.top + 35} fontSize="8" fill="#8C93C4" fontWeight="600">Yesterday: {fmtVal(yestHours[hoveredHour])}</text>
+                    <text x={boxX + 6} y={PAD.top + 24} fontSize="8" fill="#A855F7" fontWeight="600">{t("dashboard.today")}: {fmtVal(todayHours[hoveredHour])}</text>
+                    <text x={boxX + 6} y={PAD.top + 35} fontSize="8" fill="#8C93C4" fontWeight="600">{t("dashboard.yesterday")}: {fmtVal(yestHours[hoveredHour])}</text>
                   </>
                 );
               })()}
@@ -342,6 +352,8 @@ function HourlyComparisonChart({ ordersData }) {
 }
 
 export default function Dashboard({ ordersData }) {
+  const [lang] = useLanguage();
+  const t = useTranslation(lang);
   const [dateFilter, setDateFilter] = useState("today");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
@@ -436,14 +448,14 @@ export default function Dashboard({ ordersData }) {
 
   const pct = (count) => totalOrders ? Math.round((count / totalOrders) * 100) : 0;
 
-  const dateFilterLabel = DATE_FILTERS.find(f => f.value === dateFilter)?.label || "Today";
+  const dateFilterLabel = t(DATE_FILTER_LABEL_KEYS[dateFilter] || "dashboard.dateFilter.today");
 
   const heroChips = [
-    { label: "Total Orders", value: totalOrders },
-    { label: "Approved", value: statusCounts["Approved"] || 0 },
-    { label: "Pending", value: pendingCount },
-    { label: "Approved Revenue", value: `Rs. ${approvedRevenue.toLocaleString()}` },
-    { label: "No Status", value: noStatusCount },
+    { label: t("dashboard.chip.totalOrders"), value: totalOrders },
+    { label: t("dashboard.chip.approved"), value: statusCounts["Approved"] || 0 },
+    { label: t("dashboard.chip.pending"), value: pendingCount },
+    { label: t("dashboard.chip.approvedRevenue"), value: `Rs. ${approvedRevenue.toLocaleString()}` },
+    { label: t("dashboard.chip.noStatus"), value: noStatusCount },
   ];
 
   return (
@@ -454,7 +466,7 @@ export default function Dashboard({ ordersData }) {
         {DATE_FILTERS.map(f => (
           <button key={f.value} onClick={() => setDateFilter(f.value)}
             style={{ padding: "6px 14px", borderRadius: 20, border: "1px solid", borderColor: dateFilter === f.value ? "transparent" : "var(--ne-border)", fontSize: 11, cursor: "pointer", fontWeight: 700, background: dateFilter === f.value ? "var(--ne-grad)" : "var(--ne-surface-2)", color: dateFilter === f.value ? "#fff" : "var(--ne-muted)" }}>
-            {f.label}
+            {t(DATE_FILTER_LABEL_KEYS[f.value])}
           </button>
         ))}
         {dateFilter === "custom" && (
@@ -465,14 +477,14 @@ export default function Dashboard({ ordersData }) {
               style={{ padding: "6px 9px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
           </>
         )}
-        <span style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>{filtered.length} orders</span>
+        <span style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>{filtered.length} {t("dashboard.ordersSuffix")}</span>
       </div>
 
       {/* Hero Revenue Card */}
       <div style={{ background: "var(--ne-grad)", borderRadius: 18, padding: "1.4rem", marginBottom: "0.75rem", display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "center", flexWrap: "wrap", gap: 16 }}>
         <div>
           <div style={{ fontSize: 12, color: "rgba(255,255,255,.75)", fontWeight: 600, marginBottom: 4 }}>
-            {dateFilterLabel} — total revenue
+            {dateFilterLabel} {t("dashboard.totalRevenueSuffix")}
           </div>
           <div style={{ fontSize: 30, fontWeight: 800, color: "#fff" }}>
             Rs. {totalRevenue.toLocaleString()}
@@ -513,7 +525,7 @@ export default function Dashboard({ ordersData }) {
 
         {/* Status Breakdown */}
         <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem" }}>
-          <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>📊 Status Breakdown</h2>
+          <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon name="chart" size={13} /> {t("dashboard.statusBreakdown")}</h2>
           <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
             {STATUSES.map(s => {
               const count = statusCounts[s.label] || 0;
@@ -533,7 +545,7 @@ export default function Dashboard({ ordersData }) {
 
         {/* Source Breakdown */}
         <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem" }}>
-          <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>📣 Source Breakdown</h2>
+          <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon name="megaphone" size={13} /> {t("dashboard.sourceBreakdown")}</h2>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {Object.entries(sourceCounts).sort((a, b) => b[1] - a[1]).map(([src, count]) => {
               const p = totalOrders ? Math.round((count / totalOrders) * 100) : 0;
@@ -551,7 +563,7 @@ export default function Dashboard({ ordersData }) {
           </div>
 
           {/* Status remaining */}
-          <h2 style={{ margin: "1rem 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>📋 Other Statuses</h2>
+          <h2 style={{ margin: "1rem 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon name="clipboard" size={13} /> {t("dashboard.otherStatuses")}</h2>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {STATUSES.filter(s => statusCounts[s.label] > 0).map(s => (
               <span key={s.label} style={{ padding: "3px 9px", borderRadius: 12, fontSize: 10, background: s.bg, color: s.color, fontWeight: 600 }}>
@@ -567,9 +579,9 @@ export default function Dashboard({ ordersData }) {
 
         {/* Top Cities */}
         <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem" }}>
-          <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>🗺️ Top Cities</h2>
+          <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon name="map" size={13} /> {t("dashboard.topCities")}</h2>
           {topCities.length === 0 ? (
-            <p style={{ color: "var(--ne-muted-2)", fontSize: 12 }}>Koi data nahi</p>
+            <p style={{ color: "var(--ne-muted-2)", fontSize: 12 }}>{t("dashboard.noData")}</p>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
               {topCities.map(([city, count]) => {
@@ -590,9 +602,9 @@ export default function Dashboard({ ordersData }) {
 
         {/* Top SKUs */}
         <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem" }}>
-          <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600 }}>🏷️ Top SKUs</h2>
+          <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon name="tag" size={13} /> {t("dashboard.topSkus")}</h2>
           {topSKUs.length === 0 ? (
-            <p style={{ color: "var(--ne-muted-2)", fontSize: 12 }}>Koi data nahi</p>
+            <p style={{ color: "var(--ne-muted-2)", fontSize: 12 }}>{t("dashboard.noData")}</p>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
               {topSKUs.map(([sku, count]) => {
