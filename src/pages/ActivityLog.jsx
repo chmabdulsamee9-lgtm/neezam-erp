@@ -5,7 +5,7 @@ import { useLanguage, useTranslation } from "../i18n";
 
 const PAGE_SIZE = 50;
 
-export default function ActivityLog({ storeId }) {
+export default function ActivityLog({ storeId, allStoresList }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   // Naye action_types future phases mein bhi 'activityLog.action.<type>' key ke naam se
@@ -20,34 +20,38 @@ export default function ActivityLog({ storeId }) {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [userFilter, setUserFilter] = useState("All");
+  const [storeFilter, setStoreFilter] = useState("All");
   const [orderSearch, setOrderSearch] = useState("");
   const [page, setPage] = useState(1);
 
   useEffect(() => {
-    if (storeId) fetchLogs();
-  }, [storeId]);
+    if (storeId || allStoresList) fetchLogs();
+  }, [storeId, allStoresList]);
 
   const fetchLogs = async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from("activity_log")
-      .select("*")
-      .eq("store_id", storeId)
-      .order("created_at", { ascending: false })
-      .limit(2000);
-    setLogs(data || []);
+    let query = supabase.from("activity_log").select("*").order("created_at", { ascending: false }).limit(2000);
+    if (storeId) query = query.eq("store_id", storeId);
+    const { data } = await query;
+    const enriched = (data || []).map((l) => ({
+      ...l,
+      store_name: allStoresList?.find((s) => s.id === l.store_id)?.store_name || null,
+    }));
+    setLogs(enriched);
     setLoading(false);
   };
 
   const availableUsers = ["All", ...new Set(logs.map(l => l.user_name).filter(Boolean))].sort();
+  const availableStores = allStoresList ? ["All", ...new Set(logs.map((l) => l.store_name).filter(Boolean))].sort() : null;
 
   const filteredLogs = logs.filter(l => {
     const logDate = new Date(l.created_at);
     const matchFrom = !dateFrom || logDate >= new Date(dateFrom + "T00:00:00");
     const matchTo = !dateTo || logDate <= new Date(dateTo + "T23:59:59");
     const matchUser = userFilter === "All" || l.user_name === userFilter;
+    const matchStore = !allStoresList || storeFilter === "All" || l.store_name === storeFilter;
     const matchOrder = !orderSearch || String(l.order_id || "").includes(orderSearch.trim());
-    return matchFrom && matchTo && matchUser && matchOrder;
+    return matchFrom && matchTo && matchUser && matchStore && matchOrder;
   });
 
   const totalPages = Math.ceil(filteredLogs.length / PAGE_SIZE) || 1;
@@ -81,6 +85,11 @@ export default function ActivityLog({ storeId }) {
         <select value={userFilter} onChange={e => { setUserFilter(e.target.value); setPage(1); }} style={inputStyle}>
           {availableUsers.map(u => <option key={u}>{u}</option>)}
         </select>
+        {allStoresList && (
+          <select value={storeFilter} onChange={(e) => setStoreFilter(e.target.value)} style={inputStyle}>
+            {availableStores.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        )}
         <div style={{ position: "relative", minWidth: 160 }}>
           <Icon name="search" size={12} style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", color: "var(--ne-muted-2)" }} />
           <input type="text" placeholder={t("activityLog.orderSearchPlaceholder")} value={orderSearch}
@@ -106,6 +115,11 @@ export default function ActivityLog({ storeId }) {
             <div key={l.id} style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 12.5, color: "var(--ne-text)", fontWeight: 600 }}>
+                  {allStoresList && (
+                    <span style={{ background: "var(--ne-accent-soft)", color: "var(--ne-accent)", borderRadius: 6, padding: "1px 7px", fontSize: 10.5, fontWeight: 700, marginRight: 6 }}>
+                      {l.store_name || "—"}
+                    </span>
+                  )}
                   <span style={{ color: "var(--ne-accent)" }}>{l.user_name || "—"}</span>
                   {" — "}
                   {actionLabel(l.action_type)}
