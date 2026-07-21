@@ -434,6 +434,7 @@ export const translations = {
     'pnl.breakdown.adSpend': 'Ad Spend',
     'pnl.breakdown.courier': 'Courier',
     'pnl.breakdown.packaging': 'Packaging',
+    'pnl.breakdown.returnDamage': 'Return/Damage Loss',
     'pnl.breakdown.misc': 'Misc (Salary + Other)',
     'pnl.perSkuTitle': 'Per-SKU Profitability',
     'pnl.loading': 'Load ho raha hai...',
@@ -458,6 +459,7 @@ export const translations = {
     'pnl.expenseCategory.ad_spend': 'Ad Spend',
     'pnl.expenseCategory.courier': 'Courier',
     'pnl.expenseCategory.packaging': 'Packaging',
+    'pnl.expenseCategory.return_damage': 'Return/Damage Loss',
     'pnl.expenseCategory.salary': 'Salary',
     'pnl.expenseCategory.misc': 'Misc',
 
@@ -1566,6 +1568,7 @@ export const translations = {
     'pnl.breakdown.adSpend': 'Ad Spend',
     'pnl.breakdown.courier': 'Courier',
     'pnl.breakdown.packaging': 'Packaging',
+    'pnl.breakdown.returnDamage': 'Return/Damage Loss',
     'pnl.breakdown.misc': 'Misc (Salary + Other)',
     'pnl.perSkuTitle': 'Per-SKU Profitability',
     'pnl.loading': 'Loading...',
@@ -1590,6 +1593,7 @@ export const translations = {
     'pnl.expenseCategory.ad_spend': 'Ad Spend',
     'pnl.expenseCategory.courier': 'Courier',
     'pnl.expenseCategory.packaging': 'Packaging',
+    'pnl.expenseCategory.return_damage': 'Return/Damage Loss',
     'pnl.expenseCategory.salary': 'Salary',
     'pnl.expenseCategory.misc': 'Misc',
 

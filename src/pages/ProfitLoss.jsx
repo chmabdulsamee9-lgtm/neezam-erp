@@ -10,6 +10,7 @@ const EXPENSE_CATEGORIES = [
   { value: "ad_spend", labelKey: "pnl.expenseCategory.ad_spend" },
   { value: "courier", labelKey: "pnl.expenseCategory.courier" },
   { value: "packaging", labelKey: "pnl.expenseCategory.packaging" },
+  { value: "return_damage", labelKey: "pnl.expenseCategory.return_damage" },
   { value: "salary", labelKey: "pnl.expenseCategory.salary" },
   { value: "misc", labelKey: "pnl.expenseCategory.misc" },
 ];
@@ -123,9 +124,10 @@ export default function ProfitLoss({ ordersData, storeId }) {
   const adSpend = sumByCategory(["ad_spend"]);
   const courier = sumByCategory(["courier"]);
   const packaging = sumByCategory(["packaging"]);
+  const returnDamageLoss = sumByCategory(["return_damage"]);
   const otherExpenses = sumByCategory(["salary", "misc"]);
 
-  const netProfit = revenue - totalCOGS - adSpend - courier - otherExpenses;
+  const netProfit = revenue - totalCOGS - adSpend - courier - packaging - returnDamageLoss - otherExpenses;
 
   const dateFilterLabel = t(DATE_FILTER_LABEL_KEYS[dateFilter] || "dashboard.dateFilter.today");
 
@@ -143,6 +145,7 @@ export default function ProfitLoss({ ordersData, storeId }) {
     { label: t("pnl.breakdown.adSpend"), value: adSpend, color: "var(--ne-accent)", bg: "var(--ne-accent-soft)" },
     { label: t("pnl.breakdown.courier"), value: courier, color: "var(--ne-warning)", bg: "var(--ne-warning-soft)" },
     { label: t("pnl.breakdown.packaging"), value: packaging, color: "var(--ne-pink)", bg: "var(--ne-pink-soft)" },
+    { label: t("pnl.breakdown.returnDamage"), value: returnDamageLoss, color: "var(--ne-danger)", bg: "var(--ne-danger-soft)" },
     { label: t("pnl.breakdown.misc"), value: otherExpenses, color: "var(--ne-orange)", bg: "var(--ne-orange-soft)" },
   ];
 
