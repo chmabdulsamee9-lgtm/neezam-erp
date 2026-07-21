@@ -110,30 +110,40 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
     return legacyCosts[sku] ?? 0;
   };
 
-  const saveComponentValue = async (sku, componentKey, rawValue) => {
+  // Applies one or more component changes to a single SKU atomically — a single-cell
+  // onBlur/Enter save and a multi-cell paste both funnel through here, so a paste that
+  // fills several columns of the SAME row (the normal Excel-block-paste case) computes
+  // its next component-map/total from one consistent base instead of each cell's save
+  // clobbering the others via a stale `components[sku]` closure snapshot.
+  const saveComponentValues = async (sku, changes) => {
     if (!sku) return;
-    const trimmed = String(rawValue ?? "").trim();
-    const value = trimmed === "" ? 0 : Number(trimmed);
     const currentSkuMap = components[sku] || {};
     const nextSkuMap = { ...currentSkuMap };
-    if (!trimmed || value === 0) {
-      delete nextSkuMap[componentKey];
-    } else {
-      nextSkuMap[componentKey] = value;
-    }
+    const toDelete = [];
+    const toUpsert = [];
+    Object.entries(changes).forEach(([componentKey, rawValue]) => {
+      const trimmed = String(rawValue ?? "").trim();
+      const value = trimmed === "" ? 0 : Number(trimmed);
+      if (!trimmed || value === 0) {
+        delete nextSkuMap[componentKey];
+        toDelete.push(componentKey);
+      } else {
+        nextSkuMap[componentKey] = value;
+        toUpsert.push({ store_id: storeId, sku, component_name: componentKey, cost_price: value, updated_at: new Date().toISOString() });
+      }
+    });
     setComponents((prev) => ({ ...prev, [sku]: nextSkuMap }));
 
     const total = Object.values(nextSkuMap).reduce((sum, v) => sum + (Number(v) || 0), 0);
 
     try {
-      if (!trimmed || value === 0) {
+      if (toDelete.length > 0) {
         const { error: delErr } = await supabase.from("product_cost_components").delete()
-          .eq("store_id", storeId).eq("sku", sku).eq("component_name", componentKey);
+          .eq("store_id", storeId).eq("sku", sku).in("component_name", toDelete);
         if (delErr) throw delErr;
-      } else {
-        const { error: upErr } = await supabase.from("product_cost_components").upsert({
-          store_id: storeId, sku, component_name: componentKey, cost_price: value, updated_at: new Date().toISOString(),
-        }, { onConflict: "store_id,sku,component_name" });
+      }
+      if (toUpsert.length > 0) {
+        const { error: upErr } = await supabase.from("product_cost_components").upsert(toUpsert, { onConflict: "store_id,sku,component_name" });
         if (upErr) throw upErr;
       }
       const { error: totalErr } = await supabase.from("product_costs").upsert({
@@ -145,6 +155,8 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
       setError(err.message);
     }
   };
+
+  const saveComponentValue = (sku, componentKey, rawValue) => saveComponentValues(sku, { [componentKey]: rawValue });
 
   const draftKey = (sku, componentKey) => `${sku}::${componentKey}`;
 
@@ -176,6 +188,10 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
     if (!text || (!text.includes("\t") && !text.includes("\n"))) return;
     e.preventDefault();
     const rows = text.replace(/\r/g, "").split("\n").filter((r) => r !== "");
+
+    // Group every pasted cell by target SKU first, so a block that fills multiple
+    // columns of the same row gets applied as one saveComponentValues() call.
+    const changesBySku = {};
     rows.forEach((rowText, rOffset) => {
       const cells = rowText.split("\t");
       cells.forEach((cellText, cOffset) => {
@@ -185,14 +201,22 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
         const targetSku = firstVariant(pagedProducts[targetRow]).sku;
         if (!targetSku) return;
         const componentKey = DEFAULT_COMPONENT_KEYS[targetCol];
-        const dk = draftKey(targetSku, componentKey);
+        if (!changesBySku[targetSku]) changesBySku[targetSku] = {};
+        changesBySku[targetSku][componentKey] = cellText.trim();
+      });
+    });
+
+    Object.entries(changesBySku).forEach(([sku, changes]) => {
+      Object.keys(changes).forEach((componentKey) => {
+        const dk = draftKey(sku, componentKey);
         setDrafts((prev) => {
+          if (!(dk in prev)) return prev;
           const n = { ...prev };
           delete n[dk];
           return n;
         });
-        saveComponentValue(targetSku, componentKey, cellText.trim());
       });
+      saveComponentValues(sku, changes);
     });
   };
 
@@ -427,7 +451,7 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
                     {slotCount > 0 && (
                       <tr style={{ borderBottom: "1px solid var(--ne-border)" }}>
                         <td></td>
-                        <td colSpan={7} style={{ padding: "4px 8px 10px" }}>
+                        <td colSpan={8} style={{ padding: "4px 8px 10px" }}>
                           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", background: "var(--ne-surface)", borderRadius: 9, padding: "8px 10px" }}>
                             {[...Array(slotCount)].map((_, idx) => {
                               const n = idx + 1;
