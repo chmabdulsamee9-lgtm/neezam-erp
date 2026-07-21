@@ -43,6 +43,7 @@ const PUBLIC_ROUTES = {
 import StoreConnect from './pages/StoreConnect'
 import ProductsManagement from './pages/ProductsManagement'
 import InventoryManagement from './pages/InventoryManagement'
+import ProductCosting from './pages/ProductCosting'
 import DevMonitor from './pages/DevMonitor'
 import ShopifyCallback from './pages/ShopifyCallback'
 import Orders from './pages/Orders'
@@ -1345,6 +1346,7 @@ function App() {
     { id: 'returns', label: t('nav.returns'), group: t('nav.group.operations') },
     { id: 'products', label: t('nav.products'), group: t('nav.group.operations') },
     { id: 'inventory', label: t('nav.inventory'), group: t('nav.group.operations') },
+    { id: 'product-costing', label: t('nav.product-costing'), group: t('nav.group.operations') },
     { id: 'ads', label: t('nav.ads'), group: t('nav.group.insights') },
     { id: 'pnl', label: t('nav.pnl'), group: t('nav.group.insights') },
     { id: 'ledger', label: t('nav.ledger'), group: t('nav.group.insights') },
@@ -1533,6 +1535,9 @@ function App() {
             {activeMenu === 'inventory' && hasAccess('inventory') && (
               <InventoryManagement storeId={selectedStoreId} />
             )}
+            {activeMenu === 'product-costing' && hasAccess('product-costing') && (
+              <ProductCosting storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
+            )}
             {activeMenu === 'dev-monitor' && <DevMonitor />}
             {activeMenu === 'meta-connect' && hasAccess('meta-connect') && <MetaConnect storeId={selectedStoreId} />}
             {activeMenu === 'ads' && hasAccess('ads') && (
@@ -1572,7 +1577,7 @@ function App() {
             {activeMenu === 'courier-dashboard/detailed' && hasAccess('courier-dashboard') && (
               <CourierDetailedView storeId={selectedStoreId} ordersStore={ordersStore} />
             )}
-            {!['dashboard', 'store-connect', 'products', 'inventory', 'dev-monitor', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments'].includes(activeMenu) && (
+            {!['dashboard', 'store-connect', 'products', 'inventory', 'product-costing', 'dev-monitor', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments'].includes(activeMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{menuItems.find(m => m.id === activeMenu)?.label}</h2>
