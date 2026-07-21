@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, Fragment } from "react";
+import Papa from "papaparse";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
@@ -11,10 +12,35 @@ const DEFAULT_LABELS = { component_1: "Raw Material", component_2: "Packaging", 
 
 const firstVariant = (row) => row?.raw_data?.variants?.[0] || {};
 
-const extraKeysForSku = (componentsForSku) =>
-  Object.keys(componentsForSku || {})
-    .filter((k) => /^extra_\d+$/.test(k))
-    .sort((a, b) => Number(a.split("_")[1]) - Number(b.split("_")[1]));
+// Case/whitespace/underscore-insensitive header comparison, used for both matching
+// an uploaded CSV/Excel header against the current component labels and for
+// recognizing "SKU"/"Return Value" columns regardless of exact casing.
+const norm = (s) => String(s || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+
+// Turns an unrecognized header into a stable component_name key, so re-uploading
+// the same file always maps back to the same DB row instead of creating duplicates.
+const slugify = (s) => String(s || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+
+const humanizeKey = (key, extraLabel) => {
+  const m = /^extra_(\d+)$/.exec(key);
+  if (m) return `${extraLabel} ${m[1]}`;
+  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+};
+
+// Every non-default key for a SKU — both manually-added "extra_N" slots and any
+// dynamically-named components created by a bulk upload's unrecognized headers.
+const extraKeysForSku = (componentsForSku) => {
+  const keys = Object.keys(componentsForSku || {}).filter((k) => !DEFAULT_COMPONENT_KEYS.includes(k));
+  const numbered = keys.filter((k) => /^extra_\d+$/.test(k)).sort((a, b) => Number(a.split("_")[1]) - Number(b.split("_")[1]));
+  const named = keys.filter((k) => !/^extra_\d+$/.test(k)).sort();
+  return [...numbered, ...named];
+};
+
+const csvEscape = (val) => {
+  const s = String(val ?? "");
+  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+};
 
 export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL }) {
   const [lang] = useLanguage();
@@ -28,12 +54,16 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
 
   // components: { [sku]: { [component_name]: number } } — from product_cost_components
   const [components, setComponents] = useState({});
-  // legacyCosts: { [sku]: number } — from product_costs, used as Total fallback when no components exist yet
+  // legacyCosts: { [sku]: number } — from product_costs.cost_price, used as Total fallback when no components exist yet
   const [legacyCosts, setLegacyCosts] = useState({});
+  const [returnValues, setReturnValues] = useState({}); // { [sku]: number } — product_costs.return_value
+  const [supplierAssignments, setSupplierAssignments] = useState({}); // { [sku]: supplier_id }
+  const [suppliers, setSuppliers] = useState([]);
   const [labels, setLabels] = useState(DEFAULT_LABELS);
-  const [extraCounts, setExtraCounts] = useState({}); // { [sku]: number } — min visible extra-slots for that row
+  const [extraCounts, setExtraCounts] = useState({}); // { [sku]: number } — min visible numbered extra-slots for that row
 
-  // Transient in-progress typing, keyed by `${sku}::${componentKey}` — falls back to saved value once cleared
+  // Transient in-progress typing, keyed by `${sku}::${componentKey}` (or a reserved
+  // "__return_value__" key) — falls back to saved value once cleared
   const [drafts, setDrafts] = useState({});
   const [skuDrafts, setSkuDrafts] = useState({});
   const [savingSkuIds, setSavingSkuIds] = useState(new Set());
@@ -42,9 +72,17 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
   const [labelDraft, setLabelDraft] = useState("");
 
   const [search, setSearch] = useState("");
+  const [filterMode, setFilterMode] = useState("all"); // all | skuMissing | rateMissing
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(20);
   const [selectedIds, setSelectedIds] = useState(new Set());
+
+  const [showBulkSupplierModal, setShowBulkSupplierModal] = useState(false);
+  const [bulkSupplierId, setBulkSupplierId] = useState("");
+  const [bulkSupplierApplying, setBulkSupplierApplying] = useState(false);
+
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkUploadResult, setBulkUploadResult] = useState(null);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 900);
@@ -63,18 +101,34 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
       const cachedProducts = await getCachedProducts(eneezamId);
       setProducts(cachedProducts);
 
-      const [{ data: costRows, error: costErr }, { data: componentRows, error: compErr }, { data: labelRows, error: labelErr }] = await Promise.all([
+      const [
+        { data: costRows, error: costErr },
+        { data: componentRows, error: compErr },
+        { data: labelRows, error: labelErr },
+        { data: supplierRows, error: supplierErr },
+      ] = await Promise.all([
         supabase.from("product_costs").select("*").eq("store_id", storeId),
         supabase.from("product_cost_components").select("*").eq("store_id", storeId),
         supabase.from("cost_component_labels").select("*").eq("store_id", storeId),
+        supabase.from("suppliers").select("id, name").eq("store_id", storeId).order("name"),
       ]);
       if (costErr) throw costErr;
       if (compErr) throw compErr;
       if (labelErr) throw labelErr;
+      if (supplierErr) throw supplierErr;
 
       const legacyMap = {};
-      (costRows || []).forEach((r) => { legacyMap[r.sku] = Number(r.cost_price); });
+      const returnMap = {};
+      const supplierMap = {};
+      (costRows || []).forEach((r) => {
+        legacyMap[r.sku] = Number(r.cost_price);
+        if (r.return_value != null) returnMap[r.sku] = Number(r.return_value);
+        if (r.supplier_id) supplierMap[r.sku] = r.supplier_id;
+      });
       setLegacyCosts(legacyMap);
+      setReturnValues(returnMap);
+      setSupplierAssignments(supplierMap);
+      setSuppliers(supplierRows || []);
 
       const compMap = {};
       (componentRows || []).forEach((r) => {
@@ -111,12 +165,13 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
   };
 
   // Applies one or more component changes to a single SKU atomically — a single-cell
-  // onBlur/Enter save and a multi-cell paste both funnel through here, so a paste that
-  // fills several columns of the SAME row (the normal Excel-block-paste case) computes
-  // its next component-map/total from one consistent base instead of each cell's save
-  // clobbering the others via a stale `components[sku]` closure snapshot.
+  // onBlur/Enter save, a multi-cell paste, and bulk-upload rows all funnel through
+  // here, so a change that touches several columns of the SAME row computes its next
+  // component-map/total from one consistent base instead of clobbering itself via a
+  // stale `components[sku]` closure snapshot. Returns {success,error} so bulk-upload
+  // can build an accurate per-row result summary without relying on exceptions.
   const saveComponentValues = async (sku, changes) => {
-    if (!sku) return;
+    if (!sku) return { success: false, error: "No SKU" };
     const currentSkuMap = components[sku] || {};
     const nextSkuMap = { ...currentSkuMap };
     const toDelete = [];
@@ -151,14 +206,49 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
       }, { onConflict: "store_id,sku" });
       if (totalErr) throw totalErr;
       setLegacyCosts((prev) => ({ ...prev, [sku]: total }));
+      return { success: true };
     } catch (err) {
       setError(err.message);
+      return { success: false, error: err.message };
     }
   };
 
   const saveComponentValue = (sku, componentKey, rawValue) => saveComponentValues(sku, { [componentKey]: rawValue });
 
+  const saveReturnValue = async (sku, rawValue) => {
+    if (!sku) return { success: false, error: "No SKU" };
+    const trimmed = String(rawValue ?? "").trim();
+    const value = trimmed === "" ? 0 : Number(trimmed);
+    setReturnValues((prev) => ({ ...prev, [sku]: value }));
+    try {
+      const { error: rvErr } = await supabase.from("product_costs").upsert({
+        store_id: storeId, sku, return_value: value, updated_at: new Date().toISOString(),
+      }, { onConflict: "store_id,sku" });
+      if (rvErr) throw rvErr;
+      return { success: true };
+    } catch (err) {
+      setError(err.message);
+      return { success: false, error: err.message };
+    }
+  };
+
+  const saveSupplier = async (sku, supplierId) => {
+    if (!sku) return { success: false, error: "No SKU" };
+    setSupplierAssignments((prev) => ({ ...prev, [sku]: supplierId || null }));
+    try {
+      const { error: supErr } = await supabase.from("product_costs").upsert({
+        store_id: storeId, sku, supplier_id: supplierId || null, updated_at: new Date().toISOString(),
+      }, { onConflict: "store_id,sku" });
+      if (supErr) throw supErr;
+      return { success: true };
+    } catch (err) {
+      setError(err.message);
+      return { success: false, error: err.message };
+    }
+  };
+
   const draftKey = (sku, componentKey) => `${sku}::${componentKey}`;
+  const returnDraftKey = (sku) => `${sku}::__return_value__`;
 
   const getInputValue = (sku, componentKey) => {
     const dk = draftKey(sku, componentKey);
@@ -181,6 +271,29 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
     });
     if (val === undefined) return;
     saveComponentValue(sku, componentKey, val);
+  };
+
+  const getReturnInputValue = (sku) => {
+    const dk = returnDraftKey(sku);
+    if (Object.prototype.hasOwnProperty.call(drafts, dk)) return drafts[dk];
+    const v = returnValues[sku];
+    return v != null ? String(v) : "";
+  };
+
+  const handleReturnDraftChange = (sku, val) => {
+    setDrafts((prev) => ({ ...prev, [returnDraftKey(sku)]: val }));
+  };
+
+  const commitReturnDraft = (sku) => {
+    const dk = returnDraftKey(sku);
+    const val = drafts[dk];
+    setDrafts((prev) => {
+      const n = { ...prev };
+      delete n[dk];
+      return n;
+    });
+    if (val === undefined) return;
+    saveReturnValue(sku, val);
   };
 
   const handleComponentPaste = (e, rowIndexOnPage, colIndex) => {
@@ -225,7 +338,7 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
   };
 
   const addAnotherExtra = (sku) => {
-    const existing = extraKeysForSku(components[sku]).length;
+    const existing = extraKeysForSku(components[sku]).filter((k) => /^extra_\d+$/.test(k)).length;
     setExtraCounts((prev) => ({ ...prev, [sku]: Math.max(prev[sku] || 0, existing) + 1 }));
   };
 
@@ -291,14 +404,174 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
     });
   };
 
+  const applyBulkSupplier = async () => {
+    if (!bulkSupplierId) return;
+    const targets = products.filter((p) => selectedIds.has(p.shopify_product_id));
+    const skuList = [...new Set(targets.map((p) => firstVariant(p).sku).filter(Boolean))];
+    if (skuList.length === 0) { setShowBulkSupplierModal(false); return; }
+    setBulkSupplierApplying(true);
+    try {
+      const payload = skuList.map((sku) => ({ store_id: storeId, sku, supplier_id: bulkSupplierId, updated_at: new Date().toISOString() }));
+      const { error: bulkErr } = await supabase.from("product_costs").upsert(payload, { onConflict: "store_id,sku" });
+      if (bulkErr) throw bulkErr;
+      setSupplierAssignments((prev) => {
+        const n = { ...prev };
+        skuList.forEach((sku) => { n[sku] = bulkSupplierId; });
+        return n;
+      });
+      setSelectedIds(new Set());
+      setBulkSupplierId("");
+      setShowBulkSupplierModal(false);
+    } catch (err) {
+      setError(err.message);
+    }
+    setBulkSupplierApplying(false);
+  };
+
+  const downloadTemplate = () => {
+    const rowsWithSku = products.filter((p) => firstVariant(p).sku);
+    const header = ["SKU", labels.component_1, labels.component_2, labels.component_3, "Return Value"];
+    const lines = [header.map(csvEscape).join(",")];
+    rowsWithSku.forEach((p) => {
+      const sku = firstVariant(p).sku;
+      const compMap = components[sku] || {};
+      lines.push([
+        sku,
+        compMap.component_1 ?? "",
+        compMap.component_2 ?? "",
+        compMap.component_3 ?? "",
+        returnValues[sku] ?? "",
+      ].map(csvEscape).join(","));
+    });
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "product_costing_template.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const parseCsvRows = (file) => new Promise((resolve, reject) => {
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => resolve(results.data),
+      error: (err) => reject(err),
+    });
+  });
+
+  const parseXlsxRows = async (file) => {
+    // Dynamic import — exceljs (~1MB) sirf yahan, upload ke actual waqt load hoti hai
+    const { default: ExcelJS } = await import("exceljs");
+    const buffer = await file.arrayBuffer();
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
+    const sheet = workbook.worksheets[0];
+    if (!sheet) return [];
+    const headerByCol = {};
+    sheet.getRow(1).eachCell((cell, colNumber) => { headerByCol[colNumber] = String(cell.value ?? "").trim(); });
+    const rows = [];
+    sheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+      const obj = {};
+      row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
+        const header = headerByCol[colNumber];
+        if (!header) return;
+        obj[header] = cell.value != null ? String(cell.value) : "";
+      });
+      if (Object.keys(obj).length > 0) rows.push(obj);
+    });
+    return rows;
+  };
+
+  // Row-by-row, reuses the exact same upsert logic as the single-cell save
+  // (saveComponentValues/saveReturnValue) — just looped, with a result recorded
+  // per row instead of relying on exceptions.
+  const processBulkUpload = async (rows) => {
+    setBulkUploading(true);
+    setBulkUploadResult(null);
+    let updated = 0;
+    const skipped = [];
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const headerKeys = Object.keys(row);
+      const skuHeader = headerKeys.find((h) => norm(h) === "sku");
+      const sku = skuHeader ? String(row[skuHeader] ?? "").trim() : "";
+      if (!sku) { skipped.push({ row: i + 2, reason: t("costing.bulkSkipNoSku") }); continue; }
+
+      const returnValueHeader = headerKeys.find((h) => norm(h) === "returnvalue");
+      const changes = {};
+      headerKeys.forEach((h) => {
+        if (h === skuHeader || h === returnValueHeader) return;
+        const trimmedVal = String(row[h] ?? "").trim();
+        if (trimmedVal === "") return;
+        const headerNorm = norm(h);
+        if (headerNorm === "") {
+          // Truly blank header with data — last-resort fallback into "Other"
+          changes.component_3 = trimmedVal;
+          return;
+        }
+        const matchedDefaultKey = DEFAULT_COMPONENT_KEYS.find((k) => norm(labels[k]) === headerNorm);
+        if (matchedDefaultKey) { changes[matchedDefaultKey] = trimmedVal; return; }
+        // Unrecognized-but-named header — accept as its own new dynamic component
+        const dynamicKey = slugify(h);
+        if (dynamicKey) changes[dynamicKey] = trimmedVal;
+      });
+
+      let returnVal;
+      if (returnValueHeader) {
+        const rv = String(row[returnValueHeader] ?? "").trim();
+        if (rv !== "") returnVal = rv;
+      }
+
+      if (Object.keys(changes).length === 0 && returnVal === undefined) {
+        skipped.push({ row: i + 2, reason: t("costing.bulkSkipNoData") });
+        continue;
+      }
+
+      let rowFailed = false;
+      if (Object.keys(changes).length > 0) {
+        const res = await saveComponentValues(sku, changes);
+        if (!res.success) { skipped.push({ row: i + 2, reason: res.error }); rowFailed = true; }
+      }
+      if (!rowFailed && returnVal !== undefined) {
+        const res2 = await saveReturnValue(sku, returnVal);
+        if (!res2.success) { skipped.push({ row: i + 2, reason: res2.error }); rowFailed = true; }
+      }
+      if (!rowFailed) updated++;
+    }
+    setBulkUploading(false);
+    setBulkUploadResult({ total: rows.length, updated, skipped });
+  };
+
+  const handleBulkFileSelected = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setError("");
+    try {
+      const rows = /\.xlsx$/i.test(file.name) ? await parseXlsxRows(file) : await parseCsvRows(file);
+      await processBulkUpload(rows);
+    } catch (err) {
+      setError(err.message);
+      setBulkUploading(false);
+    }
+  };
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return products.filter((p) => {
       const title = (p.raw_data?.title || "").toLowerCase();
-      const sku = (firstVariant(p).sku || "").toLowerCase();
-      return !q || title.includes(q) || sku.includes(q);
+      const sku = firstVariant(p).sku || "";
+      const matchSearch = !q || title.includes(q) || sku.toLowerCase().includes(q);
+      if (!matchSearch) return false;
+      if (filterMode === "skuMissing") return !sku;
+      if (filterMode === "rateMissing") return sku && rowTotal(sku) === 0;
+      return true;
     });
-  }, [products, search]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products, search, filterMode, components, legacyCosts]);
 
   const totalPages = Math.ceil(filtered.length / perPage) || 1;
   const pagedProducts = filtered.slice((page - 1) * perPage, page * perPage);
@@ -308,6 +581,15 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
     width: 78, padding: "5px 7px", borderRadius: 7, border: "1px solid var(--ne-border)",
     background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11.5, boxSizing: "border-box",
   };
+  const toolbarBtnStyle = {
+    padding: "7px 14px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)",
+    color: "var(--ne-text)", fontSize: 11.5, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6,
+  };
+  const filterBtnStyle = (active) => ({
+    padding: "6px 12px", borderRadius: 8, border: "1px solid " + (active ? "var(--ne-accent)" : "var(--ne-border)"),
+    background: active ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", color: active ? "var(--ne-accent)" : "var(--ne-muted)",
+    fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap",
+  });
 
   if (!ordersStore?.shopify_url) {
     return (
@@ -327,6 +609,15 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
           <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><Icon name="calculator" size={17} /> {t("costing.title")}</h1>
           <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{ordersStore?.store_name} — {filtered.length}</p>
         </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <button onClick={downloadTemplate} style={toolbarBtnStyle}>
+            <Icon name="download" size={12} /> {t("costing.downloadTemplate")}
+          </button>
+          <label style={{ ...toolbarBtnStyle, cursor: bulkUploading ? "default" : "pointer", opacity: bulkUploading ? 0.6 : 1 }}>
+            <input type="file" accept=".csv,.xlsx" onChange={handleBulkFileSelected} disabled={bulkUploading} style={{ display: "none" }} />
+            <Icon name="upload" size={12} /> {bulkUploading ? t("costing.bulkUploading") : t("costing.bulkUpload")}
+          </label>
+        </div>
       </div>
 
       {error && (
@@ -341,10 +632,25 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
           <input type="text" placeholder={t("costing.searchPlaceholder")} value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px 7px 27px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
         </div>
+        <button onClick={() => { setFilterMode((m) => (m === "skuMissing" ? "all" : "skuMissing")); setPage(1); }} style={filterBtnStyle(filterMode === "skuMissing")}>
+          {t("costing.filterSkuMissing")}
+        </button>
+        <button onClick={() => { setFilterMode((m) => (m === "rateMissing" ? "all" : "rateMissing")); setPage(1); }} style={filterBtnStyle(filterMode === "rateMissing")}>
+          {t("costing.filterRateMissing")}
+        </button>
         <select value={perPage} onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); }}
           style={{ padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }}>
           {PER_PAGE_OPTIONS.map((n) => <option key={n} value={n}>{n} {t("costing.perPageSuffix")}</option>)}
         </select>
+        {selectedIds.size > 0 && (
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <span style={{ fontSize: 11.5, color: "var(--ne-muted)", fontWeight: 600 }}>{selectedIds.size} {t("costing.selectedSuffix")}</span>
+            <button onClick={() => setShowBulkSupplierModal(true)}
+              style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11.5, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <Icon name="team" size={12} /> {t("costing.assignSupplier")}
+            </button>
+          </div>
+        )}
       </div>
 
       {loading ? (
@@ -384,6 +690,8 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
                 ))}
                 <th style={{ padding: "6px 8px" }}></th>
                 <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--ne-muted)", borderBottom: "1px solid var(--ne-border)", fontWeight: 600, fontSize: 10.5, textTransform: "uppercase", whiteSpace: "nowrap" }}>{t("costing.table.total")}</th>
+                <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--ne-muted)", borderBottom: "1px solid var(--ne-border)", fontWeight: 600, fontSize: 10.5, textTransform: "uppercase", whiteSpace: "nowrap" }}>{t("costing.table.returnValue")}</th>
+                <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--ne-muted)", borderBottom: "1px solid var(--ne-border)", fontWeight: 600, fontSize: 10.5, textTransform: "uppercase", whiteSpace: "nowrap" }}>{t("costing.table.supplier")}</th>
               </tr>
             </thead>
             <tbody>
@@ -393,11 +701,15 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
                 const image = p.raw_data?.image?.src || p.raw_data?.images?.[0]?.src;
                 const skuComponents = sku ? components[sku] : null;
                 const extraKeys = extraKeysForSku(skuComponents);
-                const slotCount = Math.max(extraCounts[sku] || 0, extraKeys.length);
+                const numberedExtraKeys = extraKeys.filter((k) => /^extra_\d+$/.test(k));
+                const namedExtraKeys = extraKeys.filter((k) => !/^extra_\d+$/.test(k));
+                const slotCount = Math.max(extraCounts[sku] || 0, numberedExtraKeys.length);
+                const hasExpandedContent = slotCount > 0 || namedExtraKeys.length > 0;
                 const isSavingSku = savingSkuIds.has(p.shopify_product_id);
+                const variationTitle = v.title && v.title !== "Default Title" ? v.title : "";
                 return (
                   <Fragment key={p.shopify_product_id}>
-                    <tr style={{ borderBottom: slotCount > 0 ? "none" : "1px solid var(--ne-border)" }}>
+                    <tr style={{ borderBottom: hasExpandedContent ? "none" : "1px solid var(--ne-border)" }}>
                       <td style={{ padding: "7px 8px" }}>
                         <input type="checkbox" checked={selectedIds.has(p.shopify_product_id)} onChange={() => toggleSelect(p.shopify_product_id)} style={{ cursor: "pointer" }} />
                       </td>
@@ -410,7 +722,12 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
                           </div>
                         )}
                       </td>
-                      <td style={{ padding: "7px 8px", color: "var(--ne-text)", fontWeight: 600, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.raw_data?.title || "—"}</td>
+                      <td style={{ padding: "7px 8px", color: "var(--ne-text)", maxWidth: 220, whiteSpace: "normal", wordWrap: "break-word", overflowWrap: "break-word" }}>
+                        <div style={{ fontWeight: 600 }}>{p.raw_data?.title || "—"}</div>
+                        {variationTitle && (
+                          <div style={{ fontSize: 10, color: "var(--ne-muted-2)", fontWeight: 400, marginTop: 1 }}>{variationTitle}</div>
+                        )}
+                      </td>
                       <td style={{ padding: "7px 8px" }}>
                         {sku ? (
                           <span style={{ color: "var(--ne-muted)", fontFamily: "monospace" }}>{sku}</span>
@@ -437,7 +754,7 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
                         </td>
                       ))}
                       <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>
-                        {sku && slotCount === 0 && (
+                        {sku && !hasExpandedContent && (
                           <button onClick={() => startMoreForSku(sku)}
                             style={{ background: "transparent", border: "1px solid var(--ne-border)", borderRadius: 7, color: "var(--ne-muted)", cursor: "pointer", fontSize: 10.5, padding: "5px 8px" }}>
                             {t("costing.more")}
@@ -447,11 +764,25 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
                       <td style={{ padding: "7px 8px", color: "var(--ne-text)", fontWeight: 700 }}>
                         Rs. {rowTotal(sku).toLocaleString()}
                       </td>
+                      <td style={{ padding: "7px 8px" }}>
+                        <input type="number" step="0.01" disabled={!sku} value={getReturnInputValue(sku)}
+                          onChange={(e) => handleReturnDraftChange(sku, e.target.value)}
+                          onBlur={() => commitReturnDraft(sku)}
+                          onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
+                          style={{ ...cellInputStyle, opacity: sku ? 1 : 0.5 }} />
+                      </td>
+                      <td style={{ padding: "7px 8px" }}>
+                        <select disabled={!sku} value={supplierAssignments[sku] || ""} onChange={(e) => saveSupplier(sku, e.target.value)}
+                          style={{ ...cellInputStyle, width: 120, opacity: sku ? 1 : 0.5 }}>
+                          <option value="">{t("costing.noSupplierOption")}</option>
+                          {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                      </td>
                     </tr>
-                    {slotCount > 0 && (
+                    {hasExpandedContent && (
                       <tr style={{ borderBottom: "1px solid var(--ne-border)" }}>
                         <td></td>
-                        <td colSpan={8} style={{ padding: "4px 8px 10px" }}>
+                        <td colSpan={10} style={{ padding: "4px 8px 10px" }}>
                           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", background: "var(--ne-surface)", borderRadius: 9, padding: "8px 10px" }}>
                             {[...Array(slotCount)].map((_, idx) => {
                               const n = idx + 1;
@@ -467,6 +798,16 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
                                 </div>
                               );
                             })}
+                            {namedExtraKeys.map((key) => (
+                              <div key={key} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                <span style={{ fontSize: 9.5, color: "var(--ne-muted-2)", textTransform: "uppercase", fontWeight: 600 }}>{humanizeKey(key, t("costing.extraPrefix"))}</span>
+                                <input type="number" step="0.01" value={getInputValue(sku, key)}
+                                  onChange={(e) => handleDraftChange(sku, key, e.target.value)}
+                                  onBlur={() => commitDraft(sku, key)}
+                                  onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
+                                  style={cellInputStyle} />
+                              </div>
+                            ))}
                             <button onClick={() => addAnotherExtra(sku)}
                               style={{ background: "transparent", border: "1px dashed var(--ne-border)", borderRadius: 7, color: "var(--ne-accent)", cursor: "pointer", fontSize: 10.5, padding: "5px 8px", alignSelf: "flex-end" }}>
                               {t("costing.addAnother")}
@@ -497,6 +838,58 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
             })}
             <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={{ padding: "4px 9px", borderRadius: 7, border: "1px solid var(--ne-border)", background: page === totalPages ? "transparent" : "var(--ne-surface-2)", color: page === totalPages ? "var(--ne-muted-2)" : "var(--ne-muted)", fontSize: 11, cursor: page === totalPages ? "default" : "pointer" }}>›</button>
             <button onClick={() => setPage(totalPages)} disabled={page === totalPages} style={{ padding: "4px 9px", borderRadius: 7, border: "1px solid var(--ne-border)", background: page === totalPages ? "transparent" : "var(--ne-surface-2)", color: page === totalPages ? "var(--ne-muted-2)" : "var(--ne-muted)", fontSize: 11, cursor: page === totalPages ? "default" : "pointer" }}>»</button>
+          </div>
+        </div>
+      )}
+
+      {showBulkSupplierModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
+          <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 380, maxWidth: "92vw", padding: "20px" }}>
+            <h3 style={{ margin: "0 0 6px", fontSize: 15, color: "var(--ne-text)" }}>{t("costing.assignSupplier")}</h3>
+            <p style={{ margin: "0 0 14px", fontSize: 11.5, color: "var(--ne-muted)" }}>{selectedIds.size} {t("costing.selectedSuffix")}</p>
+            <select value={bulkSupplierId} onChange={(e) => setBulkSupplierId(e.target.value)}
+              style={{ width: "100%", padding: "9px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, marginBottom: 16, boxSizing: "border-box" }}>
+              <option value="">{t("costing.selectSupplierPlaceholder")}</option>
+              {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setShowBulkSupplierModal(false)}
+                style={{ flex: 1, padding: "10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 13, cursor: "pointer" }}>
+                {t("action.cancel")}
+              </button>
+              <button onClick={applyBulkSupplier} disabled={bulkSupplierApplying || !bulkSupplierId}
+                style={{ flex: 1, padding: "10px", borderRadius: 9, border: "none", background: (bulkSupplierApplying || !bulkSupplierId) ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                {bulkSupplierApplying ? t("costing.applying") : t("costing.apply")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {bulkUploadResult && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000001 }}>
+          <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 420, maxWidth: "94vw", maxHeight: "75vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
+            <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)" }}>
+              <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)" }}>{t("costing.bulkResultTitle")}</h2>
+              <p style={{ margin: "3px 0 0", fontSize: 11.5, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Icon name="check" size={11} /> {bulkUploadResult.updated} {t("costing.bulkUpdatedSuffix")}</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Icon name="close" size={11} /> {bulkUploadResult.skipped.length} {t("costing.bulkSkippedSuffix")}</span>
+              </p>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: "10px 18px" }}>
+              {bulkUploadResult.skipped.map((s, idx) => (
+                <div key={idx} style={{ display: "flex", gap: 8, fontSize: 11, marginBottom: 6, alignItems: "flex-start" }}>
+                  <Icon name="close" size={11} style={{ color: "var(--ne-danger)", flexShrink: 0, marginTop: 2 }} />
+                  <div style={{ color: "var(--ne-muted)" }}>{t("costing.rowPrefix")} {s.row}: {s.reason}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ padding: "12px 18px", borderTop: "1px solid var(--ne-border)", display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={() => setBulkUploadResult(null)}
+                style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                {t("costing.close")}
+              </button>
+            </div>
           </div>
         </div>
       )}
