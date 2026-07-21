@@ -598,6 +598,9 @@ export const translations = {
     'settings.addingBrand': 'Add ho raha hai...',
     'settings.addBrandButton': '+ Brand Add Karo',
     'settings.brandNameRequired': 'Brand name daalo',
+    'settings.storePreferences': 'Store Preferences',
+    'settings.dropshipLabel': 'Kya yeh ek Dropship-model store hai?',
+    'settings.dropshipHint': 'Agar ON hai, to returned-orders ka packaging-damage-loss automatically Supplier-Ledger se bhi adjust ho jayega (Return-Value ke hisab se).',
 
     'courierDash.delivered': 'Delivered',
     'courierDash.returned': 'Returned',
@@ -1732,6 +1735,9 @@ export const translations = {
     'settings.addingBrand': 'Adding...',
     'settings.addBrandButton': '+ Add Brand',
     'settings.brandNameRequired': 'Enter a brand name',
+    'settings.storePreferences': 'Store Preferences',
+    'settings.dropshipLabel': 'Is this a Dropship-model store?',
+    'settings.dropshipHint': 'If ON, returned orders\' packaging/damage loss will also be automatically adjusted in the Supplier Ledger (based on the Return Value).',
 
     'courierDash.delivered': 'Delivered',
     'courierDash.returned': 'Returned',
