@@ -5,11 +5,6 @@ import { useLanguage, useTranslation } from "../i18n";
 
 const isValidPhone = (p) => /^\d{11}$/.test(String(p || "").trim());
 
-// Same localStorage key App.jsx persists the currently-selected store's real
-// stores.id UUID under (STORE_STORAGE_KEY there) — read directly here instead
-// of threading a new storeId prop through, since Settings currently gets none.
-const STORE_ID_STORAGE_KEY = "ne_selected_store_id";
-
 export default function Settings({ profile, onProfileUpdated }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
@@ -33,30 +28,11 @@ export default function Settings({ profile, onProfileUpdated }) {
   const [brandError, setBrandError] = useState("");
   const [brandSuccess, setBrandSuccess] = useState(false);
 
-  // ---- Store Preferences: Dropship toggle ----
-  const [currentStoreId, setCurrentStoreId] = useState(null);
-  const [isDropship, setIsDropship] = useState(false);
-  const [dropshipLoading, setDropshipLoading] = useState(true);
-  const [dropshipSaving, setDropshipSaving] = useState(false);
-  const [dropshipError, setDropshipError] = useState("");
-
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  useEffect(() => {
-    (async () => {
-      let storedId;
-      try { storedId = localStorage.getItem(STORE_ID_STORAGE_KEY); } catch { /* localStorage unavailable */ }
-      setCurrentStoreId(storedId);
-      if (!storedId) { setDropshipLoading(false); return; }
-      const { data, error } = await supabase.from("stores").select("is_dropship").eq("id", storedId).single();
-      if (!error && data) setIsDropship(!!data.is_dropship);
-      setDropshipLoading(false);
-    })();
   }, []);
 
   const cardStyle = {
@@ -158,20 +134,6 @@ export default function Settings({ profile, onProfileUpdated }) {
     setBrandSaving(false);
   };
 
-  const toggleDropship = async () => {
-    if (!currentStoreId || dropshipSaving) return;
-    const nextValue = !isDropship;
-    setDropshipError("");
-    setDropshipSaving(true);
-    setIsDropship(nextValue);
-    const { error } = await supabase.from("stores").update({ is_dropship: nextValue }).eq("id", currentStoreId);
-    if (error) {
-      setDropshipError(error.message);
-      setIsDropship(!nextValue);
-    }
-    setDropshipSaving(false);
-  };
-
   return (
     <div style={{ padding: isMobile ? "1rem" : "1.5rem", maxWidth: 600, margin: "0 auto" }}>
       <div style={{ marginBottom: "1.5rem" }}>
@@ -227,28 +189,6 @@ export default function Settings({ profile, onProfileUpdated }) {
             {passwordSaving ? t("settings.changing") : (<><Icon name="key" size={13} /> {t("settings.changePasswordButton")}</>)}
           </button>
         </form>
-      </div>
-
-      {/* ---------- STORE PREFERENCES ---------- */}
-      <div style={cardStyle}>
-        <h2 style={{ margin: "0 0 1rem", fontSize: 15, color: "var(--ne-text)", fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
-          <Icon name="truck" size={14} /> {t("settings.storePreferences")}
-        </h2>
-        {dropshipLoading ? (
-          <p style={{ fontSize: 12, color: "var(--ne-muted)" }}>{t("common.loading")}</p>
-        ) : (
-          <>
-            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: currentStoreId && !dropshipSaving ? "pointer" : "not-allowed", marginBottom: 6 }}>
-              <input type="checkbox" checked={isDropship} disabled={dropshipSaving || !currentStoreId}
-                onChange={toggleDropship} style={{ width: 16, height: 16, accentColor: "#5C7CFA", cursor: "inherit" }} />
-              <span style={{ fontSize: 13, color: "var(--ne-text)", fontWeight: 600 }}>{t("settings.dropshipLabel")}</span>
-            </label>
-            <p style={{ fontSize: 11.5, color: "var(--ne-muted)", margin: "0 0 8px", lineHeight: 1.5 }}>
-              {t("settings.dropshipHint")}
-            </p>
-            {dropshipError && <p style={{ color: "var(--ne-danger)", fontSize: 12, margin: 0 }}>{dropshipError}</p>}
-          </>
-        )}
       </div>
 
       {/* ---------- ADD NEW BRAND (sirf admin) ---------- */}

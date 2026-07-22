@@ -14,7 +14,7 @@ export default function SupplierLedger({ storeId }) {
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
 
   const [showAddSupplier, setShowAddSupplier] = useState(false);
-  const [supplierForm, setSupplierForm] = useState({ name: "", contact_phone: "", notes: "" });
+  const [supplierForm, setSupplierForm] = useState({ name: "", contact_phone: "", notes: "", is_dropship: false });
   const [supplierSaving, setSupplierSaving] = useState(false);
   const [supplierError, setSupplierError] = useState("");
 
@@ -64,11 +64,12 @@ export default function SupplierLedger({ storeId }) {
       name: supplierForm.name.trim(),
       contact_phone: supplierForm.contact_phone.trim() || null,
       notes: supplierForm.notes.trim() || null,
+      is_dropship: supplierForm.is_dropship,
     });
     setSupplierSaving(false);
     if (error) { setSupplierError(error.message); return; }
     setShowAddSupplier(false);
-    setSupplierForm({ name: "", contact_phone: "", notes: "" });
+    setSupplierForm({ name: "", contact_phone: "", notes: "", is_dropship: false });
     fetchAll();
   };
 
@@ -240,7 +241,7 @@ export default function SupplierLedger({ storeId }) {
           <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><Icon name="clipboard" size={17} /> {t("ledger.title")}</h1>
           <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{suppliers.length} {t("ledger.suppliersSuffix")}</p>
         </div>
-        <button onClick={() => { setSupplierForm({ name: "", contact_phone: "", notes: "" }); setSupplierError(""); setShowAddSupplier(true); }}
+        <button onClick={() => { setSupplierForm({ name: "", contact_phone: "", notes: "", is_dropship: false }); setSupplierError(""); setShowAddSupplier(true); }}
           style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
           {t("ledger.addSupplier")}
         </button>
@@ -259,7 +260,14 @@ export default function SupplierLedger({ storeId }) {
             return (
               <div key={s.id} style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "14px 16px", boxShadow: "0 2px 8px rgba(0,0,0,.18)", display: "flex", flexDirection: "column", gap: 10 }}>
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: "var(--ne-text)" }}>{s.name}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: "var(--ne-text)" }}>{s.name}</div>
+                    {s.is_dropship && (
+                      <span style={{ fontSize: 9.5, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: "var(--ne-accent-soft)", color: "var(--ne-accent)" }}>
+                        {t("ledger.dropshipBadge")}
+                      </span>
+                    )}
+                  </div>
                   <div style={{ fontSize: 12, color: "var(--ne-muted-2)" }}>{s.contact_phone || t("common.noPhone")}</div>
                 </div>
                 <div style={{ background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "8px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -290,6 +298,10 @@ export default function SupplierLedger({ storeId }) {
               <textarea placeholder={t("ledger.notesPlaceholder")} rows={2} value={supplierForm.notes}
                 onChange={e => setSupplierForm(f => ({ ...f, notes: e.target.value }))}
                 style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }} />
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "var(--ne-text)", cursor: "pointer", marginBottom: 10 }}>
+                <input type="checkbox" checked={supplierForm.is_dropship} onChange={e => setSupplierForm(f => ({ ...f, is_dropship: e.target.checked }))} style={{ accentColor: "#5C7CFA" }} />
+                {t("ledger.isDropshipLabel")}
+              </label>
 
               {supplierError && <p style={{ color: "var(--ne-danger)", fontSize: 12, marginBottom: 10 }}>{supplierError}</p>}
 
