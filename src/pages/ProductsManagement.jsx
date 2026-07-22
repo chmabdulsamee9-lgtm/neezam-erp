@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, Fragment } from "react";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
@@ -7,13 +7,8 @@ import { getCachedProducts, saveProductsBulk, upsertProduct, getProductsMeta, se
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 const PAGE_SIZE = 500;
 const PER_PAGE_OPTIONS = [20, 50, 100];
-const BULK_FIELDS = ["vendor", "product_type", "tags", "status"];
-
-const STATUS_META = {
-  active: { color: "var(--ne-success)", bg: "var(--ne-success-soft)" },
-  draft: { color: "var(--ne-warning)", bg: "var(--ne-warning-soft)" },
-  archived: { color: "var(--ne-muted)", bg: "var(--ne-muted-soft)" },
-};
+const BULK_FIELDS = ["vendor", "product_type", "tags", "status", "collection"];
+const CREATE_NEW_COLLECTION = "__create_new__";
 
 const firstVariant = (row) => row?.raw_data?.variants?.[0] || {};
 
@@ -74,12 +69,13 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
   const [syncResult, setSyncResult] = useState(null);
 
   const [showNewProductModal, setShowNewProductModal] = useState(false);
-  const [newProductForm, setNewProductForm] = useState({ title: "", vendor: "", product_type: "", tags: "", price: "", sku: "" });
+  const [newProductForm, setNewProductForm] = useState({ title: "", vendor: "", product_type: "", tags: "", price: "", compare_at_price: "", sku: "" });
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
 
   const [editingProduct, setEditingProduct] = useState(null);
-  const [editForm, setEditForm] = useState({ title: "", vendor: "", product_type: "", tags: "", status: "active", price: "", sku: "" });
+  const [editForm, setEditForm] = useState({ title: "", vendor: "", product_type: "", tags: "", status: "active", price: "", compare_at_price: "", sku: "", body_html: "", images: [] });
+  const [newImageUrl, setNewImageUrl] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState("");
 
@@ -89,6 +85,19 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
   const [bulkApplying, setBulkApplying] = useState(false);
   const [bulkProgress, setBulkProgress] = useState(0);
   const [bulkResults, setBulkResults] = useState(null);
+  const [newBulkCollectionTitle, setNewBulkCollectionTitle] = useState("");
+  const [bulkCollectionCreating, setBulkCollectionCreating] = useState(false);
+
+  // ---- Collections (Phase 1 endpoints) ----
+  const [storeCollections, setStoreCollections] = useState([]); // [{shopify_collection_id, title, ...}]
+  const [productCollections, setProductCollections] = useState({}); // { [shopify_product_id]: [shopify_collection_id,...] }
+
+  // ---- Inline-edit / sync-status plumbing ----
+  const [drafts, setDrafts] = useState({}); // `${productId}::${fieldKey}` -> in-progress string
+  const [syncStatus, setSyncStatus] = useState({}); // { [productId]: 'pending' | 'synced' }
+  const syncTimeoutsRef = useRef({});
+  const [editingTitleId, setEditingTitleId] = useState(null);
+  const [expandedProducts, setExpandedProducts] = useState(new Set());
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
@@ -99,6 +108,17 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
   useEffect(() => {
     if (storeId && eneezamId) loadProducts();
   }, [storeId, eneezamId]);
+
+  useEffect(() => {
+    if (storeId) loadCollections();
+  }, [storeId]);
+
+  useEffect(() => {
+    const timeouts = syncTimeoutsRef.current;
+    return () => {
+      Object.values(timeouts).forEach((id) => clearTimeout(id));
+    };
+  }, []);
 
   // BookedOrders.jsx/Orders.jsx wala established pattern: cache mein data ho to turant
   // dikhao (spinner ke bina), phir background mein delta-sync karo (synced_at se) —
@@ -143,6 +163,29 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
     setLoading(false);
   };
 
+  const loadCollections = async () => {
+    try {
+      const [{ data: collRows }, { data: assocRows }] = await Promise.all([
+        supabase.from("store_collections").select("*").eq("store_id", storeId),
+        supabase.from("product_collections").select("*").eq("store_id", storeId),
+      ]);
+      setStoreCollections(collRows || []);
+      const map = {};
+      (assocRows || []).forEach((r) => {
+        if (!map[r.shopify_product_id]) map[r.shopify_product_id] = [];
+        map[r.shopify_product_id].push(r.shopify_collection_id);
+      });
+      setProductCollections(map);
+    } catch (err) {
+      console.log("Collections load error:", err.message);
+    }
+  };
+
+  const collectionTitlesForProduct = (productId) => {
+    const ids = productCollections[productId] || [];
+    return ids.map((id) => storeCollections.find((c) => c.shopify_collection_id === id)?.title).filter(Boolean);
+  };
+
   const authedFetch = async (path, opts = {}) => {
     const { data: { session } } = await supabase.auth.getSession();
     const res = await fetch(`${cfUrl}${path}`, {
@@ -174,7 +217,98 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
     setSyncing(false);
   };
 
-  const resetNewProductForm = () => setNewProductForm({ title: "", vendor: "", product_type: "", tags: "", price: "", sku: "" });
+  // ---------- Generic per-product Shopify save (used by every inline cell, the
+  // status toggle, and the edit modal) — drives the sync-pending/synced badge. ----------
+  const saveProductUpdate = async (product, updates) => {
+    const productId = product.shopify_product_id;
+    if (syncTimeoutsRef.current[productId]) {
+      clearTimeout(syncTimeoutsRef.current[productId]);
+      delete syncTimeoutsRef.current[productId];
+    }
+    setSyncStatus((prev) => ({ ...prev, [productId]: "pending" }));
+    try {
+      const data = await authedFetch("/shopify-product-update", {
+        method: "POST",
+        body: JSON.stringify({ store_id: storeId, product_id: productId, updates }),
+      });
+      if (data.error) {
+        setError(data.error);
+        setSyncStatus((prev) => { const n = { ...prev }; delete n[productId]; return n; });
+        return { success: false };
+      }
+      const row = { store_id: storeId, shopify_product_id: String(data.product.id), raw_data: data.product, synced_at: new Date().toISOString() };
+      setProducts((prev) => prev.map((p) => (p.shopify_product_id === row.shopify_product_id ? row : p)));
+      await upsertProduct(eneezamId, row);
+      setSyncStatus((prev) => ({ ...prev, [productId]: "synced" }));
+      syncTimeoutsRef.current[productId] = setTimeout(() => {
+        setSyncStatus((prev) => { const n = { ...prev }; delete n[productId]; return n; });
+        delete syncTimeoutsRef.current[productId];
+      }, 2500);
+      return { success: true, product: data.product };
+    } catch (err) {
+      setError(err.message);
+      setSyncStatus((prev) => { const n = { ...prev }; delete n[productId]; return n; });
+      return { success: false };
+    }
+  };
+
+  const draftKey = (productId, fieldKey) => `${productId}::${fieldKey}`;
+  const setFieldDraft = (productId, fieldKey, val) => setDrafts((prev) => ({ ...prev, [draftKey(productId, fieldKey)]: val }));
+  const clearFieldDraft = (productId, fieldKey) => setDrafts((prev) => {
+    const dk = draftKey(productId, fieldKey);
+    if (!(dk in prev)) return prev;
+    const n = { ...prev };
+    delete n[dk];
+    return n;
+  });
+
+  const commitProductField = (product, field, rawValue) => {
+    const current = product.raw_data?.[field] || "";
+    if (rawValue === current) return;
+    saveProductUpdate(product, { [field]: rawValue });
+  };
+
+  const commitVariantField = (product, variant, field, rawValue) => {
+    const current = variant[field] != null ? String(variant[field]) : "";
+    if (String(rawValue ?? "") === current) return;
+    saveProductUpdate(product, { variants: [{ id: variant.id, [field]: rawValue }] });
+  };
+
+  const toggleStatus = (product) => {
+    const current = product.raw_data?.status || "active";
+    const next = current === "active" ? "draft" : "active";
+    saveProductUpdate(product, { status: next });
+  };
+
+  const toggleExpanded = (productId) => {
+    setExpandedProducts((prev) => {
+      const n = new Set(prev);
+      n.has(productId) ? n.delete(productId) : n.add(productId);
+      return n;
+    });
+  };
+
+  // Reusable inline-editable cell — every plain text/number cell (vendor, product_type,
+  // sku, price, compare_at_price, and each expanded variant's own copies) goes through
+  // this so drafts/commit-on-blur/Enter-to-save stay consistent everywhere.
+  const EditableCell = ({ productId, fieldKey, initialValue, onCommit, type = "text", disabled, style }) => {
+    const dk = draftKey(productId, fieldKey);
+    const value = Object.prototype.hasOwnProperty.call(drafts, dk) ? drafts[dk] : (initialValue != null ? String(initialValue) : "");
+    return (
+      <input type={type} step={type === "number" ? "0.01" : undefined} disabled={disabled} value={value}
+        onChange={(e) => setFieldDraft(productId, fieldKey, e.target.value)}
+        onBlur={() => {
+          const dv = drafts[dk];
+          clearFieldDraft(productId, fieldKey);
+          if (dv === undefined) return;
+          onCommit(dv);
+        }}
+        onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
+        style={style} />
+    );
+  };
+
+  const resetNewProductForm = () => setNewProductForm({ title: "", vendor: "", product_type: "", tags: "", price: "", compare_at_price: "", sku: "" });
 
   const createNewProduct = async (e) => {
     e.preventDefault();
@@ -187,7 +321,7 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
         vendor: newProductForm.vendor.trim() || undefined,
         product_type: newProductForm.product_type.trim() || undefined,
         tags: newProductForm.tags.trim() || undefined,
-        variants: [{ price: newProductForm.price || "0", sku: newProductForm.sku.trim() || undefined }],
+        variants: [{ price: newProductForm.price || "0", compare_at_price: newProductForm.compare_at_price || undefined, sku: newProductForm.sku.trim() || undefined }],
       };
       const data = await authedFetch("/shopify-product-create", { method: "POST", body: JSON.stringify({ store_id: storeId, product: productPayload }) });
       if (data.error) { setCreateError(data.error); setCreating(false); return; }
@@ -212,10 +346,23 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
       tags: row.raw_data?.tags || "",
       status: row.raw_data?.status || "active",
       price: v.price || "",
+      compare_at_price: v.compare_at_price || "",
       sku: v.sku || "",
+      body_html: row.raw_data?.body_html || "",
+      images: (row.raw_data?.images || []).map((img) => ({ id: img.id, src: img.src })),
     });
+    setNewImageUrl("");
     setEditError("");
   };
+
+  const addEditImage = () => {
+    const url = newImageUrl.trim();
+    if (!url) return;
+    setEditForm((f) => ({ ...f, images: [...f.images, { src: url }] }));
+    setNewImageUrl("");
+  };
+
+  const removeEditImage = (idx) => setEditForm((f) => ({ ...f, images: f.images.filter((_, i) => i !== idx) }));
 
   const saveEditProduct = async (e) => {
     e.preventDefault();
@@ -229,7 +376,9 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
         product_type: editForm.product_type.trim(),
         tags: editForm.tags.trim(),
         status: editForm.status,
-        variants: [{ id: v.id, price: editForm.price, sku: editForm.sku }],
+        body_html: editForm.body_html,
+        images: editForm.images.map((img) => (img.id ? { id: img.id } : { src: img.src })),
+        variants: [{ id: v.id, price: editForm.price, compare_at_price: editForm.compare_at_price, sku: editForm.sku }],
       };
       const data = await authedFetch("/shopify-product-update", {
         method: "POST",
@@ -254,6 +403,26 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
     });
   };
 
+  const createBulkCollection = async () => {
+    const title = newBulkCollectionTitle.trim();
+    if (!title) return;
+    setBulkCollectionCreating(true);
+    try {
+      const data = await authedFetch("/shopify-collection-create", { method: "POST", body: JSON.stringify({ store_id: storeId, title }) });
+      if (data.error) {
+        setError(data.error);
+      } else {
+        const newRow = { shopify_collection_id: String(data.collection.id), title: data.collection.title, handle: data.collection.handle, collection_type: "custom" };
+        setStoreCollections((prev) => [...prev, newRow]);
+        setBulkValue(newRow.shopify_collection_id);
+        setNewBulkCollectionTitle("");
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+    setBulkCollectionCreating(false);
+  };
+
   const applyBulkEdit = async () => {
     setBulkApplying(true);
     setBulkProgress(0);
@@ -261,18 +430,36 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
     const results = [];
     for (const p of targets) {
       try {
-        const updates = { [bulkField]: bulkValue };
-        const data = await authedFetch("/shopify-product-update", {
-          method: "POST",
-          body: JSON.stringify({ store_id: storeId, product_id: p.shopify_product_id, updates }),
-        });
-        if (data.error) {
-          results.push({ id: p.shopify_product_id, name: p.raw_data?.title, success: false, error: data.error });
+        if (bulkField === "collection") {
+          const data = await authedFetch("/shopify-product-collections-update", {
+            method: "POST",
+            body: JSON.stringify({ store_id: storeId, product_id: p.shopify_product_id, add_collection_ids: [bulkValue], remove_collection_ids: [] }),
+          });
+          if (data.error) {
+            results.push({ id: p.shopify_product_id, name: p.raw_data?.title, success: false, error: data.error });
+          } else {
+            setProductCollections((prev) => {
+              const n = { ...prev };
+              const list = n[p.shopify_product_id] || [];
+              n[p.shopify_product_id] = list.includes(bulkValue) ? list : [...list, bulkValue];
+              return n;
+            });
+            results.push({ id: p.shopify_product_id, name: p.raw_data?.title, success: true });
+          }
         } else {
-          const row = { store_id: storeId, shopify_product_id: String(data.product.id), raw_data: data.product, synced_at: new Date().toISOString() };
-          setProducts((prev) => prev.map((x) => (x.shopify_product_id === row.shopify_product_id ? row : x)));
-          await upsertProduct(eneezamId, row);
-          results.push({ id: p.shopify_product_id, name: p.raw_data?.title, success: true });
+          const updates = { [bulkField]: bulkValue };
+          const data = await authedFetch("/shopify-product-update", {
+            method: "POST",
+            body: JSON.stringify({ store_id: storeId, product_id: p.shopify_product_id, updates }),
+          });
+          if (data.error) {
+            results.push({ id: p.shopify_product_id, name: p.raw_data?.title, success: false, error: data.error });
+          } else {
+            const row = { store_id: storeId, shopify_product_id: String(data.product.id), raw_data: data.product, synced_at: new Date().toISOString() };
+            setProducts((prev) => prev.map((x) => (x.shopify_product_id === row.shopify_product_id ? row : x)));
+            await upsertProduct(eneezamId, row);
+            results.push({ id: p.shopify_product_id, name: p.raw_data?.title, success: true });
+          }
         }
       } catch (err) {
         results.push({ id: p.shopify_product_id, name: p.raw_data?.title, success: false, error: err.message });
@@ -284,6 +471,7 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
     setBulkResults(results);
     setSelectedIds(new Set());
     setBulkValue("");
+    setNewBulkCollectionTitle("");
   };
 
   const filtered = useMemo(() => {
@@ -306,6 +494,11 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
     background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, boxSizing: "border-box", marginBottom: 10,
   };
   const cardStyle = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "18px 20px" };
+  const cellInputStyle = {
+    width: 90, padding: "5px 7px", borderRadius: 7, border: "1px solid var(--ne-border)",
+    background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11.5, boxSizing: "border-box",
+  };
+  const badgeStyle = { display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 10, fontSize: 9.5, fontWeight: 700, whiteSpace: "nowrap" };
 
   if (!ordersStore?.shopify_url) {
     return (
@@ -392,7 +585,12 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
               <tr>
                 <th style={{ padding: "6px 8px" }}></th>
                 <th style={{ padding: "6px 8px" }}></th>
-                {[t("products.table.title"), t("products.table.vendor"), t("products.table.type"), t("products.table.sku"), t("products.table.price"), t("products.table.status"), t("products.table.syncedAt"), t("products.table.actions")].map((h) => (
+                {[t("products.table.title"), t("products.table.vendor"), t("products.table.type"), t("products.table.sku"), t("products.table.fullPrice"), t("products.table.discountedPrice")].map((h) => (
+                  <th key={h} style={{ textAlign: "left", padding: "6px 8px", color: "var(--ne-muted)", borderBottom: "1px solid var(--ne-border)", fontWeight: 600, fontSize: 10.5, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
+                ))}
+                <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--ne-muted)", borderBottom: "1px solid var(--ne-border)", fontWeight: 600, fontSize: 10.5, textTransform: "uppercase", whiteSpace: "nowrap" }}>{t("products.table.status")}</th>
+                <th style={{ padding: "6px 8px" }}></th>
+                {[t("products.table.syncedAt"), t("products.table.actions")].map((h) => (
                   <th key={h} style={{ textAlign: "left", padding: "6px 8px", color: "var(--ne-muted)", borderBottom: "1px solid var(--ne-border)", fontWeight: 600, fontSize: 10.5, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
                 ))}
               </tr>
@@ -401,46 +599,141 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
               {pagedProducts.map((p) => {
                 const v = firstVariant(p);
                 const status = p.raw_data?.status || "active";
-                const meta = STATUS_META[status] || STATUS_META.active;
                 const image = p.raw_data?.image?.src || p.raw_data?.images?.[0]?.src;
-                const shopifyUrl = `https://${ordersStore?.shopify_url}/admin/products/${p.shopify_product_id}`;
+                const shopifyAdminUrl = `https://${ordersStore?.shopify_url}/admin/products/${p.shopify_product_id}`;
+                const shopifyStorefrontUrl = p.raw_data?.handle ? `https://${ordersStore?.shopify_url}/products/${p.raw_data.handle}` : null;
+                const productId = p.shopify_product_id;
+                const variants = p.raw_data?.variants || [];
+                const extraVariants = variants.slice(1);
+                const isExpanded = expandedProducts.has(productId);
+                const collectionTitles = collectionTitlesForProduct(productId);
+                const variationTitle = v.title && v.title !== "Default Title" ? v.title : "";
+                const status2 = syncStatus[productId];
+
                 return (
-                  <tr key={p.shopify_product_id} style={{ borderBottom: "1px solid var(--ne-border)" }}>
-                    <td style={{ padding: "7px 8px" }}>
-                      <input type="checkbox" checked={selectedIds.has(p.shopify_product_id)} onChange={() => toggleSelect(p.shopify_product_id)} style={{ cursor: "pointer" }} />
-                    </td>
-                    <td style={{ padding: "7px 8px" }}>
-                      {image ? (
-                        <img src={image} alt="" style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover", display: "block" }} />
-                      ) : (
-                        <div style={{ width: 32, height: 32, borderRadius: 6, background: "var(--ne-surface)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                          <Icon name="package" size={14} style={{ color: "var(--ne-muted-2)" }} />
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ padding: "7px 8px", color: "var(--ne-text)", fontWeight: 600, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.raw_data?.title || "—"}</td>
-                    <td style={{ padding: "7px 8px", color: "var(--ne-muted)" }}>{p.raw_data?.vendor || "—"}</td>
-                    <td style={{ padding: "7px 8px", color: "var(--ne-muted)" }}>{p.raw_data?.product_type || "—"}</td>
-                    <td style={{ padding: "7px 8px", color: "var(--ne-muted)", fontFamily: "monospace" }}>{v.sku || "—"}</td>
-                    <td style={{ padding: "7px 8px", color: "var(--ne-text)" }}>{v.price ? `Rs. ${Number(v.price).toLocaleString()}` : "—"}</td>
-                    <td style={{ padding: "7px 8px" }}>
-                      <span style={{ padding: "2px 9px", borderRadius: 10, fontSize: 10, fontWeight: 700, background: meta.bg, color: meta.color }}>
-                        {t(`products.status.${status}`) || status}
-                      </span>
-                    </td>
-                    <td style={{ padding: "7px 8px", color: "var(--ne-muted-2)", fontSize: 10.5, whiteSpace: "nowrap" }}>
-                      {p.synced_at ? new Date(p.synced_at).toLocaleString("en-PK", { dateStyle: "short", timeStyle: "short" }) : "—"}
-                    </td>
-                    <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>
-                      <button onClick={() => openEditProduct(p)}
-                        style={{ background: "transparent", border: "none", color: "var(--ne-accent)", cursor: "pointer", fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, marginRight: 10 }}>
-                        <Icon name="edit" size={11} /> {t("products.edit")}
-                      </button>
-                      <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-muted)", fontSize: 11, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                        <Icon name="link" size={11} /> {t("products.viewInShopify")}
-                      </a>
-                    </td>
-                  </tr>
+                  <Fragment key={productId}>
+                    <tr style={{ borderBottom: (isExpanded && extraVariants.length > 0) ? "none" : "1px solid var(--ne-border)" }}>
+                      <td style={{ padding: "7px 8px" }}>
+                        <input type="checkbox" checked={selectedIds.has(productId)} onChange={() => toggleSelect(productId)} style={{ cursor: "pointer" }} />
+                      </td>
+                      <td style={{ padding: "7px 8px" }}>
+                        {image ? (
+                          <img src={image} alt="" style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover", display: "block", cursor: "zoom-in", transition: "transform .15s ease" }}
+                            onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(3)"; e.currentTarget.style.position = "relative"; e.currentTarget.style.zIndex = "50"; e.currentTarget.style.boxShadow = "0 8px 24px rgba(0,0,0,.4)"; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "none"; }} />
+                        ) : (
+                          <div style={{ width: 32, height: 32, borderRadius: 6, background: "var(--ne-surface)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <Icon name="package" size={14} style={{ color: "var(--ne-muted-2)" }} />
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ padding: "7px 8px", color: "var(--ne-text)", fontWeight: 600, maxWidth: 200, whiteSpace: "normal", wordWrap: "break-word", overflowWrap: "break-word" }}>
+                        {editingTitleId === productId ? (
+                          <EditableCell productId={productId} fieldKey="title" initialValue={p.raw_data?.title}
+                            onCommit={(val) => { commitProductField(p, "title", val); setEditingTitleId(null); }}
+                            style={{ ...cellInputStyle, width: "100%" }} />
+                        ) : (
+                          <div style={{ display: "flex", alignItems: "flex-start", gap: 4 }}>
+                            {shopifyStorefrontUrl ? (
+                              <a href={shopifyStorefrontUrl} target="_blank" rel="noreferrer" title={t("products.viewOnStorefront")}
+                                style={{ color: "var(--ne-text)", textDecoration: "none" }}>
+                                {p.raw_data?.title || "—"}
+                              </a>
+                            ) : (
+                              <span>{p.raw_data?.title || "—"}</span>
+                            )}
+                            <Icon name="edit" size={9} style={{ cursor: "pointer", flexShrink: 0, color: "var(--ne-muted-2)", marginTop: 2 }}
+                              onClick={() => setEditingTitleId(productId)} />
+                          </div>
+                        )}
+                        {variationTitle && <div style={{ fontSize: 10, color: "var(--ne-muted-2)", fontWeight: 400, marginTop: 1 }}>{variationTitle}</div>}
+                      </td>
+                      <td style={{ padding: "7px 8px" }}>
+                        <EditableCell productId={productId} fieldKey="vendor" initialValue={p.raw_data?.vendor}
+                          onCommit={(val) => commitProductField(p, "vendor", val)} style={cellInputStyle} />
+                        {collectionTitles.length > 0 && (
+                          <div style={{ fontSize: 10, color: "var(--ne-muted-2)", marginTop: 3 }}>{collectionTitles.join(", ")}</div>
+                        )}
+                      </td>
+                      <td style={{ padding: "7px 8px" }}>
+                        <EditableCell productId={productId} fieldKey="product_type" initialValue={p.raw_data?.product_type}
+                          onCommit={(val) => commitProductField(p, "product_type", val)} style={cellInputStyle} />
+                      </td>
+                      <td style={{ padding: "7px 8px" }}>
+                        <EditableCell productId={productId} fieldKey={`sku-${v.id}`} initialValue={v.sku}
+                          onCommit={(val) => commitVariantField(p, v, "sku", val)} style={{ ...cellInputStyle, fontFamily: "monospace" }} />
+                        {extraVariants.length > 0 && (
+                          <button onClick={() => toggleExpanded(productId)}
+                            style={{ background: "none", border: "none", color: "var(--ne-accent)", cursor: "pointer", fontSize: 10, padding: 0, marginTop: 3, display: "block" }}>
+                            {isExpanded ? t("products.showLess") : `${t("products.showMore")} (+${extraVariants.length})`}
+                          </button>
+                        )}
+                      </td>
+                      <td style={{ padding: "7px 8px" }}>
+                        <EditableCell productId={productId} fieldKey={`cap-${v.id}`} type="number" initialValue={v.compare_at_price}
+                          onCommit={(val) => commitVariantField(p, v, "compare_at_price", val)} style={cellInputStyle} />
+                      </td>
+                      <td style={{ padding: "7px 8px" }}>
+                        <EditableCell productId={productId} fieldKey={`price-${v.id}`} type="number" initialValue={v.price}
+                          onCommit={(val) => commitVariantField(p, v, "price", val)} style={cellInputStyle} />
+                      </td>
+                      <td style={{ padding: "7px 8px" }}>
+                        <button onClick={() => toggleStatus(p)} disabled={status2 === "pending"} title={t(`products.status.${status}`) || status}
+                          style={{ width: 34, height: 18, borderRadius: 10, border: "none", cursor: status2 === "pending" ? "default" : "pointer", position: "relative", background: status === "active" ? "var(--ne-success)" : "var(--ne-border)", flexShrink: 0 }}>
+                          <span style={{ position: "absolute", top: 2, left: status === "active" ? 17 : 2, width: 14, height: 14, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+                        </button>
+                      </td>
+                      <td style={{ padding: "7px 8px" }}>
+                        {status2 === "pending" && (
+                          <span style={{ ...badgeStyle, background: "var(--ne-warning-soft)", color: "var(--ne-warning)" }}>
+                            <Icon name="refresh" size={9} /> {t("products.syncPending")}
+                          </span>
+                        )}
+                        {status2 === "synced" && (
+                          <span style={{ ...badgeStyle, background: "var(--ne-success-soft)", color: "var(--ne-success)" }}>
+                            <Icon name="check" size={9} /> {t("products.synced")}
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: "7px 8px", color: "var(--ne-muted-2)", fontSize: 10.5, whiteSpace: "nowrap" }}>
+                        {p.synced_at ? new Date(p.synced_at).toLocaleString("en-PK", { dateStyle: "short", timeStyle: "short" }) : "—"}
+                      </td>
+                      <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>
+                        <button onClick={() => openEditProduct(p)}
+                          style={{ background: "transparent", border: "none", color: "var(--ne-accent)", cursor: "pointer", fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, marginRight: 10 }}>
+                          <Icon name="edit" size={11} /> {t("products.edit")}
+                        </button>
+                        <a href={shopifyAdminUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-muted)", fontSize: 11, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                          <Icon name="link" size={11} /> {t("products.viewInShopify")}
+                        </a>
+                      </td>
+                    </tr>
+                    {isExpanded && extraVariants.map((variant) => (
+                      <tr key={variant.id} style={{ borderBottom: "1px solid var(--ne-border)", background: "var(--ne-surface)" }}>
+                        <td></td>
+                        <td></td>
+                        <td style={{ padding: "7px 8px", fontSize: 10.5, color: "var(--ne-muted-2)" }}>{variant.title !== "Default Title" ? variant.title : "—"}</td>
+                        <td></td>
+                        <td></td>
+                        <td style={{ padding: "7px 8px" }}>
+                          <EditableCell productId={productId} fieldKey={`sku-${variant.id}`} initialValue={variant.sku}
+                            onCommit={(val) => commitVariantField(p, variant, "sku", val)} style={{ ...cellInputStyle, fontFamily: "monospace" }} />
+                        </td>
+                        <td style={{ padding: "7px 8px" }}>
+                          <EditableCell productId={productId} fieldKey={`cap-${variant.id}`} type="number" initialValue={variant.compare_at_price}
+                            onCommit={(val) => commitVariantField(p, variant, "compare_at_price", val)} style={cellInputStyle} />
+                        </td>
+                        <td style={{ padding: "7px 8px" }}>
+                          <EditableCell productId={productId} fieldKey={`price-${variant.id}`} type="number" initialValue={variant.price}
+                            onCommit={(val) => commitVariantField(p, variant, "price", val)} style={cellInputStyle} />
+                        </td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                      </tr>
+                    ))}
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -483,6 +776,8 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                 onChange={(e) => setNewProductForm((f) => ({ ...f, product_type: e.target.value }))} style={inputStyle} />
               <input type="text" placeholder={t("products.tagsPlaceholder")} value={newProductForm.tags}
                 onChange={(e) => setNewProductForm((f) => ({ ...f, tags: e.target.value }))} style={inputStyle} />
+              <input type="number" step="0.01" placeholder={t("products.compareAtPricePlaceholder")} value={newProductForm.compare_at_price}
+                onChange={(e) => setNewProductForm((f) => ({ ...f, compare_at_price: e.target.value }))} style={inputStyle} />
               <input type="number" step="0.01" placeholder={t("products.pricePlaceholder")} value={newProductForm.price}
                 onChange={(e) => setNewProductForm((f) => ({ ...f, price: e.target.value }))} style={inputStyle} />
               <input type="text" placeholder={t("products.skuPlaceholder")} value={newProductForm.sku}
@@ -508,7 +803,7 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
       {/* Edit Product Modal */}
       {editingProduct && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
-          <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 420, maxWidth: "94vw", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
+          <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 480, maxWidth: "94vw", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
             <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)" }}>
               <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="edit" size={13} /> {t("products.editProductTitle")}</h2>
             </div>
@@ -521,6 +816,8 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                 onChange={(e) => setEditForm((f) => ({ ...f, product_type: e.target.value }))} style={inputStyle} />
               <input type="text" placeholder={t("products.tagsPlaceholder")} value={editForm.tags}
                 onChange={(e) => setEditForm((f) => ({ ...f, tags: e.target.value }))} style={inputStyle} />
+              <input type="number" step="0.01" placeholder={t("products.compareAtPricePlaceholder")} value={editForm.compare_at_price}
+                onChange={(e) => setEditForm((f) => ({ ...f, compare_at_price: e.target.value }))} style={inputStyle} />
               <input type="number" step="0.01" placeholder={t("products.pricePlaceholder")} value={editForm.price}
                 onChange={(e) => setEditForm((f) => ({ ...f, price: e.target.value }))} style={inputStyle} />
               <input type="text" placeholder={t("products.skuPlaceholder")} value={editForm.sku}
@@ -531,6 +828,31 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                 <option value="draft">{t("products.status.draft")}</option>
                 <option value="archived">{t("products.status.archived")}</option>
               </select>
+
+              <label style={{ color: "var(--ne-muted)", fontSize: 12, display: "block", marginBottom: 4, fontWeight: 600 }}>{t("products.descriptionLabel")}</label>
+              <textarea rows={4} placeholder={t("products.descriptionPlaceholder")} value={editForm.body_html}
+                onChange={(e) => setEditForm((f) => ({ ...f, body_html: e.target.value }))} style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }} />
+
+              <label style={{ color: "var(--ne-muted)", fontSize: 12, display: "block", marginBottom: 6, fontWeight: 600 }}>{t("products.imagesLabel")}</label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                {editForm.images.map((img, idx) => (
+                  <div key={img.id || img.src} style={{ position: "relative" }}>
+                    <img src={img.src} alt="" style={{ width: 56, height: 56, borderRadius: 8, objectFit: "cover", border: "1px solid var(--ne-border)" }} />
+                    <button type="button" onClick={() => removeEditImage(idx)} title={t("products.removeImage")}
+                      style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: "50%", border: "none", background: "var(--ne-danger)", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Icon name="close" size={9} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+                <input type="text" placeholder={t("products.imageUrlPlaceholder")} value={newImageUrl}
+                  onChange={(e) => setNewImageUrl(e.target.value)} style={{ ...inputStyle, marginBottom: 0, flex: 1 }} />
+                <button type="button" onClick={addEditImage}
+                  style={{ padding: "0 14px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface)", color: "var(--ne-text)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                  {t("products.addImage")}
+                </button>
+              </div>
 
               {editError && <p style={{ color: "var(--ne-danger)", fontSize: 12, marginBottom: 10 }}>{editError}</p>}
 
@@ -559,7 +881,7 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
             </div>
             <div style={{ padding: "16px 18px" }}>
               <label style={{ color: "var(--ne-muted)", fontSize: 12, display: "block", marginBottom: 4, fontWeight: 600 }}>{t("products.fieldLabel")}</label>
-              <select value={bulkField} onChange={(e) => setBulkField(e.target.value)} style={inputStyle}>
+              <select value={bulkField} onChange={(e) => { setBulkField(e.target.value); setBulkValue(""); }} style={inputStyle}>
                 {BULK_FIELDS.map((f) => <option key={f} value={f}>{t(`products.field.${f}`)}</option>)}
               </select>
               {bulkField === "status" ? (
@@ -569,13 +891,31 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                   <option value="draft">{t("products.status.draft")}</option>
                   <option value="archived">{t("products.status.archived")}</option>
                 </select>
+              ) : bulkField === "collection" ? (
+                <>
+                  <select value={bulkValue} onChange={(e) => setBulkValue(e.target.value)} style={inputStyle}>
+                    <option value="">—</option>
+                    {storeCollections.map((c) => <option key={c.shopify_collection_id} value={c.shopify_collection_id}>{c.title}</option>)}
+                    <option value={CREATE_NEW_COLLECTION}>{t("products.createNewCollection")}</option>
+                  </select>
+                  {bulkValue === CREATE_NEW_COLLECTION && (
+                    <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+                      <input type="text" placeholder={t("products.newCollectionNamePlaceholder")} value={newBulkCollectionTitle}
+                        onChange={(e) => setNewBulkCollectionTitle(e.target.value)} style={{ ...inputStyle, marginBottom: 0, flex: 1 }} />
+                      <button type="button" onClick={createBulkCollection} disabled={bulkCollectionCreating || !newBulkCollectionTitle.trim()}
+                        style={{ padding: "0 14px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                        {bulkCollectionCreating ? "..." : t("products.create")}
+                      </button>
+                    </div>
+                  )}
+                </>
               ) : (
                 <input type="text" placeholder={t("products.valueLabel")} value={bulkValue} onChange={(e) => setBulkValue(e.target.value)} style={inputStyle} />
               )}
 
               <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={applyBulkEdit} disabled={bulkApplying || !bulkValue}
-                  style={{ flex: 1, padding: "10px", background: (bulkApplying || !bulkValue) ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: (bulkApplying || !bulkValue) ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                <button onClick={applyBulkEdit} disabled={bulkApplying || !bulkValue || bulkValue === CREATE_NEW_COLLECTION}
+                  style={{ flex: 1, padding: "10px", background: (bulkApplying || !bulkValue || bulkValue === CREATE_NEW_COLLECTION) ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: (bulkApplying || !bulkValue) ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
                   {bulkApplying ? `${t("products.applying")} ${bulkProgress}/${selectedIds.size}` : (<><Icon name="check" size={13} /> {t("products.apply")}</>)}
                 </button>
                 <button type="button" onClick={() => setShowBulkEditModal(false)} disabled={bulkApplying}
