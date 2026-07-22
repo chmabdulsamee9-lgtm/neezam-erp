@@ -898,6 +898,7 @@ export const translations = {
     'costing.bulkSkippedSuffix': 'skip hue',
     'costing.close': 'Band Karo',
     'costing.rowPrefix': 'Row',
+    'costing.viewOnStorefront': 'Store pe dekho',
 
     'inventory.title': 'Inventory',
     'inventory.addInventory': '+ Add Inventory',
@@ -2052,6 +2053,7 @@ export const translations = {
     'costing.bulkSkippedSuffix': 'skipped',
     'costing.close': 'Close',
     'costing.rowPrefix': 'Row',
+    'costing.viewOnStorefront': 'View on storefront',
 
     'inventory.title': 'Inventory',
     'inventory.addInventory': '+ Add Inventory',

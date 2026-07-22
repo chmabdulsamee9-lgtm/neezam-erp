@@ -715,7 +715,9 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
                       </td>
                       <td style={{ padding: "7px 8px" }}>
                         {image ? (
-                          <img src={image} alt="" style={{ width: 30, height: 30, borderRadius: 6, objectFit: "cover", display: "block" }} />
+                          <img src={image} alt="" style={{ width: 30, height: 30, borderRadius: 6, objectFit: "cover", display: "block", cursor: "zoom-in", transition: "transform .15s ease" }}
+                            onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(3)"; e.currentTarget.style.position = "relative"; e.currentTarget.style.zIndex = "50"; e.currentTarget.style.boxShadow = "0 8px 24px rgba(0,0,0,.4)"; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "none"; }} />
                         ) : (
                           <div style={{ width: 30, height: 30, borderRadius: 6, background: "var(--ne-surface)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                             <Icon name="package" size={13} style={{ color: "var(--ne-muted-2)" }} />
@@ -723,7 +725,14 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
                         )}
                       </td>
                       <td style={{ padding: "7px 8px", color: "var(--ne-text)", maxWidth: 220, whiteSpace: "normal", wordWrap: "break-word", overflowWrap: "break-word" }}>
-                        <div style={{ fontWeight: 600 }}>{p.raw_data?.title || "—"}</div>
+                        {p.raw_data?.handle ? (
+                          <a href={`https://${ordersStore?.shopify_url}/products/${p.raw_data.handle}`} target="_blank" rel="noreferrer" title={t("costing.viewOnStorefront")}
+                            style={{ fontWeight: 600, color: "var(--ne-text)", textDecoration: "none" }}>
+                            {p.raw_data?.title || "—"}
+                          </a>
+                        ) : (
+                          <div style={{ fontWeight: 600 }}>{p.raw_data?.title || "—"}</div>
+                        )}
                         {variationTitle && (
                           <div style={{ fontSize: 10, color: "var(--ne-muted-2)", fontWeight: 400, marginTop: 1 }}>{variationTitle}</div>
                         )}
