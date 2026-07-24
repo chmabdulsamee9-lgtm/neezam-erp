@@ -7,6 +7,10 @@ const CLIENT_ID = import.meta.env.VITE_SHOPIFY_CLIENT_ID;
 const REDIRECT_URI = "https://neezam-erp.pages.dev/auth/callback";
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 
+// TEMPORARY — Doctor Rubina test-app, isay test complete hone ke baad hata dena hai
+const TEST_CLIENT_ID = "de63df7a35d2960766dc3fb9fef91b0c";
+const TEST_STORE_ENEEZAM_ID = "EN7461162";
+
 const SCOPES = [
   "read_orders",
   "write_orders",
@@ -150,9 +154,12 @@ export default function StoreConnect({ storeId }) {
     if (!cleanUrl.includes(".myshopify.com")) {
       cleanUrl = cleanUrl + ".myshopify.com";
     }
+    // TEMPORARY — Doctor Rubina (EN7461162) test-app override, hata dena hai test ke baad
+    const currentEneezamId = stores[0]?.eneezam_id;
+    const effectiveClientId = currentEneezamId === TEST_STORE_ENEEZAM_ID ? TEST_CLIENT_ID : CLIENT_ID;
     const authUrl =
       `https://${cleanUrl}/admin/oauth/authorize` +
-      `?client_id=${CLIENT_ID}` +
+      `?client_id=${effectiveClientId}` +
       `&scope=${SCOPES}` +
       `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
     // Actual DB-write (shopify_url set) OAuth callback (ShopifyCallback.jsx) mein hoti hai, is
