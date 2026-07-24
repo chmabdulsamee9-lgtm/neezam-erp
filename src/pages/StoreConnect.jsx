@@ -230,8 +230,10 @@ export default function StoreConnect({ storeId }) {
         </p>
       </div>
 
-      {/* Add New Store Button - sirf tab dikhana jab abhi tak Shopify connect nahi hua */}
-      {stores.length === 0 && !loading && (
+      {/* Add New Store Button - sirf tab dikhana jab abhi tak Shopify connect nahi hua,
+          ya jab existing (abhi-tak-not-connected) store-card ke "Connect Shopify"
+          button se showInput explicitly true kiya gaya ho */}
+      {(stores.length === 0 || showInput) && !loading && (
         !showInput ? (
           <button
             onClick={() => setShowInput(true)}
@@ -394,13 +396,25 @@ export default function StoreConnect({ storeId }) {
                       <Icon name="check" size={10} /> {t("store.connected")}
                     </span>
                   ) : (
-                    <span style={{
-                      fontSize: 11, padding: "4px 12px",
-                      background: "var(--ne-warning-soft)", color: "var(--ne-warning)",
-                      borderRadius: 20, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 5,
-                    }}>
-                      <Icon name="pending" size={10} /> {t("store.notConnected")}
-                    </span>
+                    <>
+                      <span style={{
+                        fontSize: 11, padding: "4px 12px",
+                        background: "var(--ne-warning-soft)", color: "var(--ne-warning)",
+                        borderRadius: 20, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 5,
+                      }}>
+                        <Icon name="pending" size={10} /> {t("store.notConnected")}
+                      </span>
+                      <button
+                        onClick={() => setShowInput(true)}
+                        style={{
+                          background: "var(--ne-grad)", color: "#fff", border: "none", borderRadius: 9,
+                          padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+                          display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
+                        }}
+                      >
+                        <Icon name="shop" size={12} /> {t("store.connectShopifyButton")}
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
