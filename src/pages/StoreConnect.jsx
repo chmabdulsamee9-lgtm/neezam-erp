@@ -154,14 +154,18 @@ export default function StoreConnect({ storeId }) {
     if (!cleanUrl.includes(".myshopify.com")) {
       cleanUrl = cleanUrl + ".myshopify.com";
     }
-    // TEMPORARY — Doctor Rubina (EN7461162) test-app override, hata dena hai test ke baad
+    // TEMPORARY — Doctor Rubina (EN7461162) test-app override, hata dena hai test ke baad.
+    // "state" ko OAuth ka standard round-trip param use karte hain taake eneezam_id
+    // callback tak reliably pahunche, chahe is store ka shopify_url abhi null ho
+    // (pehli-baar-connect) — Worker ke /shopify-token mein isi state se decide hota hai.
     const currentEneezamId = stores[0]?.eneezam_id;
     const effectiveClientId = currentEneezamId === TEST_STORE_ENEEZAM_ID ? TEST_CLIENT_ID : CLIENT_ID;
     const authUrl =
       `https://${cleanUrl}/admin/oauth/authorize` +
       `?client_id=${effectiveClientId}` +
       `&scope=${SCOPES}` +
-      `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
+      `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+      `&state=${encodeURIComponent(currentEneezamId || "")}`;
     // Actual DB-write (shopify_url set) OAuth callback (ShopifyCallback.jsx) mein hoti hai, is
     // component se navigate-away ho jane ke baad — is liye yahan connect-flow ke INITIATION
     // par hi log karte hain (yehi ek pakka signal hai jo is file ke scope mein milta hai)

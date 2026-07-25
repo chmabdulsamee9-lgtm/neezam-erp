@@ -15,6 +15,10 @@ export default function ShopifyCallback() {
       const params = new URLSearchParams(window.location.search);
       const code = params.get("code");
       const shop = params.get("shop");
+      // TEMPORARY — Doctor Rubina (EN7461162) test-app override, hata dena hai test ke baad.
+      // OAuth "state" round-trip param se aata hai (StoreConnect.jsx ne authorize-URL mein
+      // add kiya tha) — Worker isi se test-app-vs-production client_id/secret decide karta hai.
+      const state = params.get("state");
 
       if (!code || !shop) {
         setStatus("❌ Invalid callback!");
@@ -26,7 +30,7 @@ export default function ShopifyCallback() {
       const res = await fetch(`${CF_URL}/shopify-token`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, shop }),
+        body: JSON.stringify({ code, shop, storeEneezamId: state }),
       });
 
       const data = await res.json();
