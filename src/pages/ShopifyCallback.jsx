@@ -53,16 +53,27 @@ export default function ShopifyCallback() {
 
       const storeName = shop.replace(".myshopify.com", "");
 
-      const { error } = await supabase.from("stores").upsert({
-        user_id: session.user.id,
-        store_name: storeName,
-        shopify_url: shop,
-        api_token: data.access_token,
-        platform: "shopify",
-      }, { onConflict: "shopify_url" });
+      let dbError;
+      if (state) {
+        const { error } = await supabase.from("stores").update({
+          shopify_url: shop,
+          api_token: data.access_token,
+          platform: "shopify",
+        }).eq("eneezam_id", state);
+        dbError = error;
+      } else {
+        const { error } = await supabase.from("stores").upsert({
+          user_id: session.user.id,
+          store_name: storeName,
+          shopify_url: shop,
+          api_token: data.access_token,
+          platform: "shopify",
+        }, { onConflict: "shopify_url" });
+        dbError = error;
+      }
 
-      if (error) {
-        setStatus("❌ Save error: " + error.message);
+      if (dbError) {
+        setStatus("❌ Save error: " + dbError.message);
         return;
       }
 
