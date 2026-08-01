@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
-import { isDevEnv } from "../App";
 
 const DATE_FILTER_LABEL_KEYS = { today: "devMonitor.today", yesterday: "devMonitor.yesterday", "7days": "devMonitor.7days", "30days": "devMonitor.30days" };
 
@@ -36,9 +35,27 @@ export default function DevMonitor() {
   }, []);
 
   useEffect(() => {
-    if (!isDevEnv()) return;
     loadLogs();
   }, [dateFilter]);
+
+  const exportLogsCsv = () => {
+    const columns = ["created_at", "source", "store_id", "user_name", "page_or_endpoint", "action", "status", "error_message", "duration_ms"];
+    const escapeCsv = (value) => {
+      const s = value == null ? "" : String(value);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const rows = logs.map((l) => columns.map((c) => escapeCsv(l[c])).join(","));
+    const csv = [columns.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `dev-monitor-log-${dateFilter}-${Date.now()}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   const loadLogs = async () => {
     setLoading(true);
@@ -103,12 +120,6 @@ export default function DevMonitor() {
     color: dateFilter === type ? "#fff" : "var(--ne-muted)",
   });
 
-  if (!isDevEnv()) {
-    return (
-      <div style={{ padding: "2rem", textAlign: "center", color: "var(--ne-muted)" }}>{t("devMonitor.notDevEnv")}</div>
-    );
-  }
-
   const statCards = [
     { label: t("devMonitor.totalEvents"), value: stats.total, color: "var(--ne-accent)" },
     { label: t("devMonitor.successCount"), value: stats.successCount, color: "var(--ne-success)" },
@@ -131,6 +142,9 @@ export default function DevMonitor() {
         {["today", "yesterday", "7days", "30days"].map((f) => (
           <button key={f} style={dateBtnStyle(f)} onClick={() => setDateFilter(f)}>{t(DATE_FILTER_LABEL_KEYS[f])}</button>
         ))}
+        <button style={{ ...dateBtnStyle("export"), display: "flex", alignItems: "center", gap: 5 }} onClick={exportLogsCsv}>
+          <Icon name="download" size={11} /> {t("devMonitor.exportLogs")}
+        </button>
       </div>
 
       {error && (

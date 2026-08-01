@@ -181,6 +181,8 @@ function PendingApprovalScreen({ onSignOut, t }) {
 
 function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, onSignOut, userEmail, cfUrl, onDataChanged, allPlansList, onDenyOrDelete, allAddonsList, t, session, logActivity }) {
   const [editingAdmin, setEditingAdmin] = useState(null)
+  const [editingStore, setEditingStore] = useState(null)
+  const [editStoreName, setEditStoreName] = useState('')
   const [editFullName, setEditFullName] = useState('')
   const [editPhone, setEditPhone] = useState('')
   const [editEmail, setEditEmail] = useState('')
@@ -219,8 +221,10 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
     background: 'var(--ne-bg)', color: 'var(--ne-text)', fontSize: 13, boxSizing: 'border-box', marginBottom: 10,
   }
 
-  const openEditAdmin = (admin) => {
+  const openEditAdmin = (admin, store) => {
     setEditingAdmin(admin)
+    setEditingStore(store || null)
+    setEditStoreName(store?.store_name || '')
     setEditFullName(admin.full_name || '')
     setEditPhone(admin.phone || '')
     setEditEmail(admin.email || '')
@@ -272,19 +276,26 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
     logActivity(accessModalStore.id, 'access_modified', { plan_id: accessPlanId, addon_ids: accessAddonIds })
   }
 
-  const closeEditAdmin = () => { setEditingAdmin(null); setEditError(''); setEditPasswordSuccess(false) }
+  const closeEditAdmin = () => { setEditingAdmin(null); setEditingStore(null); setEditError(''); setEditPasswordSuccess(false) }
 
   const saveAdminProfile = async (e) => {
     e.preventDefault()
     setEditError('')
     if (!editFullName.trim() || !editEmail.trim()) { setEditError(t('master.nameEmailRequired')); return }
+    if (!editStoreName.trim()) { setEditError('Brand name khali nahi ho sakta'); return }
     if (!isValidPhone(editPhone)) { setEditError(t('master.phoneError')); return }
     setEditSaving(true)
     const { error } = await supabase.from('profiles').update({
       full_name: editFullName.trim(), phone: editPhone.trim(), email: editEmail.trim(),
     }).eq('id', editingAdmin.id)
+    if (error) { setEditSaving(false); setEditError(error.message); return }
+    if (editingStore && editStoreName.trim() !== editingStore.store_name) {
+      const { error: storeError } = await supabase.from('stores').update({
+        store_name: editStoreName.trim(),
+      }).eq('id', editingStore.id)
+      if (storeError) { setEditSaving(false); setEditError(storeError.message); return }
+    }
     setEditSaving(false)
-    if (error) { setEditError(error.message); return }
     closeEditAdmin()
     onDataChanged?.()
   }
@@ -415,7 +426,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
                     <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ne-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.admin.full_name || '—'}</div>
                     <div style={{ fontSize: 10.5, color: 'var(--ne-muted-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.admin.email} · {s.admin.phone || t('common.noPhone')}</div>
                   </div>
-                  <button onClick={() => openEditAdmin(s.admin)}
+                  <button onClick={() => openEditAdmin(s.admin, s)}
                     style={{ background: 'transparent', border: 'none', color: 'var(--ne-accent)', cursor: 'pointer', fontSize: 11, fontWeight: 600, flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                     <Icon name="edit" size={11} /> {t('master.editAdmin')}
                   </button>
@@ -515,6 +526,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
             </div>
             <form onSubmit={saveAdminProfile} style={{ padding: '16px 18px', borderBottom: '1px solid var(--ne-border)' }}>
               <p style={{ fontSize: 12, color: 'var(--ne-muted)', margin: '0 0 10px', fontWeight: 700 }}>{t('master.profileDetails')}</p>
+              <input type="text" placeholder="Brand Name" value={editStoreName} onChange={e => setEditStoreName(e.target.value)} style={inputStyle} />
               <input type="text" placeholder={t('master.namePlaceholder')} value={editFullName} onChange={e => setEditFullName(e.target.value)} style={inputStyle} />
               <input type="tel" placeholder={t('master.phonePlaceholder')} value={editPhone} maxLength={11}
                 onChange={e => setEditPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} style={inputStyle} />
