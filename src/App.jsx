@@ -200,6 +200,11 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
   const [accessExistingSubId, setAccessExistingSubId] = useState(null)
   const [accessSaving, setAccessSaving] = useState(false)
   const [showActivityLog, setShowActivityLog] = useState(false)
+  const [showManualAddForm, setShowManualAddForm] = useState(false)
+  const [manualStore, setManualStore] = useState({ store_name: '', shopify_url: '', owner_email: '', owner_password: '', owner_full_name: '', owner_phone: '', plan_id: '' })
+  const [manualStoreSaving, setManualStoreSaving] = useState(false)
+  const [manualStoreError, setManualStoreError] = useState('')
+  const [manualStoreSuccess, setManualStoreSuccess] = useState(false)
 
   const toggleOverrideAddon = (profileId, addonId, defaultIds) => {
     setAddonOverrides((prev) => {
@@ -219,6 +224,30 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
   const inputStyle = {
     width: '100%', padding: '9px 12px', borderRadius: 9, border: '1px solid var(--ne-border)',
     background: 'var(--ne-bg)', color: 'var(--ne-text)', fontSize: 13, boxSizing: 'border-box', marginBottom: 10,
+  }
+
+  const handleCreateManualStore = async () => {
+    setManualStoreError(''); setManualStoreSuccess(false)
+    if (!manualStore.store_name || !manualStore.owner_email || !manualStore.owner_password || !manualStore.plan_id) {
+      setManualStoreError('Store name, owner email, password, aur plan required hain'); return
+    }
+    setManualStoreSaving(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch(`${cfUrl}/create-manual-store`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify(manualStore),
+      })
+      const data = await res.json()
+      if (data.error) { setManualStoreError(data.error); setManualStoreSaving(false); return }
+      setManualStoreSuccess(true)
+      setManualStore({ store_name: '', shopify_url: '', owner_email: '', owner_password: '', owner_full_name: '', owner_phone: '', plan_id: '' })
+      onDataChanged()
+    } catch (err) {
+      setManualStoreError(err.message)
+    }
+    setManualStoreSaving(false)
   }
 
   const openEditAdmin = (admin, store) => {
@@ -410,7 +439,36 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
           </div>
         )}
 
-        <h2 style={{ fontSize: 14, color: 'var(--ne-muted)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="store" size={14} /> {t('master.allBrands')} ({allStores.length})</h2>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <h2 style={{ fontSize: 14, color: 'var(--ne-muted)', display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="store" size={14} /> {t('master.allBrands')} ({allStores.length})</h2>
+          <button onClick={() => setShowManualAddForm(v => !v)}
+            style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: showManualAddForm ? 'var(--ne-accent-soft)' : 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+            + Manual Store Add
+          </button>
+        </div>
+
+        {showManualAddForm && (
+          <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: 16, marginBottom: 20, display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
+            <input placeholder="Store Name" value={manualStore.store_name} onChange={e => setManualStore(s => ({ ...s, store_name: e.target.value }))} style={inputStyle} />
+            <input placeholder="Shopify URL (optional)" value={manualStore.shopify_url} onChange={e => setManualStore(s => ({ ...s, shopify_url: e.target.value }))} style={inputStyle} />
+            <input placeholder="Owner Email" value={manualStore.owner_email} onChange={e => setManualStore(s => ({ ...s, owner_email: e.target.value }))} style={inputStyle} />
+            <input placeholder="Owner Password" type="password" value={manualStore.owner_password} onChange={e => setManualStore(s => ({ ...s, owner_password: e.target.value }))} style={inputStyle} />
+            <input placeholder="Owner Full Name" value={manualStore.owner_full_name} onChange={e => setManualStore(s => ({ ...s, owner_full_name: e.target.value }))} style={inputStyle} />
+            <input placeholder="Owner Phone" value={manualStore.owner_phone} onChange={e => setManualStore(s => ({ ...s, owner_phone: e.target.value }))} style={inputStyle} />
+            <select value={manualStore.plan_id} onChange={e => setManualStore(s => ({ ...s, plan_id: e.target.value }))} style={inputStyle}>
+              <option value="">Select Plan</option>
+              {allPlansList.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 10, alignItems: 'center' }}>
+              <button onClick={handleCreateManualStore} disabled={manualStoreSaving}
+                style={{ padding: '10px 20px', background: manualStoreSaving ? 'var(--ne-border)' : 'var(--ne-accent)', color: '#fff', border: 'none', borderRadius: 9, fontWeight: 700, cursor: manualStoreSaving ? 'default' : 'pointer' }}>
+                {manualStoreSaving ? 'Creating...' : 'Create Store'}
+              </button>
+              {manualStoreError && <span style={{ color: 'var(--ne-danger)', fontSize: 12 }}>{manualStoreError}</span>}
+              {manualStoreSuccess && <span style={{ color: 'var(--ne-success)', fontSize: 12 }}>Store created!</span>}
+            </div>
+          </div>
+        )}
         <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
           {allStores.map(s => (
             <div key={s.id} style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '16px', display: 'flex', flexDirection: 'column', gap: 10, boxShadow: '0 2px 8px rgba(0,0,0,.18)' }}>
