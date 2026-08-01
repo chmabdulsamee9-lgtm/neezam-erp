@@ -548,6 +548,13 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
         </div>
       )}
 
+      <div style={{ marginTop: 32 }}>
+        <h2 style={{ fontSize: 14, color: 'var(--ne-muted)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Icon name="dev-monitor" size={14} /> {t('nav.dev-monitor')}
+        </h2>
+        <DevMonitor />
+      </div>
+
     </div>
   )
 }
@@ -1362,18 +1369,14 @@ function App() {
   ]
 
   const isPrivileged = profile.role === 'admin' || profile.role === 'creator'
-  // Dev Monitor sidebar item sirf isDevEnv() (localhost/dev build) mein dikhta hai —
-  // production users ke liye yeh menu item exist hi nahi karta
-  const devExtras = isDevEnv() ? [{ id: 'dev-monitor', label: t('nav.dev-monitor'), group: t('nav.group.channels') }] : []
   const menuItemsWithExtras = isPrivileged
     ? [...allMenuItems,
         { id: 'team', label: t('nav.team'), group: t('nav.group.channels') },
         { id: 'activity-log', label: t('nav.activity-log'), group: t('nav.group.channels') },
-        { id: 'settings', label: t('nav.settings'), group: t('nav.group.channels') },
-        ...devExtras]
-    : [...allMenuItems, { id: 'settings', label: t('nav.settings'), group: t('nav.group.channels') }, ...devExtras]
+        { id: 'settings', label: t('nav.settings'), group: t('nav.group.channels') }]
+    : [...allMenuItems, { id: 'settings', label: t('nav.settings'), group: t('nav.group.channels') }]
 
-  const alwaysVisibleIds = ['team', 'activity-log', 'settings', 'dev-monitor']
+  const alwaysVisibleIds = ['team', 'activity-log', 'settings']
   const menuItems = menuItemsWithExtras.filter(m => hasAccess(m.id) || alwaysVisibleIds.includes(m.id))
   const fullScreenModules = ['orders', 'courier-dashboard/detailed']
   const currentStoreInfo = userStoresList.find(us => us.store_id === selectedStoreId)?.stores
@@ -1538,7 +1541,6 @@ function App() {
             {activeMenu === 'product-costing' && hasAccess('product-costing') && (
               <ProductCosting storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
             )}
-            {activeMenu === 'dev-monitor' && <DevMonitor />}
             {activeMenu === 'meta-connect' && hasAccess('meta-connect') && <MetaConnect storeId={selectedStoreId} />}
             {activeMenu === 'ads' && hasAccess('ads') && (
               <AdsAnalytics ordersData={ordersData} storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
@@ -1577,7 +1579,7 @@ function App() {
             {activeMenu === 'courier-dashboard/detailed' && hasAccess('courier-dashboard') && (
               <CourierDetailedView storeId={selectedStoreId} ordersStore={ordersStore} />
             )}
-            {!['dashboard', 'store-connect', 'products', 'inventory', 'product-costing', 'dev-monitor', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments'].includes(activeMenu) && (
+            {!['dashboard', 'store-connect', 'products', 'inventory', 'product-costing', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments'].includes(activeMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{menuItems.find(m => m.id === activeMenu)?.label}</h2>
