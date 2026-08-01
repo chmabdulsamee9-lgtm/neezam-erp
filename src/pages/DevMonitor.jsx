@@ -62,15 +62,25 @@ export default function DevMonitor() {
     setError("");
     try {
       const { from, to } = getDateRange(dateFilter);
-      const { data, error: fetchError } = await supabase
-        .from("dev_monitoring_log")
-        .select("*")
-        .gte("created_at", from.toISOString())
-        .lte("created_at", to.toISOString())
-        .order("created_at", { ascending: false })
-        .limit(2000);
-      if (fetchError) throw fetchError;
-      setLogs(data || []);
+      const PAGE_SIZE = 1000;
+      let allRows = [];
+      let offset = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { data, error: fetchError } = await supabase
+          .from("dev_monitoring_log")
+          .select("*")
+          .gte("created_at", from.toISOString())
+          .lte("created_at", to.toISOString())
+          .order("created_at", { ascending: false })
+          .range(offset, offset + PAGE_SIZE - 1);
+        if (fetchError) throw fetchError;
+        allRows = allRows.concat(data || []);
+        if (!data || data.length < PAGE_SIZE) break; // last page reached
+        offset += PAGE_SIZE;
+        if (offset > 50000) break; // hard safety ceiling so a runaway date-range can't loop forever
+      }
+      setLogs(allRows);
     } catch (err) {
       setError(err.message);
     }
