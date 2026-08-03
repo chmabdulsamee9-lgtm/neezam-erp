@@ -45,6 +45,7 @@ import ProductsManagement from './pages/ProductsManagement'
 import InventoryManagement from './pages/InventoryManagement'
 import ProductCosting from './pages/ProductCosting'
 import DevMonitor from './pages/DevMonitor'
+import DevMonitorDetailed from './pages/DevMonitorDetailed'
 import ShopifyCallback from './pages/ShopifyCallback'
 import Orders from './pages/Orders'
 import Dashboard from './pages/Dashboard'
@@ -200,6 +201,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
   const [accessExistingSubId, setAccessExistingSubId] = useState(null)
   const [accessSaving, setAccessSaving] = useState(false)
   const [showActivityLog, setShowActivityLog] = useState(false)
+  const [showDetailedDevMonitor, setShowDetailedDevMonitor] = useState(false)
   const [showManualAddForm, setShowManualAddForm] = useState(false)
   const [manualStore, setManualStore] = useState({ store_name: '', shopify_url: '', owner_email: '', owner_password: '', owner_full_name: '', owner_phone: '', plan_id: '' })
   const [manualStoreSaving, setManualStoreSaving] = useState(false)
@@ -426,16 +428,26 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
           </div>
         )}
 
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 16, display: 'flex', gap: 10 }}>
           <button onClick={() => setShowActivityLog((v) => !v)}
             style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: showActivityLog ? 'var(--ne-accent-soft)' : 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Icon name="activity-log" size={13} /> {showActivityLog ? t('master.hideActivityLog') : t('master.viewActivityLog')}
+          </button>
+          <button onClick={() => setShowDetailedDevMonitor((v) => !v)}
+            style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: showDetailedDevMonitor ? 'var(--ne-accent-soft)' : 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="dev-monitor" size={13} /> {showDetailedDevMonitor ? t('nav.dev-monitor') + ' (Hide)' : t('nav.dev-monitor')}
           </button>
         </div>
 
         {showActivityLog && (
           <div style={{ marginBottom: 20 }}>
             <ActivityLog allStoresList={allStores} />
+          </div>
+        )}
+
+        {showDetailedDevMonitor && (
+          <div style={{ marginBottom: 20 }}>
+            <DevMonitorDetailed allStores={allStores} />
           </div>
         )}
 
@@ -622,7 +634,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
         <h2 style={{ fontSize: 14, color: 'var(--ne-muted)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
           <Icon name="dev-monitor" size={14} /> {t('nav.dev-monitor')}
         </h2>
-        <DevMonitor />
+        <DevMonitor allStores={allStores} />
       </div>
 
     </div>

@@ -19,7 +19,7 @@ function getDateRange(dateFilter) {
 
 const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-export default function DevMonitor() {
+export default function DevMonitor({ allStores }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const [dateFilter, setDateFilter] = useState("today");
@@ -27,6 +27,12 @@ export default function DevMonitor() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
+
+  const storeMap = useMemo(() => {
+    const map = {};
+    (allStores || []).forEach((s) => { map[s.id] = s.store_name; });
+    return map;
+  }, [allStores]);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
@@ -39,12 +45,12 @@ export default function DevMonitor() {
   }, [dateFilter]);
 
   const exportLogsCsv = () => {
-    const columns = ["created_at", "source", "store_id", "user_name", "page_or_endpoint", "action", "status", "error_message", "duration_ms"];
+    const columns = ["created_at", "brand_name", "source", "store_id", "user_name", "page_or_endpoint", "action", "status", "http_status_code", "order_id", "error_message", "duration_ms", "request_details", "response_details", "stack_trace"];
     const escapeCsv = (value) => {
-      const s = value == null ? "" : String(value);
+      const s = value == null ? "" : (typeof value === "object" ? JSON.stringify(value) : String(value));
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
-    const rows = logs.map((l) => columns.map((c) => escapeCsv(l[c])).join(","));
+    const rows = logs.map((l) => columns.map((c) => escapeCsv(c === "brand_name" ? (storeMap[l.store_id] || "") : l[c])).join(","));
     const csv = [columns.join(","), ...rows].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -102,11 +108,15 @@ export default function DevMonitor() {
     const userMap = {};
     logs.forEach((l) => {
       const key = l.user_name || t("devMonitor.unknownUser");
-      if (!userMap[key]) userMap[key] = { user: key, events: 0, errors: 0 };
+      if (!userMap[key]) userMap[key] = { user: key, events: 0, errors: 0, brands: new Set() };
       userMap[key].events++;
       if (l.status === "error") userMap[key].errors++;
+      const brandName = storeMap[l.store_id];
+      if (brandName) userMap[key].brands.add(brandName);
     });
-    const perUser = Object.values(userMap).sort((a, b) => b.events - a.events);
+    const perUser = Object.values(userMap)
+      .map((u) => ({ ...u, brand: u.brands.size ? Array.from(u.brands).join(", ") : "—" }))
+      .sort((a, b) => b.events - a.events);
 
     const dayMap = {};
     logs.forEach((l) => {
@@ -120,7 +130,7 @@ export default function DevMonitor() {
     const recentErrors = logs.filter((l) => l.status === "error").slice(0, 20);
 
     return { total, successCount, errorCount, errorRate, avgFrontend, avgWorker, perUser, dailyBreakdown, recentErrors };
-  }, [logs, t]);
+  }, [logs, t, storeMap]);
 
   const cardStyle = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem" };
   const dateBtnStyle = (type) => ({
@@ -210,7 +220,7 @@ export default function DevMonitor() {
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5 }}>
                   <thead>
                     <tr>
-                      {[t("devMonitor.table.user"), t("devMonitor.table.events"), t("devMonitor.table.errors")].map((h) => (
+                      {[t("devMonitor.table.user"), t("devMonitor.table.brand"), t("devMonitor.table.events"), t("devMonitor.table.errors")].map((h) => (
                         <th key={h} style={{ textAlign: "left", padding: "6px 8px", color: "var(--ne-muted)", borderBottom: "1px solid var(--ne-border)", fontWeight: 600, fontSize: 10.5, textTransform: "uppercase" }}>{h}</th>
                       ))}
                     </tr>
@@ -219,6 +229,7 @@ export default function DevMonitor() {
                     {stats.perUser.map((u) => (
                       <tr key={u.user}>
                         <td style={{ padding: "6px 8px", color: "var(--ne-text)" }}>{u.user}</td>
+                        <td style={{ padding: "6px 8px", color: "var(--ne-muted)" }}>{u.brand}</td>
                         <td style={{ padding: "6px 8px", color: "var(--ne-muted)" }}>{u.events}</td>
                         <td style={{ padding: "6px 8px", color: u.errors > 0 ? "var(--ne-danger)" : "var(--ne-muted)", fontWeight: u.errors > 0 ? 700 : 400 }}>{u.errors}</td>
                       </tr>
