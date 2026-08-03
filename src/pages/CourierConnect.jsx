@@ -258,7 +258,7 @@ export default function CourierConnect({ storeId }) {
       });
       const data = await res.json();
       if (data.error) {
-        setError(data.error);
+        setError(data.details?.errorMessage || data.error);
         setConnecting(false);
         return;
       }
