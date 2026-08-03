@@ -125,6 +125,7 @@ export default function CourierConnect({ storeId }) {
   const [loading, setLoading] = useState(true);
   const [integrationCode, setIntegrationCode] = useState("");
   const [connecting, setConnecting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
   const [error, setError] = useState("");
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
 
@@ -269,6 +270,30 @@ export default function CourierConnect({ storeId }) {
     setConnecting(false);
   };
 
+  const handleDisconnect = async () => {
+    if (!window.confirm(t("courier.disconnectConfirm"))) return;
+    setDisconnecting(true);
+    setError("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${CF_URL}/dex-unbind-account`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ storeId }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+        setDisconnecting(false);
+        return;
+      }
+      fetchStore();
+    } catch (err) {
+      setError(err.message);
+    }
+    setDisconnecting(false);
+  };
+
   const handleExcelUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -345,6 +370,11 @@ export default function CourierConnect({ storeId }) {
             <div style={{ background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "12px 14px", fontSize: 12, color: "var(--ne-muted)" }}>
               {t("courier.platform")} <strong style={{ color: "var(--ne-text)" }}>{store.dex_platform_name || "eNeezam"}</strong><br />
               {t("courier.connectedAt")} <strong style={{ color: "var(--ne-text)" }}>{store.dex_connected_at ? new Date(store.dex_connected_at).toLocaleString("en-PK") : "—"}</strong>
+              {error && <p style={{ color: "var(--ne-danger)", fontSize: 12, margin: "10px 0 0" }}>{error}</p>}
+              <button onClick={handleDisconnect} disabled={disconnecting}
+                style={{ width: "100%", marginTop: 12, padding: "10px", background: "transparent", border: "1px solid var(--ne-danger)", color: "var(--ne-danger)", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: disconnecting ? "default" : "pointer" }}>
+                {disconnecting ? t("courier.disconnecting") : t("courier.disconnect")}
+              </button>
             </div>
           ) : (
             <form onSubmit={handleConnect}>
