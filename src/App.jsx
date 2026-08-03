@@ -44,7 +44,6 @@ import StoreConnect from './pages/StoreConnect'
 import ProductsManagement from './pages/ProductsManagement'
 import InventoryManagement from './pages/InventoryManagement'
 import ProductCosting from './pages/ProductCosting'
-import DevMonitor from './pages/DevMonitor'
 import DevMonitorDetailed from './pages/DevMonitorDetailed'
 import ShopifyCallback from './pages/ShopifyCallback'
 import Orders from './pages/Orders'
@@ -181,6 +180,7 @@ function PendingApprovalScreen({ onSignOut, t }) {
 }
 
 function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, onSignOut, userEmail, cfUrl, onDataChanged, allPlansList, onDenyOrDelete, allAddonsList, t, session, logActivity }) {
+  const navigate = useNavigate()
   const [editingAdmin, setEditingAdmin] = useState(null)
   const [editingStore, setEditingStore] = useState(null)
   const [editStoreName, setEditStoreName] = useState('')
@@ -201,7 +201,6 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
   const [accessExistingSubId, setAccessExistingSubId] = useState(null)
   const [accessSaving, setAccessSaving] = useState(false)
   const [showActivityLog, setShowActivityLog] = useState(false)
-  const [showDetailedDevMonitor, setShowDetailedDevMonitor] = useState(false)
   const [showManualAddForm, setShowManualAddForm] = useState(false)
   const [manualStore, setManualStore] = useState({ store_name: '', shopify_url: '', owner_email: '', owner_password: '', owner_full_name: '', owner_phone: '', plan_id: '' })
   const [manualStoreSaving, setManualStoreSaving] = useState(false)
@@ -433,21 +432,15 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
             style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: showActivityLog ? 'var(--ne-accent-soft)' : 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Icon name="activity-log" size={13} /> {showActivityLog ? t('master.hideActivityLog') : t('master.viewActivityLog')}
           </button>
-          <button onClick={() => setShowDetailedDevMonitor((v) => !v)}
-            style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: showDetailedDevMonitor ? 'var(--ne-accent-soft)' : 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <Icon name="dev-monitor" size={13} /> {showDetailedDevMonitor ? t('nav.dev-monitor') + ' (Hide)' : t('nav.dev-monitor')}
+          <button onClick={() => navigate('/master-dashboard/dev-monitor')}
+            style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="dev-monitor" size={13} /> {t('nav.dev-monitor')}
           </button>
         </div>
 
         {showActivityLog && (
           <div style={{ marginBottom: 20 }}>
             <ActivityLog allStoresList={allStores} />
-          </div>
-        )}
-
-        {showDetailedDevMonitor && (
-          <div style={{ marginBottom: 20 }}>
-            <DevMonitorDetailed allStores={allStores} />
           </div>
         )}
 
@@ -629,13 +622,6 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
           </div>
         </div>
       )}
-
-      <div style={{ marginTop: 32 }}>
-        <h2 style={{ fontSize: 14, color: 'var(--ne-muted)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Icon name="dev-monitor" size={14} /> {t('nav.dev-monitor')}
-        </h2>
-        <DevMonitor allStores={allStores} />
-      </div>
 
     </div>
   )
@@ -1460,7 +1446,7 @@ function App() {
 
   const alwaysVisibleIds = ['team', 'activity-log', 'settings']
   const menuItems = menuItemsWithExtras.filter(m => hasAccess(m.id) || alwaysVisibleIds.includes(m.id))
-  const fullScreenModules = ['orders', 'courier-dashboard/detailed']
+  const fullScreenModules = ['orders', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor']
   const currentStoreInfo = userStoresList.find(us => us.store_id === selectedStoreId)?.stores
 
   // Group nav items in original order, preserving group sequence
@@ -1661,7 +1647,10 @@ function App() {
             {activeMenu === 'courier-dashboard/detailed' && hasAccess('courier-dashboard') && (
               <CourierDetailedView storeId={selectedStoreId} ordersStore={ordersStore} />
             )}
-            {!['dashboard', 'store-connect', 'products', 'inventory', 'product-costing', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments'].includes(activeMenu) && (
+            {activeMenu === 'master-dashboard/dev-monitor' && (
+              <DevMonitorDetailed allStores={allStores} cfUrl={CF_URL} session={session} />
+            )}
+            {!['dashboard', 'store-connect', 'products', 'inventory', 'product-costing', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments', 'master-dashboard/dev-monitor'].includes(activeMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{menuItems.find(m => m.id === activeMenu)?.label}</h2>
