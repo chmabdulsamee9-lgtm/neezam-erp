@@ -134,6 +134,7 @@ export default function CourierConnect({ storeId }) {
   const [uploadResult, setUploadResult] = useState(null);
 
   const [pickupAddresses, setPickupAddresses] = useState([]);
+  const [pickupAddrError, setPickupAddrError] = useState("");
   const [newAddrLabel, setNewAddrLabel] = useState("");
   const [newAddrLine, setNewAddrLine] = useState("");
   const [newAddrCity, setNewAddrCity] = useState("");
@@ -204,26 +205,45 @@ export default function CourierConnect({ storeId }) {
   const handleAddAddress = async () => {
     if (!newAddrLabel.trim() || !newAddrLine.trim() || !newAddrCity.trim() || !newAddrContactName.trim() || !newAddrContactPhone.trim()) return;
     setAddingAddr(true);
+    setPickupAddrError("");
     const isFirst = pickupAddresses.length === 0;
-    await supabase.from("pickup_addresses").insert({
+    const { error } = await supabase.from("pickup_addresses").insert({
       store_id: storeId, label: newAddrLabel.trim(), address_line: newAddrLine.trim(), city: newAddrCity.trim(),
       contact_name: newAddrContactName.trim(), contact_phone: newAddrContactPhone.trim(), is_default: isFirst,
     });
+    setAddingAddr(false);
+    if (error) {
+      setPickupAddrError(error.message);
+      return;
+    }
     logActivity("pickup_address_added", { label: newAddrLabel.trim(), city: newAddrCity.trim() });
     setNewAddrLabel(""); setNewAddrLine(""); setNewAddrCity(""); setNewAddrContactName(""); setNewAddrContactPhone("");
     await fetchPickupAddresses();
-    setAddingAddr(false);
   };
 
   const handleSetDefaultAddress = async (id) => {
-    await supabase.from("pickup_addresses").update({ is_default: false }).eq("store_id", storeId);
-    await supabase.from("pickup_addresses").update({ is_default: true }).eq("id", id);
+    setPickupAddrError("");
+    const { error: clearError } = await supabase.from("pickup_addresses").update({ is_default: false }).eq("store_id", storeId);
+    if (clearError) {
+      setPickupAddrError(clearError.message);
+      return;
+    }
+    const { error: setDefaultError } = await supabase.from("pickup_addresses").update({ is_default: true }).eq("id", id);
+    if (setDefaultError) {
+      setPickupAddrError(setDefaultError.message);
+      return;
+    }
     fetchPickupAddresses();
   };
 
   const handleDeleteAddress = async (id) => {
+    setPickupAddrError("");
     const addr = pickupAddresses.find((a) => a.id === id);
-    await supabase.from("pickup_addresses").delete().eq("id", id);
+    const { error } = await supabase.from("pickup_addresses").delete().eq("id", id);
+    if (error) {
+      setPickupAddrError(error.message);
+      return;
+    }
     logActivity("pickup_address_deleted", { label: addr?.label, city: addr?.city });
     fetchPickupAddresses();
   };
@@ -438,6 +458,8 @@ export default function CourierConnect({ storeId }) {
         <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1.5rem", marginTop: "1rem" }}>
           <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="pin" size={14} /> {t("courier.pickupAddressesTitle")}</p>
           <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--ne-muted-2)" }}>{t("courier.pickupAddressesHint")}</p>
+
+          {pickupAddrError && <p style={{ color: "var(--ne-danger)", fontSize: 12, marginBottom: 10 }}>{pickupAddrError}</p>}
 
           {pickupAddresses.map((a) => (
             <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--ne-border)", marginBottom: 8 }}>
