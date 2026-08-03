@@ -200,6 +200,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
   const [accessAddonIds, setAccessAddonIds] = useState([])
   const [accessExistingSubId, setAccessExistingSubId] = useState(null)
   const [accessSaving, setAccessSaving] = useState(false)
+  const [accessError, setAccessError] = useState('')
   const [showActivityLog, setShowActivityLog] = useState(false)
   const [showManualAddForm, setShowManualAddForm] = useState(false)
   const [manualStore, setManualStore] = useState({ store_name: '', shopify_url: '', owner_email: '', owner_password: '', owner_full_name: '', owner_phone: '', plan_id: '' })
@@ -267,6 +268,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
     setAccessPlanId('')
     setAccessAddonIds([])
     setAccessExistingSubId(null)
+    setAccessError('')
     const { data: sub } = await supabase
       .from('store_subscriptions')
       .select('id, plan_id, selected_addon_ids')
@@ -289,6 +291,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
 
   const handleSaveAccess = async () => {
     setAccessSaving(true)
+    setAccessError('')
     const payload = {
       plan_id: accessPlanId,
       selected_addon_ids: JSON.stringify(accessAddonIds),
@@ -296,12 +299,17 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
       approved_at: new Date().toISOString(),
       approved_by: session.user.id,
     }
+    let error
     if (accessExistingSubId) {
-      await supabase.from('store_subscriptions').update(payload).eq('id', accessExistingSubId)
+      ({ error } = await supabase.from('store_subscriptions').update(payload).eq('id', accessExistingSubId))
     } else {
-      await supabase.from('store_subscriptions').insert({ store_id: accessModalStore.eneezam_id, ...payload })
+      ({ error } = await supabase.from('store_subscriptions').insert({ store_id: accessModalStore.eneezam_id, ...payload }))
     }
     setAccessSaving(false)
+    if (error) {
+      setAccessError(error.message)
+      return
+    }
     setAccessModalStore(null)
     logActivity(accessModalStore.id, 'access_modified', { plan_id: accessPlanId, addon_ids: accessAddonIds })
   }
@@ -566,6 +574,8 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
                 </label>
               ))}
             </div>
+
+            {accessError && <p style={{ color: 'var(--ne-danger)', fontSize: 12, margin: '0 0 12px' }}>{accessError}</p>}
 
             <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={() => setAccessModalStore(null)}
@@ -1474,9 +1484,15 @@ function App() {
     <div className="ne-app-shell">
       <div className="ne-app">
 
-        {mobileDrawerOpen && <div className="ne-drawer-backdrop open" onClick={closeDrawer} />}
+        {/* Dev Monitor apna standalone full-page layout rakhta hai (jaisa Master Dashboard) —
+            isliye yahan bhi sidebar/drawer-backdrop hide karte hain, fullScreenModules se alag
+            (woh sirf topbar hide karta hai, orders/courier-dashboard/detailed ke liye sidebar
+            zaroori rehti hai — is ek page ke liye scoped check separately rakha hai). */}
+        {activeMenu !== 'master-dashboard/dev-monitor' && (
+          <>
+            {mobileDrawerOpen && <div className="ne-drawer-backdrop open" onClick={closeDrawer} />}
 
-        <div className={`ne-sidebar${sidebarOpen ? '' : ' collapsed'}${mobileDrawerOpen ? ' open' : ''}`}>
+            <div className={`ne-sidebar${sidebarOpen ? '' : ' collapsed'}${mobileDrawerOpen ? ' open' : ''}`}>
           <div className="ne-brand-row">
             <Monogram size={22} />
             {(sidebarOpen || mobileDrawerOpen) && <Wordmark size={18} dark />}
@@ -1557,6 +1573,8 @@ function App() {
             </div>
           </div>
         </div>
+          </>
+        )}
 
         <div className="ne-main">
           {!fullScreenModules.includes(activeMenu) && (
