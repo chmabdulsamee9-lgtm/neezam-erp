@@ -57,7 +57,7 @@ function extractOrderRef(externalOrderId) {
   const text = cellToText(externalOrderId).trim();
   if (!text) return null;
   const beforeUnderscore = text.split("_")[0];
-  const prefix = beforeUnderscore.split("-")[0];
+  const prefix = beforeUnderscore.split("-")[0].replace(/^#+/, "");
   return prefix ? `#${prefix}` : null;
 }
 
