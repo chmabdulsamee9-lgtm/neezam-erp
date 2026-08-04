@@ -437,16 +437,16 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     setEditingCell(null);
   };
 
-  // Display-time billing_address fallback (address/city computed per-row below) ko ek dafa
-  // order_statuses mein persist kar dete hain, taake agli baar seedha agent_data se mil jaye.
-  // Note: jaan-boojh kar updateField() reuse nahi kiya — jab address AUR city dono ek sath
-  // billing se aati hain (aam case, jab shipping_address bilkul missing ho), do alag
-  // updateField() calls mein doosri call ki stale "existing" lookup pehli call ki value ko
-  // clobber kar deti (upsert onConflict:order_id, dono ek hi row target karte hain). Isliye
-  // dono fields ek hi atomic upsert mein set karte hain — same table/shape/on_conflict jo
-  // updateField khud use karta hai, bas ek call mein. Yeh bhi ek automatic system backfill hai
-  // (staff ka manual edit nahi), isliye ensureHistorySnapshot/logActivity jaan-boojh kar skip
-  // kiye — undo-history/activity-log mein isay staff-edit ki tarah dikhana galat hota.
+  // Display-time billing_address fallback (address/city/phone computed per-row below) ko ek
+  // dafa order_statuses mein persist kar dete hain, taake agli baar seedha agent_data se mil
+  // jaye. Note: jaan-boojh kar updateField() reuse nahi kiya — jab yeh fields ek sath billing
+  // se aati hain (aam case, jab shipping_address bilkul missing ho), alag-alag updateField()
+  // calls mein baad wali call ki stale "existing" lookup pehli call ki value ko clobber kar
+  // deti (upsert onConflict:order_id, sab ek hi row target karte hain). Isliye saari fields ek
+  // hi atomic upsert mein set karte hain — same table/shape/on_conflict jo updateField khud
+  // use karta hai, bas ek call mein. Yeh bhi ek automatic system backfill hai (staff ka manual
+  // edit nahi), isliye ensureHistorySnapshot/logActivity jaan-boojh kar skip kiye —
+  // undo-history/activity-log mein isay staff-edit ki tarah dikhana galat hota.
   useEffect(() => {
     orders.forEach((order) => {
       if (billingFallbackSavedRef.current.has(order.id)) return;
@@ -455,16 +455,18 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       const billingAddr = order.billing_address || {};
       const addressFromBilling = !agentData.address && !shippingAddr.address1 && !!billingAddr.address1;
       const cityFromBilling = !agentData.city && !shippingAddr.city && !!billingAddr.city;
-      if (!addressFromBilling && !cityFromBilling) return;
+      const phoneFromBilling = !agentData.phone && !order.customer?.phone && !shippingAddr.phone && !!billingAddr.phone;
+      if (!addressFromBilling && !cityFromBilling && !phoneFromBilling) return;
       billingFallbackSavedRef.current.add(order.id);
       const finalAddress = addressFromBilling ? billingAddr.address1 : (agentData.address || null);
       const finalCity = cityFromBilling ? billingAddr.city : (agentData.city || null);
+      const finalPhone = phoneFromBilling ? normalizePhone(billingAddr.phone) : (agentData.phone || null);
       const now = new Date().toISOString();
       supabase.from("order_statuses").upsert({
         order_id: String(order.id),
         status: order.agent_status || null,
         customer_name: agentData.customer_name || null,
-        phone: agentData.phone || null,
+        phone: finalPhone,
         address: finalAddress,
         city: finalCity,
         discount: agentData.discount || null,
@@ -479,7 +481,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       }, { onConflict: "order_id" }).then(({ error }) => {
         if (!error) {
           setOrders(prev => prev.map(o => o.id === order.id
-            ? { ...o, agent_data: { ...agentData, address: finalAddress, city: finalCity }, last_edited_at: now }
+            ? { ...o, agent_data: { ...agentData, address: finalAddress, city: finalCity, phone: finalPhone }, last_edited_at: now }
             : o));
         } else {
           billingFallbackSavedRef.current.delete(order.id);
@@ -1012,7 +1014,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const orderRows = pagedOrders.map((order) => {
     const source = getSource(order);
     const status = STATUSES.find(s => s.label === order.agent_status);
-    const phone = normalizePhone(order.agent_data?.phone || order.customer?.phone || order.shipping_address?.phone || "");
+    const phone = normalizePhone(order.agent_data?.phone || order.customer?.phone || order.shipping_address?.phone || order.billing_address?.phone || "");
     const fullName = order.agent_data?.customer_name || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim();
     const city = order.agent_data?.city || order.shipping_address?.city || order.billing_address?.city || "";
     const address = order.agent_data?.address || order.shipping_address?.address1 || order.billing_address?.address1 || "";
