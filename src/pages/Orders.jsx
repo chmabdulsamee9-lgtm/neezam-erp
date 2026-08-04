@@ -505,6 +505,10 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       address1: agentData.address || order.shipping_address?.address1 || "",
       city: agentData.city || order.shipping_address?.city || "",
       phone: phoneToSync,
+      country: "Pakistan",
+      country_code: "PK",
+      zip: order.shipping_address?.zip || order.billing_address?.zip || "00000",
+      province: order.shipping_address?.province || order.billing_address?.province || undefined,
     };
 
     const beforeName = `${order.shipping_address?.first_name || ""} ${order.shipping_address?.last_name || ""}`.trim() || "—";
@@ -1018,7 +1022,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     const fullName = order.agent_data?.customer_name || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim();
     const city = order.agent_data?.city || order.shipping_address?.city || order.billing_address?.city || "";
     const address = order.agent_data?.address || order.shipping_address?.address1 || order.billing_address?.address1 || "";
-    const products = order.agent_data?.product || order.line_items?.map(i => `${i.quantity > 1 ? i.quantity + "x " : ""}${i.title}`).join(" + ") || "—";
+    const products = order.agent_data?.product || order.line_items?.map(i => `${i.quantity > 1 ? i.quantity + "x " : ""}${i.title}${i.variant_title && i.variant_title !== "Default Title" ? ` (${i.variant_title})` : ""}`).join(" + ") || "—";
     const skus = order.agent_data?.sku || order.line_items?.map(i => `${i.quantity > 1 ? i.quantity : ""}${i.sku || ""}`).join(" + ") || "—";
     const unitPrices = order.line_items?.map(i => i.price).join(" + ") || "—";
     const shipping = order.agent_data?.shipping || order.total_shipping_price_set?.presentment_money?.amount || "0";
