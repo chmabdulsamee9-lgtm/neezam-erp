@@ -1800,7 +1800,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       {/* ---------- EDIT ITEMS MODAL ---------- */}
       {itemsModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
-          <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 720, maxWidth: "94vw", maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
+          <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 640, maxWidth: "94vw", maxHeight: "92vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
             <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)" }}>
               <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="edit" size={14} /> {t("orders.editItemsTitle")} — {itemsModal.name}</h2>
             </div>
