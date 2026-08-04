@@ -170,6 +170,8 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const [itemsSearch, setItemsSearch] = useState("");
   const [itemsSearchResults, setItemsSearchResults] = useState([]); // [{ product, variant }]
   const [itemsSaving, setItemsSaving] = useState(false);
+  const [itemsSyncState, setItemsSyncState] = useState(null); // null | "syncing" | "synced" | "error" | "skipped-fulfilled"
+  const [itemsSyncError, setItemsSyncError] = useState("");
   const [productsForSearch, setProductsForSearch] = useState([]); // products_cache rows for this store, fetched when modal opens
 
   const registerMiddleRef = (key) => (el) => {
@@ -937,6 +939,8 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     setItemsList(initial);
     setItemsSearch("");
     setItemsSearchResults([]);
+    setItemsSyncState(null);
+    setItemsSyncError("");
   };
 
   const closeItemsModal = () => {
@@ -944,6 +948,8 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     setItemsList([]);
     setItemsSearch("");
     setItemsSearchResults([]);
+    setItemsSyncState(null);
+    setItemsSyncError("");
   };
 
   const updateItemField = (idx, field, value) => {
@@ -972,17 +978,51 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const saveItemsModal = async () => {
     if (!itemsModal) return;
     setItemsSaving(true);
+    setItemsSyncState(null);
+    setItemsSyncError("");
     const now = new Date().toISOString();
     const { error } = await supabase.from("order_statuses").upsert({
       order_id: String(itemsModal.id),
       line_items_override: itemsList,
       updated_at: now,
     }, { onConflict: "order_id" });
-    if (!error) {
-      setOrders(prev => prev.map(o => (o.id === itemsModal.id ? { ...o, agent_data: { ...(o.agent_data || {}), line_items_override: itemsList }, last_edited_at: now } : o)));
+    if (error) {
+      setItemsSaving(false);
+      setItemsSyncState("error");
+      setItemsSyncError(error.message);
+      return;
+    }
+    setOrders(prev => prev.map(o => (o.id === itemsModal.id ? { ...o, agent_data: { ...(o.agent_data || {}), line_items_override: itemsList }, last_edited_at: now } : o)));
+
+    // Shopify Order Edit API sirf UNFULFILLED orders edit karne deta hai — Dex booking ho
+    // chuki ho (tracking number set) to Shopify sync skip karo, sirf eNeezam-side override
+    // (Dex re-booking reference ke liye) save rehne do.
+    if (itemsModal.agent_data?.dex_tracking_number) {
+      setItemsSyncState("skipped-fulfilled");
+      setItemsSaving(false);
+      return;
+    }
+
+    setItemsSyncState("syncing");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${cfUrl}/shopify-order-edit-sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ store_id: currentStore?.id, order_id: itemsModal.id, line_items_override: itemsList }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setItemsSyncState("synced");
+      } else {
+        setItemsSyncState("error");
+        setItemsSyncError(data.error || "Unknown error");
+      }
+    } catch (err) {
+      setItemsSyncState("error");
+      setItemsSyncError(err.message);
     }
     setItemsSaving(false);
-    closeItemsModal();
   };
 
   useEffect(() => {
@@ -1787,14 +1827,18 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                     </label>
                     <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 10, color: "var(--ne-muted-2)" }}>
                       {t("orders.price")}
-                      <input type="number" value={it.price} onChange={e => updateItemField(idx, "price", e.target.value)}
-                        style={{ width: 80, padding: "4px 6px", borderRadius: 6, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11, boxSizing: "border-box" }} />
+                      <input type="number" value={it.price} disabled readOnly
+                        style={{ width: 80, padding: "4px 6px", borderRadius: 6, border: "1px solid var(--ne-border)", background: "var(--ne-surface)", color: "var(--ne-muted-2)", fontSize: 11, boxSizing: "border-box", cursor: "not-allowed" }} />
                     </label>
                     <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 10, color: "var(--ne-muted-2)" }}>
                       {t("orders.disc")}
                       <input type="number" value={it.discount} onChange={e => updateItemField(idx, "discount", e.target.value)}
                         style={{ width: 80, padding: "4px 6px", borderRadius: 6, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11, boxSizing: "border-box" }} />
                     </label>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 10, color: "var(--ne-muted-2)" }}>
+                      {t("orders.finalPrice")}
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ne-success)", padding: "4px 0" }}>Rs. {(Number(it.price) - (Number(it.discount) || 0)).toLocaleString()}</span>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -1823,15 +1867,35 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
               </div>
             </div>
 
+            {itemsSyncState && (
+              <div style={{ padding: "8px 18px", borderTop: "1px solid var(--ne-border)", fontSize: 11.5, display: "flex", alignItems: "center", gap: 6,
+                color: itemsSyncState === "synced" ? "var(--ne-success)" : itemsSyncState === "error" ? "var(--ne-danger)" : itemsSyncState === "skipped-fulfilled" ? "var(--ne-warning)" : "var(--ne-muted)" }}>
+                <Icon name={itemsSyncState === "synced" ? "check" : itemsSyncState === "error" ? "close" : itemsSyncState === "syncing" ? "pending" : "warning"} size={12} />
+                {itemsSyncState === "syncing" && t("orders.itemsSyncing")}
+                {itemsSyncState === "synced" && t("orders.itemsSynced")}
+                {itemsSyncState === "error" && `${t("orders.itemsSyncError")}: ${itemsSyncError}`}
+                {itemsSyncState === "skipped-fulfilled" && t("orders.itemsSyncSkippedFulfilled")}
+              </div>
+            )}
+
             <div style={{ padding: "12px 18px", borderTop: "1px solid var(--ne-border)", display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <button onClick={closeItemsModal} disabled={itemsSaving}
-                style={{ padding: "8px 14px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-muted)", fontSize: 12, cursor: itemsSaving ? "default" : "pointer" }}>
-                {t("orders.cancel")}
-              </button>
-              <button onClick={saveItemsModal} disabled={itemsSaving}
-                style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: itemsSaving ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: itemsSaving ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-                {itemsSaving ? t("orders.saving") : (<><Icon name="check" size={12} /> {t("orders.save")}</>)}
-              </button>
+              {itemsSyncState && itemsSyncState !== "syncing" ? (
+                <button onClick={closeItemsModal}
+                  style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                  {t("orders.close")}
+                </button>
+              ) : (
+                <>
+                  <button onClick={closeItemsModal} disabled={itemsSaving}
+                    style={{ padding: "8px 14px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-muted)", fontSize: 12, cursor: itemsSaving ? "default" : "pointer" }}>
+                    {t("orders.cancel")}
+                  </button>
+                  <button onClick={saveItemsModal} disabled={itemsSaving}
+                    style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: itemsSaving ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: itemsSaving ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                    {itemsSaving ? t("orders.saving") : (<><Icon name="check" size={12} /> {t("orders.save")}</>)}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

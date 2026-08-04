@@ -298,10 +298,12 @@ export default function BookedOrders({ storeId, ordersStore }) {
     (async () => {
       const { data: statusRows } = await supabase
         .from("order_statuses")
-        .select("order_id")
+        .select("order_id, line_items_override")
         .eq("store_id", storeId)
         .eq("status", "Approved")
         .is("dex_tracking_number", null);
+      const overrideMap = {};
+      (statusRows || []).forEach((s) => { if (s.line_items_override) overrideMap[s.order_id] = s.line_items_override; });
       const orderIds = (statusRows || []).map((s) => s.order_id).filter(Boolean);
       if (orderIds.length === 0) {
         setReadyOrders([]);
@@ -310,7 +312,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
           .from("shopify_orders_cache")
           .select("id, raw_data")
           .in("id", orderIds);
-        const mapped = (cachedRows || []).map((r) => ({ id: r.id, ...r.raw_data }));
+        const mapped = (cachedRows || []).map((r) => ({ id: r.id, ...r.raw_data, _line_items_override: overrideMap[r.id] || null }));
         mapped.sort((a, b) => {
           const numA = parseInt((a.name || "").replace(/\D/g, ""), 10) || 0;
           const numB = parseInt((b.name || "").replace(/\D/g, ""), 10) || 0;
@@ -676,8 +678,8 @@ export default function BookedOrders({ storeId, ordersStore }) {
               const customerName = `${o.customer?.first_name || ""} ${o.customer?.last_name || ""}`.trim() || "—";
               const phone = o.customer?.phone || o.shipping_address?.phone || "";
               const address = o.shipping_address ? `${o.shipping_address.address1 || ""}, ${o.shipping_address.city || ""}` : "—";
-              const products = (o.line_items || []).map((li) => `${li.quantity > 1 ? li.quantity + "x " : ""}${li.title}`).join(" + ") || "—";
-              const skus = (o.line_items || []).map((li) => `${li.quantity > 1 ? li.quantity : ""}${li.sku || ""}`).join(" + ") || "—";
+              const products = (o._line_items_override || o.line_items || []).map((li) => `${li.quantity > 1 ? li.quantity + "x " : ""}${li.title}`).join(" + ") || "—";
+              const skus = (o._line_items_override || o.line_items || []).map((li) => `${li.quantity > 1 ? li.quantity : ""}${li.sku || ""}`).join(" + ") || "—";
               const createdDate = o.created_at ? new Date(o.created_at).toLocaleDateString("en-GB") : "";
               return (
                 <div key={o.id} style={{ display: "flex", alignItems: "stretch", gap: 0, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "hidden" }}>
