@@ -72,6 +72,14 @@ const normalizePhone = (raw) => {
   return cleaned;
 };
 
+// normalizePhone() ka output local format mein hota hai (0-prefixed, jaise 03001234567) —
+// wa.me links ko country-code ke sath, bina + ya leading-zero ke chahiye (923001234567)
+const toWhatsAppPhone = (localPhone) => {
+  if (!localPhone) return "";
+  const digits = String(localPhone).replace(/\D/g, "");
+  return digits.startsWith("0") ? "92" + digits.slice(1) : digits;
+};
+
 const getDateRange = (type) => {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -135,6 +143,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const middleRefs = useRef({});
   const isSyncingScroll = useRef(false);
   const undoInFlightRef = useRef(new Set()); // order ids jinke liye undo abhi process ho raha hai — double-click race guard
+  const billingFallbackSavedRef = useRef(new Set()); // order ids jinke liye billing-fallback address/city already persist ho chuki (ek dafa hi trigger ho, dobara na ho)
 
   // --- Current user profile (activity log ke user_name/user_id ke liye) ---
   const [currentProfile, setCurrentProfile] = useState(null);
@@ -427,6 +436,57 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     }
     setEditingCell(null);
   };
+
+  // Display-time billing_address fallback (address/city computed per-row below) ko ek dafa
+  // order_statuses mein persist kar dete hain, taake agli baar seedha agent_data se mil jaye.
+  // Note: jaan-boojh kar updateField() reuse nahi kiya — jab address AUR city dono ek sath
+  // billing se aati hain (aam case, jab shipping_address bilkul missing ho), do alag
+  // updateField() calls mein doosri call ki stale "existing" lookup pehli call ki value ko
+  // clobber kar deti (upsert onConflict:order_id, dono ek hi row target karte hain). Isliye
+  // dono fields ek hi atomic upsert mein set karte hain — same table/shape/on_conflict jo
+  // updateField khud use karta hai, bas ek call mein. Yeh bhi ek automatic system backfill hai
+  // (staff ka manual edit nahi), isliye ensureHistorySnapshot/logActivity jaan-boojh kar skip
+  // kiye — undo-history/activity-log mein isay staff-edit ki tarah dikhana galat hota.
+  useEffect(() => {
+    orders.forEach((order) => {
+      if (billingFallbackSavedRef.current.has(order.id)) return;
+      const agentData = order.agent_data || {};
+      const shippingAddr = order.shipping_address || {};
+      const billingAddr = order.billing_address || {};
+      const addressFromBilling = !agentData.address && !shippingAddr.address1 && !!billingAddr.address1;
+      const cityFromBilling = !agentData.city && !shippingAddr.city && !!billingAddr.city;
+      if (!addressFromBilling && !cityFromBilling) return;
+      billingFallbackSavedRef.current.add(order.id);
+      const finalAddress = addressFromBilling ? billingAddr.address1 : (agentData.address || null);
+      const finalCity = cityFromBilling ? billingAddr.city : (agentData.city || null);
+      const now = new Date().toISOString();
+      supabase.from("order_statuses").upsert({
+        order_id: String(order.id),
+        status: order.agent_status || null,
+        customer_name: agentData.customer_name || null,
+        phone: agentData.phone || null,
+        address: finalAddress,
+        city: finalCity,
+        discount: agentData.discount || null,
+        notes: agentData.notes || null,
+        product: agentData.product || null,
+        sku: agentData.sku || null,
+        shipping: agentData.shipping || null,
+        remarks: agentData.remarks || null,
+        cancellation_reason: agentData.cancellation_reason || null,
+        updated_at: now,
+        last_edited_at: now,
+      }, { onConflict: "order_id" }).then(({ error }) => {
+        if (!error) {
+          setOrders(prev => prev.map(o => o.id === order.id
+            ? { ...o, agent_data: { ...agentData, address: finalAddress, city: finalCity }, last_edited_at: now }
+            : o));
+        } else {
+          billingFallbackSavedRef.current.delete(order.id);
+        }
+      });
+    });
+  }, [orders]);
 
   // ---------- SYNC PLAN / DIFF ----------
   const buildSyncPlan = (order) => {
@@ -954,8 +1014,8 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     const status = STATUSES.find(s => s.label === order.agent_status);
     const phone = normalizePhone(order.agent_data?.phone || order.customer?.phone || order.shipping_address?.phone || "");
     const fullName = order.agent_data?.customer_name || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim();
-    const city = order.agent_data?.city || order.shipping_address?.city || "";
-    const address = order.agent_data?.address || order.shipping_address?.address1 || "";
+    const city = order.agent_data?.city || order.shipping_address?.city || order.billing_address?.city || "";
+    const address = order.agent_data?.address || order.shipping_address?.address1 || order.billing_address?.address1 || "";
     const products = order.agent_data?.product || order.line_items?.map(i => `${i.quantity > 1 ? i.quantity + "x " : ""}${i.title}`).join(" + ") || "—";
     const skus = order.agent_data?.sku || order.line_items?.map(i => `${i.quantity > 1 ? i.quantity : ""}${i.sku || ""}`).join(" + ") || "—";
     const unitPrices = order.line_items?.map(i => i.price).join(" + ") || "—";
@@ -963,6 +1023,8 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     const discount = order.agent_data?.discount || order.total_discounts || "0";
     const remarks = order.agent_data?.remarks || "";
     const cancellationReason = order.agent_data?.cancellation_reason || "";
+    const waPhone = toWhatsAppPhone(phone);
+    const waMessage = `Assalam-o-Alaikum ${fullName},\n\nAapka order confirm karna hai:\nOrder #: ${(order.name || "").replace("#", "")}\nProducts: ${products}\nTotal Amount: Rs. ${order.total_price || "0"}\nAddress: ${address}, ${city}\n\nOrder confirm karne ke liye "1" reply karein.\nCancel karna ho to "2" reply karein.\n\nMeherbani karke apna address bhi verify kar dein — agar koi ghalti ho to bata dein.\n\nShukriya!`;
     const date = new Date(order.created_at).toLocaleDateString("en-PK");
     const time = new Date(order.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" });
     const shopifyUrl = `https://${currentStore?.shopify_url}/admin/orders/${order.id}`;
@@ -998,7 +1060,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       </div>
     );
 
-    return { order, source, phone, fullName, city, address, products, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, hasValidHistory, isUndoing, isExpanded, statusBtn, syncRow };
+    return { order, source, phone, waPhone, waMessage, fullName, city, address, products, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, hasValidHistory, isUndoing, isExpanded, statusBtn, syncRow };
   });
 
   return (
@@ -1153,7 +1215,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>{t("orders.loadingOrders")}</div>
       ) : isMobile ? (
         <div ref={tableRef} style={{ flex: 1, overflowY: "auto" }}>
-          {orderRows.map(({ order, source, phone, fullName, city, address, products, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, isExpanded, statusBtn, syncRow }) => (
+          {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, products, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, isExpanded, statusBtn, syncRow }) => (
             <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "10px 12px", marginBottom: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(order.id)} style={{ cursor: "pointer", flexShrink: 0 }} />
@@ -1176,7 +1238,21 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
               {isExpanded && (
                 <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--ne-border)", display: "flex", flexDirection: "column", gap: 6 }}>
-                  <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{t("orders.phonePlaceholder")}: </span><EditableCell orderId={order.id} field="phone" value={phone} width={200} /></div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{t("orders.phonePlaceholder")}: </span><EditableCell orderId={order.id} field="phone" value={phone} width={140} />
+                    {phone && (
+                      <a href={`tel:${phone}`} title={t("orders.call")}
+                        style={{ padding: "2px 5px", borderRadius: 6, fontSize: 11, lineHeight: 1, background: "var(--ne-accent-soft)", color: "var(--ne-accent)", display: "flex", alignItems: "center", textDecoration: "none" }}>
+                        <Icon name="phone" size={11} />
+                      </a>
+                    )}
+                    {waPhone && (
+                      <a href={`https://wa.me/${waPhone}?text=${encodeURIComponent(waMessage)}`} target="_blank" rel="noreferrer" title={t("orders.whatsapp")}
+                        style={{ padding: "2px 5px", borderRadius: 6, fontSize: 11, lineHeight: 1, background: "var(--ne-success-soft)", color: "var(--ne-success)", display: "flex", alignItems: "center", textDecoration: "none" }}>
+                        <Icon name="comment" size={11} />
+                      </a>
+                    )}
+                  </div>
                   <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{t("orders.addressFieldPlaceholder")}: </span><EditableCell orderId={order.id} field="address" value={address} width={260} /></div>
                   <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{t("orders.productPlaceholder")}: </span><EditableCell orderId={order.id} field="product" value={products} width={260} /></div>
                   <div style={{ display: "flex", gap: 14 }}>
@@ -1229,7 +1305,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
               </div>
             </div>
 
-            {orderRows.map(({ order, source, phone, fullName, city, address, products, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, statusBtn, syncRow }) => (
+            {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, products, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, statusBtn, syncRow }) => (
               <div key={order.id} style={{ display: "flex", alignItems: "stretch", gap: 0, background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "hidden" }}>
 
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 8px 10px 12px", flexShrink: 0, width: 136, boxSizing: "border-box" }}>
@@ -1246,7 +1322,21 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                   <div style={{ display: "flex", alignItems: "flex-start", gap: 10, width: MIDDLE_CONTENT_WIDTH }}>
                     <div style={{ width: 140, minWidth: 140, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 2 }}>
                       <EditableCell orderId={order.id} field="customer_name" value={fullName} width={130} clampLines={1} />
-                      <EditableCell orderId={order.id} field="phone" value={phone} width={130} clampLines={1} />
+                      <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                        <EditableCell orderId={order.id} field="phone" value={phone} width={85} clampLines={1} />
+                        {phone && (
+                          <a href={`tel:${phone}`} title={t("orders.call")}
+                            style={{ padding: "2px 4px", borderRadius: 5, fontSize: 9.5, lineHeight: 1, background: "var(--ne-accent-soft)", color: "var(--ne-accent)", display: "flex", alignItems: "center", textDecoration: "none", flexShrink: 0 }}>
+                            <Icon name="phone" size={9.5} />
+                          </a>
+                        )}
+                        {waPhone && (
+                          <a href={`https://wa.me/${waPhone}?text=${encodeURIComponent(waMessage)}`} target="_blank" rel="noreferrer" title={t("orders.whatsapp")}
+                            style={{ padding: "2px 4px", borderRadius: 5, fontSize: 9.5, lineHeight: 1, background: "var(--ne-success-soft)", color: "var(--ne-success)", display: "flex", alignItems: "center", textDecoration: "none", flexShrink: 0 }}>
+                            <Icon name="comment" size={9.5} />
+                          </a>
+                        )}
+                      </div>
                       <EditableCell orderId={order.id} field="city" value={city} width={130} clampLines={1} />
                       {isCancelled && cancellationReason && (
                         <span style={{ padding: "1px 6px", borderRadius: 6, fontSize: 9, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, width: "fit-content" }}>{cancellationReason}</span>
