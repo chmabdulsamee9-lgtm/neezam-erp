@@ -87,7 +87,7 @@ function classifyTab(o) {
   if (ad.out_for_delivery_at) return { tab: "Shipped", sub: "Out for Delivery" };
   if (ad.arrived_at_destination_at) return { tab: "Shipped", sub: "Arrived at Destination City" };
   if ((ad.dex_status || "").toLowerCase().includes("handover_accepted")) return { tab: "Shipped", sub: "Pickup Success" };
-  return { tab: "Shipped", sub: "Transit to Ship" };
+  return { tab: "Shipped", sub: "Pickup Success" };
 }
 
 const fmtDateTime = (iso) => (iso ? new Date(iso).toLocaleString("en-PK", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : null);
