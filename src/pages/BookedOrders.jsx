@@ -57,6 +57,7 @@ const TAB_KEYS = [
       { key: "Transit to Ship", labelKey: "booked.tab.transitToShip" },
       { key: "Arrived at Destination City", labelKey: "booked.tab.arrivedAtDestination" },
       { key: "Out for Delivery", labelKey: "booked.tab.outForDelivery" },
+      { key: "Delivery attempt failed", labelKey: "booked.tab.deliveryAttemptFailed" },
       { key: "Failed Delivery", labelKey: "booked.tab.failedDelivery" },
     ] },
   { key: "Delivered", labelKey: "booked.tab.delivered" },
@@ -66,28 +67,30 @@ const TAB_KEYS = [
   { key: "Cancel", labelKey: "booked.tab.cancel" },
 ];
 
-// Har order ko exactly ek {tab, sub} mein classify karta hai. bucketFinalStatus() (order_statuses
-// ka authoritative courier_order_status-based final-state) pehle check hoti hai; agar abhi koi
-// final state nahi hai to pickup_success_at/arrived_at_destination_at/out_for_delivery_at/dex_status
-// (jo already Timeline ke liye track ho rahe hain) se in-progress position decide hoti hai.
+const STATUS_TAB_MAP = {
+  "ready to ship": { tab: "To Ship", sub: "Booked" },
+  "to pack": { tab: "To Ship", sub: "Booked" },
+  "pickup failed": { tab: "To Ship", sub: "Pickup Failed" },
+  "pickup success": { tab: "Shipped", sub: "Pickup Success" },
+  "transit to ship": { tab: "Shipped", sub: "Transit to Ship" },
+  "last mile inbound": { tab: "Shipped", sub: "Arrived at Destination City" },
+  "shipping": { tab: "Shipped", sub: "Out for Delivery" },
+  "delivery attempt failed": { tab: "Shipped", sub: "Delivery attempt failed" },
+  "deliver failed": { tab: "Shipped", sub: "Failed Delivery" },
+  "delivered": { tab: "Delivered", sub: null },
+  "returned": { tab: "Returned", sub: null },
+  "return pending": { tab: "Pending Return", sub: null },
+  "canceled": { tab: "Cancel", sub: null },
+  "lost damaged": { tab: "Lost & Damage", sub: null },
+};
+
 function classifyTab(o) {
   const ad = o.agent_data;
-  const finalStatus = bucketFinalStatus(ad.courier_order_status);
-
-  if (finalStatus === "Delivered") return { tab: "Delivered", sub: null };
-  if (finalStatus === "Return Pending") return { tab: "Pending Return", sub: null };
-  if (finalStatus === "Returned") return { tab: "Returned", sub: null };
-  if (finalStatus === "Lost") return { tab: "Lost & Damage", sub: null };
-  if (finalStatus === "Cancelled") return { tab: "Cancel", sub: null };
-  if (finalStatus === "Pickup Failed") return { tab: "To Ship", sub: "Pickup Failed" };
-
-  if (!ad.pickup_success_at) return { tab: "To Ship", sub: "Booked" };
-
-  if (finalStatus === "Delivery Failed") return { tab: "Shipped", sub: "Failed Delivery" };
-  if (ad.out_for_delivery_at) return { tab: "Shipped", sub: "Out for Delivery" };
-  if (ad.arrived_at_destination_at) return { tab: "Shipped", sub: "Arrived at Destination City" };
-  if ((ad.dex_status || "").toLowerCase().includes("handover_accepted")) return { tab: "Shipped", sub: "Pickup Success" };
-  return { tab: "Shipped", sub: "Pickup Success" };
+  const raw = (ad.courier_order_status || "").trim().toLowerCase();
+  const mapped = STATUS_TAB_MAP[raw];
+  if (mapped) return mapped;
+  if (!raw) return { tab: "To Ship", sub: "Booked" };
+  return { tab: `Unmapped: ${ad.courier_order_status.trim()}`, sub: null };
 }
 
 const fmtDateTime = (iso) => (iso ? new Date(iso).toLocaleString("en-PK", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : null);
@@ -540,13 +543,18 @@ export default function BookedOrders({ storeId, ordersStore }) {
 
   const availableCouriers = ["All", ...new Set(orders.map((o) => o.agent_data.courier_name).filter(Boolean))].sort();
 
-  const TAB_STRUCTURE = TAB_KEYS.map((td) => ({
-    ...td,
-    label: t(td.labelKey),
-    subs: td.subs?.map((s) => ({ ...s, label: t(s.labelKey) })),
-  }));
-
   const classified = orders.map((o) => ({ o, cls: classifyTab(o) }));
+
+  const unmappedTabKeys = [...new Set(classified.map((c) => c.cls.tab).filter((key) => key.startsWith("Unmapped: ")))];
+
+  const TAB_STRUCTURE = [
+    ...TAB_KEYS.map((td) => ({
+      ...td,
+      label: t(td.labelKey),
+      subs: td.subs?.map((s) => ({ ...s, label: t(s.labelKey) })),
+    })),
+    ...unmappedTabKeys.map((key) => ({ key, label: key })),
+  ];
   const activeTabDef = TAB_STRUCTURE.find((td) => td.key === activeTab);
 
   const tabCounts = Object.fromEntries(
