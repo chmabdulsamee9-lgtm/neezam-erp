@@ -137,13 +137,14 @@ export default function StoreConnect({ storeId }) {
     setCacheCounts((prev) => ({ ...prev, [sId]: count ?? 0 }));
   };
 
-  const handleConnect = async () => {
+  const handleConnect = async (urlOverride) => {
     setError("");
-    if (!shopUrl) {
+    const rawUrl = urlOverride || shopUrl;
+    if (!rawUrl) {
       setError(t("store.urlRequired"));
       return;
     }
-    let cleanUrl = shopUrl
+    let cleanUrl = rawUrl
       .replace("https://", "")
       .replace("http://", "")
       .replace(/\/$/, "");
@@ -300,7 +301,7 @@ export default function StoreConnect({ storeId }) {
                 }}
               />
               <button
-                onClick={handleConnect}
+                onClick={() => handleConnect()}
                 style={{
                   background: "var(--ne-grad)",
                   color: "#fff",
@@ -401,13 +402,25 @@ export default function StoreConnect({ storeId }) {
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   {store.shopify_url ? (
-                    <span style={{
-                      fontSize: 11, padding: "4px 12px",
-                      background: "var(--ne-success-soft)", color: "var(--ne-success)",
-                      borderRadius: 20, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 5,
-                    }}>
-                      <Icon name="check" size={10} /> {t("store.connected")}
-                    </span>
+                    <>
+                      <span style={{
+                        fontSize: 11, padding: "4px 12px",
+                        background: "var(--ne-success-soft)", color: "var(--ne-success)",
+                        borderRadius: 20, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 5,
+                      }}>
+                        <Icon name="check" size={10} /> {t("store.connected")}
+                      </span>
+                      <button
+                        onClick={() => handleConnect(store.shopify_url)}
+                        style={{
+                          background: "transparent", color: "var(--ne-text)", border: "1px solid var(--ne-border)",
+                          borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer",
+                          display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap",
+                        }}
+                      >
+                        <Icon name="refresh" size={10} /> {t("store.reconnect")}
+                      </button>
+                    </>
                   ) : (
                     <>
                       <span style={{
