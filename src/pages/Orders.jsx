@@ -164,6 +164,14 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const [bulkResult, setBulkResult] = useState(null); // { success, fail }
   const fileInputRef = useRef(null);
 
+  // --- Order Items editor (line_items_override) ---
+  const [itemsModal, setItemsModal] = useState(null); // order being edited, or null
+  const [itemsList, setItemsList] = useState([]); // working array of { shopify_product_id, variant_id, title, variant_title, sku, price, quantity, discount }
+  const [itemsSearch, setItemsSearch] = useState("");
+  const [itemsSearchResults, setItemsSearchResults] = useState([]); // [{ product, variant }]
+  const [itemsSaving, setItemsSaving] = useState(false);
+  const [productsForSearch, setProductsForSearch] = useState([]); // products_cache rows for this store, fetched when modal opens
+
   const registerMiddleRef = (key) => (el) => {
     if (el) middleRefs.current[key] = el;
     else delete middleRefs.current[key];
@@ -909,6 +917,97 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
   const currentStore = store || ordersStore;
 
+  const computeOverrideTotal = (items) => (items || []).reduce((sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 0) - (Number(it.discount) || 0), 0);
+
+  const openItemsModal = (order) => {
+    const override = order.agent_data?.line_items_override;
+    const initial = override && override.length > 0
+      ? override.map(it => ({ ...it }))
+      : (order.line_items || []).map(i => ({
+          shopify_product_id: i.product_id ? String(i.product_id) : null,
+          variant_id: i.variant_id ? String(i.variant_id) : null,
+          title: i.title || "",
+          variant_title: i.variant_title && i.variant_title !== "Default Title" ? i.variant_title : "",
+          sku: i.sku || "",
+          price: i.price || "0",
+          quantity: i.quantity || 1,
+          discount: 0,
+        }));
+    setItemsModal(order);
+    setItemsList(initial);
+    setItemsSearch("");
+    setItemsSearchResults([]);
+  };
+
+  const closeItemsModal = () => {
+    setItemsModal(null);
+    setItemsList([]);
+    setItemsSearch("");
+    setItemsSearchResults([]);
+  };
+
+  const updateItemField = (idx, field, value) => {
+    setItemsList(prev => prev.map((it, i) => (i === idx ? { ...it, [field]: value } : it)));
+  };
+
+  const removeItem = (idx) => {
+    setItemsList(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const addItemFromSearch = (product, variant) => {
+    setItemsList(prev => [...prev, {
+      shopify_product_id: product.shopify_product_id,
+      variant_id: variant.id ? String(variant.id) : null,
+      title: product.raw_data?.title || "",
+      variant_title: variant.title && variant.title !== "Default Title" ? variant.title : "",
+      sku: variant.sku || "",
+      price: variant.price || "0",
+      quantity: 1,
+      discount: 0,
+    }]);
+    setItemsSearch("");
+    setItemsSearchResults([]);
+  };
+
+  const saveItemsModal = async () => {
+    if (!itemsModal) return;
+    setItemsSaving(true);
+    const now = new Date().toISOString();
+    const { error } = await supabase.from("order_statuses").upsert({
+      order_id: String(itemsModal.id),
+      line_items_override: itemsList,
+      updated_at: now,
+    }, { onConflict: "order_id" });
+    if (!error) {
+      setOrders(prev => prev.map(o => (o.id === itemsModal.id ? { ...o, agent_data: { ...(o.agent_data || {}), line_items_override: itemsList }, last_edited_at: now } : o)));
+    }
+    setItemsSaving(false);
+    closeItemsModal();
+  };
+
+  useEffect(() => {
+    if (!itemsModal || !currentStore?.id) return;
+    supabase.from("products_cache").select("*").eq("store_id", currentStore.id)
+      .then(({ data, error }) => { if (!error) setProductsForSearch(data || []); });
+  }, [itemsModal, currentStore?.id]);
+
+  useEffect(() => {
+    const q = itemsSearch.trim().toLowerCase();
+    const handle = setTimeout(() => {
+      if (!q) { setItemsSearchResults([]); return; }
+      const results = [];
+      productsForSearch.forEach((p) => {
+        const title = (p.raw_data?.title || "").toLowerCase();
+        (p.raw_data?.variants || []).forEach((v) => {
+          const sku = (v.sku || "").toLowerCase();
+          if (title.includes(q) || sku.includes(q)) results.push({ product: p, variant: v });
+        });
+      });
+      setItemsSearchResults(results.slice(0, 20));
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [itemsSearch, productsForSearch]);
+
   // Step 1: date range only — source of truth for tab counts
   const dateFilteredOrders = orders.filter(order => {
     const orderDate = new Date(order.created_at);
@@ -1022,7 +1121,16 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     const fullName = order.agent_data?.customer_name || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim();
     const city = order.agent_data?.city || order.shipping_address?.city || order.billing_address?.city || "";
     const address = order.agent_data?.address || order.shipping_address?.address1 || order.billing_address?.address1 || "";
-    const products = order.agent_data?.product || order.line_items?.map(i => `${i.quantity > 1 ? i.quantity + "x " : ""}${i.title}${i.variant_title && i.variant_title !== "Default Title" ? ` (${i.variant_title})` : ""}`).join(" + ") || "—";
+    const itemsOverride = order.agent_data?.line_items_override;
+    const productsEditable = order.agent_data?.product
+      || (itemsOverride?.length > 0 ? itemsOverride.map(i => `${i.quantity > 1 ? i.quantity + "x " : ""}${i.title}`).join(" + ") : null)
+      || order.line_items?.map(i => `${i.quantity > 1 ? i.quantity + "x " : ""}${i.title}`).join(" + ") || "—";
+    const productVariantNote = !order.agent_data?.product
+      ? (itemsOverride?.length > 0
+          ? itemsOverride.map(i => i.variant_title || null).filter(Boolean).join(" + ")
+          : order.line_items?.map(i => i.variant_title && i.variant_title !== "Default Title" ? i.variant_title : null).filter(Boolean).join(" + "))
+      : "";
+    const displayTotal = itemsOverride?.length > 0 ? computeOverrideTotal(itemsOverride) : (Number(order.total_price) || 0);
     const skus = order.agent_data?.sku || order.line_items?.map(i => `${i.quantity > 1 ? i.quantity : ""}${i.sku || ""}`).join(" + ") || "—";
     const unitPrices = order.line_items?.map(i => i.price).join(" + ") || "—";
     const shipping = order.agent_data?.shipping || order.total_shipping_price_set?.presentment_money?.amount || "0";
@@ -1030,7 +1138,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     const remarks = order.agent_data?.remarks || "";
     const cancellationReason = order.agent_data?.cancellation_reason || "";
     const waPhone = toWhatsAppPhone(phone);
-    const waMessage = `Assalam-o-Alaikum ${fullName},\n\nAapka order confirm karna hai:\nOrder #: ${(order.name || "").replace("#", "")}\nProducts: ${products}\nTotal Amount: Rs. ${order.total_price || "0"}\nAddress: ${address}, ${city}\n\nOrder confirm karne ke liye "1" reply karein.\nCancel karna ho to "2" reply karein.\n\nMeherbani karke apna address bhi verify kar dein — agar koi ghalti ho to bata dein.\n\nShukriya!`;
+    const waMessage = `Assalam-o-Alaikum ${fullName},\n\nAapka order confirm karna hai:\nOrder #: ${(order.name || "").replace("#", "")}\nProducts: ${productsEditable}\nTotal Amount: Rs. ${order.total_price || "0"}\nAddress: ${address}, ${city}\n\nOrder confirm karne ke liye "1" reply karein.\nCancel karna ho to "2" reply karein.\n\nMeherbani karke apna address bhi verify kar dein — agar koi ghalti ho to bata dein.\n\nShukriya!`;
     const date = new Date(order.created_at).toLocaleDateString("en-PK");
     const time = new Date(order.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" });
     const shopifyUrl = `https://${currentStore?.shopify_url}/admin/orders/${order.id}`;
@@ -1066,7 +1174,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       </div>
     );
 
-    return { order, source, phone, waPhone, waMessage, fullName, city, address, products, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, hasValidHistory, isUndoing, isExpanded, statusBtn, syncRow };
+    return { order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, hasValidHistory, isUndoing, isExpanded, statusBtn, syncRow };
   });
 
   return (
@@ -1221,12 +1329,18 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>{t("orders.loadingOrders")}</div>
       ) : isMobile ? (
         <div ref={tableRef} style={{ flex: 1, overflowY: "auto" }}>
-          {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, products, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, isExpanded, statusBtn, syncRow }) => (
+          {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, isExpanded, statusBtn, syncRow }) => (
             <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "10px 12px", marginBottom: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(order.id)} style={{ cursor: "pointer", flexShrink: 0 }} />
                 <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 12 }}>{order.name}</a>
-                <span style={{ marginLeft: "auto" }}>{statusBtn}</span>
+                <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+                  <button onClick={() => openItemsModal(order)}
+                    style={{ padding: "3px 9px", borderRadius: 8, fontSize: 10, background: "var(--ne-surface-2)", color: "var(--ne-text)", border: "1px solid var(--ne-border)", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <Icon name="edit" size={9} /> {t("orders.editItems")}
+                  </button>
+                  {statusBtn}
+                </span>
               </div>
               <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)", marginTop: 4 }}>{date} · {time} · {skus}</div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 5 }}>
@@ -1234,7 +1348,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                   <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ne-text)" }}>{fullName || "—"}</div>
                   <div style={{ fontSize: 11, color: "var(--ne-muted)" }}>{city || "—"}</div>
                 </div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ne-success)" }}>Rs. {Number(order.total_price).toLocaleString()}</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ne-success)" }}>Rs. {displayTotal.toLocaleString()}</div>
               </div>
 
               <button onClick={() => toggleExpand(order.id)}
@@ -1260,7 +1374,10 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                     )}
                   </div>
                   <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{t("orders.addressFieldPlaceholder")}: </span><EditableCell orderId={order.id} field="address" value={address} width={260} /></div>
-                  <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{t("orders.productPlaceholder")}: </span><EditableCell orderId={order.id} field="product" value={products} width={260} /></div>
+                  <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{t("orders.productPlaceholder")}: </span><div>
+  <EditableCell orderId={order.id} field="product" value={productsEditable} width={260} />
+  {productVariantNote && <div style={{ fontSize: 10, color: "var(--ne-muted-2)", marginTop: 2 }}>{productVariantNote}</div>}
+</div></div>
                   <div style={{ display: "flex", gap: 14 }}>
                     <div style={{ fontSize: 10.5, color: "var(--ne-muted)" }}>{t("orders.unit")}: {unitPrices}</div>
                     <div style={{ fontSize: 10.5, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 3 }}>{t("orders.ship")}: <EditableCell orderId={order.id} field="shipping" value={String(shipping)} width={50} /></div>
@@ -1311,7 +1428,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
               </div>
             </div>
 
-            {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, products, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, statusBtn, syncRow }) => (
+            {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, statusBtn, syncRow }) => (
               <div key={order.id} style={{ display: "flex", alignItems: "stretch", gap: 0, background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "hidden" }}>
 
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 8px 10px 12px", flexShrink: 0, width: 136, boxSizing: "border-box" }}>
@@ -1355,7 +1472,10 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
                     <div style={{ width: 160, minWidth: 160, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 2 }}>
                       <EditableCell orderId={order.id} field="sku" value={skus} width={150} clampLines={1} />
-                      <EditableCell orderId={order.id} field="product" value={products} width={150} multiline clampLines={2} />
+                      <div>
+                        <EditableCell orderId={order.id} field="product" value={productsEditable} width={150} multiline clampLines={2} />
+                        {productVariantNote && <div style={{ fontSize: 10, color: "var(--ne-muted-2)", marginTop: 2 }}>{productVariantNote}</div>}
+                      </div>
                     </div>
 
                     <div style={{ width: 115, minWidth: 115, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 3 }}>
@@ -1374,7 +1494,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                     </div>
 
                     <div style={{ width: 85, minWidth: 85, flexShrink: 0, overflow: "hidden", color: "var(--ne-success)", fontWeight: 700, fontSize: 12 }}>
-                      Rs. {Number(order.total_price).toLocaleString()}
+                      Rs. {displayTotal.toLocaleString()}
                     </div>
 
                     <div style={{ width: 75, minWidth: 75, flexShrink: 0, overflow: "hidden" }}>
@@ -1406,6 +1526,10 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
                 <div style={{ width: 130, minWidth: 130, flexShrink: 0, display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start", padding: "10px 12px 10px 14px", justifyContent: "center", boxSizing: "border-box" }}>
                   {statusBtn}
+                  <button onClick={() => openItemsModal(order)}
+                    style={{ padding: "3px 9px", borderRadius: 8, fontSize: 10, background: "var(--ne-surface-2)", color: "var(--ne-text)", border: "1px solid var(--ne-border)", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <Icon name="edit" size={9} /> {t("orders.editItems")}
+                  </button>
                   {syncRow}
                 </div>
               </div>
@@ -1627,6 +1751,86 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
               <button onClick={() => setSyncResultModal(null)}
                 style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                 {t("orders.ok")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------- EDIT ITEMS MODAL ---------- */}
+      {itemsModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
+          <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 560, maxWidth: "94vw", maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
+            <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)" }}>
+              <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="edit" size={14} /> {t("orders.editItemsTitle")} — {itemsModal.name}</h2>
+            </div>
+
+            <div style={{ flex: 1, overflowY: "auto", padding: "10px 18px" }}>
+              {itemsList.map((it, idx) => (
+                <div key={idx} style={{ marginBottom: 10, background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "8px 10px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ne-text)", wordBreak: "break-word" }}>{it.title}</div>
+                      {it.variant_title && <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)" }}>{it.variant_title}</div>}
+                      {it.sku && <div style={{ fontSize: 10, color: "var(--ne-muted-2)", fontFamily: "monospace" }}>{it.sku}</div>}
+                    </div>
+                    <button onClick={() => removeItem(idx)}
+                      style={{ background: "transparent", border: "1px solid var(--ne-danger)", borderRadius: 7, color: "var(--ne-danger)", cursor: "pointer", fontSize: 10, fontWeight: 700, padding: "3px 9px", flexShrink: 0 }}>
+                      {t("orders.remove")}
+                    </button>
+                  </div>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 10, color: "var(--ne-muted-2)" }}>
+                      {t("orders.quantity")}
+                      <input type="number" value={it.quantity} onChange={e => updateItemField(idx, "quantity", Number(e.target.value))}
+                        style={{ width: 60, padding: "4px 6px", borderRadius: 6, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11, boxSizing: "border-box" }} />
+                    </label>
+                    <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 10, color: "var(--ne-muted-2)" }}>
+                      {t("orders.price")}
+                      <input type="number" value={it.price} onChange={e => updateItemField(idx, "price", e.target.value)}
+                        style={{ width: 80, padding: "4px 6px", borderRadius: 6, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11, boxSizing: "border-box" }} />
+                    </label>
+                    <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 10, color: "var(--ne-muted-2)" }}>
+                      {t("orders.disc")}
+                      <input type="number" value={it.discount} onChange={e => updateItemField(idx, "discount", e.target.value)}
+                        style={{ width: 80, padding: "4px 6px", borderRadius: 6, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11, boxSizing: "border-box" }} />
+                    </label>
+                  </div>
+                </div>
+              ))}
+
+              <div style={{ marginTop: 12, position: "relative" }}>
+                <input type="text" placeholder={t("orders.itemsSearchPlaceholder")} value={itemsSearch}
+                  onChange={e => setItemsSearch(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 12, boxSizing: "border-box" }} />
+                {itemsSearchResults.length > 0 && (
+                  <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 9, maxHeight: 220, overflowY: "auto", boxShadow: "0 8px 30px rgba(0,0,0,0.5)", zIndex: 10 }}>
+                    {itemsSearchResults.map(({ product, variant }) => (
+                      <div key={`${product.shopify_product_id}-${variant.id}`}
+                        onClick={() => addItemFromSearch(product, variant)}
+                        style={{ padding: "7px 10px", cursor: "pointer", fontSize: 11, borderBottom: "1px solid var(--ne-border)" }}
+                        onMouseEnter={e => e.currentTarget.style.background = "var(--ne-surface)"}
+                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                        <div style={{ color: "var(--ne-text)", fontWeight: 600 }}>
+                          {product.raw_data?.title}
+                          {variant.title && variant.title !== "Default Title" && <span style={{ color: "var(--ne-muted-2)", fontWeight: 400 }}> ({variant.title})</span>}
+                        </div>
+                        <div style={{ color: "var(--ne-muted-2)", fontSize: 10 }}>{variant.sku || "—"} · Rs. {variant.price}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div style={{ padding: "12px 18px", borderTop: "1px solid var(--ne-border)", display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={closeItemsModal} disabled={itemsSaving}
+                style={{ padding: "8px 14px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-muted)", fontSize: 12, cursor: itemsSaving ? "default" : "pointer" }}>
+                {t("orders.cancel")}
+              </button>
+              <button onClick={saveItemsModal} disabled={itemsSaving}
+                style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: itemsSaving ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: itemsSaving ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                {itemsSaving ? t("orders.saving") : (<><Icon name="check" size={12} /> {t("orders.save")}</>)}
               </button>
             </div>
           </div>
