@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, Fragment } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
@@ -97,8 +97,8 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
   const [syncStatus, setSyncStatus] = useState({}); // { [productId]: 'pending' | 'synced' }
   const syncTimeoutsRef = useRef({});
   const [editingTitleId, setEditingTitleId] = useState(null);
-  const [expandedProducts, setExpandedProducts] = useState(new Set());
   const [pendingChanges, setPendingChanges] = useState({}); // { [shopify_product_id]: { fields: {title?, vendor?, product_type?}, variants: { [variantId]: {sku?, price?, compare_at_price?} } } }
+  const [archivedVariants, setArchivedVariants] = useState({}); // { [shopify_product_id]: [{id, variant_data, archived_at}, ...] }
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
@@ -112,6 +112,10 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
 
   useEffect(() => {
     if (storeId) loadCollections();
+  }, [storeId]);
+
+  useEffect(() => {
+    if (storeId) loadArchivedVariants();
   }, [storeId]);
 
   useEffect(() => {
@@ -179,6 +183,21 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
       setProductCollections(map);
     } catch (err) {
       console.log("Collections load error:", err.message);
+    }
+  };
+
+  const loadArchivedVariants = async () => {
+    try {
+      const { data, error } = await supabase.from("product_variant_archive").select("*").eq("store_id", storeId).is("restored_at", null);
+      if (error) throw error;
+      const map = {};
+      (data || []).forEach((row) => {
+        if (!map[row.shopify_product_id]) map[row.shopify_product_id] = [];
+        map[row.shopify_product_id].push(row);
+      });
+      setArchivedVariants(map);
+    } catch (err) {
+      console.log("Archived variants load error:", err.message);
     }
   };
 
@@ -315,12 +334,50 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
     saveProductUpdate(product, { status: next });
   };
 
-  const toggleExpanded = (productId) => {
-    setExpandedProducts((prev) => {
-      const n = new Set(prev);
-      n.has(productId) ? n.delete(productId) : n.add(productId);
-      return n;
-    });
+  const archiveVariant = async (product, variant) => {
+    const productId = product.shopify_product_id;
+    setSyncStatus((prev) => ({ ...prev, [productId]: "pending" }));
+    try {
+      const data = await authedFetch("/shopify-variant-archive", {
+        method: "POST",
+        body: JSON.stringify({ store_id: storeId, product_id: productId, variant }),
+      });
+      if (data.error) {
+        setError(data.error);
+        setSyncStatus((prev) => { const n = { ...prev }; delete n[productId]; return n; });
+        return;
+      }
+      const all = await fetchAllProductsFromSupabase(storeId);
+      setProducts(all);
+      await saveProductsBulk(eneezamId, all);
+      await loadArchivedVariants();
+    } catch (err) {
+      setError(err.message);
+    }
+    setSyncStatus((prev) => { const n = { ...prev }; delete n[productId]; return n; });
+  };
+
+  const restoreVariant = async (product, archiveRow) => {
+    const productId = product.shopify_product_id;
+    setSyncStatus((prev) => ({ ...prev, [productId]: "pending" }));
+    try {
+      const data = await authedFetch("/shopify-variant-restore", {
+        method: "POST",
+        body: JSON.stringify({ store_id: storeId, product_id: productId, archive_id: archiveRow.id }),
+      });
+      if (data.error) {
+        setError(data.error);
+        setSyncStatus((prev) => { const n = { ...prev }; delete n[productId]; return n; });
+        return;
+      }
+      const all = await fetchAllProductsFromSupabase(storeId);
+      setProducts(all);
+      await saveProductsBulk(eneezamId, all);
+      await loadArchivedVariants();
+    } catch (err) {
+      setError(err.message);
+    }
+    setSyncStatus((prev) => { const n = { ...prev }; delete n[productId]; return n; });
   };
 
   // Reusable inline-editable cell — every plain text/number cell (vendor, product_type,
@@ -614,171 +671,136 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
           {products.length === 0 ? t("products.noProducts") : t("products.noProductsFiltered")}
         </div>
       ) : (
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5 }}>
-            <thead>
-              <tr>
-                <th style={{ padding: "6px 8px" }}></th>
-                <th style={{ padding: "6px 8px" }}></th>
-                {[t("products.table.title"), t("products.table.vendor"), t("products.table.type"), t("products.table.sku"), t("products.table.fullPrice"), t("products.table.discountedPrice")].map((h) => (
-                  <th key={h} style={{ textAlign: "left", padding: "6px 8px", color: "var(--ne-muted)", borderBottom: "1px solid var(--ne-border)", fontWeight: 600, fontSize: 10.5, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
-                ))}
-                <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--ne-muted)", borderBottom: "1px solid var(--ne-border)", fontWeight: 600, fontSize: 10.5, textTransform: "uppercase", whiteSpace: "nowrap" }}>{t("products.table.status")}</th>
-                <th style={{ padding: "6px 8px" }}></th>
-                {[t("products.table.syncedAt"), t("products.table.actions")].map((h) => (
-                  <th key={h} style={{ textAlign: "left", padding: "6px 8px", color: "var(--ne-muted)", borderBottom: "1px solid var(--ne-border)", fontWeight: 600, fontSize: 10.5, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {pagedProducts.map((p) => {
-                const v = firstVariant(p);
-                const status = p.raw_data?.status || "active";
-                const image = p.raw_data?.image?.src || p.raw_data?.images?.[0]?.src;
-                const shopifyAdminUrl = `https://${ordersStore?.shopify_url}/admin/products/${p.shopify_product_id}`;
-                const shopifyStorefrontUrl = p.raw_data?.handle ? `https://${ordersStore?.shopify_url}/products/${p.raw_data.handle}` : null;
-                const productId = p.shopify_product_id;
-                const variants = p.raw_data?.variants || [];
-                const extraVariants = variants.slice(1);
-                const isExpanded = expandedProducts.has(productId);
-                const collectionTitles = collectionTitlesForProduct(productId);
-                const variationTitle = v.title && v.title !== "Default Title" ? v.title : "";
-                const status2 = syncStatus[productId];
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {pagedProducts.map((p) => {
+            const status = p.raw_data?.status || "active";
+            const image = p.raw_data?.image?.src || p.raw_data?.images?.[0]?.src;
+            const shopifyAdminUrl = `https://${ordersStore?.shopify_url}/admin/products/${p.shopify_product_id}`;
+            const shopifyStorefrontUrl = p.raw_data?.handle ? `https://${ordersStore?.shopify_url}/products/${p.raw_data.handle}` : null;
+            const productId = p.shopify_product_id;
+            const variants = p.raw_data?.variants || [];
+            const collectionTitles = collectionTitlesForProduct(productId);
+            const status2 = syncStatus[productId];
+            const archived = archivedVariants[productId] || [];
 
-                return (
-                  <Fragment key={productId}>
-                    <tr style={{ borderBottom: (isExpanded && extraVariants.length > 0) ? "none" : "1px solid var(--ne-border)" }}>
-                      <td style={{ padding: "7px 8px" }}>
-                        <input type="checkbox" checked={selectedIds.has(productId)} onChange={() => toggleSelect(productId)} style={{ cursor: "pointer" }} />
-                      </td>
-                      <td style={{ padding: "7px 8px" }}>
-                        {image ? (
-                          <img src={image} alt="" style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover", display: "block", cursor: "zoom-in", transition: "transform .15s ease" }}
-                            onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(3)"; e.currentTarget.style.position = "relative"; e.currentTarget.style.zIndex = "50"; e.currentTarget.style.boxShadow = "0 8px 24px rgba(0,0,0,.4)"; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "none"; }} />
+            return (
+              <div key={productId} style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "14px 16px" }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                  <input type="checkbox" checked={selectedIds.has(productId)} onChange={() => toggleSelect(productId)} style={{ cursor: "pointer", marginTop: 4, flexShrink: 0 }} />
+                  {image ? (
+                    <img src={image} alt="" style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
+                  ) : (
+                    <div style={{ width: 44, height: 44, borderRadius: 8, background: "var(--ne-surface)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <Icon name="package" size={16} style={{ color: "var(--ne-muted-2)" }} />
+                    </div>
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    {editingTitleId === productId ? (
+                      <EditableCell productId={productId} fieldKey="title" initialValue={pendingChanges[productId]?.fields?.title ?? p.raw_data?.title}
+                        onCommit={(val) => { commitProductField(p, "title", val); setEditingTitleId(null); }}
+                        style={{ ...cellInputStyle, width: "100%", fontSize: 13 }} />
+                    ) : (
+                      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                        {shopifyStorefrontUrl ? (
+                          <a href={shopifyStorefrontUrl} target="_blank" rel="noreferrer" title={t("products.viewOnStorefront")}
+                            style={{ color: "var(--ne-text)", textDecoration: "none", fontWeight: 700, fontSize: 13.5 }}>
+                            {p.raw_data?.title || "—"}
+                          </a>
                         ) : (
-                          <div style={{ width: 32, height: 32, borderRadius: 6, background: "var(--ne-surface)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            <Icon name="package" size={14} style={{ color: "var(--ne-muted-2)" }} />
-                          </div>
+                          <span style={{ fontWeight: 700, fontSize: 13.5, color: "var(--ne-text)" }}>{p.raw_data?.title || "—"}</span>
                         )}
-                      </td>
-                      <td style={{ padding: "7px 8px", color: "var(--ne-text)", fontWeight: 600, maxWidth: 200, whiteSpace: "normal", wordWrap: "break-word", overflowWrap: "break-word" }}>
-                        {editingTitleId === productId ? (
-                          <EditableCell productId={productId} fieldKey="title" initialValue={pendingChanges[productId]?.fields?.title ?? p.raw_data?.title}
-                            onCommit={(val) => { commitProductField(p, "title", val); setEditingTitleId(null); }}
-                            style={{ ...cellInputStyle, width: "100%" }} />
-                        ) : (
-                          <div style={{ display: "flex", alignItems: "flex-start", gap: 4 }}>
-                            {shopifyStorefrontUrl ? (
-                              <a href={shopifyStorefrontUrl} target="_blank" rel="noreferrer" title={t("products.viewOnStorefront")}
-                                style={{ color: "var(--ne-text)", textDecoration: "none" }}>
-                                {p.raw_data?.title || "—"}
-                              </a>
-                            ) : (
-                              <span>{p.raw_data?.title || "—"}</span>
-                            )}
-                            <Icon name="edit" size={9} style={{ cursor: "pointer", flexShrink: 0, color: "var(--ne-muted-2)", marginTop: 2 }}
-                              onClick={() => setEditingTitleId(productId)} />
-                          </div>
-                        )}
-                        {variationTitle && <div style={{ fontSize: 10, color: "var(--ne-muted-2)", fontWeight: 400, marginTop: 1 }}>{variationTitle}</div>}
-                      </td>
-                      <td style={{ padding: "7px 8px" }}>
-                        <EditableCell productId={productId} fieldKey="vendor" initialValue={pendingChanges[productId]?.fields?.vendor ?? p.raw_data?.vendor}
-                          onCommit={(val) => commitProductField(p, "vendor", val)} style={cellInputStyle} />
-                        {collectionTitles.length > 0 && (
-                          <div style={{ fontSize: 10, color: "var(--ne-muted-2)", marginTop: 3 }}>{collectionTitles.join(", ")}</div>
-                        )}
-                      </td>
-                      <td style={{ padding: "7px 8px" }}>
-                        <EditableCell productId={productId} fieldKey="product_type" initialValue={pendingChanges[productId]?.fields?.product_type ?? p.raw_data?.product_type}
-                          onCommit={(val) => commitProductField(p, "product_type", val)} style={cellInputStyle} />
-                      </td>
-                      <td style={{ padding: "7px 8px" }}>
-                        <EditableCell productId={productId} fieldKey={`sku-${v.id}`} initialValue={pendingChanges[productId]?.variants?.[v.id]?.sku ?? v.sku}
-                          onCommit={(val) => commitVariantField(p, v, "sku", val)} style={{ ...cellInputStyle, fontFamily: "monospace" }} />
-                        {extraVariants.length > 0 && (
-                          <button onClick={() => toggleExpanded(productId)}
-                            style={{ background: "none", border: "none", color: "var(--ne-accent)", cursor: "pointer", fontSize: 10, padding: 0, marginTop: 3, display: "block" }}>
-                            {isExpanded ? t("products.showLess") : `${t("products.showMore")} (+${extraVariants.length})`}
-                          </button>
-                        )}
-                      </td>
-                      <td style={{ padding: "7px 8px" }}>
-                        <EditableCell productId={productId} fieldKey={`cap-${v.id}`} type="number" initialValue={pendingChanges[productId]?.variants?.[v.id]?.compare_at_price ?? v.compare_at_price}
-                          onCommit={(val) => commitVariantField(p, v, "compare_at_price", val)} style={cellInputStyle} />
-                      </td>
-                      <td style={{ padding: "7px 8px" }}>
-                        <EditableCell productId={productId} fieldKey={`price-${v.id}`} type="number" initialValue={pendingChanges[productId]?.variants?.[v.id]?.price ?? v.price}
-                          onCommit={(val) => commitVariantField(p, v, "price", val)} style={cellInputStyle} />
-                      </td>
-                      <td style={{ padding: "7px 8px" }}>
-                        <button onClick={() => toggleStatus(p)} disabled={status2 === "pending"} title={t(`products.status.${status}`) || status}
-                          style={{ width: 34, height: 18, borderRadius: 10, border: "none", cursor: status2 === "pending" ? "default" : "pointer", position: "relative", background: status === "active" ? "var(--ne-success)" : "var(--ne-border)", flexShrink: 0 }}>
-                          <span style={{ position: "absolute", top: 2, left: status === "active" ? 17 : 2, width: 14, height: 14, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
-                        </button>
-                      </td>
-                      <td style={{ padding: "7px 8px" }}>
-                        {status2 === "pending" && (
-                          <span style={{ ...badgeStyle, background: "var(--ne-warning-soft)", color: "var(--ne-warning)" }}>
-                            <Icon name="refresh" size={9} /> {t("products.syncPending")}
+                        <Icon name="edit" size={10} style={{ cursor: "pointer", flexShrink: 0, color: "var(--ne-muted-2)" }}
+                          onClick={() => setEditingTitleId(productId)} />
+                      </div>
+                    )}
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+                      <EditableCell productId={productId} fieldKey="vendor" initialValue={pendingChanges[productId]?.fields?.vendor ?? p.raw_data?.vendor}
+                        onCommit={(val) => commitProductField(p, "vendor", val)} style={cellInputStyle} />
+                      <EditableCell productId={productId} fieldKey="product_type" initialValue={pendingChanges[productId]?.fields?.product_type ?? p.raw_data?.product_type}
+                        onCommit={(val) => commitProductField(p, "product_type", val)} style={cellInputStyle} />
+                    </div>
+                    {collectionTitles.length > 0 && (
+                      <div style={{ fontSize: 10, color: "var(--ne-muted-2)", marginTop: 4 }}>{collectionTitles.join(", ")}</div>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
+                    <button onClick={() => toggleStatus(p)} disabled={status2 === "pending"} title={t(`products.status.${status}`) || status}
+                      style={{ width: 34, height: 18, borderRadius: 10, border: "none", cursor: status2 === "pending" ? "default" : "pointer", position: "relative", background: status === "active" ? "var(--ne-success)" : "var(--ne-border)", flexShrink: 0 }}>
+                      <span style={{ position: "absolute", top: 2, left: status === "active" ? 17 : 2, width: 14, height: 14, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+                    </button>
+                    {status2 === "pending" && (
+                      <span style={{ ...badgeStyle, background: "var(--ne-warning-soft)", color: "var(--ne-warning)" }}>
+                        <Icon name="refresh" size={9} /> {t("products.syncPending")}
+                      </span>
+                    )}
+                    {status2 === "synced" && (
+                      <span style={{ ...badgeStyle, background: "var(--ne-success-soft)", color: "var(--ne-success)" }}>
+                        <Icon name="check" size={9} /> {t("products.synced")}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--ne-border)", display: "flex", flexDirection: "column", gap: 6 }}>
+                  {variants.map((variant) => (
+                    <div key={variant.id} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 10.5, color: "var(--ne-muted-2)", minWidth: 90, flexShrink: 0 }}>{variant.title && variant.title !== "Default Title" ? variant.title : t("products.defaultVariant")}</span>
+                      <EditableCell productId={productId} fieldKey={`sku-${variant.id}`} initialValue={pendingChanges[productId]?.variants?.[variant.id]?.sku ?? variant.sku}
+                        onCommit={(val) => commitVariantField(p, variant, "sku", val)} style={{ ...cellInputStyle, fontFamily: "monospace" }} />
+                      <EditableCell productId={productId} fieldKey={`cap-${variant.id}`} type="number" initialValue={pendingChanges[productId]?.variants?.[variant.id]?.compare_at_price ?? variant.compare_at_price}
+                        onCommit={(val) => commitVariantField(p, variant, "compare_at_price", val)} style={cellInputStyle} />
+                      <EditableCell productId={productId} fieldKey={`price-${variant.id}`} type="number" initialValue={pendingChanges[productId]?.variants?.[variant.id]?.price ?? variant.price}
+                        onCommit={(val) => commitVariantField(p, variant, "price", val)} style={cellInputStyle} />
+                      <button onClick={() => archiveVariant(p, variant)} disabled={status2 === "pending"}
+                        style={{ marginLeft: "auto", background: "transparent", border: "1px solid var(--ne-border)", borderRadius: 7, color: "var(--ne-muted)", cursor: status2 === "pending" ? "default" : "pointer", fontSize: 10, fontWeight: 700, padding: "3px 9px" }}>
+                        {t("products.variantOff")}
+                      </button>
+                    </div>
+                  ))}
+
+                  {archived.length > 0 && (
+                    <div style={{ marginTop: 4, paddingTop: 8, borderTop: "1px dashed var(--ne-border)" }}>
+                      <div style={{ fontSize: 10, color: "var(--ne-muted-2)", fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>{t("products.archivedVariants")}</div>
+                      {archived.map((row) => (
+                        <div key={row.id} style={{ display: "flex", alignItems: "center", gap: 8, opacity: 0.55, marginTop: 4 }}>
+                          <span style={{ fontSize: 10.5, color: "var(--ne-muted-2)", minWidth: 90, flexShrink: 0 }}>
+                            {row.variant_data?.title && row.variant_data.title !== "Default Title" ? row.variant_data.title : t("products.defaultVariant")}
                           </span>
-                        )}
-                        {status2 === "synced" && (
-                          <span style={{ ...badgeStyle, background: "var(--ne-success-soft)", color: "var(--ne-success)" }}>
-                            <Icon name="check" size={9} /> {t("products.synced")}
-                          </span>
-                        )}
-                      </td>
-                      <td style={{ padding: "7px 8px", color: "var(--ne-muted-2)", fontSize: 10.5, whiteSpace: "nowrap" }}>
-                        {p.synced_at ? new Date(p.synced_at).toLocaleString("en-PK", { dateStyle: "short", timeStyle: "short" }) : "—"}
-                      </td>
-                      <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>
-                        <button onClick={() => openEditProduct(p)}
-                          style={{ background: "transparent", border: "none", color: "var(--ne-accent)", cursor: "pointer", fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, marginRight: 10 }}>
-                          <Icon name="edit" size={11} /> {t("products.edit")}
-                        </button>
-                        {pendingChanges[productId] && (
-                          <button onClick={() => pushProductChanges(p)} disabled={status2 === "pending"}
-                            style={{ background: "transparent", border: "none", color: "var(--ne-warning)", cursor: status2 === "pending" ? "default" : "pointer", fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, marginRight: 10 }}>
-                            <Icon name="refresh" size={11} /> {t("products.pushToShopify")}
+                          <span style={{ fontSize: 10.5, color: "var(--ne-muted-2)", fontFamily: "monospace" }}>{row.variant_data?.sku || "—"}</span>
+                          <span style={{ fontSize: 10.5, color: "var(--ne-muted-2)" }}>{row.variant_data?.price ?? "—"}</span>
+                          <button onClick={() => restoreVariant(p, row)} disabled={status2 === "pending"}
+                            style={{ marginLeft: "auto", background: "transparent", border: "1px solid var(--ne-success)", borderRadius: 7, color: "var(--ne-success)", cursor: status2 === "pending" ? "default" : "pointer", fontSize: 10, fontWeight: 700, padding: "3px 9px" }}>
+                            {t("products.variantOn")}
                           </button>
-                        )}
-                        <a href={shopifyAdminUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-muted)", fontSize: 11, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                          <Icon name="link" size={11} /> {t("products.viewInShopify")}
-                        </a>
-                      </td>
-                    </tr>
-                    {isExpanded && extraVariants.map((variant) => (
-                      <tr key={variant.id} style={{ borderBottom: "1px solid var(--ne-border)", background: "var(--ne-surface)" }}>
-                        <td></td>
-                        <td></td>
-                        <td style={{ padding: "7px 8px", fontSize: 10.5, color: "var(--ne-muted-2)" }}>{variant.title !== "Default Title" ? variant.title : "—"}</td>
-                        <td></td>
-                        <td></td>
-                        <td style={{ padding: "7px 8px" }}>
-                          <EditableCell productId={productId} fieldKey={`sku-${variant.id}`} initialValue={pendingChanges[productId]?.variants?.[variant.id]?.sku ?? variant.sku}
-                            onCommit={(val) => commitVariantField(p, variant, "sku", val)} style={{ ...cellInputStyle, fontFamily: "monospace" }} />
-                        </td>
-                        <td style={{ padding: "7px 8px" }}>
-                          <EditableCell productId={productId} fieldKey={`cap-${variant.id}`} type="number" initialValue={pendingChanges[productId]?.variants?.[variant.id]?.compare_at_price ?? variant.compare_at_price}
-                            onCommit={(val) => commitVariantField(p, variant, "compare_at_price", val)} style={cellInputStyle} />
-                        </td>
-                        <td style={{ padding: "7px 8px" }}>
-                          <EditableCell productId={productId} fieldKey={`price-${variant.id}`} type="number" initialValue={pendingChanges[productId]?.variants?.[variant.id]?.price ?? variant.price}
-                            onCommit={(val) => commitVariantField(p, variant, "price", val)} style={cellInputStyle} />
-                        </td>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                      </tr>
-                    ))}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--ne-border)", flexWrap: "wrap", gap: 8 }}>
+                  <span style={{ fontSize: 10.5, color: "var(--ne-muted-2)" }}>
+                    {t("products.table.syncedAt")}: {p.synced_at ? new Date(p.synced_at).toLocaleString("en-PK", { dateStyle: "short", timeStyle: "short" }) : "—"}
+                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <button onClick={() => openEditProduct(p)}
+                      style={{ background: "transparent", border: "none", color: "var(--ne-accent)", cursor: "pointer", fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      <Icon name="edit" size={11} /> {t("products.edit")}
+                    </button>
+                    {pendingChanges[productId] && (
+                      <button onClick={() => pushProductChanges(p)} disabled={status2 === "pending"}
+                        style={{ background: "transparent", border: "none", color: "var(--ne-warning)", cursor: status2 === "pending" ? "default" : "pointer", fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <Icon name="refresh" size={11} /> {t("products.pushToShopify")}
+                      </button>
+                    )}
+                    <a href={shopifyAdminUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-muted)", fontSize: 11, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      <Icon name="link" size={11} /> {t("products.viewInShopify")}
+                    </a>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
