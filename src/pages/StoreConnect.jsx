@@ -3,13 +3,8 @@ import { supabase } from "../supabase";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
 
-const CLIENT_ID = import.meta.env.VITE_SHOPIFY_CLIENT_ID;
 const REDIRECT_URI = "https://neezam-erp.pages.dev/auth/callback";
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
-
-// TEMPORARY — Doctor Rubina test-app, isay test complete hone ke baad hata dena hai
-const TEST_CLIENT_ID = "de63df7a35d2960766dc3fb9fef91b0c";
-const TEST_STORE_ENEEZAM_ID = "EN7461162";
 
 const SCOPES = [
   "read_orders",
@@ -124,7 +119,7 @@ export default function StoreConnect({ storeId }) {
     }
     const { data } = await supabase
       .from("stores")
-      .select("*")
+      .select("id, store_name, eneezam_id, shopify_url")
       .eq("id", storeId);
     setStores(data || []);
     setLoading(false);
@@ -141,7 +136,7 @@ export default function StoreConnect({ storeId }) {
     setCacheCounts((prev) => ({ ...prev, [sId]: count ?? 0 }));
   };
 
-  const handleConnect = () => {
+  const handleConnect = async () => {
     setError("");
     if (!shopUrl) {
       setError(t("store.urlRequired"));
@@ -154,15 +149,28 @@ export default function StoreConnect({ storeId }) {
     if (!cleanUrl.includes(".myshopify.com")) {
       cleanUrl = cleanUrl + ".myshopify.com";
     }
-    // TEMPORARY — Doctor Rubina (EN7461162) test-app override, hata dena hai test ke baad.
     // "state" ko OAuth ka standard round-trip param use karte hain taake eneezam_id
     // callback tak reliably pahunche, chahe is store ka shopify_url abhi null ho
     // (pehli-baar-connect) — Worker ke /shopify-token mein isi state se decide hota hai.
     const currentEneezamId = stores[0]?.eneezam_id;
-    const effectiveClientId = currentEneezamId === TEST_STORE_ENEEZAM_ID ? TEST_CLIENT_ID : CLIENT_ID;
+    // client_id (public value, secret nahi) Worker se dynamically fetch karte hain — store ka
+    // apna dedicated Shopify app ho to wahi milega, warna default shared app ka client_id.
+    let clientId;
+    try {
+      const res = await fetch(`${CF_URL}/store-shopify-client-id?store_id=${encodeURIComponent(currentEneezamId || "")}`);
+      const data = await res.json();
+      if (data.error || !data.client_id) {
+        setError(data.error || t("store.urlRequired"));
+        return;
+      }
+      clientId = data.client_id;
+    } catch (err) {
+      setError(err.message);
+      return;
+    }
     const authUrl =
       `https://${cleanUrl}/admin/oauth/authorize` +
-      `?client_id=${effectiveClientId}` +
+      `?client_id=${clientId}` +
       `&scope=${SCOPES}` +
       `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
       `&state=${encodeURIComponent(currentEneezamId || "")}`;
