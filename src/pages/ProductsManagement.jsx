@@ -98,6 +98,7 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
   const syncTimeoutsRef = useRef({});
   const [editingTitleId, setEditingTitleId] = useState(null);
   const [expandedProducts, setExpandedProducts] = useState(new Set());
+  const [pendingChanges, setPendingChanges] = useState({}); // { [shopify_product_id]: { fields: {title?, vendor?, product_type?}, variants: { [variantId]: {sku?, price?, compare_at_price?} } } }
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
@@ -264,14 +265,48 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
 
   const commitProductField = (product, field, rawValue) => {
     const current = product.raw_data?.[field] || "";
-    if (rawValue === current) return;
-    saveProductUpdate(product, { [field]: rawValue });
+    const productId = product.shopify_product_id;
+    setPendingChanges((prev) => {
+      const existing = prev[productId] || { fields: {}, variants: {} };
+      const fields = { ...existing.fields };
+      if (rawValue === current) delete fields[field]; else fields[field] = rawValue;
+      const stillHasVariants = Object.keys(existing.variants).length > 0;
+      if (Object.keys(fields).length === 0 && !stillHasVariants) {
+        const n = { ...prev }; delete n[productId]; return n;
+      }
+      return { ...prev, [productId]: { ...existing, fields } };
+    });
   };
 
   const commitVariantField = (product, variant, field, rawValue) => {
     const current = variant[field] != null ? String(variant[field]) : "";
-    if (String(rawValue ?? "") === current) return;
-    saveProductUpdate(product, { variants: [{ id: variant.id, [field]: rawValue }] });
+    const productId = product.shopify_product_id;
+    setPendingChanges((prev) => {
+      const existing = prev[productId] || { fields: {}, variants: {} };
+      const variants = { ...existing.variants };
+      const vExisting = { ...(variants[variant.id] || {}) };
+      if (String(rawValue ?? "") === current) delete vExisting[field]; else vExisting[field] = rawValue;
+      if (Object.keys(vExisting).length === 0) delete variants[variant.id]; else variants[variant.id] = vExisting;
+      const stillHasFields = Object.keys(existing.fields).length > 0;
+      if (Object.keys(variants).length === 0 && !stillHasFields) {
+        const n = { ...prev }; delete n[productId]; return n;
+      }
+      return { ...prev, [productId]: { ...existing, variants } };
+    });
+  };
+
+  const pushProductChanges = async (product) => {
+    const productId = product.shopify_product_id;
+    const pending = pendingChanges[productId];
+    if (!pending) return;
+    const updates = { ...pending.fields };
+    if (Object.keys(pending.variants).length > 0) {
+      updates.variants = Object.entries(pending.variants).map(([variantId, fields]) => ({ id: variantId, ...fields }));
+    }
+    const result = await saveProductUpdate(product, updates);
+    if (result.success) {
+      setPendingChanges((prev) => { const n = { ...prev }; delete n[productId]; return n; });
+    }
   };
 
   const toggleStatus = (product) => {
@@ -629,7 +664,7 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                       </td>
                       <td style={{ padding: "7px 8px", color: "var(--ne-text)", fontWeight: 600, maxWidth: 200, whiteSpace: "normal", wordWrap: "break-word", overflowWrap: "break-word" }}>
                         {editingTitleId === productId ? (
-                          <EditableCell productId={productId} fieldKey="title" initialValue={p.raw_data?.title}
+                          <EditableCell productId={productId} fieldKey="title" initialValue={pendingChanges[productId]?.fields?.title ?? p.raw_data?.title}
                             onCommit={(val) => { commitProductField(p, "title", val); setEditingTitleId(null); }}
                             style={{ ...cellInputStyle, width: "100%" }} />
                         ) : (
@@ -649,18 +684,18 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                         {variationTitle && <div style={{ fontSize: 10, color: "var(--ne-muted-2)", fontWeight: 400, marginTop: 1 }}>{variationTitle}</div>}
                       </td>
                       <td style={{ padding: "7px 8px" }}>
-                        <EditableCell productId={productId} fieldKey="vendor" initialValue={p.raw_data?.vendor}
+                        <EditableCell productId={productId} fieldKey="vendor" initialValue={pendingChanges[productId]?.fields?.vendor ?? p.raw_data?.vendor}
                           onCommit={(val) => commitProductField(p, "vendor", val)} style={cellInputStyle} />
                         {collectionTitles.length > 0 && (
                           <div style={{ fontSize: 10, color: "var(--ne-muted-2)", marginTop: 3 }}>{collectionTitles.join(", ")}</div>
                         )}
                       </td>
                       <td style={{ padding: "7px 8px" }}>
-                        <EditableCell productId={productId} fieldKey="product_type" initialValue={p.raw_data?.product_type}
+                        <EditableCell productId={productId} fieldKey="product_type" initialValue={pendingChanges[productId]?.fields?.product_type ?? p.raw_data?.product_type}
                           onCommit={(val) => commitProductField(p, "product_type", val)} style={cellInputStyle} />
                       </td>
                       <td style={{ padding: "7px 8px" }}>
-                        <EditableCell productId={productId} fieldKey={`sku-${v.id}`} initialValue={v.sku}
+                        <EditableCell productId={productId} fieldKey={`sku-${v.id}`} initialValue={pendingChanges[productId]?.variants?.[v.id]?.sku ?? v.sku}
                           onCommit={(val) => commitVariantField(p, v, "sku", val)} style={{ ...cellInputStyle, fontFamily: "monospace" }} />
                         {extraVariants.length > 0 && (
                           <button onClick={() => toggleExpanded(productId)}
@@ -670,11 +705,11 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                         )}
                       </td>
                       <td style={{ padding: "7px 8px" }}>
-                        <EditableCell productId={productId} fieldKey={`cap-${v.id}`} type="number" initialValue={v.compare_at_price}
+                        <EditableCell productId={productId} fieldKey={`cap-${v.id}`} type="number" initialValue={pendingChanges[productId]?.variants?.[v.id]?.compare_at_price ?? v.compare_at_price}
                           onCommit={(val) => commitVariantField(p, v, "compare_at_price", val)} style={cellInputStyle} />
                       </td>
                       <td style={{ padding: "7px 8px" }}>
-                        <EditableCell productId={productId} fieldKey={`price-${v.id}`} type="number" initialValue={v.price}
+                        <EditableCell productId={productId} fieldKey={`price-${v.id}`} type="number" initialValue={pendingChanges[productId]?.variants?.[v.id]?.price ?? v.price}
                           onCommit={(val) => commitVariantField(p, v, "price", val)} style={cellInputStyle} />
                       </td>
                       <td style={{ padding: "7px 8px" }}>
@@ -703,6 +738,12 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                           style={{ background: "transparent", border: "none", color: "var(--ne-accent)", cursor: "pointer", fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, marginRight: 10 }}>
                           <Icon name="edit" size={11} /> {t("products.edit")}
                         </button>
+                        {pendingChanges[productId] && (
+                          <button onClick={() => pushProductChanges(p)} disabled={status2 === "pending"}
+                            style={{ background: "transparent", border: "none", color: "var(--ne-warning)", cursor: status2 === "pending" ? "default" : "pointer", fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, marginRight: 10 }}>
+                            <Icon name="refresh" size={11} /> {t("products.pushToShopify")}
+                          </button>
+                        )}
                         <a href={shopifyAdminUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-muted)", fontSize: 11, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
                           <Icon name="link" size={11} /> {t("products.viewInShopify")}
                         </a>
@@ -716,15 +757,15 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                         <td></td>
                         <td></td>
                         <td style={{ padding: "7px 8px" }}>
-                          <EditableCell productId={productId} fieldKey={`sku-${variant.id}`} initialValue={variant.sku}
+                          <EditableCell productId={productId} fieldKey={`sku-${variant.id}`} initialValue={pendingChanges[productId]?.variants?.[variant.id]?.sku ?? variant.sku}
                             onCommit={(val) => commitVariantField(p, variant, "sku", val)} style={{ ...cellInputStyle, fontFamily: "monospace" }} />
                         </td>
                         <td style={{ padding: "7px 8px" }}>
-                          <EditableCell productId={productId} fieldKey={`cap-${variant.id}`} type="number" initialValue={variant.compare_at_price}
+                          <EditableCell productId={productId} fieldKey={`cap-${variant.id}`} type="number" initialValue={pendingChanges[productId]?.variants?.[variant.id]?.compare_at_price ?? variant.compare_at_price}
                             onCommit={(val) => commitVariantField(p, variant, "compare_at_price", val)} style={cellInputStyle} />
                         </td>
                         <td style={{ padding: "7px 8px" }}>
-                          <EditableCell productId={productId} fieldKey={`price-${variant.id}`} type="number" initialValue={variant.price}
+                          <EditableCell productId={productId} fieldKey={`price-${variant.id}`} type="number" initialValue={pendingChanges[productId]?.variants?.[variant.id]?.price ?? variant.price}
                             onCommit={(val) => commitVariantField(p, variant, "price", val)} style={cellInputStyle} />
                         </td>
                         <td></td>
