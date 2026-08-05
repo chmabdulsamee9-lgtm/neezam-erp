@@ -56,6 +56,7 @@ import ProfitLoss from './pages/ProfitLoss'
 import SupplierLedger from './pages/SupplierLedger'
 import BudgetCalculator from './pages/BudgetCalculator'
 import CourierConnect from './pages/CourierConnect'
+import GeminiConnect from './pages/GeminiConnect'
 import CourierDashboard from './pages/CourierDashboard'
 import CourierDetailedView from './pages/CourierDetailedView'
 import BookedOrders from './pages/BookedOrders'
@@ -207,6 +208,34 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
   const [manualStoreSaving, setManualStoreSaving] = useState(false)
   const [manualStoreError, setManualStoreError] = useState('')
   const [manualStoreSuccess, setManualStoreSuccess] = useState(false)
+
+  // Creator-level Gemini API key (fallback jab kisi store ne apna key set na kiya ho)
+  const [geminiSavedKey, setGeminiSavedKey] = useState('')
+  const [geminiEditing, setGeminiEditing] = useState(false)
+  const [geminiInput, setGeminiInput] = useState('')
+  const [geminiSaving, setGeminiSaving] = useState(false)
+  const [geminiError, setGeminiError] = useState('')
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from('app_settings').select('value').eq('key', 'gemini_api_key').maybeSingle()
+      if (data?.value) setGeminiSavedKey(data.value)
+    })()
+  }, [])
+
+  const maskKey = (key) => (key.length > 8 ? `${key.slice(0, 4)}••••••${key.slice(-4)}` : '••••••')
+
+  const handleSaveGeminiKey = async () => {
+    setGeminiError('')
+    if (!geminiInput.trim()) { setGeminiError('API key required hai'); return }
+    setGeminiSaving(true)
+    const { error } = await supabase.from('app_settings').upsert({ key: 'gemini_api_key', value: geminiInput.trim() }, { onConflict: 'key' })
+    if (error) { setGeminiError(error.message); setGeminiSaving(false); return }
+    setGeminiSavedKey(geminiInput.trim())
+    setGeminiInput('')
+    setGeminiEditing(false)
+    setGeminiSaving(false)
+  }
 
   const toggleOverrideAddon = (profileId, addonId, defaultIds) => {
     setAddonOverrides((prev) => {
@@ -434,6 +463,36 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
             </div>
           </div>
         )}
+
+        <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: 16, marginBottom: 20 }}>
+          <h2 style={{ fontSize: 14, color: 'var(--ne-muted)', display: 'flex', alignItems: 'center', gap: 6, margin: '0 0 10px' }}><Icon name="key" size={14} /> {t('master.geminiKeyLabel')}</h2>
+          {!geminiEditing ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13, color: geminiSavedKey ? 'var(--ne-text)' : 'var(--ne-muted)', fontFamily: geminiSavedKey ? 'monospace' : 'inherit' }}>
+                {geminiSavedKey ? maskKey(geminiSavedKey) : t('master.geminiKeyNotSet')}
+              </span>
+              <button onClick={() => { setGeminiInput(''); setGeminiError(''); setGeminiEditing(true) }}
+                style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                {geminiSavedKey ? t('master.geminiKeyChange') : t('master.geminiKeySet')}
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input type="password" placeholder={t('master.geminiKeyPlaceholder')} value={geminiInput}
+                onChange={e => setGeminiInput(e.target.value)}
+                style={{ ...inputStyle, width: 280, marginBottom: 0 }} />
+              <button onClick={handleSaveGeminiKey} disabled={geminiSaving}
+                style={{ padding: '9px 18px', background: geminiSaving ? 'var(--ne-border)' : 'var(--ne-accent)', color: '#fff', border: 'none', borderRadius: 9, fontWeight: 700, cursor: geminiSaving ? 'default' : 'pointer' }}>
+                {geminiSaving ? t('master.saving') : t('action.save')}
+              </button>
+              <button onClick={() => { setGeminiEditing(false); setGeminiError('') }} disabled={geminiSaving}
+                style={{ padding: '9px 14px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-muted)', fontSize: 13, cursor: geminiSaving ? 'default' : 'pointer' }}>
+                {t('action.cancel')}
+              </button>
+              {geminiError && <span style={{ color: 'var(--ne-danger)', fontSize: 12 }}>{geminiError}</span>}
+            </div>
+          )}
+        </div>
 
         <div style={{ marginBottom: 16, display: 'flex', gap: 10 }}>
           <button onClick={() => setShowActivityLog((v) => !v)}
@@ -1443,6 +1502,7 @@ function App() {
     { id: 'store-connect', label: t('nav.store-connect'), group: t('nav.group.channels') },
     { id: 'meta-connect', label: t('nav.meta-connect'), group: t('nav.group.channels') },
     { id: 'courier-connect', label: t('nav.courier-connect'), group: t('nav.group.channels') },
+    { id: 'gemini-connect', label: t('nav.gemini-connect'), group: t('nav.group.channels') },
     { id: 'payments', label: t('nav.payments'), group: t('nav.group.channels') },
   ]
 
@@ -1637,6 +1697,7 @@ function App() {
             {activeMenu === 'courier-connect' && hasAccess('courier-connect') && (
               <CourierConnect storeId={selectedStoreId} />
             )}
+            {activeMenu === 'gemini-connect' && hasAccess('gemini-connect') && <GeminiConnect storeId={selectedStoreId} />}
             {activeMenu === 'payments' && hasAccess('payments') && (
               <Payments storeId={selectedStoreId} cfUrl={CF_URL} />
             )}
@@ -1668,7 +1729,7 @@ function App() {
             {activeMenu === 'master-dashboard/dev-monitor' && (
               <DevMonitorDetailed allStores={allStores} cfUrl={CF_URL} session={session} />
             )}
-            {!['dashboard', 'store-connect', 'products', 'inventory', 'product-costing', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments', 'master-dashboard/dev-monitor'].includes(activeMenu) && (
+            {!['dashboard', 'store-connect', 'products', 'inventory', 'product-costing', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'gemini-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments', 'master-dashboard/dev-monitor'].includes(activeMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{menuItems.find(m => m.id === activeMenu)?.label}</h2>
