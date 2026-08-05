@@ -167,6 +167,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   // --- Order Items editor (line_items_override) ---
   const [itemsModal, setItemsModal] = useState(null); // order being edited, or null
   const [itemsList, setItemsList] = useState([]); // working array of { shopify_product_id, variant_id, title, variant_title, sku, price, quantity, discount }
+  const [itemsListInitial, setItemsListInitial] = useState([]); // snapshot of itemsList as it was when the modal opened, for change-detection on save
   const [itemsSearch, setItemsSearch] = useState("");
   const [itemsSearchResults, setItemsSearchResults] = useState([]); // [{ product, variant }]
   const [itemsSaving, setItemsSaving] = useState(false);
@@ -937,6 +938,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         }));
     setItemsModal(order);
     setItemsList(initial);
+    setItemsListInitial(initial.map(it => ({ ...it })));
     setItemsSearch("");
     setItemsSearchResults([]);
     setItemsSyncState(null);
@@ -946,10 +948,30 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const closeItemsModal = () => {
     setItemsModal(null);
     setItemsList([]);
+    setItemsListInitial([]);
     setItemsSearch("");
     setItemsSearchResults([]);
     setItemsSyncState(null);
     setItemsSyncError("");
+  };
+
+  // Discount/price/quantity yahan mixed string/number types se aa sakte hain (input
+  // onChange raw string deta hai, initial load number deta hai) — comparison ke liye
+  // sabko Number() se normalize karte hain taake "0" vs 0 jaisa false-positive change na bane.
+  const normalizeItemForCompare = (it) => ({
+    shopify_product_id: it.shopify_product_id ?? null,
+    variant_id: it.variant_id ?? null,
+    title: it.title || "",
+    variant_title: it.variant_title || "",
+    sku: it.sku || "",
+    price: Number(it.price) || 0,
+    quantity: Number(it.quantity) || 0,
+    discount: Number(it.discount) || 0,
+  });
+
+  const itemsListChanged = (a, b) => {
+    if (a.length !== b.length) return true;
+    return JSON.stringify(a.map(normalizeItemForCompare)) !== JSON.stringify(b.map(normalizeItemForCompare));
   };
 
   const updateItemField = (idx, field, value) => {
@@ -993,6 +1015,15 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       return;
     }
     setOrders(prev => prev.map(o => (o.id === itemsModal.id ? { ...o, agent_data: { ...(o.agent_data || {}), line_items_override: itemsList }, last_edited_at: now } : o)));
+
+    // Kuch bhi actually badla nahi (same items/quantities/discounts jitne modal open
+    // hote waqt the) to Shopify sync ki koi zaroorat nahi — local save ho chuka, bas
+    // modal band karo, koi error/message nahi dikhani.
+    if (!itemsListChanged(itemsList, itemsListInitial)) {
+      setItemsSaving(false);
+      closeItemsModal();
+      return;
+    }
 
     // Shopify Order Edit API sirf UNFULFILLED orders edit karne deta hai — Dex booking ho
     // chuki ho (tracking number set) to Shopify sync skip karo, sirf eNeezam-side override
