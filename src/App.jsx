@@ -215,6 +215,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
   const [geminiInput, setGeminiInput] = useState('')
   const [geminiSaving, setGeminiSaving] = useState(false)
   const [geminiError, setGeminiError] = useState('')
+  const [geminiJustConnected, setGeminiJustConnected] = useState(false)
 
   useEffect(() => {
     (async () => {
@@ -227,13 +228,31 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
 
   const handleSaveGeminiKey = async () => {
     setGeminiError('')
+    setGeminiJustConnected(false)
     if (!geminiInput.trim()) { setGeminiError('API key required hai'); return }
     setGeminiSaving(true)
-    const { error } = await supabase.from('app_settings').upsert({ key: 'gemini_api_key', value: geminiInput.trim() }, { onConflict: 'key' })
-    if (error) { setGeminiError(error.message); setGeminiSaving(false); return }
-    setGeminiSavedKey(geminiInput.trim())
-    setGeminiInput('')
-    setGeminiEditing(false)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch(`${cfUrl}/gemini-key-verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ api_key: geminiInput.trim() }),
+      })
+      const data = await res.json()
+      if (!data.success) {
+        setGeminiError(data.error || t('master.geminiKeyInvalid'))
+        setGeminiSaving(false)
+        return
+      }
+      const { error } = await supabase.from('app_settings').upsert({ key: 'gemini_api_key', value: geminiInput.trim() }, { onConflict: 'key' })
+      if (error) { setGeminiError(error.message); setGeminiSaving(false); return }
+      setGeminiSavedKey(geminiInput.trim())
+      setGeminiInput('')
+      setGeminiEditing(false)
+      setGeminiJustConnected(true)
+    } catch (err) {
+      setGeminiError(err.message)
+    }
     setGeminiSaving(false)
   }
 
@@ -471,7 +490,12 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
               <span style={{ fontSize: 13, color: geminiSavedKey ? 'var(--ne-text)' : 'var(--ne-muted)', fontFamily: geminiSavedKey ? 'monospace' : 'inherit' }}>
                 {geminiSavedKey ? maskKey(geminiSavedKey) : t('master.geminiKeyNotSet')}
               </span>
-              <button onClick={() => { setGeminiInput(''); setGeminiError(''); setGeminiEditing(true) }}
+              {geminiJustConnected && (
+                <span style={{ fontSize: 12, color: 'var(--ne-success)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <Icon name="check" size={11} /> {t('master.geminiKeyConnected')}
+                </span>
+              )}
+              <button onClick={() => { setGeminiInput(''); setGeminiError(''); setGeminiJustConnected(false); setGeminiEditing(true) }}
                 style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
                 {geminiSavedKey ? t('master.geminiKeyChange') : t('master.geminiKeySet')}
               </button>
@@ -483,7 +507,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
                 style={{ ...inputStyle, width: 280, marginBottom: 0 }} />
               <button onClick={handleSaveGeminiKey} disabled={geminiSaving}
                 style={{ padding: '9px 18px', background: geminiSaving ? 'var(--ne-border)' : 'var(--ne-accent)', color: '#fff', border: 'none', borderRadius: 9, fontWeight: 700, cursor: geminiSaving ? 'default' : 'pointer' }}>
-                {geminiSaving ? t('master.saving') : t('action.save')}
+                {geminiSaving ? t('master.geminiKeyVerifying') : t('action.save')}
               </button>
               <button onClick={() => { setGeminiEditing(false); setGeminiError('') }} disabled={geminiSaving}
                 style={{ padding: '9px 14px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-muted)', fontSize: 13, cursor: geminiSaving ? 'default' : 'pointer' }}>

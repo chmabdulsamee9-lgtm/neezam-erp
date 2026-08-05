@@ -3,6 +3,8 @@ import { supabase } from "../supabase";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
 
+const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
+
 export default function GeminiConnect({ storeId }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
@@ -31,12 +33,28 @@ export default function GeminiConnect({ storeId }) {
     setError("");
     if (!input.trim()) { setError(t("geminiConnect.keyRequired")); return; }
     setSaving(true);
-    const { error: err } = await supabase.from("stores").update({ gemini_api_key: input.trim() }).eq("id", storeId);
-    if (err) { setError(err.message); setSaving(false); return; }
-    setInput("");
-    setEditing(false);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${CF_URL}/gemini-key-verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ api_key: input.trim() }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setError(data.error || t("geminiConnect.keyInvalid"));
+        setSaving(false);
+        return;
+      }
+      const { error: err } = await supabase.from("stores").update({ gemini_api_key: input.trim() }).eq("id", storeId);
+      if (err) { setError(err.message); setSaving(false); return; }
+      setInput("");
+      setEditing(false);
+      fetchStore();
+    } catch (err) {
+      setError(err.message);
+    }
     setSaving(false);
-    fetchStore();
   };
 
   const handleDisconnect = async () => {
@@ -114,7 +132,7 @@ export default function GeminiConnect({ storeId }) {
               style={{ ...inputStyle, width: 280 }} />
             <button onClick={handleSave} disabled={saving}
               style={{ padding: "9px 18px", background: saving ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", border: "none", borderRadius: 9, fontWeight: 700, cursor: saving ? "default" : "pointer" }}>
-              {saving ? t("geminiConnect.saving") : t("geminiConnect.save")}
+              {saving ? t("geminiConnect.verifying") : t("geminiConnect.save")}
             </button>
             <button onClick={() => { setEditing(false); setError(""); }} disabled={saving}
               style={{ padding: "9px 14px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-muted)", fontSize: 13, cursor: saving ? "default" : "pointer" }}>
