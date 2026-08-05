@@ -105,10 +105,64 @@ const addressMiniSelectStyle = { padding: "5px 7px", borderRadius: 7, border: "1
 const addressSmallBtnPrimary = { padding: "5px 12px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 };
 const addressSmallBtnSecondary = { padding: "5px 12px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 11, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 };
 
+// address_reference 11,000+ rows tak ja sakta hai — Supabase/PostgREST per-request row
+// cap (is project mein 1000, jaisa DevMonitor/ProductsManagement/InventoryManagement
+// mein already handle kiya gaya hai) se upar wale rows silently drop ho jate the, is
+// liye Province dropdown mein sirf 5 provinces dikh rahe the. Yahan poora table
+// paginate karke fetch karte hain phir distinct nikaalte hain — sirf province ke liye
+// nahi, City/Area/SubArea ke liye bhi (same class ka bug kahin bhi lag sakta tha).
+const ADDRESS_REF_PAGE_SIZE = 1000;
+async function fetchDistinctAddressValues(column, filters) {
+  let all = [];
+  let from = 0;
+  while (true) {
+    let query = supabase.from("address_reference").select(column).order(column).range(from, from + ADDRESS_REF_PAGE_SIZE - 1);
+    for (const [col, val] of Object.entries(filters || {})) query = query.eq(col, val);
+    const { data, error } = await query;
+    if (error || !data) break;
+    all = all.concat(data);
+    if (data.length < ADDRESS_REF_PAGE_SIZE) break;
+    from += ADDRESS_REF_PAGE_SIZE;
+  }
+  return [...new Set(all.map((r) => r[column]))].filter(Boolean);
+}
+
+// Plain <select> Area/SubArea ke 11,000+ possible values ke sath unusable hai — yeh
+// lightweight text-filter combobox koi naya npm dependency add kiye bina wahi kaam
+// deta hai: type karo, list filter hoti hai, click se select ho jata hai.
+function SearchableCombo({ value, options, placeholder, onSelect, loading, t }) {
+  const [query, setQuery] = useState(value || "");
+  const filtered = (query ? options.filter((o) => o.toLowerCase().includes(query.toLowerCase())) : options).slice(0, 300);
+
+  return (
+    <div style={{ position: "relative", display: "inline-block" }}>
+      <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder={placeholder}
+        style={{ ...addressMiniSelectStyle, width: 150, boxSizing: "border-box" }} />
+      <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 10000, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 7, marginTop: 2, maxHeight: 220, overflowY: "auto", minWidth: 170, boxShadow: "0 8px 30px rgba(0,0,0,.4)" }}>
+        {loading ? (
+          <div style={{ padding: "6px 9px", fontSize: 11, color: "var(--ne-muted-2)" }}>{t("orders.comboLoading")}</div>
+        ) : filtered.length === 0 ? (
+          <div style={{ padding: "6px 9px", fontSize: 11, color: "var(--ne-muted-2)" }}>{t("orders.comboNoMatches")}</div>
+        ) : filtered.map((opt) => (
+          <div key={opt} onClick={() => onSelect(opt)}
+            style={{ padding: "6px 9px", fontSize: 11, cursor: "pointer", color: "var(--ne-text)" }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = "var(--ne-accent-soft)")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+            {opt}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Order card/row ke neeche full-width "Address Match" block — apni khud ki
 // local state rakhta hai (har order-row ki apni instance), parent se sirf
-// order/storeId/cfUrl/t + Shopify-sync aur agent_data-update callbacks leta hai.
-function AddressMatchBlock({ order, storeId, cfUrl, t, onSyncToShopify, onUpdateAgentData, onAddressConfirmed }) {
+// order/storeId/cfUrl/t + agent_data-update callbacks leta hai. Sync-to-Shopify ab
+// is block ka apna button nahi hai — confirm hote hi last_edited_at bump ho jata hai
+// (onAddressConfirmed ke through), jo order ko parent ke existing "Ready to Sync"
+// tab/flow (doSyncOrder/buildSyncPlan) mein khud-ba-khud le aata hai.
+function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddressConfirmed }) {
   const ad = order.agent_data || {};
   const source = ad.address_match_source || null;
   const confirmed = !!ad.address_confirmed_at;
@@ -117,9 +171,8 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onSyncToShopify, onUpdate
   const [matchError, setMatchError] = useState("");
   const [preview, setPreview] = useState(ad.address_match_preview || "");
   const [confirming, setConfirming] = useState(false);
-  const [syncState, setSyncState] = useState(null); // null | "syncing" | "ok" | "fail"
-  const [syncError, setSyncError] = useState("");
-  const [editingDropdowns, setEditingDropdowns] = useState(false);
+  const [editingChip, setEditingChip] = useState(null); // null | "province" | "city" | "area" | "subarea"
+  const [chipLoading, setChipLoading] = useState(false);
   const [provinces, setProvinces] = useState([]);
   const [cities, setCities] = useState([]);
   const [areas, setAreas] = useState([]);
@@ -128,6 +181,21 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onSyncToShopify, onUpdate
   const [selCity, setSelCity] = useState(ad.matched_city || "");
   const [selArea, setSelArea] = useState(ad.matched_area || "");
   const [selSubarea, setSelSubarea] = useState(ad.matched_subarea || "");
+
+  // Chips selProvince/selCity/selArea/selSubarea se render hote hain (ad.matched_* se
+  // seedha nahi) taake inline-edit turant chip mein dikhe. Isay useEffect se prop ke
+  // sath sync nahi karte (set-state-in-effect / cascading-render risk) — jahan bhi
+  // ad.matched_* badalta hai woh hamesha isi component ke kisi action (handleMatch,
+  // chip select, Save Mapping) se hota hai, is liye wahi action selX ko bhi seedha set
+  // kar deta hai.
+  useEffect(() => {
+    if (!editingChip) return;
+    const handleClick = (e) => {
+      if (!e.target.closest("[data-address-chip-editor]")) setEditingChip(null);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [editingChip]);
 
   const handleMatch = async () => {
     setMatching(true);
@@ -154,6 +222,10 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onSyncToShopify, onUpdate
         address_match_confidence: data.confidence,
         address_match_preview: data.formatted_address,
       });
+      setSelProvince(data.province || "");
+      setSelCity(data.city || "");
+      setSelArea(data.area || "");
+      setSelSubarea(data.subarea || "");
       setPreview(data.formatted_address || "");
     } catch (err) {
       setMatchError(err.message);
@@ -172,10 +244,10 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onSyncToShopify, onUpdate
         body: JSON.stringify({
           order_id: order.id,
           final_address: preview,
-          matched_province: ad.matched_province || null,
-          matched_city: ad.matched_city || null,
-          matched_area: ad.matched_area || null,
-          matched_subarea: ad.matched_subarea || null,
+          matched_province: selProvince || null,
+          matched_city: selCity || null,
+          matched_area: selArea || null,
+          matched_subarea: selSubarea || null,
         }),
       });
       const data = await res.json();
@@ -185,84 +257,89 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onSyncToShopify, onUpdate
         return;
       }
       const prevAddress = ad.address || order.shipping_address?.address1 || order.billing_address?.address1 || "";
-      onUpdateAgentData(order.id, { address: preview, address_confirmed_at: new Date().toISOString() });
-      if (onAddressConfirmed && prevAddress && prevAddress !== preview) onAddressConfirmed(order.id, prevAddress);
+      onUpdateAgentData(order.id, {
+        matched_province: selProvince || null,
+        matched_city: selCity || null,
+        matched_area: selArea || null,
+        matched_subarea: selSubarea || null,
+        address: preview,
+        address_confirmed_at: new Date().toISOString(),
+      });
+      if (onAddressConfirmed) onAddressConfirmed(order.id, prevAddress !== preview ? prevAddress : null);
     } catch (err) {
       setMatchError(err.message);
     }
     setConfirming(false);
   };
 
-  const handleSync = async () => {
-    setSyncState("syncing");
-    setSyncError("");
-    const result = await onSyncToShopify(order);
-    if (result.success) {
-      setSyncState("ok");
-    } else {
-      setSyncState("fail");
-      setSyncError(result.error || "");
+  const openChip = async (level) => {
+    setEditingChip(level);
+    setChipLoading(true);
+    if (level === "province") {
+      setProvinces(await fetchDistinctAddressValues("province", {}));
+    } else if (level === "city") {
+      setCities(await fetchDistinctAddressValues("city", { province: selProvince }));
+    } else if (level === "area") {
+      setAreas(await fetchDistinctAddressValues("area", { province: selProvince, city: selCity }));
+    } else if (level === "subarea") {
+      setSubareas(await fetchDistinctAddressValues("subarea", { province: selProvince, city: selCity, area: selArea }));
     }
+    setChipLoading(false);
   };
 
-  // Province/City/Area/SubArea selects already default-select from matched_* (via
-  // useState init), lekin unke apne option-lists sirf onChange se populate hoti thi —
-  // is liye pehle se-selected value dikhti thi par sibling dropdown khaali rehta tha.
-  // Yahan poori chain ek sath cascade-fetch karte hain taake jo bhi pehle se match hua
-  // hai (partial ho ya poora) uske dropdowns turant sahi options ke sath khulen.
-  const openEdit = async () => {
-    setEditingDropdowns(true);
-    const { data: provinceRows } = await supabase.from("address_reference").select("province").order("province");
-    setProvinces([...new Set((provinceRows || []).map((r) => r.province))].filter(Boolean));
-
-    if (selProvince) {
-      const { data: cityRows } = await supabase.from("address_reference").select("city").eq("province", selProvince).order("city");
-      setCities([...new Set((cityRows || []).map((r) => r.city))].filter(Boolean));
+  const selectChipValue = (level, value) => {
+    if (level === "province") {
+      setSelProvince(value); setSelCity(""); setSelArea(""); setSelSubarea("");
+      setCities([]); setAreas([]); setSubareas([]);
+    } else if (level === "city") {
+      setSelCity(value); setSelArea(""); setSelSubarea("");
+      setAreas([]); setSubareas([]);
+    } else if (level === "area") {
+      setSelArea(value); setSelSubarea("");
+      setSubareas([]);
+    } else if (level === "subarea") {
+      setSelSubarea(value);
     }
-    if (selProvince && selCity) {
-      const { data: areaRows } = await supabase.from("address_reference").select("area").eq("province", selProvince).eq("city", selCity).order("area");
-      setAreas([...new Set((areaRows || []).map((r) => r.area))].filter(Boolean));
-    }
-    if (selProvince && selCity && selArea) {
-      const { data: subareaRows } = await supabase.from("address_reference").select("subarea").eq("province", selProvince).eq("city", selCity).eq("area", selArea).order("subarea");
-      setSubareas([...new Set((subareaRows || []).map((r) => r.subarea))].filter(Boolean));
-    }
+    setEditingChip(null);
   };
 
-  const onSelectProvince = async (val) => {
-    setSelProvince(val); setSelCity(""); setSelArea(""); setSelSubarea("");
-    setCities([]); setAreas([]); setSubareas([]);
-    if (!val) return;
-    const { data } = await supabase.from("address_reference").select("city").eq("province", val).order("city");
-    setCities([...new Set((data || []).map((r) => r.city))].filter(Boolean));
-  };
-
-  const onSelectCity = async (val) => {
-    setSelCity(val); setSelArea(""); setSelSubarea("");
-    setAreas([]); setSubareas([]);
-    if (!val) return;
-    const { data } = await supabase.from("address_reference").select("area").eq("province", selProvince).eq("city", val).order("area");
-    setAreas([...new Set((data || []).map((r) => r.area))].filter(Boolean));
-  };
-
-  const onSelectArea = async (val) => {
-    setSelArea(val); setSelSubarea("");
-    setSubareas([]);
-    if (!val) return;
-    const { data } = await supabase.from("address_reference").select("subarea").eq("province", selProvince).eq("city", selCity).eq("area", val).order("subarea");
-    setSubareas([...new Set((data || []).map((r) => r.subarea))].filter(Boolean));
-  };
-
-  const handleSaveDropdowns = () => {
+  const handleSaveMapping = () => {
     onUpdateAgentData(order.id, {
       matched_province: selProvince || null,
       matched_city: selCity || null,
       matched_area: selArea || null,
       matched_subarea: selSubarea || null,
     });
-    const rebuilt = [ad.address || order.shipping_address?.address1 || "", selArea, selSubarea, selCity, selProvince].filter(Boolean).join(", ");
+    const rebuilt = [ad.address || order.shipping_address?.address1 || order.billing_address?.address1 || "", selArea, selSubarea, selCity, selProvince]
+      .filter(Boolean).join(", ");
     setPreview(rebuilt);
-    setEditingDropdowns(false);
+  };
+
+  const chipOptionsFor = { province: provinces, city: cities, area: areas, subarea: subareas };
+  const chipPlaceholderFor = {
+    province: t("orders.addressSelectProvince"),
+    city: t("orders.addressSelectCity"),
+    area: t("orders.addressSelectArea"),
+    subarea: t("orders.addressSelectSubarea"),
+  };
+  const chipEmptyLabelFor = { province: "—", city: "—", area: t("orders.addressSelectArea"), subarea: t("orders.addressSelectSubarea") };
+
+  const renderChip = (level, value, enabled) => {
+    if (editingChip === level) {
+      return (
+        <span data-address-chip-editor style={{ display: "inline-block" }}>
+          <SearchableCombo t={t} value={value} options={chipOptionsFor[level]} placeholder={chipPlaceholderFor[level]}
+            loading={chipLoading} onSelect={(v) => selectChipValue(level, v)} />
+        </span>
+      );
+    }
+    const muted = !value;
+    return (
+      <span onClick={() => enabled && openChip(level)}
+        style={{ ...(muted ? addressChipMutedStyle : addressChipStyle), cursor: enabled ? "pointer" : "default" }}>
+        {value || chipEmptyLabelFor[level]}
+      </span>
+    );
   };
 
   if (!source) {
@@ -281,29 +358,29 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onSyncToShopify, onUpdate
     <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--ne-border)", display: "flex", flexDirection: "column", gap: 6 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
         <span style={{ fontSize: 10.5, color: "var(--ne-muted-2)", fontWeight: 700 }}>{t("orders.addressMatchLabel")}:</span>
-        <span style={addressChipStyle}>{ad.matched_province || "—"}</span>
+        {renderChip("province", selProvince, true)}
         <span style={{ color: "var(--ne-muted-2)", fontSize: 10 }}>›</span>
-        <span style={addressChipStyle}>{ad.matched_city || "—"}</span>
+        {renderChip("city", selCity, !!selProvince)}
         <span style={{ color: "var(--ne-muted-2)", fontSize: 10 }}>›</span>
-        <span style={ad.matched_area ? addressChipStyle : addressChipMutedStyle}>{ad.matched_area || t("orders.addressSelectArea")}</span>
+        {renderChip("area", selArea, !!selCity)}
         <span style={{ color: "var(--ne-muted-2)", fontSize: 10 }}>›</span>
-        <span style={ad.matched_subarea ? addressChipStyle : addressChipMutedStyle}>{ad.matched_subarea || t("orders.addressSelectSubarea")}</span>
-        {source === "system" && (
+        {renderChip("subarea", selSubarea, !!selArea)}
+        {!confirmed && source === "system" && (
           <span style={{ ...addressBadgeBase, background: "var(--ne-success-soft)", color: "var(--ne-success)" }}>
             <Icon name="check" size={9} /> {t("orders.addressSystemMatched")}
           </span>
         )}
-        {source === "ai" && (
+        {!confirmed && source === "ai" && (
           <span style={{ ...addressBadgeBase, background: "var(--ne-accent-soft)", color: "var(--ne-accent)" }}>
             ✨ {t("orders.addressAiMatched")}
           </span>
         )}
-        {source === "manual_review" && (
+        {!confirmed && source === "manual_review" && (
           <span style={{ ...addressBadgeBase, background: "var(--ne-warning-soft)", color: "var(--ne-warning)" }}>
             ⚠ {t("orders.addressManualReview")}
           </span>
         )}
-        {source === "system_partial" && (
+        {!confirmed && source === "system_partial" && (
           <span style={{ ...addressBadgeBase, background: "var(--ne-warning-soft)", color: "var(--ne-warning)" }}>
             ⚠ {t("orders.addressPartialMatch")}
           </span>
@@ -323,48 +400,15 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onSyncToShopify, onUpdate
         </div>
       )}
 
-      {editingDropdowns && (
-        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", background: "var(--ne-surface)", padding: 8, borderRadius: 8 }}>
-          <select value={selProvince} onChange={(e) => onSelectProvince(e.target.value)} style={addressMiniSelectStyle}>
-            <option value="">{t("orders.addressSelectProvince")}</option>
-            {provinces.map((p) => <option key={p} value={p}>{p}</option>)}
-          </select>
-          <select value={selCity} onChange={(e) => onSelectCity(e.target.value)} disabled={!selProvince} style={addressMiniSelectStyle}>
-            <option value="">{t("orders.addressSelectCity")}</option>
-            {cities.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <select value={selArea} onChange={(e) => onSelectArea(e.target.value)} disabled={!selCity} style={addressMiniSelectStyle}>
-            <option value="">{t("orders.addressSelectArea")}</option>
-            {areas.map((a) => <option key={a} value={a}>{a}</option>)}
-          </select>
-          <select value={selSubarea} onChange={(e) => setSelSubarea(e.target.value)} disabled={!selArea} style={addressMiniSelectStyle}>
-            <option value="">{t("orders.addressSelectSubarea")}</option>
-            {subareas.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <button onClick={handleSaveDropdowns} style={addressSmallBtnPrimary}>{t("action.save")}</button>
-          <button onClick={() => setEditingDropdowns(false)} style={addressSmallBtnSecondary}>{t("action.cancel")}</button>
+      {!confirmed && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <button onClick={handleSaveMapping} style={addressSmallBtnSecondary}>{t("orders.addressSaveMapping")}</button>
+          <button onClick={handleConfirm} disabled={confirming} style={{ ...addressSmallBtnPrimary, cursor: confirming ? "default" : "pointer" }}>
+            {confirming ? t("orders.addressConfirming") : ((selArea && selSubarea) ? t("orders.addressAccept") : t("orders.addressSetManually"))}
+          </button>
+          {matchError && <span style={{ color: "var(--ne-danger)", fontSize: 11 }}>{matchError}</span>}
         </div>
       )}
-
-      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        {!confirmed ? (
-          <>
-            <button onClick={handleConfirm} disabled={confirming} style={{ ...addressSmallBtnPrimary, cursor: confirming ? "default" : "pointer" }}>
-              {confirming ? t("orders.addressConfirming") : ((ad.matched_area && ad.matched_subarea) ? t("orders.addressAccept") : t("orders.addressSetManually"))}
-            </button>
-            {!editingDropdowns && (
-              <button onClick={openEdit} style={addressSmallBtnSecondary}>{t("orders.addressEdit")}</button>
-            )}
-          </>
-        ) : (
-          <button onClick={handleSync} disabled={syncState === "syncing"} style={{ ...addressSmallBtnSecondary, cursor: syncState === "syncing" ? "default" : "pointer" }}>
-            {syncState === "syncing" ? t("orders.addressSyncing") : `⇄ ${t("orders.addressSyncToShopify")}`}
-          </button>
-        )}
-        {syncState === "ok" && <span style={{ color: "var(--ne-success)", fontSize: 11 }}>✓</span>}
-        {syncState === "fail" && <span style={{ color: "var(--ne-danger)", fontSize: 11 }}>{syncError}</span>}
-        {matchError && <span style={{ color: "var(--ne-danger)", fontSize: 11 }}>{matchError}</span>}
-      </div>
     </div>
   );
 }
@@ -398,6 +442,21 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const [cancelReasonOtherMode, setCancelReasonOtherMode] = useState(false);
   const [cancelReasonCustomText, setCancelReasonCustomText] = useState("");
   const tableRef = useRef(null);
+
+  // Column-header row (desktop) + Tab Navigation pills (both layouts) collapse on
+  // scroll-down and reappear on scroll-up, to maximize visible order-card space —
+  // driven by the same vertical-scroll container (tableRef) mobile card list and
+  // desktop table body both use (mutually exclusive, never both mounted at once).
+  const [listHeaderHidden, setListHeaderHidden] = useState(false);
+  const lastScrollTopRef = useRef(0);
+  const handleListScroll = (e) => {
+    const top = e.currentTarget.scrollTop;
+    const last = lastScrollTopRef.current;
+    if (Math.abs(top - last) > 4) {
+      setListHeaderHidden(top > last && top > 40);
+      lastScrollTopRef.current = top;
+    }
+  };
 
   // --- Sync / Undo / History state ---
   const [historyMap, setHistoryMap] = useState({});
@@ -1195,10 +1254,16 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, agent_data: { ...(o.agent_data || {}), ...patch } } : o)));
   };
 
-  // Transient "Was: ..." + highlight-fade shown on the address cell right after
-  // an Address Match confirm — purely visual, auto-clears once the CSS fade ends.
+  // Address Match confirm ke baad: (a) last_edited_at bump karo taake order khud-ba-khud
+  // parent ke existing "Ready to Sync" flow (getSyncState/doSyncOrder) mein aa jaye — is
+  // block ka apna alag Sync-to-Shopify button ab nahi hai, isi mechanism se hona chahiye —
+  // aur (b) agar address text waqai badla hai, transient "Was: ..." + highlight-fade
+  // dikhao (purely visual, auto-clears once the CSS fade ends).
   const [addressFlash, setAddressFlash] = useState({});
   const handleAddressConfirmed = (orderId, prevAddress) => {
+    const now = new Date().toISOString();
+    setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, last_edited_at: now } : o)));
+    if (!prevAddress) return;
     setAddressFlash((prev) => ({ ...prev, [orderId]: prevAddress }));
     setTimeout(() => {
       setAddressFlash((prev) => {
@@ -1420,7 +1485,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
   const selectedHaveValidHistory = [...selectedIds].some(id => isHistoryValid(historyMap[String(id)]));
 
-  const EditableCell = ({ orderId, field, value, width = 100, multiline = false, clampLines = 2 }) => {
+  const EditableCell = ({ orderId, field, value, width = 100, multiline = false, clampLines = 2, displayStyle }) => {
     const cellKey = `${orderId}-${field}`;
     const isEditing = editingCell === cellKey;
     const [val, setVal] = useState(value || "");
@@ -1449,7 +1514,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
     return (
       <span onClick={() => setEditingCell(cellKey)} title={value || ""}
-        style={{ cursor: "pointer", color: value ? "var(--ne-text)" : "var(--ne-muted-2)", fontSize: 11, display: "-webkit-box", WebkitLineClamp: clampLines, WebkitBoxOrient: "vertical", overflow: "hidden", textOverflow: "ellipsis", wordBreak: "break-word", lineHeight: 1.35, maxWidth: width }}>
+        style={{ cursor: "pointer", color: value ? "var(--ne-text)" : "var(--ne-muted-2)", fontSize: 11, display: "-webkit-box", WebkitLineClamp: clampLines, WebkitBoxOrient: "vertical", overflow: "hidden", textOverflow: "ellipsis", wordBreak: "break-word", lineHeight: 1.35, maxWidth: width, ...displayStyle }}>
         {value || "—"}
       </span>
     );
@@ -1710,7 +1775,9 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       </div>
 
       {/* Tab Navigation — har tab apni alag pill hai (theme reference jaisa), shared box nahi */}
-      <div style={{ display: "flex", gap: 7, marginBottom: "0.6rem", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 7, flexWrap: "wrap", overflow: "hidden",
+        maxHeight: listHeaderHidden ? 0 : 44, opacity: listHeaderHidden ? 0 : 1, marginBottom: listHeaderHidden ? 0 : "0.6rem",
+        transition: "max-height .25s ease, opacity .2s ease, margin-bottom .25s ease" }}>
         {TABS.map(tab => (
           <button key={tab} onClick={() => { setActiveTab(tab); setPage(1); }}
             style={{ padding: "7px 14px", borderRadius: 20, fontSize: 11.5, cursor: "pointer", fontWeight: 700, border: "1px solid",
@@ -1730,7 +1797,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       {loading ? (
         <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>{t("orders.loadingOrders")}</div>
       ) : isMobile ? (
-        <div ref={tableRef} style={{ flex: 1, overflowY: "auto" }}>
+        <div ref={tableRef} onScroll={handleListScroll} style={{ flex: 1, overflowY: "auto" }}>
           {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, isExpanded, statusBtn, syncRow }) => (
             <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "8px 12px", marginBottom: 6 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1747,8 +1814,10 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
               <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)", marginTop: 4 }}>{date} · {time} · {skus}</div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 5 }}>
                 <div>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ne-text)" }}>{fullName || "—"}</div>
-                  <div style={{ fontSize: 11, color: "var(--ne-muted)" }}>{city || "—"}</div>
+                  <EditableCell orderId={order.id} field="customer_name" value={fullName} width={160} clampLines={1}
+                    displayStyle={{ fontSize: 12.5, fontWeight: 600, color: "var(--ne-text)" }} />
+                  <EditableCell orderId={order.id} field="city" value={city} width={160} clampLines={1}
+                    displayStyle={{ fontSize: 11, color: "var(--ne-muted)" }} />
                 </div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ne-success)" }}>Rs. {displayTotal.toLocaleString()}</div>
               </div>
@@ -1758,7 +1827,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                 {isExpanded ? t("orders.showLess") : t("orders.showMore")}
               </button>
 
-              <AddressMatchBlock order={order} storeId={currentStore?.id} cfUrl={cfUrl} t={t} onSyncToShopify={doSyncOrder} onUpdateAgentData={updateAgentDataPatch} onAddressConfirmed={handleAddressConfirmed} />
+              <AddressMatchBlock order={order} storeId={currentStore?.id} cfUrl={cfUrl} t={t} onUpdateAgentData={updateAgentDataPatch} onAddressConfirmed={handleAddressConfirmed} />
 
               {isExpanded && (
                 <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--ne-border)", display: "flex", flexDirection: "column", gap: 6 }}>
@@ -1808,10 +1877,12 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
           <style>{`.ne-hide-scroll::-webkit-scrollbar{display:none} .ne-hide-scroll{scrollbar-width:none; -ms-overflow-style:none;}`}</style>
 
-          <div ref={tableRef} style={{ flex: 1, overflowY: "auto" }}>
+          <div ref={tableRef} onScroll={handleListScroll} style={{ flex: 1, overflowY: "auto" }}>
 
-            {/* Header row */}
-            <div style={{ display: "flex", alignItems: "center", gap: 0, marginBottom: 8, position: "sticky", top: 0, zIndex: 5, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, boxShadow: "0 2px 8px rgba(0,0,0,.18)", padding: "10px 0" }}>
+            {/* Header row — scroll-down collapses it (maxHeight/opacity/padding to 0), scroll-up restores it */}
+            <div style={{ display: "flex", alignItems: "center", gap: 0, position: "sticky", top: 0, zIndex: 5, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "hidden",
+              maxHeight: listHeaderHidden ? 0 : 44, opacity: listHeaderHidden ? 0 : 1, marginBottom: listHeaderHidden ? 0 : 8, padding: listHeaderHidden ? "0 0" : "10px 0", borderWidth: listHeaderHidden ? 0 : 1,
+              transition: "max-height .25s ease, opacity .2s ease, margin-bottom .25s ease, padding .25s ease" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, width: 136, padding: "0 8px 0 12px", boxSizing: "border-box" }}>
                 <input type="checkbox" checked={selectedIds.size === pagedOrders.length && pagedOrders.length > 0}
                   onChange={toggleSelectAll} style={{ cursor: "pointer" }} />
@@ -1941,7 +2012,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                 </div>
               </div>
               <div style={{ padding: "0 14px 10px 14px" }}>
-                <AddressMatchBlock order={order} storeId={currentStore?.id} cfUrl={cfUrl} t={t} onSyncToShopify={doSyncOrder} onUpdateAgentData={updateAgentDataPatch} onAddressConfirmed={handleAddressConfirmed} />
+                <AddressMatchBlock order={order} storeId={currentStore?.id} cfUrl={cfUrl} t={t} onUpdateAgentData={updateAgentDataPatch} onAddressConfirmed={handleAddressConfirmed} />
               </div>
               </div>
             ))}
