@@ -33,7 +33,7 @@ const PER_PAGE_OPTIONS = [20, 50, 100];
 const TABS = ["All", "New", "Approved", "Pending", "Ready to Sync", "Cancelled"];
 const CANCEL_REASONS = ["Not Interested", "Wrong Number", "Duplicate Order", "Customer Cancelled", "Out of Stock", "Other"];
 const PAGE_SIZE = 1000;
-const MIDDLE_CONTENT_WIDTH = 980; // Customer+Address+Items+Pricing+Total+Source+Courier+Remarks + gaps — single source of truth so header/rows/scrollbar always match
+const MIDDLE_CONTENT_WIDTH = 885; // Customer+Address+Items+Pricing(incl. Total row)+Source+Courier+Remarks + gaps — single source of truth so header/rows/scrollbar always match
 const SYNC_CONFIRM_PER_PAGE = 20;
 const HISTORY_VALID_MS = 2 * 24 * 60 * 60 * 1000; // 2 din
 const BULK_PREVIEW_PER_PAGE = 20;
@@ -1653,7 +1653,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       ) : isMobile ? (
         <div ref={tableRef} style={{ flex: 1, overflowY: "auto" }}>
           {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, isExpanded, statusBtn, syncRow }) => (
-            <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "10px 12px", marginBottom: 8 }}>
+            <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "8px 12px", marginBottom: 6 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(order.id)} style={{ cursor: "pointer", flexShrink: 0 }} />
                 <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 12 }}>{order.name}</a>
@@ -1742,7 +1742,6 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                   <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 165, flexShrink: 0 }}>{t("orders.address")}</span>
                   <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 145, flexShrink: 0 }}>{t("orders.items")}</span>
                   <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 115, flexShrink: 0 }}>{t("orders.pricing")}</span>
-                  <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 85, flexShrink: 0 }}>{t("orders.total")}</span>
                   <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 75, flexShrink: 0 }}>{t("orders.source")}</span>
                   <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 90, flexShrink: 0, textAlign: "center" }}>{t("orders.courier")}</span>
                   <span style={{ ...thBase, background: "none", border: "none", padding: 0, width: 95, flexShrink: 0 }}>{t("orders.remarks")}</span>
@@ -1754,10 +1753,10 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
             </div>
 
             {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, statusBtn, syncRow }) => (
-              <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "hidden" }}>
+              <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, marginBottom: 6, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "hidden" }}>
               <div style={{ display: "flex", alignItems: "stretch", gap: 0 }}>
 
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 8px 10px 12px", flexShrink: 0, width: 136, boxSizing: "border-box" }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 8px 8px 12px", flexShrink: 0, width: 136, boxSizing: "border-box" }}>
                   <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(order.id)} style={{ cursor: "pointer", flexShrink: 0, marginTop: 2 }} />
                   <div style={{ width: 90, minWidth: 90 }}>
                     <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 11.5 }}>{order.name}</a>
@@ -1767,7 +1766,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                 </div>
 
                 <div ref={registerMiddleRef(order.id)} onScroll={handleMiddleScroll(order.id)} className="ne-hide-scroll"
-                  style={{ overflowX: "auto", flex: "1 1 auto", minWidth: 0, padding: "10px 0" }}>
+                  style={{ overflowX: "auto", flex: "1 1 auto", minWidth: 0, padding: "8px 0" }}>
                   <div style={{ display: "flex", alignItems: "flex-start", gap: 10, width: MIDDLE_CONTENT_WIDTH }}>
                     <div style={{ width: 140, minWidth: 140, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 2 }}>
                       <EditableCell orderId={order.id} field="customer_name" value={fullName} width={130} clampLines={1} />
@@ -1817,10 +1816,10 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                         <span style={{ color: "var(--ne-muted-2)" }}>{t("orders.disc")}</span>
                         <EditableCell orderId={order.id} field="discount" value={String(discount)} width={55} clampLines={1} />
                       </div>
-                    </div>
-
-                    <div style={{ width: 85, minWidth: 85, flexShrink: 0, overflow: "hidden", color: "var(--ne-success)", fontWeight: 700, fontSize: 12 }}>
-                      Rs. {displayTotal.toLocaleString()}
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 1 }}>
+                        <span style={{ color: "var(--ne-muted-2)", fontSize: 10 }}>{t("orders.total")}</span>
+                        <span style={{ color: "var(--ne-success)", fontWeight: 700, fontSize: 12 }}>Rs. {displayTotal.toLocaleString()}</span>
+                      </div>
                     </div>
 
                     <div style={{ width: 75, minWidth: 75, flexShrink: 0, overflow: "hidden" }}>
@@ -1831,9 +1830,9 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                       {order.agent_data?.dex_tracking_number && (
                         <>
                           <img src={dexLogo} alt="Dex" style={{ height: 14, width: "auto", display: "block", margin: "0 auto 2px" }} />
-                          <div>
+                          <div style={{ overflow: "hidden" }}>
                             <a href={`https://www.dex.com.pk/tracking?references=${encodeURIComponent(order.agent_data.dex_tracking_number)}`} target="_blank" rel="noreferrer"
-                              style={{ fontSize: 10, color: "var(--ne-accent)", textDecoration: "underline" }}>
+                              style={{ fontSize: 10, color: "var(--ne-accent)", textDecoration: "underline", display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                               {order.agent_data.dex_tracking_number}
                             </a>
                           </div>
@@ -1850,7 +1849,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                   </div>
                 </div>
 
-                <div style={{ width: 130, minWidth: 130, flexShrink: 0, display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start", padding: "10px 12px 10px 14px", justifyContent: "center", boxSizing: "border-box" }}>
+                <div style={{ width: 130, minWidth: 130, flexShrink: 0, display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start", padding: "8px 12px 8px 14px", justifyContent: "center", boxSizing: "border-box" }}>
                   {statusBtn}
                   <button onClick={() => openItemsModal(order)}
                     style={{ padding: "3px 9px", borderRadius: 8, fontSize: 10, background: "var(--ne-surface-2)", color: "var(--ne-text)", border: "1px solid var(--ne-border)", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 4 }}>
