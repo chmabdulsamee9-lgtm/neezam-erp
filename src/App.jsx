@@ -216,6 +216,8 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
   const [geminiSaving, setGeminiSaving] = useState(false)
   const [geminiError, setGeminiError] = useState('')
   const [geminiJustConnected, setGeminiJustConnected] = useState(false)
+  const [geminiTestState, setGeminiTestState] = useState(null) // null | 'testing' | 'ok' | 'fail'
+  const [geminiTestError, setGeminiTestError] = useState('')
 
   useEffect(() => {
     (async () => {
@@ -254,6 +256,29 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
       setGeminiError(err.message)
     }
     setGeminiSaving(false)
+  }
+
+  const handleTestGeminiKey = async () => {
+    setGeminiTestState('testing')
+    setGeminiTestError('')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch(`${cfUrl}/gemini-key-test-existing`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({}),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setGeminiTestState('ok')
+      } else {
+        setGeminiTestState('fail')
+        setGeminiTestError(data.error || '')
+      }
+    } catch (err) {
+      setGeminiTestState('fail')
+      setGeminiTestError(err.message)
+    }
   }
 
   const toggleOverrideAddon = (profileId, addonId, defaultIds) => {
@@ -495,10 +520,22 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
                   <Icon name="check" size={11} /> {t('master.geminiKeyConnected')}
                 </span>
               )}
-              <button onClick={() => { setGeminiInput(''); setGeminiError(''); setGeminiJustConnected(false); setGeminiEditing(true) }}
+              <button onClick={() => { setGeminiInput(''); setGeminiError(''); setGeminiJustConnected(false); setGeminiTestState(null); setGeminiEditing(true) }}
                 style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
                 {geminiSavedKey ? t('master.geminiKeyChange') : t('master.geminiKeySet')}
               </button>
+              {geminiSavedKey && (
+                <button onClick={handleTestGeminiKey} disabled={geminiTestState === 'testing'}
+                  style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12, fontWeight: 600, cursor: geminiTestState === 'testing' ? 'default' : 'pointer' }}>
+                  {geminiTestState === 'testing' ? t('master.geminiKeyTesting') : t('master.geminiKeyTest')}
+                </button>
+              )}
+              {geminiTestState === 'ok' && (
+                <span style={{ fontSize: 12, color: 'var(--ne-success)', fontWeight: 600 }}>{t('master.geminiKeyTestOk')}</span>
+              )}
+              {geminiTestState === 'fail' && (
+                <span style={{ fontSize: 12, color: 'var(--ne-danger)', fontWeight: 600 }}>{t('master.geminiKeyTestFail')}{geminiTestError ? `: ${geminiTestError}` : ''}</span>
+              )}
             </div>
           ) : (
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>

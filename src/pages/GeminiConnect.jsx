@@ -14,6 +14,8 @@ export default function GeminiConnect({ storeId }) {
   const [input, setInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [testState, setTestState] = useState(null); // null | "testing" | "ok" | "fail"
+  const [testError, setTestError] = useState("");
 
   useEffect(() => {
     fetchStore();
@@ -61,7 +63,31 @@ export default function GeminiConnect({ storeId }) {
     setSaving(true);
     await supabase.from("stores").update({ gemini_api_key: null }).eq("id", storeId);
     setSaving(false);
+    setTestState(null);
     fetchStore();
+  };
+
+  const handleTest = async () => {
+    setTestState("testing");
+    setTestError("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${CF_URL}/gemini-key-test-existing`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ store_id: storeId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTestState("ok");
+      } else {
+        setTestState("fail");
+        setTestError(data.error || "");
+      }
+    } catch (err) {
+      setTestState("fail");
+      setTestError(err.message);
+    }
   };
 
   const cardStyle = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem 1.25rem", boxShadow: "0 2px 8px rgba(0,0,0,.18)" };
@@ -114,8 +140,8 @@ export default function GeminiConnect({ storeId }) {
         </div>
 
         {!editing ? (
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => { setInput(""); setError(""); setEditing(true); }}
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <button onClick={() => { setInput(""); setError(""); setTestState(null); setEditing(true); }}
               style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
               {hasKey ? t("geminiConnect.change") : t("geminiConnect.setKey")}
             </button>
@@ -124,6 +150,18 @@ export default function GeminiConnect({ storeId }) {
                 style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid var(--ne-danger)", background: "transparent", color: "var(--ne-danger)", fontSize: 12, fontWeight: 700, cursor: saving ? "default" : "pointer" }}>
                 {t("geminiConnect.disconnect")}
               </button>
+            )}
+            {hasKey && (
+              <button onClick={handleTest} disabled={testState === "testing"}
+                style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 12, fontWeight: 700, cursor: testState === "testing" ? "default" : "pointer" }}>
+                {testState === "testing" ? t("geminiConnect.testing") : t("geminiConnect.testConnection")}
+              </button>
+            )}
+            {testState === "ok" && (
+              <span style={{ fontSize: 12, color: "var(--ne-success)", fontWeight: 600 }}>{t("geminiConnect.testOk")}</span>
+            )}
+            {testState === "fail" && (
+              <span style={{ fontSize: 12, color: "var(--ne-danger)", fontWeight: 600 }}>{t("geminiConnect.testFail")}{testError ? `: ${testError}` : ""}</span>
             )}
           </div>
         ) : (
