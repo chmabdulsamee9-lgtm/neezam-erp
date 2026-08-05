@@ -108,7 +108,7 @@ const addressSmallBtnSecondary = { padding: "5px 12px", borderRadius: 8, border:
 // Order card/row ke neeche full-width "Address Match" block — apni khud ki
 // local state rakhta hai (har order-row ki apni instance), parent se sirf
 // order/storeId/cfUrl/t + Shopify-sync aur agent_data-update callbacks leta hai.
-function AddressMatchBlock({ order, storeId, cfUrl, t, onSyncToShopify, onUpdateAgentData }) {
+function AddressMatchBlock({ order, storeId, cfUrl, t, onSyncToShopify, onUpdateAgentData, onAddressConfirmed }) {
   const ad = order.agent_data || {};
   const source = ad.address_match_source || null;
   const confirmed = !!ad.address_confirmed_at;
@@ -184,7 +184,9 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onSyncToShopify, onUpdate
         setConfirming(false);
         return;
       }
+      const prevAddress = ad.address || order.shipping_address?.address1 || order.billing_address?.address1 || "";
       onUpdateAgentData(order.id, { address: preview, address_confirmed_at: new Date().toISOString() });
+      if (onAddressConfirmed && prevAddress && prevAddress !== preview) onAddressConfirmed(order.id, prevAddress);
     } catch (err) {
       setMatchError(err.message);
     }
@@ -203,11 +205,27 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onSyncToShopify, onUpdate
     }
   };
 
+  // Province/City/Area/SubArea selects already default-select from matched_* (via
+  // useState init), lekin unke apne option-lists sirf onChange se populate hoti thi —
+  // is liye pehle se-selected value dikhti thi par sibling dropdown khaali rehta tha.
+  // Yahan poori chain ek sath cascade-fetch karte hain taake jo bhi pehle se match hua
+  // hai (partial ho ya poora) uske dropdowns turant sahi options ke sath khulen.
   const openEdit = async () => {
     setEditingDropdowns(true);
-    if (provinces.length === 0) {
-      const { data } = await supabase.from("address_reference").select("province").order("province");
-      setProvinces([...new Set((data || []).map((r) => r.province))].filter(Boolean));
+    const { data: provinceRows } = await supabase.from("address_reference").select("province").order("province");
+    setProvinces([...new Set((provinceRows || []).map((r) => r.province))].filter(Boolean));
+
+    if (selProvince) {
+      const { data: cityRows } = await supabase.from("address_reference").select("city").eq("province", selProvince).order("city");
+      setCities([...new Set((cityRows || []).map((r) => r.city))].filter(Boolean));
+    }
+    if (selProvince && selCity) {
+      const { data: areaRows } = await supabase.from("address_reference").select("area").eq("province", selProvince).eq("city", selCity).order("area");
+      setAreas([...new Set((areaRows || []).map((r) => r.area))].filter(Boolean));
+    }
+    if (selProvince && selCity && selArea) {
+      const { data: subareaRows } = await supabase.from("address_reference").select("subarea").eq("province", selProvince).eq("city", selCity).eq("area", selArea).order("subarea");
+      setSubareas([...new Set((subareaRows || []).map((r) => r.subarea))].filter(Boolean));
     }
   };
 
@@ -285,6 +303,11 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onSyncToShopify, onUpdate
             ⚠ {t("orders.addressManualReview")}
           </span>
         )}
+        {source === "system_partial" && (
+          <span style={{ ...addressBadgeBase, background: "var(--ne-warning-soft)", color: "var(--ne-warning)" }}>
+            ⚠ {t("orders.addressPartialMatch")}
+          </span>
+        )}
         {confirmed && (
           <span style={{ ...addressBadgeBase, background: "var(--ne-success-soft)", color: "var(--ne-success)" }}>
             <Icon name="check" size={9} /> {t("orders.addressConfirmed")}
@@ -327,7 +350,7 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onSyncToShopify, onUpdate
         {!confirmed ? (
           <>
             <button onClick={handleConfirm} disabled={confirming} style={{ ...addressSmallBtnPrimary, cursor: confirming ? "default" : "pointer" }}>
-              {confirming ? t("orders.addressConfirming") : (source === "manual_review" ? t("orders.addressSetManually") : t("orders.addressAccept"))}
+              {confirming ? t("orders.addressConfirming") : ((ad.matched_area && ad.matched_subarea) ? t("orders.addressAccept") : t("orders.addressSetManually"))}
             </button>
             {!editingDropdowns && (
               <button onClick={openEdit} style={addressSmallBtnSecondary}>{t("orders.addressEdit")}</button>
@@ -1172,6 +1195,20 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, agent_data: { ...(o.agent_data || {}), ...patch } } : o)));
   };
 
+  // Transient "Was: ..." + highlight-fade shown on the address cell right after
+  // an Address Match confirm — purely visual, auto-clears once the CSS fade ends.
+  const [addressFlash, setAddressFlash] = useState({});
+  const handleAddressConfirmed = (orderId, prevAddress) => {
+    setAddressFlash((prev) => ({ ...prev, [orderId]: prevAddress }));
+    setTimeout(() => {
+      setAddressFlash((prev) => {
+        const rest = { ...prev };
+        delete rest[orderId];
+        return rest;
+      });
+    }, 1600);
+  };
+
   const computeOverrideTotal = (items) => (items || []).reduce((sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 0) - (Number(it.discount) || 0), 0);
 
   const openItemsModal = (order) => {
@@ -1418,6 +1455,44 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     );
   };
 
+  // Itemized product display with a "+N more items" collapse — falls back to the
+  // plain EditableCell (freeform text) whenever there's a manual override, while
+  // editing, or when there just aren't more than 2 items to collapse.
+  const ProductsCell = ({ orderId, value, items, variantNote, hasManualOverride, width, multiline, clampLines }) => {
+    const cellKey = `${orderId}-product`;
+    const isEditing = editingCell === cellKey;
+    const [expanded, setExpanded] = useState(false);
+
+    if (isEditing || hasManualOverride || items.length <= 2) {
+      return (
+        <div>
+          <EditableCell orderId={orderId} field="product" value={value} width={width} multiline={multiline} clampLines={clampLines} />
+          {variantNote && <div style={{ fontSize: 10, color: "var(--ne-muted-2)", marginTop: 2 }}>{variantNote}</div>}
+        </div>
+      );
+    }
+
+    const shown = expanded ? items : items.slice(0, 2);
+    const remaining = items.length - 2;
+
+    return (
+      <div onClick={() => setEditingCell(cellKey)} style={{ display: "flex", flexDirection: "column", gap: 1, maxWidth: width, cursor: "pointer" }}>
+        {shown.map((it, idx) => (
+          <div key={idx} style={{ fontSize: 11, color: "var(--ne-text)", wordBreak: "break-word", lineHeight: 1.35 }}>
+            {it.quantity > 1 ? `${it.quantity}x ` : ""}{it.title}
+            {it.variant_title && it.variant_title !== "Default Title" && (
+              <span style={{ color: "var(--ne-muted-2)" }}> ({it.variant_title})</span>
+            )}
+          </div>
+        ))}
+        <span onClick={(e) => { e.stopPropagation(); setExpanded(v => !v); }}
+          style={{ fontSize: 10, color: "var(--ne-accent)", cursor: "pointer", fontWeight: 700, alignSelf: "flex-start" }}>
+          {expanded ? t("orders.itemsShowLess") : `+${remaining} ${t("orders.itemsMoreSuffix")}`}
+        </span>
+      </div>
+    );
+  };
+
   if (error) return <div style={{ padding: "2rem", color: "var(--ne-danger)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="error" size={16} /> {error}</div>;
 
   const tdBase = { padding: "7px 6px", verticalAlign: "top" };
@@ -1453,6 +1528,9 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           ? itemsOverride.map(i => i.variant_title || null).filter(Boolean).join(" + ")
           : order.line_items?.map(i => i.variant_title && i.variant_title !== "Default Title" ? i.variant_title : null).filter(Boolean).join(" + "))
       : "";
+    const items = (itemsOverride?.length > 0 ? itemsOverride : order.line_items || [])
+      .map(i => ({ title: i.title, variant_title: i.variant_title, quantity: i.quantity }));
+    const wasAddress = addressFlash[order.id];
     const displayTotal = itemsOverride?.length > 0 ? computeOverrideTotal(itemsOverride) : (Number(order.total_price) || 0);
     const skus = order.agent_data?.sku || order.line_items?.map(i => `${i.quantity > 1 ? i.quantity : ""}${i.sku || ""}`).join(" + ") || "—";
     const unitPrices = (order.agent_data?.line_items_override || order.line_items)?.map(i => i.price).join(" + ") || "—";
@@ -1497,11 +1575,12 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       </div>
     );
 
-    return { order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, hasValidHistory, isUndoing, isExpanded, statusBtn, syncRow };
+    return { order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride: !!order.agent_data?.product, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, hasValidHistory, isUndoing, isExpanded, statusBtn, syncRow };
   });
 
   return (
     <div style={{ padding: "0.75rem", height: "100%", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+      <style>{`@keyframes ne-address-flash { 0% { background-color: var(--ne-success-soft); } 100% { background-color: transparent; } } .ne-address-flash { animation: ne-address-flash 1.5s ease-out; border-radius: 6px; }`}</style>
 
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem", flexWrap: "wrap", gap: 8 }}>
@@ -1652,7 +1731,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>{t("orders.loadingOrders")}</div>
       ) : isMobile ? (
         <div ref={tableRef} style={{ flex: 1, overflowY: "auto" }}>
-          {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, isExpanded, statusBtn, syncRow }) => (
+          {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, isExpanded, statusBtn, syncRow }) => (
             <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "8px 12px", marginBottom: 6 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(order.id)} style={{ cursor: "pointer", flexShrink: 0 }} />
@@ -1679,7 +1758,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                 {isExpanded ? t("orders.showLess") : t("orders.showMore")}
               </button>
 
-              <AddressMatchBlock order={order} storeId={currentStore?.id} cfUrl={cfUrl} t={t} onSyncToShopify={doSyncOrder} onUpdateAgentData={updateAgentDataPatch} />
+              <AddressMatchBlock order={order} storeId={currentStore?.id} cfUrl={cfUrl} t={t} onSyncToShopify={doSyncOrder} onUpdateAgentData={updateAgentDataPatch} onAddressConfirmed={handleAddressConfirmed} />
 
               {isExpanded && (
                 <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--ne-border)", display: "flex", flexDirection: "column", gap: 6 }}>
@@ -1698,10 +1777,13 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                       </a>
                     )}
                   </div>
-                  <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{t("orders.addressFieldPlaceholder")}: </span><EditableCell orderId={order.id} field="address" value={address} width={260} /></div>
+                  <div className={wasAddress ? "ne-address-flash" : ""}>
+                    <span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{t("orders.addressFieldPlaceholder")}: </span>
+                    {wasAddress && <div style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{t("orders.addressWasLabel")} <s>{wasAddress}</s></div>}
+                    <EditableCell orderId={order.id} field="address" value={address} width={260} />
+                  </div>
                   <div><span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{t("orders.productPlaceholder")}: </span><div>
-  <EditableCell orderId={order.id} field="product" value={productsEditable} width={260} />
-  {productVariantNote && <div style={{ fontSize: 10, color: "var(--ne-muted-2)", marginTop: 2 }}>{productVariantNote}</div>}
+  <ProductsCell orderId={order.id} value={productsEditable} items={items} variantNote={productVariantNote} hasManualOverride={hasManualOverride} width={260} />
 </div></div>
                   <div style={{ display: "flex", gap: 14 }}>
                     <div style={{ fontSize: 10.5, color: "var(--ne-muted)" }}>{t("orders.unit")}: {unitPrices}</div>
@@ -1752,7 +1834,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
               </div>
             </div>
 
-            {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, statusBtn, syncRow }) => (
+            {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, statusBtn, syncRow }) => (
               <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, marginBottom: 6, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "hidden" }}>
               <div style={{ display: "flex", alignItems: "stretch", gap: 0 }}>
 
@@ -1791,15 +1873,15 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                       )}
                     </div>
 
-                    <div style={{ width: 190, minWidth: 190, flexShrink: 0, overflow: "hidden" }}>
+                    <div className={wasAddress ? "ne-address-flash" : ""} style={{ width: 190, minWidth: 190, flexShrink: 0, overflow: "hidden" }}>
+                      {wasAddress && <div style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{t("orders.addressWasLabel")} <s>{wasAddress}</s></div>}
                       <EditableCell orderId={order.id} field="address" value={address} width={180} multiline clampLines={3} />
                     </div>
 
                     <div style={{ width: 160, minWidth: 160, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 2 }}>
                       <EditableCell orderId={order.id} field="sku" value={skus} width={150} clampLines={1} />
                       <div>
-                        <EditableCell orderId={order.id} field="product" value={productsEditable} width={150} multiline clampLines={2} />
-                        {productVariantNote && <div style={{ fontSize: 10, color: "var(--ne-muted-2)", marginTop: 2 }}>{productVariantNote}</div>}
+                        <ProductsCell orderId={order.id} value={productsEditable} items={items} variantNote={productVariantNote} hasManualOverride={hasManualOverride} width={150} multiline clampLines={2} />
                       </div>
                     </div>
 
@@ -1859,7 +1941,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                 </div>
               </div>
               <div style={{ padding: "0 14px 10px 14px" }}>
-                <AddressMatchBlock order={order} storeId={currentStore?.id} cfUrl={cfUrl} t={t} onSyncToShopify={doSyncOrder} onUpdateAgentData={updateAgentDataPatch} />
+                <AddressMatchBlock order={order} storeId={currentStore?.id} cfUrl={cfUrl} t={t} onSyncToShopify={doSyncOrder} onUpdateAgentData={updateAgentDataPatch} onAddressConfirmed={handleAddressConfirmed} />
               </div>
               </div>
             ))}
