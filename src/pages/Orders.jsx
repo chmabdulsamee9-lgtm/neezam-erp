@@ -98,6 +98,254 @@ const toLocalDateStr = (d) =>
 
 const isHistoryValid = (h) => !!(h && h.created_at && (Date.now() - new Date(h.created_at).getTime()) < HISTORY_VALID_MS);
 
+const addressChipStyle = { padding: "2px 8px", borderRadius: 6, fontSize: 10.5, background: "var(--ne-surface)", color: "var(--ne-text)", fontWeight: 600, whiteSpace: "nowrap" };
+const addressChipMutedStyle = { ...addressChipStyle, color: "var(--ne-muted-2)", fontWeight: 500, fontStyle: "italic" };
+const addressBadgeBase = { padding: "2px 8px", borderRadius: 10, fontSize: 9.5, fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 4 };
+const addressMiniSelectStyle = { padding: "5px 7px", borderRadius: 7, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11 };
+const addressSmallBtnPrimary = { padding: "5px 12px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 };
+const addressSmallBtnSecondary = { padding: "5px 12px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 11, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 };
+
+// Order card/row ke neeche full-width "Address Match" block — apni khud ki
+// local state rakhta hai (har order-row ki apni instance), parent se sirf
+// order/storeId/cfUrl/t + Shopify-sync aur agent_data-update callbacks leta hai.
+function AddressMatchBlock({ order, storeId, cfUrl, t, onSyncToShopify, onUpdateAgentData }) {
+  const ad = order.agent_data || {};
+  const source = ad.address_match_source || null;
+  const confirmed = !!ad.address_confirmed_at;
+
+  const [matching, setMatching] = useState(false);
+  const [matchError, setMatchError] = useState("");
+  const [preview, setPreview] = useState(ad.address_match_preview || "");
+  const [confirming, setConfirming] = useState(false);
+  const [syncState, setSyncState] = useState(null); // null | "syncing" | "ok" | "fail"
+  const [syncError, setSyncError] = useState("");
+  const [editingDropdowns, setEditingDropdowns] = useState(false);
+  const [provinces, setProvinces] = useState([]);
+  const [cities, setCities] = useState([]);
+  const [areas, setAreas] = useState([]);
+  const [subareas, setSubareas] = useState([]);
+  const [selProvince, setSelProvince] = useState(ad.matched_province || "");
+  const [selCity, setSelCity] = useState(ad.matched_city || "");
+  const [selArea, setSelArea] = useState(ad.matched_area || "");
+  const [selSubarea, setSelSubarea] = useState(ad.matched_subarea || "");
+
+  const handleMatch = async () => {
+    setMatching(true);
+    setMatchError("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${cfUrl}/match-order-address`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ store_id: storeId, order_id: order.id }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setMatchError(data.error || "Match address fail hui");
+        setMatching(false);
+        return;
+      }
+      onUpdateAgentData(order.id, {
+        matched_province: data.province,
+        matched_city: data.city,
+        matched_area: data.area,
+        matched_subarea: data.subarea,
+        address_match_source: data.source,
+        address_match_confidence: data.confidence,
+        address_match_preview: data.formatted_address,
+      });
+      setPreview(data.formatted_address || "");
+    } catch (err) {
+      setMatchError(err.message);
+    }
+    setMatching(false);
+  };
+
+  const handleConfirm = async () => {
+    setConfirming(true);
+    setMatchError("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${cfUrl}/confirm-order-address`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({
+          order_id: order.id,
+          final_address: preview,
+          matched_province: ad.matched_province || null,
+          matched_city: ad.matched_city || null,
+          matched_area: ad.matched_area || null,
+          matched_subarea: ad.matched_subarea || null,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setMatchError(data.error || "Confirm fail hui");
+        setConfirming(false);
+        return;
+      }
+      onUpdateAgentData(order.id, { address: preview, address_confirmed_at: new Date().toISOString() });
+    } catch (err) {
+      setMatchError(err.message);
+    }
+    setConfirming(false);
+  };
+
+  const handleSync = async () => {
+    setSyncState("syncing");
+    setSyncError("");
+    const result = await onSyncToShopify(order);
+    if (result.success) {
+      setSyncState("ok");
+    } else {
+      setSyncState("fail");
+      setSyncError(result.error || "");
+    }
+  };
+
+  const openEdit = async () => {
+    setEditingDropdowns(true);
+    if (provinces.length === 0) {
+      const { data } = await supabase.from("address_reference").select("province").order("province");
+      setProvinces([...new Set((data || []).map((r) => r.province))].filter(Boolean));
+    }
+  };
+
+  const onSelectProvince = async (val) => {
+    setSelProvince(val); setSelCity(""); setSelArea(""); setSelSubarea("");
+    setCities([]); setAreas([]); setSubareas([]);
+    if (!val) return;
+    const { data } = await supabase.from("address_reference").select("city").eq("province", val).order("city");
+    setCities([...new Set((data || []).map((r) => r.city))].filter(Boolean));
+  };
+
+  const onSelectCity = async (val) => {
+    setSelCity(val); setSelArea(""); setSelSubarea("");
+    setAreas([]); setSubareas([]);
+    if (!val) return;
+    const { data } = await supabase.from("address_reference").select("area").eq("province", selProvince).eq("city", val).order("area");
+    setAreas([...new Set((data || []).map((r) => r.area))].filter(Boolean));
+  };
+
+  const onSelectArea = async (val) => {
+    setSelArea(val); setSelSubarea("");
+    setSubareas([]);
+    if (!val) return;
+    const { data } = await supabase.from("address_reference").select("subarea").eq("province", selProvince).eq("city", selCity).eq("area", val).order("subarea");
+    setSubareas([...new Set((data || []).map((r) => r.subarea))].filter(Boolean));
+  };
+
+  const handleSaveDropdowns = () => {
+    onUpdateAgentData(order.id, {
+      matched_province: selProvince || null,
+      matched_city: selCity || null,
+      matched_area: selArea || null,
+      matched_subarea: selSubarea || null,
+    });
+    const rebuilt = [ad.address || order.shipping_address?.address1 || "", selArea, selSubarea, selCity, selProvince].filter(Boolean).join(", ");
+    setPreview(rebuilt);
+    setEditingDropdowns(false);
+  };
+
+  if (!source) {
+    return (
+      <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--ne-border)", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>{t("orders.addressMatchNotYet")}</span>
+        <button onClick={handleMatch} disabled={matching} style={{ ...addressSmallBtnPrimary, cursor: matching ? "default" : "pointer" }}>
+          <Icon name={matching ? "pending" : "search"} size={11} /> {matching ? t("orders.addressMatching") : t("orders.addressMatchButton")}
+        </button>
+        {matchError && <span style={{ color: "var(--ne-danger)", fontSize: 11 }}>{matchError}</span>}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--ne-border)", display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 10.5, color: "var(--ne-muted-2)", fontWeight: 700 }}>{t("orders.addressMatchLabel")}:</span>
+        <span style={addressChipStyle}>{ad.matched_province || "—"}</span>
+        <span style={{ color: "var(--ne-muted-2)", fontSize: 10 }}>›</span>
+        <span style={addressChipStyle}>{ad.matched_city || "—"}</span>
+        <span style={{ color: "var(--ne-muted-2)", fontSize: 10 }}>›</span>
+        <span style={ad.matched_area ? addressChipStyle : addressChipMutedStyle}>{ad.matched_area || t("orders.addressSelectArea")}</span>
+        <span style={{ color: "var(--ne-muted-2)", fontSize: 10 }}>›</span>
+        <span style={ad.matched_subarea ? addressChipStyle : addressChipMutedStyle}>{ad.matched_subarea || t("orders.addressSelectSubarea")}</span>
+        {source === "system" && (
+          <span style={{ ...addressBadgeBase, background: "var(--ne-success-soft)", color: "var(--ne-success)" }}>
+            <Icon name="check" size={9} /> {t("orders.addressSystemMatched")}
+          </span>
+        )}
+        {source === "ai" && (
+          <span style={{ ...addressBadgeBase, background: "var(--ne-accent-soft)", color: "var(--ne-accent)" }}>
+            ✨ {t("orders.addressAiMatched")}
+          </span>
+        )}
+        {source === "manual_review" && (
+          <span style={{ ...addressBadgeBase, background: "var(--ne-warning-soft)", color: "var(--ne-warning)" }}>
+            ⚠ {t("orders.addressManualReview")}
+          </span>
+        )}
+        {confirmed && (
+          <span style={{ ...addressBadgeBase, background: "var(--ne-success-soft)", color: "var(--ne-success)" }}>
+            <Icon name="check" size={9} /> {t("orders.addressConfirmed")}
+          </span>
+        )}
+      </div>
+
+      {!confirmed && (
+        <div>
+          <label style={{ fontSize: 10, color: "var(--ne-muted-2)", display: "block", marginBottom: 3 }}>{t("orders.addressPreviewLabel")}</label>
+          <textarea rows={2} value={preview} onChange={(e) => setPreview(e.target.value)}
+            style={{ width: "100%", padding: "6px 9px", borderRadius: 7, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11.5, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
+        </div>
+      )}
+
+      {editingDropdowns && (
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", background: "var(--ne-surface)", padding: 8, borderRadius: 8 }}>
+          <select value={selProvince} onChange={(e) => onSelectProvince(e.target.value)} style={addressMiniSelectStyle}>
+            <option value="">{t("orders.addressSelectProvince")}</option>
+            {provinces.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+          <select value={selCity} onChange={(e) => onSelectCity(e.target.value)} disabled={!selProvince} style={addressMiniSelectStyle}>
+            <option value="">{t("orders.addressSelectCity")}</option>
+            {cities.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <select value={selArea} onChange={(e) => onSelectArea(e.target.value)} disabled={!selCity} style={addressMiniSelectStyle}>
+            <option value="">{t("orders.addressSelectArea")}</option>
+            {areas.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+          <select value={selSubarea} onChange={(e) => setSelSubarea(e.target.value)} disabled={!selArea} style={addressMiniSelectStyle}>
+            <option value="">{t("orders.addressSelectSubarea")}</option>
+            {subareas.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <button onClick={handleSaveDropdowns} style={addressSmallBtnPrimary}>{t("action.save")}</button>
+          <button onClick={() => setEditingDropdowns(false)} style={addressSmallBtnSecondary}>{t("action.cancel")}</button>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        {!confirmed ? (
+          <>
+            <button onClick={handleConfirm} disabled={confirming} style={{ ...addressSmallBtnPrimary, cursor: confirming ? "default" : "pointer" }}>
+              {confirming ? t("orders.addressConfirming") : (source === "manual_review" ? t("orders.addressSetManually") : t("orders.addressAccept"))}
+            </button>
+            {!editingDropdowns && (
+              <button onClick={openEdit} style={addressSmallBtnSecondary}>{t("orders.addressEdit")}</button>
+            )}
+          </>
+        ) : (
+          <button onClick={handleSync} disabled={syncState === "syncing"} style={{ ...addressSmallBtnSecondary, cursor: syncState === "syncing" ? "default" : "pointer" }}>
+            {syncState === "syncing" ? t("orders.addressSyncing") : `⇄ ${t("orders.addressSyncToShopify")}`}
+          </button>
+        )}
+        {syncState === "ok" && <span style={{ color: "var(--ne-success)", fontSize: 11 }}>✓</span>}
+        {syncState === "fail" && <span style={{ color: "var(--ne-danger)", fontSize: 11 }}>{syncError}</span>}
+        {matchError && <span style={{ color: "var(--ne-danger)", fontSize: 11 }}>{matchError}</span>}
+      </div>
+    </div>
+  );
+}
+
 export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrdersLoaded, ordersStore, setOrdersStore, cfUrl }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
@@ -920,6 +1168,10 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
   const currentStore = store || ordersStore;
 
+  const updateAgentDataPatch = (orderId, patch) => {
+    setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, agent_data: { ...(o.agent_data || {}), ...patch } } : o)));
+  };
+
   const computeOverrideTotal = (items) => (items || []).reduce((sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 0) - (Number(it.discount) || 0), 0);
 
   const openItemsModal = (order) => {
@@ -1427,6 +1679,8 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                 {isExpanded ? t("orders.showLess") : t("orders.showMore")}
               </button>
 
+              <AddressMatchBlock order={order} storeId={currentStore?.id} cfUrl={cfUrl} t={t} onSyncToShopify={doSyncOrder} onUpdateAgentData={updateAgentDataPatch} />
+
               {isExpanded && (
                 <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--ne-border)", display: "flex", flexDirection: "column", gap: 6 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1500,7 +1754,8 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
             </div>
 
             {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, statusBtn, syncRow }) => (
-              <div key={order.id} style={{ display: "flex", alignItems: "stretch", gap: 0, background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "hidden" }}>
+              <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "hidden" }}>
+              <div style={{ display: "flex", alignItems: "stretch", gap: 0 }}>
 
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 8px 10px 12px", flexShrink: 0, width: 136, boxSizing: "border-box" }}>
                   <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(order.id)} style={{ cursor: "pointer", flexShrink: 0, marginTop: 2 }} />
@@ -1603,6 +1858,10 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                   </button>
                   {syncRow}
                 </div>
+              </div>
+              <div style={{ padding: "0 14px 10px 14px" }}>
+                <AddressMatchBlock order={order} storeId={currentStore?.id} cfUrl={cfUrl} t={t} onSyncToShopify={doSyncOrder} onUpdateAgentData={updateAgentDataPatch} />
+              </div>
               </div>
             ))}
 
