@@ -56,7 +56,6 @@ import ProfitLoss from './pages/ProfitLoss'
 import SupplierLedger from './pages/SupplierLedger'
 import BudgetCalculator from './pages/BudgetCalculator'
 import CourierConnect from './pages/CourierConnect'
-import GeminiConnect from './pages/GeminiConnect'
 import CourierDashboard from './pages/CourierDashboard'
 import CourierDetailedView from './pages/CourierDetailedView'
 import BookedOrders from './pages/BookedOrders'
@@ -209,75 +208,100 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
   const [manualStoreError, setManualStoreError] = useState('')
   const [manualStoreSuccess, setManualStoreSuccess] = useState(false)
 
-  // Creator-level Gemini API key (fallback jab kisi store ne apna key set na kiya ho)
-  const [geminiSavedKey, setGeminiSavedKey] = useState('')
-  const [geminiEditing, setGeminiEditing] = useState(false)
-  const [geminiInput, setGeminiInput] = useState('')
-  const [geminiSaving, setGeminiSaving] = useState(false)
-  const [geminiError, setGeminiError] = useState('')
-  const [geminiJustConnected, setGeminiJustConnected] = useState(false)
-  const [geminiTestState, setGeminiTestState] = useState(null) // null | 'testing' | 'ok' | 'fail'
-  const [geminiTestError, setGeminiTestError] = useState('')
+  // Creator-level Gemini API keys — multi-key pool (gemini_api_keys table), koi bhi
+  // active key store-side AI-fallback ke liye use ho sakti hai (future task)
+  const [geminiKeys, setGeminiKeys] = useState([])
+  const [geminiKeysLoading, setGeminiKeysLoading] = useState(true)
+  const [newKeyLabel, setNewKeyLabel] = useState('')
+  const [newKeyValue, setNewKeyValue] = useState('')
+  const [addKeySaving, setAddKeySaving] = useState(false)
+  const [addKeyError, setAddKeyError] = useState('')
+  const [keyTestState, setKeyTestState] = useState({}) // { [id]: 'testing' | 'ok' | 'fail' }
+  const [keyTestError, setKeyTestError] = useState({}) // { [id]: message }
+  const [keyRemoveSaving, setKeyRemoveSaving] = useState(null)
 
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase.from('app_settings').select('value').eq('key', 'gemini_api_key').maybeSingle()
-      if (data?.value) setGeminiSavedKey(data.value)
-    })()
-  }, [])
+  const loadGeminiKeys = async () => {
+    setGeminiKeysLoading(true)
+    const { data } = await supabase.from('gemini_api_keys').select('*').order('created_at')
+    setGeminiKeys(data || [])
+    setGeminiKeysLoading(false)
+  }
+
+  useEffect(() => { loadGeminiKeys() }, [])
 
   const maskKey = (key) => (key.length > 8 ? `${key.slice(0, 4)}••••••${key.slice(-4)}` : '••••••')
 
-  const handleSaveGeminiKey = async () => {
-    setGeminiError('')
-    setGeminiJustConnected(false)
-    if (!geminiInput.trim()) { setGeminiError('API key required hai'); return }
-    setGeminiSaving(true)
+  const handleAddGeminiKey = async () => {
+    setAddKeyError('')
+    if (!newKeyValue.trim()) { setAddKeyError('API key required hai'); return }
+    setAddKeySaving(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const res = await fetch(`${cfUrl}/gemini-key-verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ api_key: geminiInput.trim() }),
+        body: JSON.stringify({ api_key: newKeyValue.trim() }),
       })
       const data = await res.json()
       if (!data.success) {
-        setGeminiError(data.error || t('master.geminiKeyInvalid'))
-        setGeminiSaving(false)
+        setAddKeyError(data.error || t('master.geminiKeyInvalid'))
+        setAddKeySaving(false)
         return
       }
-      const { error } = await supabase.from('app_settings').upsert({ key: 'gemini_api_key', value: geminiInput.trim() }, { onConflict: 'key' })
-      if (error) { setGeminiError(error.message); setGeminiSaving(false); return }
-      setGeminiSavedKey(geminiInput.trim())
-      setGeminiInput('')
-      setGeminiEditing(false)
-      setGeminiJustConnected(true)
+      const { error } = await supabase.from('gemini_api_keys').insert({
+        label: newKeyLabel.trim() || `Key ${geminiKeys.length + 1}`,
+        api_key: newKeyValue.trim(),
+        is_active: true,
+      })
+      if (error) { setAddKeyError(error.message); setAddKeySaving(false); return }
+      setNewKeyLabel('')
+      setNewKeyValue('')
+      loadGeminiKeys()
     } catch (err) {
-      setGeminiError(err.message)
+      setAddKeyError(err.message)
     }
-    setGeminiSaving(false)
+    setAddKeySaving(false)
   }
 
-  const handleTestGeminiKey = async () => {
-    setGeminiTestState('testing')
-    setGeminiTestError('')
+  const handleToggleGeminiKeyActive = async (row) => {
+    await supabase.from('gemini_api_keys').update({ is_active: !row.is_active }).eq('id', row.id)
+    loadGeminiKeys()
+  }
+
+  const handleUpdateGeminiKeyLabel = async (row, label) => {
+    if (label === row.label) return
+    await supabase.from('gemini_api_keys').update({ label }).eq('id', row.id)
+    loadGeminiKeys()
+  }
+
+  const handleRemoveGeminiKey = async (row) => {
+    if (!confirm(`"${row.label}" ko remove karna hai?`)) return
+    setKeyRemoveSaving(row.id)
+    await supabase.from('gemini_api_keys').delete().eq('id', row.id)
+    setKeyRemoveSaving(null)
+    loadGeminiKeys()
+  }
+
+  const handleTestGeminiKey = async (row) => {
+    setKeyTestState((prev) => ({ ...prev, [row.id]: 'testing' }))
+    setKeyTestError((prev) => ({ ...prev, [row.id]: '' }))
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const res = await fetch(`${cfUrl}/gemini-key-test-existing`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ key_id: row.id }),
       })
       const data = await res.json()
       if (data.success) {
-        setGeminiTestState('ok')
+        setKeyTestState((prev) => ({ ...prev, [row.id]: 'ok' }))
       } else {
-        setGeminiTestState('fail')
-        setGeminiTestError(data.error || '')
+        setKeyTestState((prev) => ({ ...prev, [row.id]: 'fail' }))
+        setKeyTestError((prev) => ({ ...prev, [row.id]: data.error || '' }))
       }
     } catch (err) {
-      setGeminiTestState('fail')
-      setGeminiTestError(err.message)
+      setKeyTestState((prev) => ({ ...prev, [row.id]: 'fail' }))
+      setKeyTestError((prev) => ({ ...prev, [row.id]: err.message }))
     }
   }
 
@@ -508,49 +532,49 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
           </div>
         )}
 
-        <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: 16, marginBottom: 20 }}>
-          <h2 style={{ fontSize: 14, color: 'var(--ne-muted)', display: 'flex', alignItems: 'center', gap: 6, margin: '0 0 10px' }}><Icon name="key" size={14} /> {t('master.geminiKeyLabel')}</h2>
-          {!geminiEditing ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 13, color: geminiSavedKey ? 'var(--ne-text)' : 'var(--ne-muted)', fontFamily: geminiSavedKey ? 'monospace' : 'inherit' }}>
-                {geminiSavedKey ? maskKey(geminiSavedKey) : t('master.geminiKeyNotSet')}
-              </span>
-              {geminiJustConnected && (
-                <span style={{ fontSize: 12, color: 'var(--ne-success)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  <Icon name="check" size={11} /> {t('master.geminiKeyConnected')}
-                </span>
-              )}
-              <button onClick={() => { setGeminiInput(''); setGeminiError(''); setGeminiJustConnected(false); setGeminiTestState(null); setGeminiEditing(true) }}
-                style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                {geminiSavedKey ? t('master.geminiKeyChange') : t('master.geminiKeySet')}
+        <div style={{ marginBottom: 20 }}>
+          <h2 style={{ fontSize: 14, color: 'var(--ne-muted)', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}><Icon name="key" size={14} /> {t('master.geminiKeysLabel')} ({geminiKeys.length})</h2>
+
+          <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: 16, marginBottom: 12, display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
+            <input placeholder={t('master.geminiKeyLabelPlaceholder')} value={newKeyLabel} onChange={e => setNewKeyLabel(e.target.value)} style={inputStyle} />
+            <input type="password" placeholder={t('master.geminiKeyPlaceholder')} value={newKeyValue} onChange={e => setNewKeyValue(e.target.value)} style={inputStyle} />
+            <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 10, alignItems: 'center' }}>
+              <button onClick={handleAddGeminiKey} disabled={addKeySaving}
+                style={{ padding: '10px 20px', background: addKeySaving ? 'var(--ne-border)' : 'var(--ne-accent)', color: '#fff', border: 'none', borderRadius: 9, fontWeight: 700, cursor: addKeySaving ? 'default' : 'pointer' }}>
+                {addKeySaving ? t('master.geminiKeyVerifying') : t('master.geminiKeyAdd')}
               </button>
-              {geminiSavedKey && (
-                <button onClick={handleTestGeminiKey} disabled={geminiTestState === 'testing'}
-                  style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12, fontWeight: 600, cursor: geminiTestState === 'testing' ? 'default' : 'pointer' }}>
-                  {geminiTestState === 'testing' ? t('master.geminiKeyTesting') : t('master.geminiKeyTest')}
-                </button>
-              )}
-              {geminiTestState === 'ok' && (
-                <span style={{ fontSize: 12, color: 'var(--ne-success)', fontWeight: 600 }}>{t('master.geminiKeyTestOk')}</span>
-              )}
-              {geminiTestState === 'fail' && (
-                <span style={{ fontSize: 12, color: 'var(--ne-danger)', fontWeight: 600 }}>{t('master.geminiKeyTestFail')}{geminiTestError ? `: ${geminiTestError}` : ''}</span>
-              )}
+              {addKeyError && <span style={{ color: 'var(--ne-danger)', fontSize: 12 }}>{addKeyError}</span>}
             </div>
+          </div>
+
+          {geminiKeysLoading ? (
+            <p style={{ color: 'var(--ne-muted)', fontSize: 13 }}>{t('master.geminiKeyLoading')}</p>
+          ) : geminiKeys.length === 0 ? (
+            <p style={{ color: 'var(--ne-muted)', fontSize: 13 }}>{t('master.geminiKeyNoneYet')}</p>
           ) : (
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              <input type="password" placeholder={t('master.geminiKeyPlaceholder')} value={geminiInput}
-                onChange={e => setGeminiInput(e.target.value)}
-                style={{ ...inputStyle, width: 280, marginBottom: 0 }} />
-              <button onClick={handleSaveGeminiKey} disabled={geminiSaving}
-                style={{ padding: '9px 18px', background: geminiSaving ? 'var(--ne-border)' : 'var(--ne-accent)', color: '#fff', border: 'none', borderRadius: 9, fontWeight: 700, cursor: geminiSaving ? 'default' : 'pointer' }}>
-                {geminiSaving ? t('master.geminiKeyVerifying') : t('action.save')}
-              </button>
-              <button onClick={() => { setGeminiEditing(false); setGeminiError('') }} disabled={geminiSaving}
-                style={{ padding: '9px 14px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-muted)', fontSize: 13, cursor: geminiSaving ? 'default' : 'pointer' }}>
-                {t('action.cancel')}
-              </button>
-              {geminiError && <span style={{ color: 'var(--ne-danger)', fontSize: 12 }}>{geminiError}</span>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {geminiKeys.map((row) => (
+                <div key={row.id} style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <input defaultValue={row.label} onBlur={e => handleUpdateGeminiKeyLabel(row, e.target.value)}
+                    style={{ flex: '1 1 160px', minWidth: 140, padding: '6px 9px', borderRadius: 7, border: '1px solid var(--ne-border)', background: 'var(--ne-bg)', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600 }} />
+                  <span style={{ fontSize: 12, color: 'var(--ne-muted)', fontFamily: 'monospace' }}>{maskKey(row.api_key)}</span>
+                  <button onClick={() => handleToggleGeminiKeyActive(row)}
+                    title={row.is_active ? t('master.geminiKeyActive') : t('master.geminiKeyInactive')}
+                    style={{ width: 34, height: 18, borderRadius: 10, border: 'none', cursor: 'pointer', position: 'relative', background: row.is_active ? 'var(--ne-success)' : 'var(--ne-border)', flexShrink: 0 }}>
+                    <span style={{ position: 'absolute', top: 2, left: row.is_active ? 17 : 2, width: 14, height: 14, borderRadius: '50%', background: '#fff', transition: 'left .15s' }} />
+                  </button>
+                  <button onClick={() => handleTestGeminiKey(row)} disabled={keyTestState[row.id] === 'testing'}
+                    style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 11.5, fontWeight: 600, cursor: keyTestState[row.id] === 'testing' ? 'default' : 'pointer' }}>
+                    {keyTestState[row.id] === 'testing' ? t('master.geminiKeyTesting') : t('master.geminiKeyTest')}
+                  </button>
+                  {keyTestState[row.id] === 'ok' && <span style={{ fontSize: 11.5, color: 'var(--ne-success)', fontWeight: 600 }}>{t('master.geminiKeyTestOk')}</span>}
+                  {keyTestState[row.id] === 'fail' && <span style={{ fontSize: 11.5, color: 'var(--ne-danger)', fontWeight: 600 }}>{t('master.geminiKeyTestFail')}{keyTestError[row.id] ? `: ${keyTestError[row.id]}` : ''}</span>}
+                  <button onClick={() => handleRemoveGeminiKey(row)} disabled={keyRemoveSaving === row.id}
+                    style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--ne-danger)', background: 'transparent', color: 'var(--ne-danger)', fontSize: 11.5, fontWeight: 600, cursor: keyRemoveSaving === row.id ? 'default' : 'pointer', marginLeft: 'auto' }}>
+                    {t('master.geminiKeyRemove')}
+                  </button>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -1563,7 +1587,6 @@ function App() {
     { id: 'store-connect', label: t('nav.store-connect'), group: t('nav.group.channels') },
     { id: 'meta-connect', label: t('nav.meta-connect'), group: t('nav.group.channels') },
     { id: 'courier-connect', label: t('nav.courier-connect'), group: t('nav.group.channels') },
-    { id: 'gemini-connect', label: t('nav.gemini-connect'), group: t('nav.group.channels') },
     { id: 'payments', label: t('nav.payments'), group: t('nav.group.channels') },
   ]
 
@@ -1758,7 +1781,6 @@ function App() {
             {activeMenu === 'courier-connect' && hasAccess('courier-connect') && (
               <CourierConnect storeId={selectedStoreId} />
             )}
-            {activeMenu === 'gemini-connect' && hasAccess('gemini-connect') && <GeminiConnect storeId={selectedStoreId} />}
             {activeMenu === 'payments' && hasAccess('payments') && (
               <Payments storeId={selectedStoreId} cfUrl={CF_URL} />
             )}
@@ -1790,7 +1812,7 @@ function App() {
             {activeMenu === 'master-dashboard/dev-monitor' && (
               <DevMonitorDetailed allStores={allStores} cfUrl={CF_URL} session={session} />
             )}
-            {!['dashboard', 'store-connect', 'products', 'inventory', 'product-costing', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'gemini-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments', 'master-dashboard/dev-monitor'].includes(activeMenu) && (
+            {!['dashboard', 'store-connect', 'products', 'inventory', 'product-costing', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments', 'master-dashboard/dev-monitor'].includes(activeMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{menuItems.find(m => m.id === activeMenu)?.label}</h2>
