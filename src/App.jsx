@@ -1304,6 +1304,35 @@ function App() {
           })
         }
       )
+      .on(
+        // Address-match results (matched_province, address_match_source, waghera) order_statuses
+        // mein likhe jaate hain, shopify_orders_cache mein nahi — is liye upar wala listener yeh
+        // pick nahi karta. Webhook order create hone ke ~1 min baad tak background mein
+        // matchOrderAddress() chalata hai; bina is listener ke woh result sirf manual reload par
+        // dikhta tha. order_statuses mein store_id column nahi hai, is liye server-side filter
+        // nahi laga sakte — client-side check karte hain ke yeh order_id currently-loaded orders
+        // mein hai ya nahi (doosre store ka event ho to ignore).
+        "postgres_changes",
+        { event: "*", schema: "public", table: "order_statuses" },
+        (payload) => {
+          const row = payload.new
+          if (!row || !row.order_id) return
+          statusMapRef.current = { ...statusMapRef.current, [String(row.order_id)]: row }
+          setOrdersData(prev => {
+            const idx = prev.findIndex(o => String(o.id) === String(row.order_id))
+            if (idx < 0) return prev
+            const next = [...prev]
+            next[idx] = {
+              ...next[idx],
+              agent_data: row,
+              agent_status: row.status || null,
+              synced_at: row.synced_at || null,
+              last_edited_at: row.last_edited_at || null,
+            }
+            return next
+          })
+        }
+      )
       .subscribe((status) => {
         if (status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
           setTimeout(() => {
