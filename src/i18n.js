@@ -48,6 +48,7 @@ export const translations = {
     'nav.inventory': 'Inventory',
     'nav.product-costing': 'Product Costing',
     'nav.dev-monitor': 'Dev Monitor',
+    'nav.gemini-monitor': 'Gemini Usage Monitor',
 
     'action.save': 'Save Karo',
     'action.cancel': 'Cancel Karo',
@@ -1271,6 +1272,7 @@ export const translations = {
     'nav.inventory': 'Inventory',
     'nav.product-costing': 'Product Costing',
     'nav.dev-monitor': 'Dev Monitor',
+    'nav.gemini-monitor': 'Gemini Usage Monitor',
 
     'action.save': 'Save',
     'action.cancel': 'Cancel',

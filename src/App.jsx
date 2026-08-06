@@ -45,6 +45,7 @@ import ProductsManagement from './pages/ProductsManagement'
 import InventoryManagement from './pages/InventoryManagement'
 import ProductCosting from './pages/ProductCosting'
 import DevMonitorDetailed from './pages/DevMonitorDetailed'
+import GeminiUsageMonitor from './pages/GeminiUsageMonitor'
 import ShopifyCallback from './pages/ShopifyCallback'
 import Orders from './pages/Orders'
 import Dashboard from './pages/Dashboard'
@@ -587,6 +588,10 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
           <button onClick={() => navigate('/master-dashboard/dev-monitor')}
             style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Icon name="dev-monitor" size={13} /> {t('nav.dev-monitor')}
+          </button>
+          <button onClick={() => navigate('/master-dashboard/gemini-monitor')}
+            style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="zap" size={13} /> {t('nav.gemini-monitor')}
           </button>
         </div>
 
@@ -1629,7 +1634,7 @@ function App() {
 
   const alwaysVisibleIds = ['team', 'activity-log', 'settings']
   const menuItems = menuItemsWithExtras.filter(m => hasAccess(m.id) || alwaysVisibleIds.includes(m.id))
-  const fullScreenModules = ['orders', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor']
+  const fullScreenModules = ['orders', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor']
   const currentStoreInfo = userStoresList.find(us => us.store_id === selectedStoreId)?.stores
 
   // Group nav items in original order, preserving group sequence
@@ -1657,11 +1662,12 @@ function App() {
     <div className="ne-app-shell">
       <div className="ne-app">
 
-        {/* Dev Monitor apna standalone full-page layout rakhta hai (jaisa Master Dashboard) —
-            isliye yahan bhi sidebar/drawer-backdrop hide karte hain, fullScreenModules se alag
-            (woh sirf topbar hide karta hai, orders/courier-dashboard/detailed ke liye sidebar
-            zaroori rehti hai — is ek page ke liye scoped check separately rakha hai). */}
-        {activeMenu !== 'master-dashboard/dev-monitor' && (
+        {/* Dev Monitor (aur ab Gemini Usage Monitor) apna standalone full-page layout rakhte
+            hain (jaisa Master Dashboard) — isliye yahan bhi sidebar/drawer-backdrop hide karte
+            hain, fullScreenModules se alag (woh sirf topbar hide karta hai, orders/
+            courier-dashboard/detailed ke liye sidebar zaroori rehti hai — in monitoring pages
+            ke liye scoped check separately rakha gaya hai). */}
+        {activeMenu !== 'master-dashboard/dev-monitor' && activeMenu !== 'master-dashboard/gemini-monitor' && (
           <>
             {mobileDrawerOpen && <div className="ne-drawer-backdrop open" onClick={closeDrawer} />}
 
@@ -1841,7 +1847,10 @@ function App() {
             {activeMenu === 'master-dashboard/dev-monitor' && (
               <DevMonitorDetailed allStores={allStores} cfUrl={CF_URL} session={session} />
             )}
-            {!['dashboard', 'store-connect', 'products', 'inventory', 'product-costing', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments', 'master-dashboard/dev-monitor'].includes(activeMenu) && (
+            {activeMenu === 'master-dashboard/gemini-monitor' && profile.role === 'creator' && (
+              <GeminiUsageMonitor cfUrl={CF_URL} session={session} />
+            )}
+            {!['dashboard', 'store-connect', 'products', 'inventory', 'product-costing', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor'].includes(activeMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{menuItems.find(m => m.id === activeMenu)?.label}</h2>
