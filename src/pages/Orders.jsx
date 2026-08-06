@@ -462,6 +462,16 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const [cancelReasonCustomText, setCancelReasonCustomText] = useState("");
   const tableRef = useRef(null);
 
+  // DEX-serviceable cities — 152 rows, fetch once (not per-row) aur ek lowercased Set
+  // mein cache karo, taake har order ke liye sirf ek O(1) lookup lage.
+  const [dexServiceableCitySet, setDexServiceableCitySet] = useState(() => new Set());
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from("dex_serviceable_cities").select("city");
+      setDexServiceableCitySet(new Set((data || []).map((r) => (r.city || "").trim().toLowerCase()).filter(Boolean)));
+    })();
+  }, []);
+
   // Column-header row (desktop) + filters/search/tab-nav block (both layouts) collapse
   // on scroll-down and reappear on scroll-up, to maximize visible order-card space —
   // driven by the same vertical-scroll container (tableRef) mobile card list and
@@ -1619,6 +1629,10 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     const phone = normalizePhone(order.agent_data?.phone || order.customer?.phone || order.shipping_address?.phone || order.billing_address?.phone || "");
     const fullName = order.agent_data?.customer_name || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim();
     const city = order.agent_data?.city || order.shipping_address?.city || order.billing_address?.city || "";
+    // DEX-recommend badge — address-matching se resolve hui city ko priority (zyada
+    // reliable), warna raw Shopify shipping/billing city.
+    const dexCheckCity = (order.agent_data?.matched_city || order.shipping_address?.city || order.billing_address?.city || "").trim().toLowerCase();
+    const isDexServiceable = !!dexCheckCity && dexServiceableCitySet.has(dexCheckCity);
     const address = order.agent_data?.address || order.shipping_address?.address1 || order.billing_address?.address1 || "";
     const itemsOverride = order.agent_data?.line_items_override;
     const productsEditable = order.agent_data?.product
@@ -1676,7 +1690,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       </div>
     );
 
-    return { order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride: !!order.agent_data?.product, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, hasValidHistory, isUndoing, isExpanded, statusBtn, syncRow };
+    return { order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride: !!order.agent_data?.product, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, hasValidHistory, isUndoing, isExpanded, statusBtn, syncRow, isDexServiceable };
   });
 
   return (
@@ -1947,7 +1961,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
               </div>
             </div>
 
-            {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, statusBtn, syncRow }) => (
+            {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, statusBtn, syncRow, isDexServiceable }) => (
               <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, marginBottom: 6, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "hidden" }}>
               <div style={{ display: "flex", alignItems: "stretch", gap: 0 }}>
 
@@ -2022,7 +2036,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                     </div>
 
                     <div style={{ width: 90, minWidth: 90, flexShrink: 0, overflow: "hidden", textAlign: "center" }}>
-                      {order.agent_data?.dex_tracking_number && (
+                      {order.agent_data?.dex_tracking_number ? (
                         <>
                           <img src={dexLogo} alt="Dex" style={{ height: 14, width: "auto", display: "block", margin: "0 auto 2px" }} />
                           <div style={{ overflow: "hidden" }}>
@@ -2035,6 +2049,11 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                             {(order.agent_data.courier_order_status || "").replace(/_/g, " ")}
                           </div>
                         </>
+                      ) : isDexServiceable && (
+                        <span title={t("orders.dexRecommendTooltip")}
+                          style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "3px 6px", borderRadius: 7, fontSize: 8.5, fontWeight: 700, background: "var(--ne-accent-soft)", color: "var(--ne-accent)", lineHeight: 1.3 }}>
+                          📦 {t("orders.dexRecommend")}
+                        </span>
                       )}
                     </div>
 

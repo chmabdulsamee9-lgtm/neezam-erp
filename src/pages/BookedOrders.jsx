@@ -277,6 +277,16 @@ export default function BookedOrders({ storeId, ordersStore }) {
   const [awbResults, setAwbResults] = useState([]);
   const [showAwbResultModal, setShowAwbResultModal] = useState(false);
 
+  // DEX-serviceable cities — 152 rows, fetch once (not per-row) aur ek lowercased
+  // Set mein cache karo, taake har order ke liye sirf ek O(1) lookup lage.
+  const [dexServiceableCitySet, setDexServiceableCitySet] = useState(() => new Set());
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from("dex_serviceable_cities").select("city");
+      setDexServiceableCitySet(new Set((data || []).map((r) => (r.city || "").trim().toLowerCase()).filter(Boolean)));
+    })();
+  }, []);
+
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
     window.addEventListener("resize", onResize);
@@ -298,12 +308,18 @@ export default function BookedOrders({ storeId, ordersStore }) {
     (async () => {
       const { data: statusRows } = await supabase
         .from("order_statuses")
-        .select("order_id, line_items_override")
+        .select("order_id, line_items_override, sku, matched_city")
         .eq("store_id", storeId)
         .eq("status", "Approved")
         .is("dex_tracking_number", null);
       const overrideMap = {};
-      (statusRows || []).forEach((s) => { if (s.line_items_override) overrideMap[s.order_id] = s.line_items_override; });
+      const skuOverrideMap = {};
+      const matchedCityMap = {};
+      (statusRows || []).forEach((s) => {
+        if (s.line_items_override) overrideMap[s.order_id] = s.line_items_override;
+        if (s.sku) skuOverrideMap[s.order_id] = s.sku;
+        if (s.matched_city) matchedCityMap[s.order_id] = s.matched_city;
+      });
       const orderIds = (statusRows || []).map((s) => s.order_id).filter(Boolean);
       if (orderIds.length === 0) {
         setReadyOrders([]);
@@ -312,7 +328,12 @@ export default function BookedOrders({ storeId, ordersStore }) {
           .from("shopify_orders_cache")
           .select("id, raw_data")
           .in("id", orderIds);
-        const mapped = (cachedRows || []).map((r) => ({ id: r.id, ...r.raw_data, _line_items_override: overrideMap[r.id] || null }));
+        const mapped = (cachedRows || []).map((r) => ({
+          id: r.id, ...r.raw_data,
+          _line_items_override: overrideMap[r.id] || null,
+          _sku_override: skuOverrideMap[r.id] || null,
+          _matched_city: matchedCityMap[r.id] || null,
+        }));
         mapped.sort((a, b) => {
           const numA = parseInt((a.name || "").replace(/\D/g, ""), 10) || 0;
           const numB = parseInt((b.name || "").replace(/\D/g, ""), 10) || 0;
@@ -679,7 +700,15 @@ export default function BookedOrders({ storeId, ordersStore }) {
               const phone = o.customer?.phone || o.shipping_address?.phone || "";
               const address = o.shipping_address ? `${o.shipping_address.address1 || ""}, ${o.shipping_address.city || ""}` : "—";
               const products = (o._line_items_override || o.line_items || []).map((li) => `${li.quantity > 1 ? li.quantity + "x " : ""}${li.title}`).join(" + ") || "—";
-              const skus = (o._line_items_override || o.line_items || []).map((li) => `${li.quantity > 1 ? li.quantity : ""}${li.sku || ""}`).join(" + ") || "—";
+              // Staff ka manual SKU override (order_statuses.sku, Orders.jsx ki EditableCell
+              // se editable) ko priority — Orders.jsx ka agent_data?.sku || line_items ka
+              // exact wahi fallback pattern, yahan _sku_override ke naam se.
+              const skus = o._sku_override || (o._line_items_override || o.line_items || []).map((li) => `${li.quantity > 1 ? li.quantity : ""}${li.sku || ""}`).join(" + ") || "—";
+              const variantNote = (o._line_items_override || o.line_items || [])
+                .map((li) => (li.variant_title && li.variant_title !== "Default Title" ? li.variant_title : null))
+                .filter(Boolean).join(" + ");
+              const dexCheckCity = (o._matched_city || o.shipping_address?.city || o.billing_address?.city || "").trim().toLowerCase();
+              const isDexServiceable = !!dexCheckCity && dexServiceableCitySet.has(dexCheckCity);
               const createdDate = o.created_at ? new Date(o.created_at).toLocaleDateString("en-GB") : "";
               return (
                 <div key={o.id} style={{ display: "flex", alignItems: "stretch", gap: 0, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "hidden" }}>
@@ -701,6 +730,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
                     <div style={{ width: 170, minWidth: 170, fontSize: 11.5, color: "var(--ne-muted)" }}>{address}</div>
                     <div style={{ width: 190, minWidth: 190 }}>
                       <div style={{ fontSize: 11.5, color: "var(--ne-text)" }}>{products}</div>
+                      {variantNote && <div style={{ fontSize: 10, color: "var(--ne-muted-2)", marginTop: 1 }}>{variantNote}</div>}
                       <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)", marginTop: 2 }}>SKU: {skus}</div>
                     </div>
                     <div style={{ flex: 1, textAlign: "right", fontSize: 13, fontWeight: 700, color: "var(--ne-text)" }}>
@@ -708,12 +738,18 @@ export default function BookedOrders({ storeId, ordersStore }) {
                     </div>
                   </div>
 
-                  <div style={{ display: "flex", alignItems: "center", padding: "0 14px", flexShrink: 0 }}>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5, padding: "0 14px", flexShrink: 0 }}>
                     <button onClick={() => handleBookSingle(o.id)}
                       style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>
                       <Icon name="package" size={14} />
                       {t("booked.book")}
                     </button>
+                    {isDexServiceable && (
+                      <span title={t("orders.dexRecommendTooltip")}
+                        style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "3px 7px", borderRadius: 7, fontSize: 9, fontWeight: 700, background: "var(--ne-accent-soft)", color: "var(--ne-accent)", whiteSpace: "nowrap" }}>
+                        📦 {t("orders.dexRecommend")}
+                      </span>
+                    )}
                   </div>
                 </div>
               );
