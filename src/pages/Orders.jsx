@@ -396,6 +396,19 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
             <Icon name="check" size={9} /> {t("orders.addressConfirmed")}
           </span>
         )}
+        {/* Secondary indicator — did Gemini genuinely contribute to this match, separate
+            from the primary confidence badge above, so it stays visible before AND after
+            confirm. "not_attempted" needs no indicator (system alone was already confident). */}
+        {ad.address_gemini_status === "ai_success" && (
+          <span style={{ ...addressBadgeBase, background: "var(--ne-accent-soft)", color: "var(--ne-accent)" }}>
+            ✨ {t("orders.addressGeminiCorrected")}
+          </span>
+        )}
+        {ad.address_gemini_status === "ai_failed" && (
+          <span title={t("orders.addressGeminiFailedTooltip")} style={{ ...addressBadgeBase, background: "var(--ne-surface)", color: "var(--ne-muted-2)" }}>
+            <Icon name="warning" size={9} />
+          </span>
+        )}
       </div>
 
       {!confirmed && (
