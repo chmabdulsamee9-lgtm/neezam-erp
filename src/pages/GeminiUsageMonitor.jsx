@@ -22,9 +22,46 @@ function getDateRange(dateFilter) {
 const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 // Gemini calls jo abhi is monitor mein cover hote hain — matchOrderAddress() ke teeno
-// call-types (reformat/grounded/translate), teeno EXACT isi shape ke sath log hote hain
-// (logGeminiUsage/logGeminiSkip, worker/index.js).
+// call-types (reformat/grounded/translate).
 const GEMINI_ACTIONS = ["gemini_reformat", "gemini_grounded", "gemini_translate"];
+
+// Worker ab per-model/per-key subrequest logs batch karta hai — ek dev_monitoring_log
+// row mein saare attempts (skipped + terminal) ek details.attempts[] array mein, is
+// se pehle har attempt apni alag row leta tha (details.model/key_label/skip_reason
+// seedha row par). Dono shapes ko ek consistent "event" list mein normalize karte hain
+// taake purana logged data (attempts array ke bina) bhi dashboard se ghayab na ho.
+function eventsFromLog(log) {
+  const attempts = log.details?.attempts;
+  if (Array.isArray(attempts)) {
+    return attempts.map((a) => ({
+      model: a.model || "(unknown model)",
+      key_label: a.key_label || "(unknown key)",
+      result: a.result || "error",
+      reason: a.reason || null,
+      created_at: log.created_at,
+    }));
+  }
+  // Purana (pre-batching) format — khud row hi ek event hai.
+  return [{
+    model: log.details?.model || "(unknown model)",
+    key_label: log.details?.key_label || "(unknown key)",
+    result: log.status,
+    reason: log.details?.skip_reason || log.details?.step || null,
+    created_at: log.created_at,
+  }];
+}
+
+// Recent-errors card ke liye — jis model/key ne is call type ko terminal error diya
+// (naye batched format mein attempts[] ka aakhri entry, purane format mein seedha
+// details.model/key_label).
+function terminalAttemptInfo(log) {
+  const attempts = log.details?.attempts;
+  if (Array.isArray(attempts) && attempts.length > 0) {
+    const last = attempts[attempts.length - 1];
+    return { model: last.model, key_label: last.key_label, reason: last.reason };
+  }
+  return { model: log.details?.model || null, key_label: log.details?.key_label || null, reason: log.details?.step || null };
+}
 
 // cfUrl/session props App.jsx se DevMonitorDetailed jaisa hi pass hote hain (consistency
 // ke liye) — is page ko unki zaroorat nahi (supabase client ka ambient session use karta
@@ -92,37 +129,44 @@ export default function GeminiUsageMonitor() {
   };
 
   const stats = useMemo(() => {
-    const total = logs.length;
-    const successCount = logs.filter((l) => l.status === "success").length;
-    const errorCount = logs.filter((l) => l.status === "error").length;
-    const skippedCount = logs.filter((l) => l.status === "skipped").length;
+    // Har log row ko (naya batched ya purana single-attempt format) ek consistent
+    // per-model-attempt "event" list mein flatten karte hain — stat cards/breakdowns
+    // isi granularity pe pehle bhi kaam karte the (har model attempt apna row tha),
+    // ab bhi wahi semantics rakhte hain, bas source ab kam rows se zyada events hain.
+    const events = logs.flatMap(eventsFromLog);
+
+    const total = events.length;
+    const successCount = events.filter((e) => e.result === "success").length;
+    const errorCount = events.filter((e) => e.result === "error").length;
+    const skippedCount = events.filter((e) => e.result === "skipped").length;
 
     // key_label -> { totals: {success,error,skipped}, models: { model -> {success,error,skipped} } }
     const byKey = {};
-    logs.forEach((l) => {
-      const keyLabel = l.details?.key_label || "(unknown key)";
-      const model = l.details?.model || "(unknown model)";
-      if (!byKey[keyLabel]) byKey[keyLabel] = { totals: { success: 0, error: 0, skipped: 0 }, models: {} };
-      byKey[keyLabel].totals[l.status] = (byKey[keyLabel].totals[l.status] || 0) + 1;
-      if (!byKey[keyLabel].models[model]) byKey[keyLabel].models[model] = { success: 0, error: 0, skipped: 0 };
-      byKey[keyLabel].models[model][l.status] = (byKey[keyLabel].models[model][l.status] || 0) + 1;
+    events.forEach((e) => {
+      if (!byKey[e.key_label]) byKey[e.key_label] = { totals: { success: 0, error: 0, skipped: 0 }, models: {} };
+      byKey[e.key_label].totals[e.result] = (byKey[e.key_label].totals[e.result] || 0) + 1;
+      if (!byKey[e.key_label].models[e.model]) byKey[e.key_label].models[e.model] = { success: 0, error: 0, skipped: 0 };
+      byKey[e.key_label].models[e.model][e.result] = (byKey[e.key_label].models[e.model][e.result] || 0) + 1;
     });
 
     const skipReasonMap = {};
-    logs.forEach((l) => {
-      if (l.status !== "skipped") return;
-      const reason = l.details?.skip_reason || "(unknown)";
+    events.forEach((e) => {
+      if (e.result !== "skipped") return;
+      const reason = e.reason || "(unknown)";
       skipReasonMap[reason] = (skipReasonMap[reason] || 0) + 1;
     });
 
     const dayMap = {};
-    logs.forEach((l) => {
-      const key = ymd(new Date(l.created_at));
+    events.forEach((e) => {
+      const key = ymd(new Date(e.created_at));
       if (!dayMap[key]) dayMap[key] = { key, success: 0, error: 0, skipped: 0 };
-      dayMap[key][l.status] = (dayMap[key][l.status] || 0) + 1;
+      dayMap[key][e.result] = (dayMap[key][e.result] || 0) + 1;
     });
     const dailyBreakdown = Object.values(dayMap).sort((a, b) => (a.key < b.key ? -1 : 1));
 
+    // Recent errors row-level rehta hai (ek call type ki terminal error message,
+    // kisi individual skipped model ki nahi) — render terminalAttemptInfo() se
+    // model/key nikalta hai, dono formats ke liye.
     const recentErrors = logs.filter((l) => l.status === "error").slice(0, 20);
 
     return { total, successCount, errorCount, skippedCount, byKey, skipReasonMap, dailyBreakdown, recentErrors };
@@ -348,16 +392,19 @@ export default function GeminiUsageMonitor() {
               <p style={{ color: "var(--ne-muted-2)", fontSize: 12, margin: 0 }}>No errors in this range.</p>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 300, overflowY: "auto" }}>
-                {stats.recentErrors.map((l) => (
-                  <div key={l.id} style={{ background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 8, padding: "8px 10px", fontSize: 11 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 3 }}>
-                      <span style={{ fontWeight: 700, color: "var(--ne-danger)" }}>{l.action} · {l.details?.key_label || "—"} · {l.details?.model || "—"}</span>
-                      <span style={{ color: "var(--ne-muted-2)", whiteSpace: "nowrap" }}>{new Date(l.created_at).toLocaleString("en-PK", { dateStyle: "short", timeStyle: "short" })}</span>
+                {stats.recentErrors.map((l) => {
+                  const terminal = terminalAttemptInfo(l);
+                  return (
+                    <div key={l.id} style={{ background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 8, padding: "8px 10px", fontSize: 11 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 3 }}>
+                        <span style={{ fontWeight: 700, color: "var(--ne-danger)" }}>{l.action} · {terminal.key_label || "—"} · {terminal.model || "—"}</span>
+                        <span style={{ color: "var(--ne-muted-2)", whiteSpace: "nowrap" }}>{new Date(l.created_at).toLocaleString("en-PK", { dateStyle: "short", timeStyle: "short" })}</span>
+                      </div>
+                      <div style={{ color: "var(--ne-muted)" }}>{l.error_message || "—"}</div>
+                      <div style={{ color: "var(--ne-muted-2)", marginTop: 2 }}>order_id: {l.details?.order_id || "—"} · step: {terminal.reason || "—"}</div>
                     </div>
-                    <div style={{ color: "var(--ne-muted)" }}>{l.error_message || "—"}</div>
-                    <div style={{ color: "var(--ne-muted-2)", marginTop: 2 }}>order_id: {l.details?.order_id || "—"} · step: {l.details?.step || "—"}</div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
