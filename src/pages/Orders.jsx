@@ -385,6 +385,12 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
             ⚠ {t("orders.addressPartialMatch")}
           </span>
         )}
+        {!confirmed && (source === "manual_review" || source === "system_partial") && (
+          <button onClick={handleMatch} disabled={matching}
+            style={{ ...addressBadgeBase, background: "var(--ne-surface)", color: "var(--ne-text)", border: "1px solid var(--ne-border)", cursor: matching ? "default" : "pointer" }}>
+            <Icon name={matching ? "pending" : "refresh"} size={9} /> {matching ? t("orders.addressMatching") : t("orders.addressRetryMapping")}
+          </button>
+        )}
         {confirmed && (
           <span style={{ ...addressBadgeBase, background: "var(--ne-success-soft)", color: "var(--ne-success)" }}>
             <Icon name="check" size={9} /> {t("orders.addressConfirmed")}
