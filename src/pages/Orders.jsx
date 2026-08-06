@@ -443,17 +443,34 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const [cancelReasonCustomText, setCancelReasonCustomText] = useState("");
   const tableRef = useRef(null);
 
-  // Column-header row (desktop) + Tab Navigation pills (both layouts) collapse on
-  // scroll-down and reappear on scroll-up, to maximize visible order-card space —
+  // Column-header row (desktop) + filters/search/tab-nav block (both layouts) collapse
+  // on scroll-down and reappear on scroll-up, to maximize visible order-card space —
   // driven by the same vertical-scroll container (tableRef) mobile card list and
   // desktop table body both use (mutually exclusive, never both mounted at once).
+  //
+  // Root cause of the earlier flicker: the collapsing header row lived INSIDE this same
+  // scrollable container. Collapsing it shrinks the container's scrollHeight; if the
+  // user was scrolled far enough down, the browser then auto-clamps scrollTop to the
+  // new (smaller) max — and that clamp itself fires a native 'scroll' event. This
+  // handler read that clamp as "user scrolled up" and un-hid the header, which grew
+  // scrollHeight back and could trigger another clamp, etc. — a self-triggered loop
+  // with no further user input needed. Fixed by suppressing scroll-driven decisions for
+  // a short window right after WE flip the state (covers the collapse/expand transition
+  // + the clamp it can cause), so only genuine user scrolling changes the state.
   const [listHeaderHidden, setListHeaderHidden] = useState(false);
   const lastScrollTopRef = useRef(0);
+  const suppressUntilRef = useRef(0);
   const handleListScroll = (e) => {
     const top = e.currentTarget.scrollTop;
+    if (Date.now() < suppressUntilRef.current) {
+      lastScrollTopRef.current = top;
+      return;
+    }
     const last = lastScrollTopRef.current;
-    if (Math.abs(top - last) > 4) {
-      setListHeaderHidden(top > last && top > 40);
+    if (Math.abs(top - last) > 8) {
+      const shouldHide = top > last && top > 40;
+      if (shouldHide !== listHeaderHidden) suppressUntilRef.current = Date.now() + 400;
+      setListHeaderHidden(shouldHide);
       lastScrollTopRef.current = top;
     }
   };
@@ -1669,6 +1686,12 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         </div>
       </div>
 
+      {/* Quick filters + search + tab nav — collapses together as one unit on scroll-down,
+          reappears on scroll-up. CSS-grid 1fr/0fr trick (not a fixed maxHeight) so it
+          animates to the exact content height regardless of how many rows this wraps
+          into on narrow viewports or whether the bulk-actions bar is showing. */}
+      <div style={{ display: "grid", gridTemplateRows: listHeaderHidden ? "0fr" : "1fr", transition: "grid-template-rows .25s ease", overflow: "hidden" }}>
+      <div style={{ minHeight: 0 }}>
       {/* Date Quick Buttons */}
       <div style={{ display: "flex", gap: 6, marginBottom: "8px", alignItems: "center", flexWrap: "wrap" }}>
         <button style={dateBtnStyle("today")} onClick={() => handleDateBtn("today")}>
@@ -1775,9 +1798,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       </div>
 
       {/* Tab Navigation — har tab apni alag pill hai (theme reference jaisa), shared box nahi */}
-      <div style={{ display: "flex", gap: 7, flexWrap: "wrap", overflow: "hidden",
-        maxHeight: listHeaderHidden ? 0 : 44, opacity: listHeaderHidden ? 0 : 1, marginBottom: listHeaderHidden ? 0 : "0.6rem",
-        transition: "max-height .25s ease, opacity .2s ease, margin-bottom .25s ease" }}>
+      <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: "0.6rem" }}>
         {TABS.map(tab => (
           <button key={tab} onClick={() => { setActiveTab(tab); setPage(1); }}
             style={{ padding: "7px 14px", borderRadius: 20, fontSize: 11.5, cursor: "pointer", fontWeight: 700, border: "1px solid",
@@ -1792,6 +1813,8 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
             </span>
           </button>
         ))}
+      </div>
+      </div>
       </div>
 
       {loading ? (
