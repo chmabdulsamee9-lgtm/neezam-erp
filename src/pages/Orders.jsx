@@ -137,8 +137,9 @@ function SearchableCombo({ value, options, placeholder, onSelect, loading, t }) 
   return (
     <div style={{ position: "relative", display: "inline-block" }}>
       <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder={placeholder}
+        onKeyDown={(e) => { if (e.key === "Enter" && query.trim()) onSelect(query.trim()); }}
         style={{ ...addressMiniSelectStyle, width: 150, boxSizing: "border-box" }} />
-      <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 10000, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 7, marginTop: 2, maxHeight: 220, overflowY: "auto", minWidth: 170, boxShadow: "0 8px 30px rgba(0,0,0,.4)" }}>
+      <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 10000, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 7, marginTop: 2, maxHeight: 260, overflowY: "auto", minWidth: 170, boxShadow: "0 8px 30px rgba(0,0,0,.4)" }}>
         {loading ? (
           <div style={{ padding: "6px 9px", fontSize: 11, color: "var(--ne-muted-2)" }}>{t("orders.comboLoading")}</div>
         ) : filtered.length === 0 ? (
@@ -415,6 +416,32 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
       {source === "manual_review" && ad.address_match_reason && (
         <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)", fontStyle: "italic" }}>
           {ad.address_match_reason}
+        </div>
+      )}
+
+      {/* Gemini ka raw guess — chahe reference data se validate na hua ho — ek-click
+          accept karne ke liye. Dashed border = "unverified, click to accept" signal,
+          addressChipStyle wale confirmed/system chips se visually alag. */}
+      {source === "manual_review" && (ad.address_match_gemini_area_only || ad.address_match_gemini_subarea_raw) && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          {ad.address_match_gemini_area_only && (
+            <span onClick={() => selectChipValue("area", ad.address_match_gemini_area_only)} title={t("orders.addressGeminiSuggestionTooltip")}
+              style={{ ...addressChipStyle, background: "transparent", border: "1px dashed var(--ne-accent)", color: "var(--ne-accent)", cursor: "pointer" }}>
+              Gemini: {ad.address_match_gemini_area_only}
+            </span>
+          )}
+          {ad.address_match_gemini_subarea_raw && (
+            <span onClick={() => selectChipValue("subarea", ad.address_match_gemini_subarea_raw)} title={t("orders.addressGeminiSuggestionTooltip")}
+              style={{ ...addressChipStyle, background: "transparent", border: "1px dashed var(--ne-accent)", color: "var(--ne-accent)", cursor: "pointer" }}>
+              Gemini: {ad.address_match_gemini_subarea_raw}
+            </span>
+          )}
+        </div>
+      )}
+
+      {source === "manual_review" && (
+        <div style={{ fontSize: 10, color: "var(--ne-warning)" }}>
+          {t("orders.addressCallCustomerNudge")}
         </div>
       )}
 
@@ -2006,7 +2033,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
             </div>
 
             {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, statusBtn, syncRow, isDexServiceable, isDuplicateOrder, duplicateOtherNames, isRepeatCustomer, repeatCustomerOrderName }) => (
-              <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, marginBottom: 6, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "hidden" }}>
+              <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, marginBottom: 6, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "visible" }}>
               <div style={{ display: "flex", alignItems: "stretch", gap: 0 }}>
 
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 8px 8px 12px", flexShrink: 0, width: 136, boxSizing: "border-box" }}>
