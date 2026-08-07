@@ -25,6 +25,11 @@ const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0
 // call-types (reformat/grounded/translate).
 const GEMINI_ACTIONS = ["gemini_reformat", "gemini_grounded", "gemini_translate"];
 
+// GEMINI_MODEL_FALLBACK_CHAIN (worker/index.js) ke exact do models — free-tier RPD
+// (requests-per-day) limit dono ke liye 500 hai, per key.
+const QUOTA_MODELS = ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite"];
+const DAILY_LIMIT = 500;
+
 // Worker ab per-model/per-key subrequest logs batch karta hai — ek dev_monitoring_log
 // row mein saare attempts (skipped + terminal) ek details.attempts[] array mein, is
 // se pehle har attempt apni alag row leta tha (details.model/key_label/skip_reason
@@ -78,6 +83,9 @@ export default function GeminiUsageMonitor() {
   const [keysLoading, setKeysLoading] = useState(true);
   const [expandedKeys, setExpandedKeys] = useState(() => new Set());
 
+  const [quotaLogs, setQuotaLogs] = useState([]);
+  const [quotaError, setQuotaError] = useState("");
+
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
     window.addEventListener("resize", onResize);
@@ -86,6 +94,7 @@ export default function GeminiUsageMonitor() {
 
   useEffect(() => { loadLogs(); }, [dateFilter]);
   useEffect(() => { loadKeys(); }, []);
+  useEffect(() => { loadQuotaToday(); }, []);
 
   const loadKeys = async () => {
     setKeysLoading(true);
@@ -96,6 +105,28 @@ export default function GeminiUsageMonitor() {
     setKeys(data || []);
     setKeysLoading(false);
   };
+
+  async function loadQuotaToday() {
+    // Google free-tier RPD resets at midnight Pacific Time — this is a FIXED
+    // day boundary, independent of whatever dateFilter (Today/Yesterday/7days/
+    // 30days) the person has selected above for browsing logs.
+    const now = new Date();
+    const pacificNow = new Date(now.toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
+    const pacificMidnight = new Date(pacificNow.getFullYear(), pacificNow.getMonth(), pacificNow.getDate());
+    // Convert that Pacific midnight back to a real UTC instant for the query boundary.
+    const offsetMs = now.getTime() - pacificNow.getTime();
+    const utcBoundary = new Date(pacificMidnight.getTime() + offsetMs);
+
+    const { data, error: fetchError } = await supabase
+      .from("dev_monitoring_log")
+      .select("id,created_at,action,status,details")
+      .in("action", GEMINI_ACTIONS)
+      .gte("created_at", utcBoundary.toISOString())
+      .order("created_at", { ascending: false })
+      .limit(5000);
+    if (fetchError) { setQuotaError(fetchError.message); return; }
+    setQuotaLogs(data || []);
+  }
 
   const loadLogs = async () => {
     setLoading(true);
@@ -172,6 +203,32 @@ export default function GeminiUsageMonitor() {
     return { total, successCount, errorCount, skippedCount, byKey, skipReasonMap, dailyBreakdown, recentErrors };
   }, [logs]);
 
+  // Per-key/per-model usage-against-limit, Pacific-day quotaLogs se (reuses
+  // eventsFromLog() — same normalization as the main stats above, koi duplicate
+  // logic nahi). Event count (success+skipped+error, sab) usage estimate ke taur pe
+  // use karte hain — approximation hai, kyunke humein confirm nahi ke Google
+  // 429/404 (skipped/error) attempts ko bhi RPD mein count karta hai ya nahi. Total
+  // count hi safest upper-bound estimate hai (undercount karke real 429 hit karne se
+  // behtar hai thoda overcount karna).
+  const quotaStats = useMemo(() => {
+    const events = quotaLogs.flatMap(eventsFromLog);
+    const byKey = {};
+    events.forEach((e) => {
+      if (!QUOTA_MODELS.includes(e.model)) return;
+      if (!byKey[e.key_label]) byKey[e.key_label] = {};
+      byKey[e.key_label][e.model] = (byKey[e.key_label][e.model] || 0) + 1;
+    });
+
+    const activeKeyLabels = keys.filter((k) => k.is_active).map((k) => k.label);
+    const allKeysTotal = {};
+    QUOTA_MODELS.forEach((model) => {
+      allKeysTotal[model] = activeKeyLabels.reduce((sum, label) => sum + (byKey[label]?.[model] || 0), 0);
+    });
+    const grandTotal = QUOTA_MODELS.reduce((sum, model) => sum + allKeysTotal[model], 0);
+
+    return { byKey, allKeysTotal, grandTotal };
+  }, [quotaLogs, keys]);
+
   const toggleKeyExpand = (keyLabel) => {
     setExpandedKeys((prev) => {
       const next = new Set(prev);
@@ -238,6 +295,64 @@ export default function GeminiUsageMonitor() {
                 <div style={{ fontSize: 9.5, color: "var(--ne-muted)", fontWeight: 600, marginTop: 3 }}>{c.label}</div>
               </div>
             ))}
+          </div>
+
+          {/* Quota Today — Pacific-time reset (loadQuotaToday, independent of the
+              dateFilter buttons above), estimate from our own logs against Google's
+              known 500 RPD free-tier limit per model per key — not live Google data,
+              no public API exists for that. */}
+          <div style={{ ...cardStyle, marginBottom: "0.75rem" }}>
+            <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+              <Icon name="zap" size={13} /> Quota Today (Pacific Time reset)
+            </h2>
+            {quotaError && (
+              <div style={{ fontSize: 11, color: "var(--ne-danger)", marginBottom: 8 }}>{quotaError}</div>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {keys.filter((k) => k.is_active).map((k) => (
+                <div key={k.id}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--ne-text)", marginBottom: 4 }}>{k.label}</div>
+                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                    {QUOTA_MODELS.map((model) => {
+                      const used = quotaStats.byKey[k.label]?.[model] || 0;
+                      const pct = Math.min(100, (used / DAILY_LIMIT) * 100);
+                      const barColor = pct >= 90 ? "var(--ne-danger)" : pct >= 60 ? "var(--ne-warning)" : "var(--ne-success)";
+                      return (
+                        <div key={model} style={{ flex: 1, minWidth: 160 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9.5, color: "var(--ne-muted-2)", marginBottom: 2 }}>
+                            <span style={{ fontFamily: "monospace" }}>{model}</span>
+                            <span style={{ color: barColor, fontWeight: 700 }}>{used} / {DAILY_LIMIT}</span>
+                          </div>
+                          <div style={{ height: 6, borderRadius: 4, background: "var(--ne-bg)", overflow: "hidden" }}>
+                            <div style={{ width: `${pct}%`, height: "100%", background: barColor, borderRadius: 4 }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+              {(() => {
+                const activeCount = keys.filter((k) => k.is_active).length;
+                const capacity = activeCount * DAILY_LIMIT * QUOTA_MODELS.length;
+                const combinedPct = capacity ? Math.min(100, (quotaStats.grandTotal / capacity) * 100) : 0;
+                const combinedColor = combinedPct >= 90 ? "var(--ne-danger)" : combinedPct >= 60 ? "var(--ne-warning)" : "var(--ne-success)";
+                return (
+                  <div style={{ paddingTop: 8, borderTop: "1px solid var(--ne-border)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, fontWeight: 700 }}>
+                      <span>Combined (all active keys)</span>
+                      <span style={{ color: combinedColor }}>{quotaStats.grandTotal} / {capacity}</span>
+                    </div>
+                    <div style={{ height: 6, borderRadius: 4, background: "var(--ne-bg)", overflow: "hidden", marginTop: 3 }}>
+                      <div style={{ width: `${combinedPct}%`, height: "100%", background: combinedColor, borderRadius: 4 }} />
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+            <p style={{ margin: "10px 0 0", fontSize: 10, color: "var(--ne-muted-2)", fontStyle: "italic" }}>
+              Yeh estimate hamare apne logs se calculate hota hai, Google ki live quota se seedha nahi milta — asal availability thodi kam ho sakti hai agar Google kuch attempts ko RPD mein count na kare.
+            </p>
           </div>
 
           {/* Daily breakdown — success/error/skipped stacked bars, same plain HTML/CSS
