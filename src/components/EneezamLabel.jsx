@@ -7,6 +7,7 @@
 // into this app, and pulling barcode/QR rendering into the main bundle for a print-only
 // feature isn't worth it.
 import { supabase } from "../supabase";
+import dexLogo from "../assets/couriers/dex.png";
 
 const escapeHtml = (s) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -72,7 +73,7 @@ function itemsHtml(items) {
 function buildLabelHtml(d) {
   return `<div class="label">
     <div class="top">
-      <div class="top-logo"><div class="logo-circle">d</div><span>Daraz Express</span></div>
+      <div class="top-logo"><img src="${dexLogo}" alt="Dex" class="dex-logo" /></div>
       <div class="top-opt"><div>STANDARD</div><div>Sales_order</div></div>
     </div>
     <div class="cod-hero"><div class="l">COD</div><div class="r"><div class="amt">${escapeHtml(d.codAmount)}</div><div class="sub">Collectable amount</div></div></div>
@@ -127,11 +128,9 @@ function buildDocumentHtml(title, bodyHtml) {
   .controls button { padding: 8px 20px; border-radius: 8px; border: none; background: #5C7CFA; color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; }
   .stage { display: flex; flex-direction: column; align-items: center; gap: 20px; }
   .label { width: 148mm; height: 210mm; background: #fff; color: #000; text-align: left; overflow: hidden; display: flex; flex-direction: column; border: 2px solid #000; }
-  .logo-circle { width: 30px; height: 30px; border-radius: 50%; border: 3px solid #E85D24; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: bold; color: #E85D24; flex-shrink: 0; }
   .top { display: flex; border-bottom: 2px solid #000; }
   .top-logo { width: 55%; display: flex; align-items: center; justify-content: center; gap: 10px; border-right: 2px solid #000; padding: 14px; }
-  .top-logo .logo-circle { width: 44px; height: 44px; border-width: 4px; font-size: 18px; }
-  .top-logo span { font-size: 18px; font-weight: bold; }
+  .top-logo .dex-logo { height: 40px; width: auto; display: block; }
   .top-opt { flex: 1; display: flex; flex-direction: column; }
   .top-opt div { flex: 1; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 12px; border-bottom: 1px solid #000; text-align: center; }
   .top-opt div:last-child { border-bottom: none; }
