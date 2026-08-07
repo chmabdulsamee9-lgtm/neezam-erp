@@ -268,6 +268,33 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
         address_confirmed_at: new Date().toISOString(),
       });
       if (onAddressConfirmed) onAddressConfirmed(order.id, prevAddress !== preview ? prevAddress : null);
+
+      // Staff action audit — best-effort, gemini_match_log ke through track karte hain
+      // staff ne Gemini ka poora guess accept kiya, sirf area accept kiya, system ka
+      // (poora ya partial) accept kiya, ya khud manually enter kiya.
+      try {
+        const areaMatches = (selArea || null) === (ad.matched_area || null);
+        const subareaMatches = (selSubarea || null) === (ad.matched_subarea || null);
+        let staffAction = "manual_entry";
+        if ((source === "system" || source === "ai") && areaMatches && subareaMatches) {
+          staffAction = source === "system" ? "accepted_system" : "accepted_ai_full";
+        } else if (ad.address_match_gemini_area_only && selArea === ad.address_match_gemini_area_only) {
+          staffAction = "accepted_ai_area_only";
+        } else if (source === "system_partial" && areaMatches && subareaMatches) {
+          staffAction = "accepted_system_partial";
+        }
+        await fetch(`${cfUrl}/update-gemini-match-log`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+          body: JSON.stringify({
+            order_id: order.id,
+            staff_action: staffAction,
+            ...(staffAction === "manual_entry" ? { staff_manual_area: selArea || null, staff_manual_subarea: selSubarea || null } : {}),
+          }),
+        });
+      } catch (err) {
+        console.log("gemini_match_log staff_action update error:", err.message);
+      }
     } catch (err) {
       setMatchError(err.message);
     }
