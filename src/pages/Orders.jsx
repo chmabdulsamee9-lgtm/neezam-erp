@@ -411,6 +411,12 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
         )}
       </div>
 
+      {source === "manual_review" && ad.address_match_reason && (
+        <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)", fontStyle: "italic" }}>
+          {ad.address_match_reason}
+        </div>
+      )}
+
       {!confirmed && (
         <div>
           <label style={{ fontSize: 10, color: "var(--ne-muted-2)", display: "block", marginBottom: 3 }}>{t("orders.addressPreviewLabel")}</label>
