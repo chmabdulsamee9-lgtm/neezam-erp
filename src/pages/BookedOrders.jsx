@@ -3,6 +3,7 @@ import { PDFDocument } from "pdf-lib";
 import { supabase } from "../supabase";
 import { getCachedBookedOrders } from "../ordersCache";
 import { syncBookedOrdersCache, bucketFinalStatus } from "../bookedOrdersData";
+import { printEneezamLabel } from "../components/EneezamLabel";
 import dexLogo from "../assets/couriers/dex.png";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
@@ -1000,8 +1001,13 @@ export default function BookedOrders({ storeId, ordersStore }) {
                     </div>
                   )}
                 </div>
-                {(cls.tab === "To Ship") && (
-                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
+                  <button onClick={() => printEneezamLabel({ order: o, storeId })}
+                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                    <Icon name="printer" size={12} />
+                    🏷 {t("booked.printEneezamLabel")}
+                  </button>
+                  {(cls.tab === "To Ship") && (
                   <button onClick={() => handleCancelBooking(o.id)} disabled={cancellingId === o.id}
                     style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, border: "1px solid var(--ne-danger)", background: "transparent", color: "var(--ne-danger)", fontSize: 11, fontWeight: 700, cursor: cancellingId === o.id ? "default" : "pointer", opacity: cancellingId === o.id ? 0.7 : 1 }}>
                     {cancellingId === o.id ? (
@@ -1018,8 +1024,8 @@ export default function BookedOrders({ storeId, ordersStore }) {
                       </>
                     )}
                   </button>
-                  </div>
-                )}
+                  )}
+                </div>
                 </div>
               </div>
             );

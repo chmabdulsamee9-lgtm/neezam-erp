@@ -1,0 +1,211 @@
+// Hero-stack AWB label — ported from the reference eneezam-label-FINAL.html mockup into
+// a real print flow wired to actual order data. Field-resolution priority (recipient
+// name/phone, address, city, items, COD amount) mirrors the worker's /dex-book-order
+// handler exactly, so the printed label always matches what was actually booked with Dex.
+// JsBarcode/qrcodejs are loaded via CDN <script> tags inside the popped-up print window only
+// (same libraries/approach as the reference mockup) — no npm equivalent was already wired
+// into this app, and pulling barcode/QR rendering into the main bundle for a print-only
+// feature isn't worth it.
+import { supabase } from "../supabase";
+
+const escapeHtml = (s) =>
+  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// Same resolution order as worker's /dex-book-order: staff-confirmed order_statuses
+// (agentData) first, then Shopify shipping_address, then billing_address fallback.
+function resolveEneezamLabelData({ raw, agentData, store, pickupAddr }) {
+  const customer = raw.customer || {};
+  const shippingAddr = raw.shipping_address || {};
+  const billingAddr = raw.billing_address || {};
+
+  const customerName = `${customer.first_name || ""} ${customer.last_name || ""}`.trim() || "Customer";
+  const customerPhone = customer.phone || shippingAddr.phone || billingAddr.phone || "";
+  const resolvedAddress = agentData.address || shippingAddr.address1 || billingAddr.address1 || "";
+  const resolvedCity = agentData.city || shippingAddr.city || billingAddr.city || "";
+  const cityDisplay = agentData.matched_city
+    ? (agentData.matched_area ? `${agentData.matched_city} - ${agentData.matched_area}` : agentData.matched_city)
+    : resolvedCity;
+
+  const hasOverride = agentData.line_items_override && agentData.line_items_override.length > 0;
+  const itemsSource = hasOverride ? agentData.line_items_override : (raw.line_items || []);
+  const items = itemsSource.map((li) => ({
+    title: li.title || li.name || "Item",
+    sku: li.sku || "—",
+    qty: li.quantity || 1,
+  }));
+  const totalQty = items.reduce((sum, i) => sum + (i.qty || 0), 0);
+
+  const totalPrice = hasOverride
+    ? agentData.line_items_override.reduce((sum, li) => sum + ((Number(li.price) - (Number(li.discount) || 0)) * (li.quantity || 1)), 0)
+    : (Number(raw.total_price) || 0);
+
+  const weight = Number(store?.default_weight_kg) || 0.5;
+  const trackingNumber = agentData.dex_tracking_number || "";
+
+  return {
+    codAmount: `Rs. ${totalPrice.toLocaleString()}`,
+    recipient: { name: customerName, addr: resolvedAddress, city: cityDisplay, phone: customerPhone },
+    trackingNumber,
+    codeData: `${trackingNumber}, ${totalPrice}`,
+    sender: {
+      name: pickupAddr?.contact_name || pickupAddr?.label || "eNeezam",
+      addr: pickupAddr ? `${pickupAddr.address_line || ""}, ${pickupAddr.city || ""}` : "",
+      phone: pickupAddr?.contact_phone || "",
+    },
+    orderNumber: raw.name || "—",
+    weight: `${weight} kg`,
+    totalQty,
+    createdDate: raw.created_at ? new Date(raw.created_at).toLocaleDateString("en-GB") : "—",
+    printDate: new Date().toLocaleDateString("en-GB"),
+    items,
+  };
+}
+
+const LOGO_SVG = `<svg viewBox="0 0 32 32" width="12" height="12"><path d="M6 24 L14 13 L20 18 L27 7" stroke="#5C7CFA" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="6" cy="24" r="3.5" fill="#5C7CFA"/><circle cx="14" cy="13" r="3.5" fill="#5C7CFA"/><circle cx="20" cy="18" r="3.5" fill="#A855F7"/></svg>`;
+
+function itemsHtml(items) {
+  return items
+    .map((i) => `<div class="il">${escapeHtml(i.title)} <b>(${escapeHtml(i.sku)})</b> — Qty: ${escapeHtml(i.qty)}</div>`)
+    .join("");
+}
+
+function buildLabelHtml(d) {
+  return `<div class="label">
+    <div class="top">
+      <div class="top-logo"><div class="logo-circle">d</div><span>Daraz Express</span></div>
+      <div class="top-opt"><div>STANDARD</div><div>Sales_order</div></div>
+    </div>
+    <div class="cod-hero"><div class="l">COD</div><div class="r"><div class="amt">${escapeHtml(d.codAmount)}</div><div class="sub">Collectable amount</div></div></div>
+    <div class="addr-hero">
+      <div class="lbl">Deliver to</div>
+      <div class="name">${escapeHtml(d.recipient.name)}</div>
+      <div class="line">${escapeHtml(d.recipient.addr)}</div>
+      <div class="city">${escapeHtml(d.recipient.city)}</div>
+      <div class="phone">Ph: ${escapeHtml(d.recipient.phone)}</div>
+    </div>
+    <div class="bc-full"><svg class="bc" data-value="${escapeHtml(d.codeData)}"></svg><div class="tn">${escapeHtml(d.trackingNumber)}</div></div>
+    <div class="sender-hero">
+      <div class="info">
+        <div class="lbl">Sender</div>
+        <div class="name">${escapeHtml(d.sender.name)}</div>
+        <div class="line">${escapeHtml(d.sender.addr)}</div>
+        <div class="phone">Ph: ${escapeHtml(d.sender.phone)}</div>
+      </div>
+      <div class="qr" data-value="${escapeHtml(d.codeData)}"></div>
+    </div>
+    <div class="meta-row"><span>Order: <b>${escapeHtml(d.orderNumber)}</b></span><span>Weight: <b>${escapeHtml(d.weight)}</b></span><span>Total Qty: <b>${escapeHtml(d.totalQty)}</b></span></div>
+    <div class="dates-row"><span>Order Created: <b>${escapeHtml(d.createdDate)}</b></span><span>AWB Printed: <b>${escapeHtml(d.printDate)}</b></span></div>
+    <div class="items"><div class="h">Items in this package</div>${itemsHtml(d.items)}</div>
+    <div class="footer">${LOGO_SVG}<span>booked via eNeezam</span></div>
+  </div>`;
+}
+
+function openEneezamLabelPrintWindow(d) {
+  const win = window.open("", "_blank", "width=650,height=900");
+  if (!win) {
+    alert("Popup blocked — please allow popups for this site to print the label.");
+    return;
+  }
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>eNeezam Shipping Label — ${escapeHtml(d.orderNumber)}</title>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  @page { size: A5; margin: 0; }
+  body { font-family: Arial, Helvetica, sans-serif; background: #ccc; padding: 20px; }
+  .controls { display: flex; justify-content: center; margin-bottom: 16px; }
+  .controls button { padding: 8px 20px; border-radius: 8px; border: none; background: #5C7CFA; color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; }
+  .stage { display: flex; justify-content: center; }
+  .label { width: 148mm; height: 210mm; background: #fff; color: #000; text-align: left; overflow: hidden; display: flex; flex-direction: column; border: 2px solid #000; }
+  .logo-circle { width: 30px; height: 30px; border-radius: 50%; border: 3px solid #E85D24; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: bold; color: #E85D24; flex-shrink: 0; }
+  .top { display: flex; border-bottom: 2px solid #000; }
+  .top-logo { width: 55%; display: flex; align-items: center; justify-content: center; gap: 10px; border-right: 2px solid #000; padding: 14px; }
+  .top-logo .logo-circle { width: 44px; height: 44px; border-width: 4px; font-size: 18px; }
+  .top-logo span { font-size: 18px; font-weight: bold; }
+  .top-opt { flex: 1; display: flex; flex-direction: column; }
+  .top-opt div { flex: 1; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 12px; border-bottom: 1px solid #000; text-align: center; }
+  .top-opt div:last-child { border-bottom: none; }
+  .cod-hero { background: #111; color: #fff; padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #000; }
+  .cod-hero .l { font-size: 22px; font-weight: bold; }
+  .cod-hero .r { text-align: right; }
+  .cod-hero .r .amt { font-size: 24px; font-weight: bold; }
+  .cod-hero .r .sub { font-size: 10px; opacity: 0.75; }
+  .addr-hero { padding: 14px 18px; border-bottom: 2px solid #000; }
+  .addr-hero .lbl { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
+  .addr-hero .name { font-size: 20px; font-weight: bold; margin: 3px 0; }
+  .addr-hero .line { font-size: 13px; line-height: 1.45; }
+  .addr-hero .city { font-size: 15px; font-weight: bold; margin-top: 4px; }
+  .addr-hero .phone { font-size: 13px; margin-top: 3px; font-weight: bold; }
+  .bc-full { padding: 10px 18px; text-align: center; border-bottom: 2px solid #000; }
+  .bc-full svg { width: 100%; height: 46px; }
+  .bc-full .tn { font-size: 13px; font-weight: bold; margin-top: 4px; }
+  .sender-hero { padding: 10px 18px; border-bottom: 2px solid #000; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .sender-hero .info { flex: 1; }
+  .sender-hero .lbl { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
+  .sender-hero .name { font-size: 13px; font-weight: bold; margin: 2px 0; }
+  .sender-hero .line { font-size: 11px; line-height: 1.35; color: #333; }
+  .sender-hero .phone { font-size: 11px; margin-top: 2px; }
+  .sender-hero .qr canvas, .sender-hero .qr img { width: 56px !important; height: 56px !important; }
+  .meta-row { padding: 7px 18px; font-size: 10.5px; border-bottom: 2px solid #000; display: flex; justify-content: space-between; gap: 8px; }
+  .dates-row { padding: 6px 18px; font-size: 10px; border-bottom: 2px solid #000; display: flex; justify-content: space-between; color: #444; }
+  .meta-row b { font-weight: bold; }
+  .items { flex: 1; padding: 10px 18px; overflow: hidden; }
+  .items .h { font-size: 10px; color: #666; text-transform: uppercase; margin-bottom: 6px; }
+  .items .il { font-size: 12px; padding: 4px 0; border-bottom: 1px dashed #ccc; }
+  .items .il b { font-weight: bold; }
+  .footer { text-align: center; padding: 6px; border-top: 2px solid #000; display: flex; align-items: center; justify-content: center; gap: 5px; }
+  .footer svg { width: 12px; height: 12px; }
+  .footer span { font-size: 8px; color: #888; }
+  @media print {
+    body { background: #fff; padding: 0; }
+    .controls { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="controls"><button onclick="window.print()">Print</button></div>
+<div class="stage" id="stage">${buildLabelHtml(d)}</div>
+<script>
+  function renderCodes() {
+    document.querySelectorAll(".bc").forEach(function (el) {
+      JsBarcode(el, el.dataset.value, { format: "CODE128", displayValue: false, height: 40, margin: 0 });
+    });
+    document.querySelectorAll(".qr").forEach(function (el) {
+      el.innerHTML = "";
+      new QRCode(el, { text: el.dataset.value, width: 56, height: 56, correctLevel: QRCode.CorrectLevel.M });
+    });
+  }
+  if (window.QRCode && window.JsBarcode) { renderCodes(); }
+  else { window.addEventListener("load", renderCodes); }
+</script>
+</body>
+</html>`;
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+}
+
+// order = an entry from BookedOrders.jsx's `orders` array (agent_data = order_statuses row).
+// Fetches the full Shopify raw_data + store defaults + pickup address fresh (BookedOrders.jsx's
+// list only carries a lightweight subset — no line_items/billing_address on it) so the label
+// always reflects the same source data /dex-book-order itself reads from.
+export async function printEneezamLabel({ order, storeId }) {
+  const orderId = order.agent_data?.order_id;
+  if (!orderId) {
+    alert("This is a manual/unmatched order (no linked Shopify order) — an eNeezam label can't be built for it.");
+    return;
+  }
+  const [{ data: cacheRow }, { data: storeRow }, { data: addrRows }] = await Promise.all([
+    supabase.from("shopify_orders_cache").select("raw_data").eq("id", orderId).single(),
+    supabase.from("stores").select("default_weight_kg").eq("id", storeId).single(),
+    supabase.from("pickup_addresses").select("*").eq("store_id", storeId).order("created_at"),
+  ]);
+  const raw = cacheRow?.raw_data || {};
+  const pickupAddr = (addrRows || []).find((a) => a.is_default) || (addrRows || [])[0] || null;
+  const d = resolveEneezamLabelData({ raw, agentData: order.agent_data || {}, store: storeRow, pickupAddr });
+  openEneezamLabelPrintWindow(d);
+}
