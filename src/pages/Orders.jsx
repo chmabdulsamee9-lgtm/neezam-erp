@@ -487,70 +487,15 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     })();
   }, []);
 
-  // Column-header row (desktop) + filters/search/tab-nav block (both layouts) collapse
-  // on scroll-down and reappear on scroll-up, to maximize visible order-card space —
-  // driven by the same vertical-scroll container (tableRef) mobile card list and
-  // desktop table body both use (mutually exclusive, never both mounted at once).
-  //
-  // Root cause of the earlier flicker: the collapsing header row lived INSIDE this same
-  // scrollable container. Collapsing it shrinks the container's scrollHeight; if the
-  // user was scrolled far enough down, the browser then auto-clamps scrollTop to the
-  // new (smaller) max — and that clamp itself fires a native 'scroll' event. This
-  // handler read that clamp as "user scrolled up" and un-hid the header, which grew
-  // scrollHeight back and could trigger another clamp, etc. — a self-triggered loop
-  // with no further user input needed. Fixed by suppressing scroll-driven decisions for
-  // a short window right after WE cross a collapse/expand EXTREME (0% or 100% — the
-  // points where rendered height actually stops changing, same trigger-point the old
-  // boolean-flip fix used), so only genuine user scrolling changes the state.
-  //
-  // headerRevealPercent (0-100) replaces the old boolean — scroll distance maps
-  // proportionally to reveal%, RAF-throttled so rapid scroll events don't spam
-  // setState. headerForcedHidden is the manual toggle: forces 0% and ignores scroll
-  // input entirely until toggled back.
-  const HEADER_COLLAPSE_DISTANCE = 80; // px of scroll to go from 100% shown to 0% hidden
-  const [headerRevealPercent, setHeaderRevealPercent] = useState(100);
+  // Column-header row (desktop) + filters/search/tab-nav block (both layouts) — scroll-driven
+  // auto collapse/reveal removed (was flicker-prone); headerForcedHidden (the manual
+  // Hide/Show Header toggle) is now the only thing controlling visibility, always 0%
+  // (hidden) or 100% (shown), no scroll-tracking involved.
   const [headerForcedHidden, setHeaderForcedHidden] = useState(false);
-  const lastScrollTopRef = useRef(0);
-  const suppressUntilRef = useRef(0);
-  const scrollRafRef = useRef(null);
-  const pendingScrollTopRef = useRef(0);
-  const effectiveHeaderReveal = headerForcedHidden ? 0 : headerRevealPercent;
-
-  const applyListScroll = (top) => {
-    if (Date.now() < suppressUntilRef.current) {
-      lastScrollTopRef.current = top;
-      return;
-    }
-    const last = lastScrollTopRef.current;
-    const delta = top - last;
-    lastScrollTopRef.current = top;
-    if (delta === 0) return;
-    setHeaderRevealPercent((prev) => {
-      const raw = top <= 40 ? 100 : prev - (delta / HEADER_COLLAPSE_DISTANCE) * 100;
-      const next = Math.max(0, Math.min(100, raw));
-      const wasExtreme = prev === 0 || prev === 100;
-      const isExtreme = next === 0 || next === 100;
-      if (isExtreme && !wasExtreme) suppressUntilRef.current = Date.now() + 400;
-      return next;
-    });
-  };
-
-  const handleListScroll = (e) => {
-    if (headerForcedHidden) return; // manual override active — scroll-logic disabled entirely
-    pendingScrollTopRef.current = e.currentTarget.scrollTop;
-    if (scrollRafRef.current) return; // ek frame mein sirf ek hi update schedule
-    scrollRafRef.current = requestAnimationFrame(() => {
-      scrollRafRef.current = null;
-      applyListScroll(pendingScrollTopRef.current);
-    });
-  };
+  const effectiveHeaderReveal = headerForcedHidden ? 0 : 100;
 
   const toggleHeaderForced = () => {
-    setHeaderForcedHidden((prev) => {
-      const next = !prev;
-      if (!next) setHeaderRevealPercent(100); // "Show Header" — turant fully visible, phir scroll default resume
-      return next;
-    });
+    setHeaderForcedHidden((prev) => !prev);
   };
 
   // --- Sync / Undo / History state ---
@@ -1794,11 +1739,11 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         </div>
       </div>
 
-      {/* Quick filters + search + tab nav — collapses together as one unit, smoothly
-          proportional to scroll distance (not a snap). CSS-grid Nfr/0fr trick (not a
-          fixed maxHeight) so it animates to the exact content height regardless of how
-          many rows this wraps into on narrow viewports or whether the bulk-actions bar
-          is showing. */}
+      {/* Quick filters + search + tab nav — collapses together as one unit, controlled by
+          the manual Hide/Show Header toggle only (0% or 100%, no scroll-driven collapse).
+          CSS-grid Nfr/0fr trick (not a fixed maxHeight) so it animates to the exact content
+          height regardless of how many rows this wraps into on narrow viewports or whether
+          the bulk-actions bar is showing. */}
       <div style={{ display: "grid", gridTemplateRows: `${effectiveHeaderReveal / 100}fr`, transition: "grid-template-rows .1s linear", overflow: "hidden" }}>
       <div style={{ minHeight: 0 }}>
       {/* Date Quick Buttons */}
@@ -1929,7 +1874,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       {loading ? (
         <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>{t("orders.loadingOrders")}</div>
       ) : isMobile ? (
-        <div ref={tableRef} onScroll={handleListScroll} style={{ flex: 1, overflowY: "auto" }}>
+        <div ref={tableRef} style={{ flex: 1, overflowY: "auto" }}>
           {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, isExpanded, statusBtn, syncRow, isDuplicateOrder, duplicateOtherNames, isRepeatCustomer, repeatCustomerOrderName }) => (
             <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "8px 12px", marginBottom: 6 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -2025,9 +1970,9 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
           <style>{`.ne-hide-scroll::-webkit-scrollbar{display:none} .ne-hide-scroll{scrollbar-width:none; -ms-overflow-style:none;}`}</style>
 
-          <div ref={tableRef} onScroll={handleListScroll} style={{ flex: 1, overflowY: "auto" }}>
+          <div ref={tableRef} style={{ flex: 1, overflowY: "auto" }}>
 
-            {/* Header row — reveal% se smoothly proportional collapse (scroll distance ke sath), snap nahi */}
+            {/* Header row — visibility ab sirf manual Hide/Show Header toggle se control hoti hai (0% ya 100%), scroll se nahi */}
             <div style={{ display: "flex", alignItems: "center", gap: 0, position: "sticky", top: 0, zIndex: 5, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "hidden",
               maxHeight: (effectiveHeaderReveal / 100) * 44, opacity: effectiveHeaderReveal / 100, marginBottom: (effectiveHeaderReveal / 100) * 8, padding: `${(effectiveHeaderReveal / 100) * 10}px 0`, borderWidth: effectiveHeaderReveal / 100,
               transition: "max-height .1s linear, opacity .1s linear, margin-bottom .1s linear, padding .1s linear" }}>
