@@ -83,7 +83,7 @@ function buildLabelHtml(d) {
       <div class="city">${escapeHtml(d.recipient.city)}</div>
       <div class="phone">Mobile: ${escapeHtml(d.recipient.phone)}</div>
     </div>
-    <div class="bc-full"><svg class="bc" data-value="${escapeHtml(d.codeData)}"></svg><div class="tn">${escapeHtml(d.trackingNumber)}</div></div>
+    <div class="bc-full"><svg class="bc" data-value="${escapeHtml(d.trackingNumber)}"></svg><div class="tn">${escapeHtml(d.trackingNumber)}</div></div>
     <div class="sender-hero">
       <div class="info">
         <div class="lbl">Sender</div>
