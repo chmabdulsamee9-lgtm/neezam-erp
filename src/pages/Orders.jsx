@@ -3,6 +3,7 @@ import Papa from "papaparse";
 import { supabase } from "../supabase";
 import dexLogo from "../assets/couriers/dex.png";
 import { bucketFinalStatus } from "../bookedOrdersData";
+import { addressChipStyle, addressChipMutedStyle } from "../addressChipStyles";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
 
@@ -99,8 +100,6 @@ const toLocalDateStr = (d) =>
 
 const isHistoryValid = (h) => !!(h && h.created_at && (Date.now() - new Date(h.created_at).getTime()) < HISTORY_VALID_MS);
 
-const addressChipStyle = { padding: "2px 8px", borderRadius: 6, fontSize: 10.5, background: "var(--ne-surface)", color: "var(--ne-text)", fontWeight: 600, whiteSpace: "nowrap" };
-const addressChipMutedStyle = { ...addressChipStyle, color: "var(--ne-muted-2)", fontWeight: 500, fontStyle: "italic" };
 const addressBadgeBase = { padding: "2px 8px", borderRadius: 10, fontSize: 9.5, fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 4 };
 const addressMiniSelectStyle = { padding: "5px 7px", borderRadius: 7, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11 };
 const addressSmallBtnPrimary = { padding: "5px 12px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 };

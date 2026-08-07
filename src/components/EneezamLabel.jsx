@@ -2,7 +2,7 @@
 // a real print flow wired to actual order data. Field-resolution priority (recipient
 // name/phone, address, city, items, COD amount) mirrors the worker's /dex-book-order
 // handler exactly, so the printed label always matches what was actually booked with Dex.
-// JsBarcode/qrcodejs are loaded via CDN <script> tags inside the popped-up print window only
+// JsBarcode/qrcodejs are loaded via CDN <script> tags inside the opened print document only
 // (same libraries/approach as the reference mockup) — no npm equivalent was already wired
 // into this app, and pulling barcode/QR rendering into the main bundle for a print-only
 // feature isn't worth it.
@@ -81,7 +81,7 @@ function buildLabelHtml(d) {
       <div class="name">${escapeHtml(d.recipient.name)}</div>
       <div class="line">${escapeHtml(d.recipient.addr)}</div>
       <div class="city">${escapeHtml(d.recipient.city)}</div>
-      <div class="phone">Ph: ${escapeHtml(d.recipient.phone)}</div>
+      <div class="phone">Mobile: ${escapeHtml(d.recipient.phone)}</div>
     </div>
     <div class="bc-full"><svg class="bc" data-value="${escapeHtml(d.codeData)}"></svg><div class="tn">${escapeHtml(d.trackingNumber)}</div></div>
     <div class="sender-hero">
@@ -89,7 +89,7 @@ function buildLabelHtml(d) {
         <div class="lbl">Sender</div>
         <div class="name">${escapeHtml(d.sender.name)}</div>
         <div class="line">${escapeHtml(d.sender.addr)}</div>
-        <div class="phone">Ph: ${escapeHtml(d.sender.phone)}</div>
+        <div class="phone">Mobile: ${escapeHtml(d.sender.phone)}</div>
       </div>
       <div class="qr" data-value="${escapeHtml(d.codeData)}"></div>
     </div>
@@ -100,17 +100,23 @@ function buildLabelHtml(d) {
   </div>`;
 }
 
-function openEneezamLabelPrintWindow(d) {
-  const win = window.open("", "_blank", "width=650,height=900");
-  if (!win) {
-    alert("Popup blocked — please allow popups for this site to print the label.");
-    return;
-  }
-  const html = `<!DOCTYPE html>
+// Each label wrapped in its own "page" — break-after between pages (not after the last one,
+// so no trailing blank page) so a multi-order print produces one label per physical page.
+function buildPagesHtml(dataList) {
+  return dataList
+    .map((d, i) => {
+      const breakStyle = i < dataList.length - 1 ? ' style="page-break-after: always; break-after: page;"' : "";
+      return `<div class="label-page"${breakStyle}>${buildLabelHtml(d)}</div>`;
+    })
+    .join("");
+}
+
+function buildDocumentHtml(title, bodyHtml) {
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>eNeezam Shipping Label — ${escapeHtml(d.orderNumber)}</title>
+<title>${escapeHtml(title)}</title>
 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <style>
@@ -119,7 +125,7 @@ function openEneezamLabelPrintWindow(d) {
   body { font-family: Arial, Helvetica, sans-serif; background: #ccc; padding: 20px; }
   .controls { display: flex; justify-content: center; margin-bottom: 16px; }
   .controls button { padding: 8px 20px; border-radius: 8px; border: none; background: #5C7CFA; color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; }
-  .stage { display: flex; justify-content: center; }
+  .stage { display: flex; flex-direction: column; align-items: center; gap: 20px; }
   .label { width: 148mm; height: 210mm; background: #fff; color: #000; text-align: left; overflow: hidden; display: flex; flex-direction: column; border: 2px solid #000; }
   .logo-circle { width: 30px; height: 30px; border-radius: 50%; border: 3px solid #E85D24; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: bold; color: #E85D24; flex-shrink: 0; }
   .top { display: flex; border-bottom: 2px solid #000; }
@@ -129,7 +135,7 @@ function openEneezamLabelPrintWindow(d) {
   .top-opt { flex: 1; display: flex; flex-direction: column; }
   .top-opt div { flex: 1; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 12px; border-bottom: 1px solid #000; text-align: center; }
   .top-opt div:last-child { border-bottom: none; }
-  .cod-hero { background: #111; color: #fff; padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #000; }
+  .cod-hero { background: #111; color: #fff; padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
   .cod-hero .l { font-size: 22px; font-weight: bold; }
   .cod-hero .r { text-align: right; }
   .cod-hero .r .amt { font-size: 24px; font-weight: bold; }
@@ -163,12 +169,13 @@ function openEneezamLabelPrintWindow(d) {
   @media print {
     body { background: #fff; padding: 0; }
     .controls { display: none; }
+    .stage { gap: 0; }
   }
 </style>
 </head>
 <body>
 <div class="controls"><button onclick="window.print()">Print</button></div>
-<div class="stage" id="stage">${buildLabelHtml(d)}</div>
+<div class="stage" id="stage">${bodyHtml}</div>
 <script>
   function renderCodes() {
     document.querySelectorAll(".bc").forEach(function (el) {
@@ -184,9 +191,29 @@ function openEneezamLabelPrintWindow(d) {
 </script>
 </body>
 </html>`;
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
+}
+
+// window.open()+document.write renders as a small popup (window-feature strings are only a
+// hint browsers frequently ignore/downgrade). Building the doc into a Blob and clicking a
+// programmatic <a target="_blank"> instead reliably opens a full new tab.
+function openLabelDocument(html) {
+  const blob = new Blob([html], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.target = "_blank";
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+async function fetchLabelDeps(storeId) {
+  const { data: storeRow } = await supabase.from("stores").select("default_weight_kg").eq("id", storeId).single();
+  const { data: addrRows } = await supabase.from("pickup_addresses").select("*").eq("store_id", storeId).order("created_at");
+  const pickupAddr = (addrRows || []).find((a) => a.is_default) || (addrRows || [])[0] || null;
+  return { storeRow, pickupAddr };
 }
 
 // order = an entry from BookedOrders.jsx's `orders` array (agent_data = order_statuses row).
@@ -199,13 +226,46 @@ export async function printEneezamLabel({ order, storeId }) {
     alert("This is a manual/unmatched order (no linked Shopify order) — an eNeezam label can't be built for it.");
     return;
   }
-  const [{ data: cacheRow }, { data: storeRow }, { data: addrRows }] = await Promise.all([
+  const [{ data: cacheRow }, { storeRow, pickupAddr }] = await Promise.all([
     supabase.from("shopify_orders_cache").select("raw_data").eq("id", orderId).single(),
-    supabase.from("stores").select("default_weight_kg").eq("id", storeId).single(),
-    supabase.from("pickup_addresses").select("*").eq("store_id", storeId).order("created_at"),
+    fetchLabelDeps(storeId),
   ]);
   const raw = cacheRow?.raw_data || {};
-  const pickupAddr = (addrRows || []).find((a) => a.is_default) || (addrRows || [])[0] || null;
   const d = resolveEneezamLabelData({ raw, agentData: order.agent_data || {}, store: storeRow, pickupAddr });
-  openEneezamLabelPrintWindow(d);
+  openLabelDocument(buildDocumentHtml(`eNeezam Shipping Label — ${d.orderNumber}`, buildPagesHtml([d])));
+}
+
+// Bulk variant for BookedOrders.jsx's multi-select — concatenates every selected order's
+// label into ONE print-ready document (page-break-after between labels) instead of one
+// window per order. Manual/unmatched orders (no linked Shopify order) are skipped the same
+// way the single-order print blocks them, with a summary alert instead of silently dropping them.
+export async function printEneezamLabelsMerged({ orders, storeId }) {
+  const skippedNames = [];
+  const bookable = [];
+  orders.forEach((o) => {
+    if (o.agent_data?.order_id) bookable.push(o);
+    else skippedNames.push(o.name || o.id);
+  });
+  if (bookable.length === 0) {
+    alert("None of the selected orders can be printed as eNeezam labels — all are manual/unmatched orders (no linked Shopify order).");
+    return;
+  }
+
+  const orderIds = bookable.map((o) => o.agent_data.order_id);
+  const [{ data: cacheRows }, { storeRow, pickupAddr }] = await Promise.all([
+    supabase.from("shopify_orders_cache").select("id, raw_data").in("id", orderIds),
+    fetchLabelDeps(storeId),
+  ]);
+  const rawMap = {};
+  (cacheRows || []).forEach((r) => { rawMap[r.id] = r.raw_data; });
+
+  const dataList = bookable.map((o) =>
+    resolveEneezamLabelData({ raw: rawMap[o.agent_data.order_id] || {}, agentData: o.agent_data || {}, store: storeRow, pickupAddr })
+  );
+
+  if (skippedNames.length > 0) {
+    alert(`${skippedNames.length} manual/unmatched order(s) skipped (no linked Shopify order): ${skippedNames.join(", ")}`);
+  }
+
+  openLabelDocument(buildDocumentHtml(`eNeezam Shipping Labels (${dataList.length})`, buildPagesHtml(dataList)));
 }

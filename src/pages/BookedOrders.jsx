@@ -3,7 +3,8 @@ import { PDFDocument } from "pdf-lib";
 import { supabase } from "../supabase";
 import { getCachedBookedOrders } from "../ordersCache";
 import { syncBookedOrdersCache, bucketFinalStatus } from "../bookedOrdersData";
-import { printEneezamLabel } from "../components/EneezamLabel";
+import { printEneezamLabel, printEneezamLabelsMerged } from "../components/EneezamLabel";
+import { addressChipStyle, addressChipMutedStyle } from "../addressChipStyles";
 import dexLogo from "../assets/couriers/dex.png";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
@@ -237,6 +238,26 @@ function Timeline({ order }) {
   );
 }
 
+// Read-only province›city›area›subarea chip row for "Ready for Booking" cards — reuses
+// Orders.jsx's AddressMatchBlock chip styling (addressChipStyle/addressChipMutedStyle) for
+// visual consistency, but with no click/edit behavior at all (pure display).
+function ReadOnlyAddressChips({ matched }) {
+  if (!matched?.province) return null;
+  const levels = [matched.province, matched.city, matched.area, matched.subarea];
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 2, marginBottom: 2, overflow: "hidden", flexWrap: "nowrap" }}>
+      {levels.map((value, i) => (
+        <span key={i} style={{ display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
+          {i > 0 && <span style={{ color: "var(--ne-muted-2)", fontSize: 8, flexShrink: 0 }}>›</span>}
+          <span style={{ ...(value ? addressChipStyle : addressChipMutedStyle), padding: "1px 5px", fontSize: 8.5, overflow: "hidden", textOverflow: "ellipsis" }}>
+            {value || "—"}
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // Order-number ke numeric-sequence se descending sort (LATEST se OLDEST) — "#DWK8390" se 8390
 // nikal ke number compare karte hain, manual orders ke liye manual_order_number use karte hain.
 function extractOrderNum(o) {
@@ -315,17 +336,22 @@ export default function BookedOrders({ storeId, ordersStore }) {
     (async () => {
       const { data: statusRows } = await supabase
         .from("order_statuses")
-        .select("order_id, line_items_override, sku, matched_city")
+        .select("order_id, line_items_override, sku, matched_province, matched_city, matched_area, matched_subarea")
         .eq("store_id", storeId)
         .eq("status", "Approved")
         .is("dex_tracking_number", null);
       const overrideMap = {};
       const skuOverrideMap = {};
-      const matchedCityMap = {};
+      const matchedAddressMap = {};
       (statusRows || []).forEach((s) => {
         if (s.line_items_override) overrideMap[s.order_id] = s.line_items_override;
         if (s.sku) skuOverrideMap[s.order_id] = s.sku;
-        if (s.matched_city) matchedCityMap[s.order_id] = s.matched_city;
+        matchedAddressMap[s.order_id] = {
+          province: s.matched_province || null,
+          city: s.matched_city || null,
+          area: s.matched_area || null,
+          subarea: s.matched_subarea || null,
+        };
       });
       const orderIds = (statusRows || []).map((s) => s.order_id).filter(Boolean);
       if (orderIds.length === 0) {
@@ -339,7 +365,8 @@ export default function BookedOrders({ storeId, ordersStore }) {
           id: r.id, ...r.raw_data,
           _line_items_override: overrideMap[r.id] || null,
           _sku_override: skuOverrideMap[r.id] || null,
-          _matched_city: matchedCityMap[r.id] || null,
+          _matched_city: matchedAddressMap[r.id]?.city || null,
+          _matched_address: matchedAddressMap[r.id] || null,
         }));
         mapped.sort((a, b) => {
           const numA = parseInt((a.name || "").replace(/\D/g, ""), 10) || 0;
@@ -595,6 +622,11 @@ export default function BookedOrders({ storeId, ordersStore }) {
     loadBooked();
   };
 
+  const handleBulkPrintEneezamLabel = async () => {
+    const selectedOrders = orders.filter((o) => selectedIds.has(o.id));
+    await printEneezamLabelsMerged({ orders: selectedOrders, storeId });
+  };
+
   const submitRemark = async (order) => {
     const text = (remarkDrafts[order.id] || "").trim();
     if (!text) return;
@@ -684,6 +716,19 @@ export default function BookedOrders({ storeId, ordersStore }) {
     });
   };
 
+  // "Ready for Booking" tab ke liye select-all — same pattern jaisa "To Ship" tab ke liye
+  // upar hai (koi search/filter is tab pe readyOrders par apply nahi hoti, isliye poora
+  // readyOrders hi "currently visible" hai).
+  const allReadySelected = readyOrders.length > 0 && readyOrders.every((o) => selectedIds.has(o.id));
+  const toggleSelectAllReady = () => {
+    setSelectedIds((prev) => {
+      const n = new Set(prev);
+      if (allReadySelected) readyOrders.forEach((o) => n.delete(o.id));
+      else readyOrders.forEach((o) => n.add(o.id));
+      return n;
+    });
+  };
+
   const cardStyle = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "18px 20px", marginBottom: 16 };
 
   if (error) return <div style={{ padding: "2rem", color: "var(--ne-danger)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="error" size={16} /> {error}</div>;
@@ -760,6 +805,12 @@ export default function BookedOrders({ storeId, ordersStore }) {
 
       {activeTab === "Ready for Booking" ? (
         <div>
+          {readyOrders.length > 0 && (
+            <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, fontSize: 11.5, color: "var(--ne-muted)", cursor: "pointer", width: "fit-content" }}>
+              <input type="checkbox" checked={allReadySelected} onChange={toggleSelectAllReady} style={{ cursor: "pointer" }} />
+              {t("booked.selectAll")}
+            </label>
+          )}
           {selectedIds.size > 0 && (
             <div style={{ display: "flex", gap: 8, marginBottom: 12, padding: "10px 14px", background: "var(--ne-accent-soft)", borderRadius: 10, alignItems: "center" }}>
               <span style={{ fontSize: 12, color: "var(--ne-text)", fontWeight: 600 }}>{selectedIds.size} {t("booked.selected")}</span>
@@ -798,15 +849,18 @@ export default function BookedOrders({ storeId, ordersStore }) {
                   </div>
 
                   <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", overflow: "hidden" }}>
-                    <div style={{ width: 130, minWidth: 130 }}>
+                    <div style={{ width: 118, minWidth: 118 }}>
                       <div style={{ fontSize: 12, color: "var(--ne-text)", fontWeight: 600 }}>{customerName}</div>
                       <div style={{ fontSize: 11, color: phone ? "var(--ne-muted)" : "var(--ne-danger)", fontWeight: phone ? 400 : 700, display: "flex", alignItems: "center", gap: 4 }}>
                         {phone || (<><Icon name="warning" size={11} /> {t("booked.phoneMissing")}</>)}
                       </div>
                       {cityLabel && <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)", marginTop: 1 }}>{cityLabel}</div>}
                     </div>
-                    <div style={{ width: 140, minWidth: 140, fontSize: 11.5, color: "var(--ne-muted)" }}>{address}</div>
-                    <div style={{ width: 160, minWidth: 160 }}>
+                    <div style={{ width: 190, minWidth: 190 }}>
+                      <ReadOnlyAddressChips matched={o._matched_address} />
+                      <div style={{ fontSize: 11.5, color: "var(--ne-muted)" }}>{address}</div>
+                    </div>
+                    <div style={{ width: 142, minWidth: 142 }}>
                       <div style={{ fontSize: 11.5, color: "var(--ne-text)" }}>{products}</div>
                       {variantNote && <div style={{ fontSize: 10, color: "var(--ne-muted-2)", marginTop: 1 }}>{variantNote}</div>}
                       <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)", marginTop: 2 }}>SKU: {skus}</div>
@@ -853,6 +907,9 @@ export default function BookedOrders({ storeId, ordersStore }) {
               <span style={{ fontSize: 12, color: "var(--ne-text)", fontWeight: 600 }}>{selectedIds.size} {t("booked.selected")}</span>
               <button onClick={handleBulkPrintAwb} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                 <Icon name="printer" size={13} /> {t("booked.printAwb")}
+              </button>
+              <button onClick={handleBulkPrintEneezamLabel} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                🏷 {t("booked.printEneezamLabel")}
               </button>
               {activeTab === "To Ship" && (
                 <button onClick={handleBulkCancelBooking} disabled={bulkCancelling}
