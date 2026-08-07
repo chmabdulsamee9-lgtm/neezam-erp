@@ -7,7 +7,10 @@
 // into this app, and pulling barcode/QR rendering into the main bundle for a print-only
 // feature isn't worth it.
 import { supabase } from "../supabase";
-import dexLogo from "../assets/couriers/dex.png";
+// ?inline forces Vite to emit this as a base64 data: URI instead of a build-hashed file
+// path — the label document is opened via a Blob URL (its own base URI, unrelated to the
+// app's real origin), so a root-relative "/assets/..." path would 404/break there.
+import dexLogo from "../assets/couriers/dex.png?inline";
 
 const escapeHtml = (s) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
