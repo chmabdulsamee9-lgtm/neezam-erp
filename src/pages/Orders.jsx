@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import Papa from "papaparse";
 import { supabase } from "../supabase";
 import dexLogo from "../assets/couriers/dex.png";
+import { bucketFinalStatus } from "../bookedOrdersData";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
 
@@ -437,6 +438,21 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const t = useTranslation(lang);
   const orders = ordersData;
   const setOrders = setOrdersData;
+  // Duplicate/Repeat-customer badges (Task 3b/3c) — ek dafa poore `orders` (is store ke
+  // saare loaded orders, sirf current page/tab nahi) se normalized-phone -> orders[]
+  // index banate hain, taake har row apna khud ka query na chalaye — dexServiceableCitySet
+  // jaisa hi caching pattern, bas useMemo se (yeh already-loaded data se derive hota hai,
+  // koi alag fetch nahi lagti). Early return (`if (error) return ...`) se PEHLE hona
+  // zaroori hai — Hooks kabhi conditionally call nahi ho sakte.
+  const phoneOrderIndex = useMemo(() => {
+    const map = {};
+    orders.forEach((o) => {
+      const p = normalizePhone(o.agent_data?.phone || o.customer?.phone || o.shipping_address?.phone || o.billing_address?.phone || "");
+      if (!p) return;
+      (map[p] ||= []).push(o);
+    });
+    return map;
+  }, [orders]);
   const [loading, setLoading] = useState(!ordersLoaded);
   const [store, setStore] = useState(ordersStore);
   const [error, setError] = useState("");
@@ -484,24 +500,58 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   // handler read that clamp as "user scrolled up" and un-hid the header, which grew
   // scrollHeight back and could trigger another clamp, etc. — a self-triggered loop
   // with no further user input needed. Fixed by suppressing scroll-driven decisions for
-  // a short window right after WE flip the state (covers the collapse/expand transition
-  // + the clamp it can cause), so only genuine user scrolling changes the state.
-  const [listHeaderHidden, setListHeaderHidden] = useState(false);
+  // a short window right after WE cross a collapse/expand EXTREME (0% or 100% — the
+  // points where rendered height actually stops changing, same trigger-point the old
+  // boolean-flip fix used), so only genuine user scrolling changes the state.
+  //
+  // headerRevealPercent (0-100) replaces the old boolean — scroll distance maps
+  // proportionally to reveal%, RAF-throttled so rapid scroll events don't spam
+  // setState. headerForcedHidden is the manual toggle: forces 0% and ignores scroll
+  // input entirely until toggled back.
+  const HEADER_COLLAPSE_DISTANCE = 80; // px of scroll to go from 100% shown to 0% hidden
+  const [headerRevealPercent, setHeaderRevealPercent] = useState(100);
+  const [headerForcedHidden, setHeaderForcedHidden] = useState(false);
   const lastScrollTopRef = useRef(0);
   const suppressUntilRef = useRef(0);
-  const handleListScroll = (e) => {
-    const top = e.currentTarget.scrollTop;
+  const scrollRafRef = useRef(null);
+  const pendingScrollTopRef = useRef(0);
+  const effectiveHeaderReveal = headerForcedHidden ? 0 : headerRevealPercent;
+
+  const applyListScroll = (top) => {
     if (Date.now() < suppressUntilRef.current) {
       lastScrollTopRef.current = top;
       return;
     }
     const last = lastScrollTopRef.current;
-    if (Math.abs(top - last) > 8) {
-      const shouldHide = top > last && top > 40;
-      if (shouldHide !== listHeaderHidden) suppressUntilRef.current = Date.now() + 400;
-      setListHeaderHidden(shouldHide);
-      lastScrollTopRef.current = top;
-    }
+    const delta = top - last;
+    lastScrollTopRef.current = top;
+    if (delta === 0) return;
+    setHeaderRevealPercent((prev) => {
+      const raw = top <= 40 ? 100 : prev - (delta / HEADER_COLLAPSE_DISTANCE) * 100;
+      const next = Math.max(0, Math.min(100, raw));
+      const wasExtreme = prev === 0 || prev === 100;
+      const isExtreme = next === 0 || next === 100;
+      if (isExtreme && !wasExtreme) suppressUntilRef.current = Date.now() + 400;
+      return next;
+    });
+  };
+
+  const handleListScroll = (e) => {
+    if (headerForcedHidden) return; // manual override active — scroll-logic disabled entirely
+    pendingScrollTopRef.current = e.currentTarget.scrollTop;
+    if (scrollRafRef.current) return; // ek frame mein sirf ek hi update schedule
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      applyListScroll(pendingScrollTopRef.current);
+    });
+  };
+
+  const toggleHeaderForced = () => {
+    setHeaderForcedHidden((prev) => {
+      const next = !prev;
+      if (!next) setHeaderRevealPercent(100); // "Show Header" — turant fully visible, phir scroll default resume
+      return next;
+    });
   };
 
   // --- Sync / Undo / History state ---
@@ -715,12 +765,23 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     setLoading(false);
   };
 
+  // referring_site akela unreliable hai — TikTok/Instagram ke in-app browsers
+  // referrer header strip kar dete hain (order.referring_site null aa jata hai),
+  // isi liye landing_site (utm_source/ttclid/fbclid params) aur source_name ko bhi
+  // signal ke taur pe check karte hain, referring_site ko primary rakhte hue.
+  // Confirmed live (order #KW1070/#KW1053): TikTok order ka referring_site null tha
+  // lekin landing_site mein "utm_source=tiktok" tha; Instagram order ka referring_site
+  // "https://instagram.com/" tha lekin purana check "instagram" keyword hi nahi
+  // dekhta tha — dono false "Direct" ban rahe the.
   const getSource = (order) => {
-    const ref = order.referring_site || "";
-    if (ref.includes("facebook") || ref.includes("meta") || ref.includes("fb")) return "Meta";
-    if (ref.includes("tiktok")) return "TikTok";
-    if (ref.includes("snapchat")) return "Snapchat";
-    if (ref.includes("google")) return "Google";
+    const ref = (order.referring_site || "").toLowerCase();
+    const landing = (order.landing_site || "").toLowerCase();
+    const sourceName = (order.source_name || "").toLowerCase();
+    const combined = `${ref} ${landing} ${sourceName}`;
+    if (combined.includes("tiktok")) return "TikTok";
+    if (combined.includes("facebook") || combined.includes("instagram") || combined.includes("fbclid") || combined.includes("meta") || combined.includes("fb")) return "Meta";
+    if (combined.includes("snapchat")) return "Snapchat";
+    if (combined.includes("google")) return "Google";
     return "Direct";
   };
 
@@ -1627,6 +1688,17 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     const source = getSource(order);
     const status = STATUSES.find(s => s.label === order.agent_status);
     const phone = normalizePhone(order.agent_data?.phone || order.customer?.phone || order.shipping_address?.phone || order.billing_address?.phone || "");
+    // Duplicate: isi phone ke 2+ orders abhi tak un-booked hain (koi dex_tracking_number
+    // nahi) — is order sameet. Repeat customer: isi phone ka koi AUR (is order ke alawa)
+    // order kabhi Delivered final-state tak pahuncha hai.
+    const samePhoneOrders = phone ? (phoneOrderIndex[phone] || []) : [];
+    const otherSamePhoneOrders = samePhoneOrders.filter((o2) => o2.id !== order.id);
+    const unbookedSamePhoneOrders = samePhoneOrders.filter((o2) => !o2.agent_data?.dex_tracking_number);
+    const isDuplicateOrder = !order.agent_data?.dex_tracking_number && unbookedSamePhoneOrders.length >= 2;
+    const duplicateOtherNames = unbookedSamePhoneOrders.filter((o2) => o2.id !== order.id).map((o2) => o2.name).join(", ");
+    const deliveredOtherOrders = otherSamePhoneOrders.filter((o2) => bucketFinalStatus(o2.agent_data?.courier_order_status) === "Delivered");
+    const isRepeatCustomer = deliveredOtherOrders.length > 0;
+    const repeatCustomerOrderName = deliveredOtherOrders[0]?.name || "";
     const fullName = order.agent_data?.customer_name || `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim();
     const city = order.agent_data?.city || order.shipping_address?.city || order.billing_address?.city || "";
     // DEX-recommend badge — address-matching se resolve hui city ko priority (zyada
@@ -1690,7 +1762,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       </div>
     );
 
-    return { order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride: !!order.agent_data?.product, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, hasValidHistory, isUndoing, isExpanded, statusBtn, syncRow, isDexServiceable };
+    return { order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride: !!order.agent_data?.product, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, hasValidHistory, isUndoing, isExpanded, statusBtn, syncRow, isDexServiceable, isDuplicateOrder, duplicateOtherNames, isRepeatCustomer, repeatCustomerOrderName };
   });
 
   return (
@@ -1704,6 +1776,10 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{currentStore?.store_name} — {tabFilteredOrders.length} {t("orders.ordersSuffix")}</p>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <button onClick={toggleHeaderForced} title={headerForcedHidden ? t("orders.showHeader") : t("orders.hideHeader")}
+            style={{ padding: "6px 9px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center" }}>
+            <Icon name={headerForcedHidden ? "chevronDown" : "chevronDown"} size={11} style={{ transform: headerForcedHidden ? "rotate(0deg)" : "rotate(180deg)", transition: "transform .15s" }} />
+          </button>
           <button onClick={() => { resetNewOrderForm(); setShowNewOrderModal(true); }}
             style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
             {t("orders.newOrder")}
@@ -1719,11 +1795,12 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         </div>
       </div>
 
-      {/* Quick filters + search + tab nav — collapses together as one unit on scroll-down,
-          reappears on scroll-up. CSS-grid 1fr/0fr trick (not a fixed maxHeight) so it
-          animates to the exact content height regardless of how many rows this wraps
-          into on narrow viewports or whether the bulk-actions bar is showing. */}
-      <div style={{ display: "grid", gridTemplateRows: listHeaderHidden ? "0fr" : "1fr", transition: "grid-template-rows .25s ease", overflow: "hidden" }}>
+      {/* Quick filters + search + tab nav — collapses together as one unit, smoothly
+          proportional to scroll distance (not a snap). CSS-grid Nfr/0fr trick (not a
+          fixed maxHeight) so it animates to the exact content height regardless of how
+          many rows this wraps into on narrow viewports or whether the bulk-actions bar
+          is showing. */}
+      <div style={{ display: "grid", gridTemplateRows: `${effectiveHeaderReveal / 100}fr`, transition: "grid-template-rows .1s linear", overflow: "hidden" }}>
       <div style={{ minHeight: 0 }}>
       {/* Date Quick Buttons */}
       <div style={{ display: "flex", gap: 6, marginBottom: "8px", alignItems: "center", flexWrap: "wrap" }}>
@@ -1854,7 +1931,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>{t("orders.loadingOrders")}</div>
       ) : isMobile ? (
         <div ref={tableRef} onScroll={handleListScroll} style={{ flex: 1, overflowY: "auto" }}>
-          {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, isExpanded, statusBtn, syncRow }) => (
+          {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, isExpanded, statusBtn, syncRow, isDuplicateOrder, duplicateOtherNames, isRepeatCustomer, repeatCustomerOrderName }) => (
             <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "8px 12px", marginBottom: 6 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(order.id)} style={{ cursor: "pointer", flexShrink: 0 }} />
@@ -1874,6 +1951,22 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                     displayStyle={{ fontSize: 12.5, fontWeight: 600, color: "var(--ne-text)" }} />
                   <EditableCell orderId={order.id} field="city" value={city} width={160} clampLines={1}
                     displayStyle={{ fontSize: 11, color: "var(--ne-muted)" }} />
+                  {(isDuplicateOrder || isRepeatCustomer) && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 3 }}>
+                      {isDuplicateOrder && (
+                        <span title={`${t("orders.duplicateOrderTooltip")}: ${duplicateOtherNames}`}
+                          style={{ padding: "1px 6px", borderRadius: 6, fontSize: 8.5, fontWeight: 700, background: "var(--ne-danger-soft)", color: "var(--ne-danger)" }}>
+                          ⧉ {t("orders.duplicateOrder")}
+                        </span>
+                      )}
+                      {isRepeatCustomer && (
+                        <span title={`${t("orders.repeatCustomerTooltip")}: ${repeatCustomerOrderName}`}
+                          style={{ padding: "1px 6px", borderRadius: 6, fontSize: 8.5, fontWeight: 700, background: "var(--ne-success-soft)", color: "var(--ne-success)" }}>
+                          🔁 {t("orders.repeatCustomer")}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ne-success)" }}>Rs. {displayTotal.toLocaleString()}</div>
               </div>
@@ -1935,10 +2028,10 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
 
           <div ref={tableRef} onScroll={handleListScroll} style={{ flex: 1, overflowY: "auto" }}>
 
-            {/* Header row — scroll-down collapses it (maxHeight/opacity/padding to 0), scroll-up restores it */}
+            {/* Header row — reveal% se smoothly proportional collapse (scroll distance ke sath), snap nahi */}
             <div style={{ display: "flex", alignItems: "center", gap: 0, position: "sticky", top: 0, zIndex: 5, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "hidden",
-              maxHeight: listHeaderHidden ? 0 : 44, opacity: listHeaderHidden ? 0 : 1, marginBottom: listHeaderHidden ? 0 : 8, padding: listHeaderHidden ? "0 0" : "10px 0", borderWidth: listHeaderHidden ? 0 : 1,
-              transition: "max-height .25s ease, opacity .2s ease, margin-bottom .25s ease, padding .25s ease" }}>
+              maxHeight: (effectiveHeaderReveal / 100) * 44, opacity: effectiveHeaderReveal / 100, marginBottom: (effectiveHeaderReveal / 100) * 8, padding: `${(effectiveHeaderReveal / 100) * 10}px 0`, borderWidth: effectiveHeaderReveal / 100,
+              transition: "max-height .1s linear, opacity .1s linear, margin-bottom .1s linear, padding .1s linear" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, width: 136, padding: "0 8px 0 12px", boxSizing: "border-box" }}>
                 <input type="checkbox" checked={selectedIds.size === pagedOrders.length && pagedOrders.length > 0}
                   onChange={toggleSelectAll} style={{ cursor: "pointer" }} />
@@ -1961,7 +2054,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
               </div>
             </div>
 
-            {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, statusBtn, syncRow, isDexServiceable }) => (
+            {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, statusBtn, syncRow, isDexServiceable, isDuplicateOrder, duplicateOtherNames, isRepeatCustomer, repeatCustomerOrderName }) => (
               <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, marginBottom: 6, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "hidden" }}>
               <div style={{ display: "flex", alignItems: "stretch", gap: 0 }}>
 
@@ -1995,6 +2088,22 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
                         )}
                       </div>
                       <EditableCell orderId={order.id} field="city" value={city} width={130} clampLines={1} />
+                      {(isDuplicateOrder || isRepeatCustomer) && (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                          {isDuplicateOrder && (
+                            <span title={`${t("orders.duplicateOrderTooltip")}: ${duplicateOtherNames}`}
+                              style={{ padding: "1px 6px", borderRadius: 6, fontSize: 8.5, fontWeight: 700, background: "var(--ne-danger-soft)", color: "var(--ne-danger)" }}>
+                              ⧉ {t("orders.duplicateOrder")}
+                            </span>
+                          )}
+                          {isRepeatCustomer && (
+                            <span title={`${t("orders.repeatCustomerTooltip")}: ${repeatCustomerOrderName}`}
+                              style={{ padding: "1px 6px", borderRadius: 6, fontSize: 8.5, fontWeight: 700, background: "var(--ne-success-soft)", color: "var(--ne-success)" }}>
+                              🔁 {t("orders.repeatCustomer")}
+                            </span>
+                          )}
+                        </div>
+                      )}
                       {isCancelled && cancellationReason && (
                         <span style={{ padding: "1px 6px", borderRadius: 6, fontSize: 9, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, width: "fit-content" }}>{cancellationReason}</span>
                       )}

@@ -21,12 +21,17 @@ const OBJECTIVES = [
 
 const rupees = (n) => (n === null || n === undefined ? "—" : `Rs. ${Math.round(Number(n)).toLocaleString()}`);
 
+// Orders.jsx ke getSource() jaisa hi (TikTok/Instagram in-app browsers referrer strip
+// kar dete hain — landing_site/source_name ko bhi signal ke taur pe check karte hain).
 const getSource = (order) => {
-  const ref = order.referring_site || "";
-  if (ref.includes("facebook") || ref.includes("meta") || ref.includes("fb")) return "Meta";
-  if (ref.includes("tiktok")) return "TikTok";
-  if (ref.includes("snapchat")) return "Snapchat";
-  if (ref.includes("google")) return "Google";
+  const ref = (order.referring_site || "").toLowerCase();
+  const landing = (order.landing_site || "").toLowerCase();
+  const sourceName = (order.source_name || "").toLowerCase();
+  const combined = `${ref} ${landing} ${sourceName}`;
+  if (combined.includes("tiktok")) return "TikTok";
+  if (combined.includes("facebook") || combined.includes("instagram") || combined.includes("fbclid") || combined.includes("meta") || combined.includes("fb")) return "Meta";
+  if (combined.includes("snapchat")) return "Snapchat";
+  if (combined.includes("google")) return "Google";
   return "Direct";
 };
 

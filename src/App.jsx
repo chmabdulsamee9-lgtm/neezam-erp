@@ -916,6 +916,11 @@ function App() {
 
   const statusMapRef = useRef({})
   const realtimeChannelRef = useRef(null)
+  // order_statuses listener apne alag channel mein hai (setupRealtime mein) — jaan-boojh
+  // kar shopify_orders_cache wale channel se decoupled, taake agar is table ki realtime
+  // subscription kisi wajah se reject ho (jaise Supabase publication mein add na ho), to
+  // sirf yeh channel affect ho, naye-order-live-dikhna wala channel bilkul nahi.
+  const realtimeStatusChannelRef = useRef(null)
   const rawOrdersRef = useRef([])
   const hasStartedLoadRef = useRef(false)
   const hasStartedBookedLoadRef = useRef(false)
@@ -948,6 +953,10 @@ function App() {
     if (realtimeChannelRef.current) {
       supabase.removeChannel(realtimeChannelRef.current)
       realtimeChannelRef.current = null
+    }
+    if (realtimeStatusChannelRef.current) {
+      supabase.removeChannel(realtimeStatusChannelRef.current)
+      realtimeStatusChannelRef.current = null
     }
     setProfile(null)
     setProfileLoaded(false)
@@ -1029,6 +1038,10 @@ function App() {
       if (realtimeChannelRef.current) {
         supabase.removeChannel(realtimeChannelRef.current)
         realtimeChannelRef.current = null
+      }
+      if (realtimeStatusChannelRef.current) {
+        supabase.removeChannel(realtimeStatusChannelRef.current)
+        realtimeStatusChannelRef.current = null
       }
     }
   }, [])
@@ -1260,11 +1273,24 @@ function App() {
     return sorted.map(o => mergeOrder(o, statusMap))
   }
 
+  // TASK 4 fix (regression diagnosis): pehle shopify_orders_cache aur order_statuses
+  // dono listeners EK HI channel/subscribe() call mein combined the. Supabase Realtime
+  // ek channel ke saare .on(postgres_changes) registrations ko EK combined subscription
+  // request ke taur pe negotiate karta hai — agar server in mein se KISI EK table
+  // (jaise order_statuses, agar woh supabase_realtime publication mein add na ho) ko
+  // reject kare, to POORA channel fail ho sakta hai, sirf woh ek listener nahi — is se
+  // naye orders bhi live dikhna band ho gaye the, sirf address-match-status update nahi.
+  // Ab dono alag channels hain — ek ke fail hone se doosra bilkul unaffected rehta hai.
   const setupRealtime = (storeId, cacheId) => {
     if (realtimeChannelRef.current) {
       supabase.removeChannel(realtimeChannelRef.current)
       realtimeChannelRef.current = null
     }
+    if (realtimeStatusChannelRef.current) {
+      supabase.removeChannel(realtimeStatusChannelRef.current)
+      realtimeStatusChannelRef.current = null
+    }
+
     const channel = supabase
       .channel(`orders-changes-${storeId}`)
       .on(
@@ -1309,14 +1335,25 @@ function App() {
           })
         }
       )
+      .subscribe((status) => {
+        if (status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          setTimeout(() => {
+            setupRealtime(storeId, cacheId)
+          }, 3000)
+        }
+      })
+    realtimeChannelRef.current = channel
+
+    // Address-match results (matched_province, address_match_source, waghera) order_statuses
+    // mein likhe jaate hain, shopify_orders_cache mein nahi — is liye upar wala listener yeh
+    // pick nahi karta. Webhook order create hone ke ~1 min baad tak background mein
+    // matchOrderAddress() chalata hai; bina is listener ke woh result sirf manual reload par
+    // dikhta tha. order_statuses mein store_id column nahi hai, is liye server-side filter
+    // nahi laga sakte — client-side check karte hain ke yeh order_id currently-loaded orders
+    // mein hai ya nahi (doosre store ka event ho to ignore).
+    const statusChannel = supabase
+      .channel(`order-statuses-changes-${storeId}`)
       .on(
-        // Address-match results (matched_province, address_match_source, waghera) order_statuses
-        // mein likhe jaate hain, shopify_orders_cache mein nahi — is liye upar wala listener yeh
-        // pick nahi karta. Webhook order create hone ke ~1 min baad tak background mein
-        // matchOrderAddress() chalata hai; bina is listener ke woh result sirf manual reload par
-        // dikhta tha. order_statuses mein store_id column nahi hai, is liye server-side filter
-        // nahi laga sakte — client-side check karte hain ke yeh order_id currently-loaded orders
-        // mein hai ya nahi (doosre store ka event ho to ignore).
         "postgres_changes",
         { event: "*", schema: "public", table: "order_statuses" },
         (payload) => {
@@ -1345,7 +1382,7 @@ function App() {
           }, 3000)
         }
       })
-    realtimeChannelRef.current = channel
+    realtimeStatusChannelRef.current = statusChannel
   }
 
   const autoLoadOrders = async (storeId) => {
