@@ -221,6 +221,7 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
         address_match_source: data.source,
         address_match_confidence: data.confidence,
         address_match_preview: data.formatted_address,
+        address_match_reason: data.reason ?? null,
       });
       setSelProvince(data.province || "");
       setSelCity(data.city || "");
