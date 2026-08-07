@@ -266,6 +266,13 @@ function extractOrderNum(o) {
   return digits ? parseInt(digits, 10) : -1;
 }
 
+// Orders.jsx ke computeOverrideTotal jaisa hi — line_items_override edit hone par
+// BookedOrders "Ready for Booking" card ka total bhi updated price reflect kare,
+// raw Shopify total_price pe stuck na rahe.
+function computeOverrideTotal(items) {
+  return (items || []).reduce((sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 0) - (Number(it.discount) || 0), 0);
+}
+
 export default function BookedOrders({ storeId, ordersStore }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
@@ -336,16 +343,18 @@ export default function BookedOrders({ storeId, ordersStore }) {
     (async () => {
       const { data: statusRows } = await supabase
         .from("order_statuses")
-        .select("order_id, line_items_override, sku, matched_province, matched_city, matched_area, matched_subarea")
+        .select("order_id, line_items_override, sku, matched_province, matched_city, matched_area, matched_subarea, customer_name")
         .eq("store_id", storeId)
         .eq("status", "Approved")
         .is("dex_tracking_number", null);
       const overrideMap = {};
       const skuOverrideMap = {};
       const matchedAddressMap = {};
+      const nameOverrideMap = {};
       (statusRows || []).forEach((s) => {
         if (s.line_items_override) overrideMap[s.order_id] = s.line_items_override;
         if (s.sku) skuOverrideMap[s.order_id] = s.sku;
+        if (s.customer_name) nameOverrideMap[s.order_id] = s.customer_name;
         matchedAddressMap[s.order_id] = {
           province: s.matched_province || null,
           city: s.matched_city || null,
@@ -367,6 +376,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
           _sku_override: skuOverrideMap[r.id] || null,
           _matched_city: matchedAddressMap[r.id]?.city || null,
           _matched_address: matchedAddressMap[r.id] || null,
+          _customer_name_override: nameOverrideMap[r.id] || null,
         }));
         mapped.sort((a, b) => {
           const numA = parseInt((a.name || "").replace(/\D/g, ""), 10) || 0;
@@ -823,7 +833,8 @@ export default function BookedOrders({ storeId, ordersStore }) {
             <div style={{ ...cardStyle, textAlign: "center", color: "var(--ne-muted-2)", fontSize: 12 }}>{t("booked.noReadyOrders")}</div>
           ) : (
             readyOrders.map((o) => {
-              const customerName = `${o.customer?.first_name || ""} ${o.customer?.last_name || ""}`.trim() || "—";
+              const customerName = o._customer_name_override || `${o.customer?.first_name || ""} ${o.customer?.last_name || ""}`.trim() || "—";
+              const displayTotal = (o._line_items_override && o._line_items_override.length > 0) ? computeOverrideTotal(o._line_items_override) : (Number(o.total_price) || 0);
               const phone = o.customer?.phone || o.shipping_address?.phone || "";
               const address = o.shipping_address ? `${o.shipping_address.address1 || ""}, ${o.shipping_address.city || ""}` : "—";
               const products = (o._line_items_override || o.line_items || []).map((li) => `${li.quantity > 1 ? li.quantity + "x " : ""}${li.title}`).join(" + ") || "—";
@@ -866,7 +877,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
                       <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)", marginTop: 2 }}>SKU: {skus}</div>
                     </div>
                     <div style={{ flex: 1, textAlign: "right", fontSize: 13, fontWeight: 700, color: "var(--ne-text)" }}>
-                      Rs. {Number(o.total_price).toLocaleString()}
+                      Rs. {displayTotal.toLocaleString()}
                     </div>
                   </div>
 
