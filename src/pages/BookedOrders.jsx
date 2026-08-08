@@ -311,6 +311,8 @@ export default function BookedOrders({ storeId, ordersStore }) {
   const [bulkCancelling, setBulkCancelling] = useState(false);
   const [bulkCancelResults, setBulkCancelResults] = useState([]);
   const [showBulkCancelResultModal, setShowBulkCancelResultModal] = useState(false);
+  const [printingAwb, setPrintingAwb] = useState(false);
+  const [printingLabel, setPrintingLabel] = useState(false);
 
   // DEX-serviceable cities — 152 rows, fetch once (not per-row) aur ek lowercased
   // Set mein cache karo, taake har order ke liye sirf ek O(1) lookup lage.
@@ -541,61 +543,68 @@ export default function BookedOrders({ storeId, ordersStore }) {
   };
 
   const handleBulkPrintAwb = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    const results = [];
-    for (const orderId of selectedIds) {
-      const order = orders.find((o) => o.id === orderId);
-      const packageCode = order?.agent_data?.dex_package_code;
-      const orderName = order?.name || orderId;
-      if (!packageCode) {
-        results.push({ orderId, orderName, error: t("booked.packageCodeMissing") });
-        logActivity("awb_print_failed", orderId, { orderName, error: t("booked.packageCodeMissing") });
-        continue;
-      }
-      try {
-        const res = await fetch(`${CF_URL}/dex-print-awb?store_id=${storeId}&package_code=${packageCode}`, {
-          headers: { Authorization: `Bearer ${session?.access_token}` },
-        });
-        const data = await res.json();
-        const pdfUrl = data.data?.url || data.url;
-        if (pdfUrl) {
-          results.push({ orderId, orderName, pdfUrl });
-          logActivity("awb_print_success", orderId, { orderName });
-        } else {
-          const errMsg = data.error || t("booked.awbUrlMissing");
-          results.push({ orderId, orderName, error: errMsg });
-          logActivity("awb_print_failed", orderId, { orderName, error: errMsg });
+    setPrintingAwb(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const results = [];
+      for (const orderId of selectedIds) {
+        const order = orders.find((o) => o.id === orderId);
+        const packageCode = order?.agent_data?.dex_package_code;
+        const orderName = order?.name || orderId;
+        if (!packageCode) {
+          results.push({ orderId, orderName, error: t("booked.packageCodeMissing") });
+          logActivity("awb_print_failed", orderId, { orderName, error: t("booked.packageCodeMissing") });
+          continue;
         }
-      } catch (err) {
-        results.push({ orderId, orderName, error: err.message });
-        logActivity("awb_print_failed", orderId, { orderName, error: err.message });
+        try {
+          const res = await fetch(`${CF_URL}/dex-print-awb?store_id=${storeId}&package_code=${packageCode}`, {
+            headers: { Authorization: `Bearer ${session?.access_token}` },
+          });
+          const data = await res.json();
+          const pdfUrl = data.data?.url || data.url;
+          if (pdfUrl) {
+            results.push({ orderId, orderName, pdfUrl });
+            logActivity("awb_print_success", orderId, { orderName });
+          } else {
+            const errMsg = data.error || t("booked.awbUrlMissing");
+            results.push({ orderId, orderName, error: errMsg });
+            logActivity("awb_print_failed", orderId, { orderName, error: errMsg });
+          }
+        } catch (err) {
+          results.push({ orderId, orderName, error: err.message });
+          logActivity("awb_print_failed", orderId, { orderName, error: err.message });
+        }
       }
-    }
-    setAwbResults(results);
-    setShowAwbResultModal(true);
+      setAwbResults(results);
+      setShowAwbResultModal(true);
 
-    // Dex ke paas batch-print endpoint nahi hai (per-order pdfUrl milta hai) — isliye
-    // client-side pdf-lib se sab successful AWBs ko ek hi PDF mein merge karte hain.
-    setMergedPdfUrl(null);
-    const successUrls = results.filter((r) => r.pdfUrl).map((r) => r.pdfUrl);
-    if (successUrls.length > 0) {
-      setMergingPdf(true);
-      try {
-        const merged = await PDFDocument.create();
-        for (const url of successUrls) {
-          const bytes = await fetch(url).then((r) => r.arrayBuffer());
-          const src = await PDFDocument.load(bytes);
-          const pages = await merged.copyPages(src, src.getPageIndices());
-          pages.forEach((p) => merged.addPage(p));
+      // Dex ke paas batch-print endpoint nahi hai (per-order pdfUrl milta hai) — isliye
+      // client-side pdf-lib se sab successful AWBs ko ek hi PDF mein merge karte hain.
+      setMergedPdfUrl(null);
+      const successUrls = results.filter((r) => r.pdfUrl).map((r) => r.pdfUrl);
+      if (successUrls.length > 0) {
+        setMergingPdf(true);
+        try {
+          const merged = await PDFDocument.create();
+          for (const url of successUrls) {
+            const bytes = await fetch(`${CF_URL}/proxy-pdf?url=${encodeURIComponent(url)}`, {
+              headers: { Authorization: `Bearer ${session?.access_token}` },
+            }).then((r) => r.arrayBuffer());
+            const src = await PDFDocument.load(bytes);
+            const pages = await merged.copyPages(src, src.getPageIndices());
+            pages.forEach((p) => merged.addPage(p));
+          }
+          const mergedBytes = await merged.save();
+          const blob = new Blob([mergedBytes], { type: "application/pdf" });
+          setMergedPdfUrl(URL.createObjectURL(blob));
+        } catch (err) {
+          console.log("PDF merge error:", err.message);
+          setMergedPdfUrl(null);
         }
-        const mergedBytes = await merged.save();
-        const blob = new Blob([mergedBytes], { type: "application/pdf" });
-        setMergedPdfUrl(URL.createObjectURL(blob));
-      } catch (err) {
-        console.log("PDF merge error:", err.message);
-        setMergedPdfUrl(null);
+        setMergingPdf(false);
       }
-      setMergingPdf(false);
+    } finally {
+      setPrintingAwb(false);
     }
   };
 
@@ -633,8 +642,13 @@ export default function BookedOrders({ storeId, ordersStore }) {
   };
 
   const handleBulkPrintEneezamLabel = async () => {
-    const selectedOrders = orders.filter((o) => selectedIds.has(o.id));
-    await printEneezamLabelsMerged({ orders: selectedOrders, storeId });
+    setPrintingLabel(true);
+    try {
+      const selectedOrders = orders.filter((o) => selectedIds.has(o.id));
+      await printEneezamLabelsMerged({ orders: selectedOrders, storeId });
+    } finally {
+      setPrintingLabel(false);
+    }
   };
 
   const submitRemark = async (order) => {
@@ -916,11 +930,13 @@ export default function BookedOrders({ storeId, ordersStore }) {
           {selectedIds.size > 0 && (
             <div style={{ display: "flex", gap: 8, marginBottom: 12, padding: "10px 14px", background: "var(--ne-accent-soft)", borderRadius: 10, alignItems: "center", flexWrap: "wrap" }}>
               <span style={{ fontSize: 12, color: "var(--ne-text)", fontWeight: 600 }}>{selectedIds.size} {t("booked.selected")}</span>
-              <button onClick={handleBulkPrintAwb} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-                <Icon name="printer" size={13} /> {t("booked.printAwb")}
+              <button onClick={handleBulkPrintAwb} disabled={printingAwb}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: printingAwb ? "default" : "pointer", opacity: printingAwb ? 0.7 : 1 }}>
+                <Icon name="printer" size={13} /> {printingAwb ? t("booked.printing") : t("booked.printAwb")}
               </button>
-              <button onClick={handleBulkPrintEneezamLabel} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-                🏷 {t("booked.printEneezamLabel")}
+              <button onClick={handleBulkPrintEneezamLabel} disabled={printingLabel}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 12, fontWeight: 700, cursor: printingLabel ? "default" : "pointer", opacity: printingLabel ? 0.7 : 1 }}>
+                <Icon name="printer" size={13} /> {printingLabel ? t("booked.printing") : t("booked.printEneezamLabel")}
               </button>
               {activeTab === "To Ship" && (
                 <button onClick={handleBulkCancelBooking} disabled={bulkCancelling}

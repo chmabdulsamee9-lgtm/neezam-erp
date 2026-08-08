@@ -192,6 +192,7 @@ export const translations = {
     'booked.remarkPlaceholder': 'Naya remark likhein...',
     'booked.add': 'Add',
     'booked.cancelling': 'Cancelling...',
+    'booked.printing': 'Printing...',
     'booked.cancelBooking': 'Cancel Booking',
     'booked.showing': 'Showing',
     'booked.of': 'of',
@@ -221,7 +222,7 @@ export const translations = {
     'booked.mergingPdf': 'AWBs ko ek PDF mein merge kiya ja raha hai...',
     'booked.downloadMergedPdf': 'Merged PDF Download Karein',
     'booked.mergeFailedFallback': 'PDFs merge nahi ho sakay — neeche har order ka AWB alag se open karein.',
-    'booked.printEneezamLabel': 'Print (eNeezam Label)',
+    'booked.printEneezamLabel': 'Print AWB (eNeezam)',
 
     'courier.title': 'Courier Connect',
     'courier.subtitle': 'Daraz Express (Dex) Logistics',
@@ -1436,6 +1437,7 @@ export const translations = {
     'booked.remarkPlaceholder': 'Write a new remark...',
     'booked.add': 'Add',
     'booked.cancelling': 'Cancelling...',
+    'booked.printing': 'Printing...',
     'booked.cancelBooking': 'Cancel Booking',
     'booked.showing': 'Showing',
     'booked.of': 'of',
@@ -1465,7 +1467,7 @@ export const translations = {
     'booked.mergingPdf': 'Merging AWBs into one PDF...',
     'booked.downloadMergedPdf': 'Download Merged PDF',
     'booked.mergeFailedFallback': "Couldn't merge PDFs — open each order's AWB individually below.",
-    'booked.printEneezamLabel': 'Print (eNeezam Label)',
+    'booked.printEneezamLabel': 'Print AWB (eNeezam)',
 
     'courier.title': 'Courier Connect',
     'courier.subtitle': 'Daraz Express (Dex) Logistics',
