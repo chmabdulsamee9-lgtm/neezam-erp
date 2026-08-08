@@ -353,12 +353,12 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
   };
   const chipEmptyLabelFor = { province: "—", city: "—", area: t("orders.addressSelectArea"), subarea: t("orders.addressSelectSubarea") };
 
-  const renderChip = (level, value, enabled) => {
+  const renderChip = (level, value, enabled, allowFreeText = false) => {
     if (editingChip === level) {
       return (
         <span data-address-chip-editor style={{ display: "inline-block" }}>
           <SearchableCombo t={t} value={value} options={chipOptionsFor[level]} placeholder={chipPlaceholderFor[level]}
-            loading={chipLoading} onSelect={(v) => selectChipValue(level, v)} />
+            loading={chipLoading} allowFreeText={allowFreeText} onSelect={(v) => selectChipValue(level, v)} />
         </span>
       );
     }
@@ -442,11 +442,16 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
 
       {/* AI Match row — sirf manual_review pe, jab Neezam AI ka koi raw area/subarea
           guess ho. Province/City yahan read-only hain (system ke matchResult se, Gemini
-          in ko guess nahi karta). Area/SubArea allowFreeText SearchableCombo hain,
-          Neezam AI ke raw guess se pre-filled — accept karo ya free-type se correct
-          karo, dono hi shared selArea/selSubarea (selectChipValue ke through) update
-          karte hain, upar wale system row ki tarah — chahe kaunsi row se aakhri baar
-          select hua ho, wahi preview/Confirm mein jata hai. */}
+          in ko guess nahi karta). Area/SubArea system row ka EXACT wahi renderChip
+          click-to-reveal pattern reuse karte hain (koi doosri copy nahi) — sirf do
+          farak: (1) allowFreeText=true, taake Gemini ka guess reference data mein na
+          ho to bhi accept ho sake, (2) pill ka default value Neezam AI ke raw guess se
+          (selArea/selSubarea khaali hone tak) — ek dafa staff kuch bhi select kar le
+          (chahe is row se ya system row se), dono chips hamesha wahi shared value
+          dikhate hain. NOTE: dono rows "area"/"subarea" level hi share karte hain
+          editingChip ke through — agar dono chips ka level same waqt khula ho (rare),
+          dono ek sath edit-mode mein dikh sakte hain, kyunke underlying selArea/
+          selSubarea state genuinely shared hai (yahi is design ka intent bhi hai). */}
       {source === "manual_review" && (ad.address_match_gemini_area_raw || ad.address_match_gemini_subarea_raw) && (
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           <span style={{ fontSize: 10.5, color: "var(--ne-muted-2)", fontWeight: 700 }}>{t("orders.aiMatchLabel")}:</span>
@@ -458,13 +463,9 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
             {ad.matched_city || chipEmptyLabelFor.city}
           </span>
           <span style={{ color: "var(--ne-muted-2)", fontSize: 10 }}>›</span>
-          <SearchableCombo t={t} value={ad.address_match_gemini_area_raw || ""} options={chipOptionsFor.area}
-            placeholder={chipPlaceholderFor.area} loading={chipLoading} allowFreeText
-            onSelect={(v) => selectChipValue("area", v)} />
+          {renderChip("area", selArea || ad.address_match_gemini_area_raw || "", true, true)}
           <span style={{ color: "var(--ne-muted-2)", fontSize: 10 }}>›</span>
-          <SearchableCombo t={t} value={ad.address_match_gemini_subarea_raw || ""} options={chipOptionsFor.subarea}
-            placeholder={chipPlaceholderFor.subarea} loading={chipLoading} allowFreeText
-            onSelect={(v) => selectChipValue("subarea", v)} />
+          {renderChip("subarea", selSubarea || ad.address_match_gemini_subarea_raw || "", true, true)}
         </div>
       )}
 
