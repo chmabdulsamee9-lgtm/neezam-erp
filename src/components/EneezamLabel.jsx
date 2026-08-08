@@ -148,8 +148,8 @@ function buildDocumentHtml(title, bodyHtml) {
   .addr-hero .line { font-size: 13px; line-height: 1.45; }
   .addr-hero .city { font-size: 15px; font-weight: bold; margin-top: 4px; }
   .addr-hero .phone { font-size: 13px; margin-top: 3px; font-weight: bold; }
-  .bc-full { padding: 10px 18px; text-align: center; border-bottom: 2px solid #000; }
-  .bc-full svg { width: 100%; height: 46px; }
+  .bc-full { padding: 13px 18px; text-align: center; border-bottom: 2px solid #000; }
+  .bc-full svg { width: 100%; height: 60px; }
   .bc-full .tn { font-size: 13px; font-weight: bold; margin-top: 4px; }
   .sender-hero { padding: 10px 18px; border-bottom: 2px solid #000; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
   .sender-hero .info { flex: 1; }
@@ -181,7 +181,15 @@ function buildDocumentHtml(title, bodyHtml) {
 <script>
   function renderCodes() {
     document.querySelectorAll(".bc").forEach(function (el) {
-      JsBarcode(el, el.dataset.value, { format: "CODE128", displayValue: false, height: 40, margin: 0 });
+      JsBarcode(el, el.dataset.value, { format: "CODE128", displayValue: false, height: 52, margin: 0 });
+      // JsBarcode sets its own natural width/height on the svg — CSS width:100%
+      // alone lets the browser letterbox (preserve aspect ratio, blank space on
+      // sides) instead of actually filling the block. Setting viewBox to the
+      // barcode's real rendered size + preserveAspectRatio="none" makes the CSS
+      // width:100% genuinely stretch the barcode to fill the block's full width.
+      var bbox = el.getBBox();
+      el.setAttribute("viewBox", "0 0 " + bbox.width + " " + bbox.height);
+      el.setAttribute("preserveAspectRatio", "none");
     });
     document.querySelectorAll(".qr").forEach(function (el) {
       el.innerHTML = "";
