@@ -130,14 +130,14 @@ async function fetchDistinctAddressValues(column, filters) {
 // Plain <select> Area/SubArea ke 11,000+ possible values ke sath unusable hai — yeh
 // lightweight text-filter combobox koi naya npm dependency add kiye bina wahi kaam
 // deta hai: type karo, list filter hoti hai, click se select ho jata hai.
-function SearchableCombo({ value, options, placeholder, onSelect, loading, t }) {
+function SearchableCombo({ value, options, placeholder, onSelect, loading, t, allowFreeText = false }) {
   const [query, setQuery] = useState(value || "");
   const filtered = (query ? options.filter((o) => o.toLowerCase().includes(query.toLowerCase())) : options).slice(0, 300);
 
   return (
     <div style={{ position: "relative", display: "inline-block" }}>
       <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder={placeholder}
-        onKeyDown={(e) => { if (e.key === "Enter" && query.trim()) onSelect(query.trim()); }}
+        onKeyDown={(e) => { if (allowFreeText && e.key === "Enter" && query.trim()) onSelect(query.trim()); }}
         style={{ ...addressMiniSelectStyle, width: 150, boxSizing: "border-box" }} />
       <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 10000, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 7, marginTop: 2, maxHeight: 260, overflowY: "auto", minWidth: 170, boxShadow: "0 8px 30px rgba(0,0,0,.4)" }}>
         {loading ? (
@@ -440,29 +440,37 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
         )}
       </div>
 
-      {source === "manual_review" && ad.address_match_reason && (
-        <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)", fontStyle: "italic" }}>
-          {ad.address_match_reason}
+      {/* AI Match row — sirf manual_review pe, jab Neezam AI ka koi raw area/subarea
+          guess ho. Province/City yahan read-only hain (system ke matchResult se, Gemini
+          in ko guess nahi karta). Area/SubArea allowFreeText SearchableCombo hain,
+          Neezam AI ke raw guess se pre-filled — accept karo ya free-type se correct
+          karo, dono hi shared selArea/selSubarea (selectChipValue ke through) update
+          karte hain, upar wale system row ki tarah — chahe kaunsi row se aakhri baar
+          select hua ho, wahi preview/Confirm mein jata hai. */}
+      {source === "manual_review" && (ad.address_match_gemini_area_raw || ad.address_match_gemini_subarea_raw) && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 10.5, color: "var(--ne-muted-2)", fontWeight: 700 }}>{t("orders.aiMatchLabel")}:</span>
+          <span style={ad.matched_province ? addressChipStyle : addressChipMutedStyle}>
+            {ad.matched_province || chipEmptyLabelFor.province}
+          </span>
+          <span style={{ color: "var(--ne-muted-2)", fontSize: 10 }}>›</span>
+          <span style={ad.matched_city ? addressChipStyle : addressChipMutedStyle}>
+            {ad.matched_city || chipEmptyLabelFor.city}
+          </span>
+          <span style={{ color: "var(--ne-muted-2)", fontSize: 10 }}>›</span>
+          <SearchableCombo t={t} value={ad.address_match_gemini_area_raw || ""} options={chipOptionsFor.area}
+            placeholder={chipPlaceholderFor.area} loading={chipLoading} allowFreeText
+            onSelect={(v) => selectChipValue("area", v)} />
+          <span style={{ color: "var(--ne-muted-2)", fontSize: 10 }}>›</span>
+          <SearchableCombo t={t} value={ad.address_match_gemini_subarea_raw || ""} options={chipOptionsFor.subarea}
+            placeholder={chipPlaceholderFor.subarea} loading={chipLoading} allowFreeText
+            onSelect={(v) => selectChipValue("subarea", v)} />
         </div>
       )}
 
-      {/* Gemini ka raw guess — chahe reference data se validate na hua ho — ek-click
-          accept karne ke liye. Dashed border = "unverified, click to accept" signal,
-          addressChipStyle wale confirmed/system chips se visually alag. */}
-      {source === "manual_review" && (ad.address_match_gemini_area_only || ad.address_match_gemini_subarea_raw) && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-          {ad.address_match_gemini_area_only && (
-            <span onClick={() => selectChipValue("area", ad.address_match_gemini_area_only)} title={t("orders.addressGeminiSuggestionTooltip")}
-              style={{ ...addressChipStyle, background: "transparent", border: "1px dashed var(--ne-accent)", color: "var(--ne-accent)", cursor: "pointer" }}>
-              Gemini: {ad.address_match_gemini_area_only}
-            </span>
-          )}
-          {ad.address_match_gemini_subarea_raw && (
-            <span onClick={() => selectChipValue("subarea", ad.address_match_gemini_subarea_raw)} title={t("orders.addressGeminiSuggestionTooltip")}
-              style={{ ...addressChipStyle, background: "transparent", border: "1px dashed var(--ne-accent)", color: "var(--ne-accent)", cursor: "pointer" }}>
-              Gemini: {ad.address_match_gemini_subarea_raw}
-            </span>
-          )}
+      {source === "manual_review" && ad.address_match_reason && (
+        <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)", fontStyle: "italic" }}>
+          {ad.address_match_reason}
         </div>
       )}
 
