@@ -5,6 +5,7 @@ import dexLogo from "../assets/couriers/dex.png";
 import { bucketFinalStatus } from "../bookedOrdersData";
 import { addressChipStyle, addressChipMutedStyle } from "../addressChipStyles";
 import Icon from "../components/Icon";
+import { Monogram } from "../components/Logo";
 import { useLanguage, useTranslation } from "../i18n";
 
 const TAB_KEYS = {
@@ -332,14 +333,15 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
     setEditingChip(null);
   };
 
-  const handleSaveMapping = () => {
-    onUpdateAgentData(order.id, {
-      matched_province: selProvince || null,
-      matched_city: selCity || null,
-      matched_area: selArea || null,
-      matched_subarea: selSubarea || null,
-    });
-    const rebuilt = [ad.address || order.shipping_address?.address1 || order.billing_address?.address1 || "", selArea, selSubarea, selCity, selProvince]
+  // "Accept Suggested Mapping" button — Gemini ke list-match raw guess (area_raw/
+  // subarea_raw) ko seedha shared selArea/selSubarea state mein set karta hai, aur
+  // preview textarea usi tarah rebuild karta hai jaise purana handleSaveMapping karta tha.
+  const handleAcceptSuggestedMapping = () => {
+    const newArea = ad.address_match_gemini_area_raw || "";
+    const newSubarea = ad.address_match_gemini_subarea_raw || "";
+    setSelArea(newArea);
+    setSelSubarea(newSubarea);
+    const rebuilt = [ad.address || order.shipping_address?.address1 || order.billing_address?.address1 || "", newArea, newSubarea, selCity, selProvince]
       .filter(Boolean).join(", ");
     setPreview(rebuilt);
   };
@@ -395,7 +397,7 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
         {renderChip("area", selArea, !!selCity)}
         <span style={{ color: "var(--ne-muted-2)", fontSize: 10 }}>›</span>
         {renderChip("subarea", selSubarea, !!selArea)}
-        {!confirmed && source === "system" && (
+        {!confirmed && source === "system" && ad.address_gemini_status !== "ai_success" && (
           <span style={{ ...addressBadgeBase, background: "var(--ne-success-soft)", color: "var(--ne-success)" }}>
             <Icon name="check" size={9} /> {t("orders.addressSystemMatched")}
           </span>
@@ -426,46 +428,37 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
             <Icon name="check" size={9} /> {t("orders.addressConfirmed")}
           </span>
         )}
-        {/* Secondary indicator — did Gemini genuinely contribute to this match, separate
-            from the primary confidence badge above, so it stays visible before AND after
-            confirm. "not_attempted" needs no indicator (system alone was already confident). */}
-        {ad.address_gemini_status === "ai_success" && (
+        {/* Combined "Neezam AI Verified" badge — System Matched + the old separate
+            "Neezam AI corrected this" indicator merged into one, only when the system
+            match AND the reformat step both succeeded. Confirmed-independent (jaisa
+            purana ai_success indicator tha) — confirm ke baad bhi Neezam AI involvement
+            ka record dikhta rahe. Agar reformat succeed nahi hua (ai_failed/not_attempted),
+            "System Matched" akela hi dikhta hai (upar). */}
+        {source === "system" && ad.address_gemini_status === "ai_success" && (
+          <span style={{ ...addressBadgeBase, background: "var(--ne-accent-soft)", color: "var(--ne-accent)" }}>
+            <Monogram size={10} /> {t("orders.addressNeezamAiVerified")}
+          </span>
+        )}
+        {/* Non-"system" sources (jaise "ai") ke liye purana secondary indicator, jaisa tha */}
+        {source !== "system" && ad.address_gemini_status === "ai_success" && (
           <span style={{ ...addressBadgeBase, background: "var(--ne-accent-soft)", color: "var(--ne-accent)" }}>
             ✨ {t("orders.addressGeminiCorrected")}
           </span>
         )}
-        {ad.address_gemini_status === "ai_failed" && (
-          <span title={t("orders.addressGeminiFailedTooltip")} style={{ ...addressBadgeBase, background: "var(--ne-surface)", color: "var(--ne-muted-2)" }}>
-            <Icon name="warning" size={9} />
-          </span>
-        )}
       </div>
 
-      {/* AI Match row — sirf manual_review pe, jab Neezam AI ka koi raw area/subarea
-          guess ho. Province/City yahan read-only hain (system ke matchResult se, Gemini
-          in ko guess nahi karta). Area/SubArea system row ka EXACT wahi renderChip
-          click-to-reveal pattern reuse karte hain (koi doosri copy nahi) — teen farak:
-          (1) allowFreeText=true, taake Gemini ka guess reference data mein na ho to bhi
-          accept ho sake, (2) pill ka default value Neezam AI ke raw guess se
-          (selArea/selSubarea khaali hone tak) — ek dafa staff kuch bhi select kar le
-          (chahe is row se ya system row se), dono chips hamesha wahi shared value
-          dikhate hain, (3) rowKey="ai" — editingChip ab namespaced hai
-          ("<rowKey>:<level>"), is liye is row ka pill khulna system row ke pill ko
-          khud-ba-khud nahi kholta, chahe level ("area"/"subarea") same ho. */}
+      {/* Accept Suggested Mapping — sirf manual_review pe, jab Neezam AI ka koi raw
+          area/subarea guess ho (list-match step se: ek verified ClosestExisting line,
+          ya ek genuinely nayi Suggested*Area jo reference data mein abhi tak nahi hai).
+          Purana "Neezam AI Match:" chip-row is button se replace hua — suggestion ka
+          detail ab reasoning text (neeche) mein hi hota hai, alag se chips dikhane ki
+          zaroorat nahi. selArea/selSubarea (system row wali shared state) ko seedha
+          Gemini ke raw guess se set karta hai. */}
       {source === "manual_review" && (ad.address_match_gemini_area_raw || ad.address_match_gemini_subarea_raw) && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 10.5, color: "var(--ne-muted-2)", fontWeight: 700 }}>{t("orders.aiMatchLabel")}:</span>
-          <span style={ad.matched_province ? addressChipStyle : addressChipMutedStyle}>
-            {ad.matched_province || chipEmptyLabelFor.province}
-          </span>
-          <span style={{ color: "var(--ne-muted-2)", fontSize: 10 }}>›</span>
-          <span style={ad.matched_city ? addressChipStyle : addressChipMutedStyle}>
-            {ad.matched_city || chipEmptyLabelFor.city}
-          </span>
-          <span style={{ color: "var(--ne-muted-2)", fontSize: 10 }}>›</span>
-          {renderChip("area", selArea || ad.address_match_gemini_area_raw || "", true, true, "ai")}
-          <span style={{ color: "var(--ne-muted-2)", fontSize: 10 }}>›</span>
-          {renderChip("subarea", selSubarea || ad.address_match_gemini_subarea_raw || "", true, true, "ai")}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={handleAcceptSuggestedMapping} style={addressSmallBtnSecondary}>
+            <Monogram size={10} /> {t("orders.addressAcceptSuggestedMapping")}
+          </button>
         </div>
       )}
 
@@ -491,7 +484,6 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
 
       {!confirmed && (
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <button onClick={handleSaveMapping} style={addressSmallBtnSecondary}>{t("orders.addressSaveMapping")}</button>
           <button onClick={handleConfirm} disabled={confirming} style={{ ...addressSmallBtnPrimary, cursor: confirming ? "default" : "pointer" }}>
             {confirming ? t("orders.addressConfirming") : ((selArea && selSubarea) ? t("orders.addressAccept") : t("orders.addressSetManually"))}
           </button>
