@@ -172,7 +172,7 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
   const [matchError, setMatchError] = useState("");
   const [preview, setPreview] = useState(ad.address_match_preview || "");
   const [confirming, setConfirming] = useState(false);
-  const [editingChip, setEditingChip] = useState(null); // null | "province" | "city" | "area" | "subarea"
+  const [editingChip, setEditingChip] = useState(null); // null | "<rowKey>:<province|city|area|subarea>" — rowKey namespaces system vs AI Match row so their chips open independently
   const [chipLoading, setChipLoading] = useState(false);
   const [provinces, setProvinces] = useState([]);
   const [cities, setCities] = useState([]);
@@ -301,8 +301,8 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
     setConfirming(false);
   };
 
-  const openChip = async (level) => {
-    setEditingChip(level);
+  const openChip = async (level, rowKey = "system") => {
+    setEditingChip(`${rowKey}:${level}`);
     setChipLoading(true);
     if (level === "province") {
       setProvinces(await fetchDistinctAddressValues("province", {}));
@@ -353,8 +353,9 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
   };
   const chipEmptyLabelFor = { province: "—", city: "—", area: t("orders.addressSelectArea"), subarea: t("orders.addressSelectSubarea") };
 
-  const renderChip = (level, value, enabled, allowFreeText = false) => {
-    if (editingChip === level) {
+  const renderChip = (level, value, enabled, allowFreeText = false, rowKey = "system") => {
+    const editKey = `${rowKey}:${level}`;
+    if (editingChip === editKey) {
       return (
         <span data-address-chip-editor style={{ display: "inline-block" }}>
           <SearchableCombo t={t} value={value} options={chipOptionsFor[level]} placeholder={chipPlaceholderFor[level]}
@@ -364,7 +365,7 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
     }
     const muted = !value;
     return (
-      <span onClick={() => enabled && openChip(level)}
+      <span onClick={() => enabled && openChip(level, rowKey)}
         style={{ ...(muted ? addressChipMutedStyle : addressChipStyle), cursor: enabled ? "pointer" : "default" }}>
         {value || chipEmptyLabelFor[level]}
       </span>
@@ -443,15 +444,14 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
       {/* AI Match row — sirf manual_review pe, jab Neezam AI ka koi raw area/subarea
           guess ho. Province/City yahan read-only hain (system ke matchResult se, Gemini
           in ko guess nahi karta). Area/SubArea system row ka EXACT wahi renderChip
-          click-to-reveal pattern reuse karte hain (koi doosri copy nahi) — sirf do
-          farak: (1) allowFreeText=true, taake Gemini ka guess reference data mein na
-          ho to bhi accept ho sake, (2) pill ka default value Neezam AI ke raw guess se
+          click-to-reveal pattern reuse karte hain (koi doosri copy nahi) — teen farak:
+          (1) allowFreeText=true, taake Gemini ka guess reference data mein na ho to bhi
+          accept ho sake, (2) pill ka default value Neezam AI ke raw guess se
           (selArea/selSubarea khaali hone tak) — ek dafa staff kuch bhi select kar le
           (chahe is row se ya system row se), dono chips hamesha wahi shared value
-          dikhate hain. NOTE: dono rows "area"/"subarea" level hi share karte hain
-          editingChip ke through — agar dono chips ka level same waqt khula ho (rare),
-          dono ek sath edit-mode mein dikh sakte hain, kyunke underlying selArea/
-          selSubarea state genuinely shared hai (yahi is design ka intent bhi hai). */}
+          dikhate hain, (3) rowKey="ai" — editingChip ab namespaced hai
+          ("<rowKey>:<level>"), is liye is row ka pill khulna system row ke pill ko
+          khud-ba-khud nahi kholta, chahe level ("area"/"subarea") same ho. */}
       {source === "manual_review" && (ad.address_match_gemini_area_raw || ad.address_match_gemini_subarea_raw) && (
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           <span style={{ fontSize: 10.5, color: "var(--ne-muted-2)", fontWeight: 700 }}>{t("orders.aiMatchLabel")}:</span>
@@ -463,9 +463,9 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
             {ad.matched_city || chipEmptyLabelFor.city}
           </span>
           <span style={{ color: "var(--ne-muted-2)", fontSize: 10 }}>›</span>
-          {renderChip("area", selArea || ad.address_match_gemini_area_raw || "", true, true)}
+          {renderChip("area", selArea || ad.address_match_gemini_area_raw || "", true, true, "ai")}
           <span style={{ color: "var(--ne-muted-2)", fontSize: 10 }}>›</span>
-          {renderChip("subarea", selSubarea || ad.address_match_gemini_subarea_raw || "", true, true)}
+          {renderChip("subarea", selSubarea || ad.address_match_gemini_subarea_raw || "", true, true, "ai")}
         </div>
       )}
 
