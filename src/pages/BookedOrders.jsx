@@ -104,6 +104,12 @@ const trackingUrl = (trackingNo) => `https://www.dex.com.pk/tracking?references=
 // (pickup/creation ke din khud "Day 1" hai). Koi bhi final/terminal courier_order_status
 // (Delivered/Returned/Delivery Failed/Return Pending/Lost/Pickup Failed/Cancelled) reach ho
 // chuka ho to yeh pill irrelevant hai — sirf abhi-tak-pending orders ke liye relevant hai.
+// Dex ko reAttemptDateTime kam-se-kam agle calendar din ka chahiye — <input type="date">
+// ka "min" attribute isi se set hota hai.
+function tomorrowDateString() {
+  return new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+}
+
 function computeAgingDay(o) {
   const ad = o.agent_data;
   if (bucketFinalStatus(ad.courier_order_status)) return null;
@@ -313,6 +319,13 @@ export default function BookedOrders({ storeId, ordersStore }) {
   const [showBulkCancelResultModal, setShowBulkCancelResultModal] = useState(false);
   const [printingAwb, setPrintingAwb] = useState(false);
   const [printingLabel, setPrintingLabel] = useState(false);
+  const [shipperAdviceModal, setShipperAdviceModal] = useState(null);
+  const [adviceFeedbackType, setAdviceFeedbackType] = useState("REATTEMPT");
+  const [adviceReattemptDate, setAdviceReattemptDate] = useState("");
+  const [adviceSellerNote, setAdviceSellerNote] = useState("");
+  const [submittingAdvice, setSubmittingAdvice] = useState(false);
+  const [adviceError, setAdviceError] = useState("");
+  const [showAdviceSuccessModal, setShowAdviceSuccessModal] = useState(false);
 
   // DEX-serviceable cities — 152 rows, fetch once (not per-row) aur ek lowercased
   // Set mein cache karo, taake har order ke liye sirf ek O(1) lookup lage.
@@ -540,6 +553,52 @@ export default function BookedOrders({ storeId, ordersStore }) {
     setCancellingId(null);
     setShowCancelResultModal(true);
     loadBooked();
+  };
+
+  const openShipperAdviceModal = (order) => {
+    setShipperAdviceModal(order);
+    setAdviceFeedbackType("REATTEMPT");
+    setAdviceReattemptDate("");
+    setAdviceSellerNote("");
+    setAdviceError("");
+  };
+
+  const handleSubmitShipperAdvice = async () => {
+    const order = shipperAdviceModal;
+    if (!order) return;
+    setSubmittingAdvice(true);
+    setAdviceError("");
+    const { data: { session } } = await supabase.auth.getSession();
+    try {
+      const body = { store_id: storeId, order_id: order.id, feedbackType: adviceFeedbackType };
+      // Dex ka EpisPackageReAttempt API reAttemptDateTime epoch-milliseconds (13-digit,
+      // string form — unke Java SDK sample jaisa) maangta hai, "YYYY-MM-DD" nahi.
+      if (adviceFeedbackType === "REATTEMPT" && adviceReattemptDate) {
+        const epochMs = new Date(adviceReattemptDate + "T00:00:00").getTime();
+        body.reAttemptDateTime = String(epochMs);
+      }
+      if (adviceSellerNote.trim()) body.sellerNote = adviceSellerNote.trim();
+
+      const res = await fetch(`${CF_URL}/dex-shipper-advice`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setAdviceError(data.error);
+        logActivity("shipper_advice_failed", order.id, { error: data.error, feedbackType: adviceFeedbackType });
+      } else {
+        setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, agent_data: { ...o.agent_data, awaiting_shipper_advice: false } } : o)));
+        logActivity("shipper_advice_success", order.id, { feedbackType: adviceFeedbackType });
+        setShipperAdviceModal(null);
+        setShowAdviceSuccessModal(true);
+      }
+    } catch (err) {
+      setAdviceError(err.message);
+      logActivity("shipper_advice_failed", order.id, { error: err.message, feedbackType: adviceFeedbackType });
+    }
+    setSubmittingAdvice(false);
   };
 
   const handleBulkPrintAwb = async () => {
@@ -988,6 +1047,12 @@ export default function BookedOrders({ storeId, ordersStore }) {
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    {ad.awaiting_shipper_advice && (
+                      <button onClick={() => openShipperAdviceModal(o)}
+                        style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 8, border: "none", background: "var(--ne-danger)", color: "#fff", fontSize: 10.5, fontWeight: 700, cursor: "pointer", animation: "ne-aging-pulse 1.4s ease-in-out infinite" }}>
+                        <Icon name="warning" size={11} /> {t("booked.awaitingShipperAdvice")} · {t("booked.adviceDo")}
+                      </button>
+                    )}
                     {o.isManual && (
                       <span title={t("booked.unmatchedTooltip")} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 8, fontSize: 10.5, fontWeight: 700, background: "var(--ne-warning-soft)", color: "var(--ne-warning)" }}>
                         <Icon name="warning" size={10} /> {t("booked.unmatchedManual")}
@@ -1281,6 +1346,85 @@ export default function BookedOrders({ storeId, ordersStore }) {
               {cancelResult.success ? t("booked.cancelledMessage") : cancelResult.error}
             </p>
             <button onClick={() => setShowCancelResultModal(false)}
+              style={{ width: "100%", padding: "10px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              {t("booked.close")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {shipperAdviceModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
+          <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 400, maxWidth: "92vw", padding: "20px" }}>
+            <h3 style={{ margin: "0 0 14px", fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}>
+              <Icon name="warning" size={14} /> {shipperAdviceModal.name} — {t("booked.shipperAdviceModalTitle")}
+            </h3>
+
+            <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+              <label style={{
+                flex: 1, display: "flex", alignItems: "center", gap: 6, padding: "10px 12px", borderRadius: 9, cursor: "pointer",
+                border: `1px solid ${adviceFeedbackType === "REATTEMPT" ? "var(--ne-accent)" : "var(--ne-border)"}`,
+                background: adviceFeedbackType === "REATTEMPT" ? "var(--ne-accent-soft)" : "transparent",
+              }}>
+                <input type="radio" name="adviceFeedbackType" checked={adviceFeedbackType === "REATTEMPT"} onChange={() => setAdviceFeedbackType("REATTEMPT")} />
+                <span style={{ fontSize: 12.5, color: "var(--ne-text)", fontWeight: 600 }}>{t("booked.reattemptDelivery")}</span>
+              </label>
+              <label style={{
+                flex: 1, display: "flex", alignItems: "center", gap: 6, padding: "10px 12px", borderRadius: 9, cursor: "pointer",
+                border: `1px solid ${adviceFeedbackType === "RETURN" ? "var(--ne-accent)" : "var(--ne-border)"}`,
+                background: adviceFeedbackType === "RETURN" ? "var(--ne-accent-soft)" : "transparent",
+              }}>
+                <input type="radio" name="adviceFeedbackType" checked={adviceFeedbackType === "RETURN"} onChange={() => setAdviceFeedbackType("RETURN")} />
+                <span style={{ fontSize: 12.5, color: "var(--ne-text)", fontWeight: 600 }}>{t("booked.returnPackage")}</span>
+              </label>
+            </div>
+
+            {adviceFeedbackType === "REATTEMPT" && (
+              <>
+                <label style={{ fontSize: 12, color: "var(--ne-muted)", display: "block", marginBottom: 4 }}>{t("booked.reattemptDateLabel")}</label>
+                <input type="date" value={adviceReattemptDate} min={tomorrowDateString()}
+                  onChange={(e) => setAdviceReattemptDate(e.target.value)}
+                  style={{ width: "100%", padding: "9px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, marginBottom: 12 }} />
+              </>
+            )}
+
+            <label style={{ fontSize: 12, color: "var(--ne-muted)", display: "block", marginBottom: 4 }}>{t("booked.sellerNoteLabel")}</label>
+            <textarea value={adviceSellerNote} onChange={(e) => setAdviceSellerNote(e.target.value)} placeholder={t("booked.sellerNotePlaceholder")} rows={3}
+              style={{ width: "100%", padding: "9px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, marginBottom: 12, resize: "vertical", fontFamily: "inherit" }} />
+
+            {adviceError && <p style={{ color: "var(--ne-danger)", fontSize: 11, whiteSpace: "pre-wrap", marginBottom: 10 }}>{adviceError}</p>}
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setShipperAdviceModal(null)} disabled={submittingAdvice}
+                style={{ flex: 1, padding: "10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 13, cursor: "pointer" }}>
+                {t("action.cancel")}
+              </button>
+              <button onClick={handleSubmitShipperAdvice} disabled={submittingAdvice}
+                style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "10px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: submittingAdvice ? "default" : "pointer", opacity: submittingAdvice ? 0.7 : 1 }}>
+                {submittingAdvice ? (
+                  <>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ animation: "spin 0.8s linear infinite" }}>
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                    </svg>
+                    {t("booked.submittingAdvice")}
+                  </>
+                ) : t("booked.submitAdvice")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAdviceSuccessModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000001 }}>
+          <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 360, maxWidth: "92vw", padding: "20px" }}>
+            <h3 style={{ margin: "0 0 12px", fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}>
+              <Icon name="check" size={14} /> {t("booked.adviceSuccessTitle")}
+            </h3>
+            <p style={{ fontSize: 12.5, color: "var(--ne-success)", marginBottom: 16 }}>
+              {t("booked.adviceSuccessMessage")}
+            </p>
+            <button onClick={() => setShowAdviceSuccessModal(false)}
               style={{ width: "100%", padding: "10px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
               {t("booked.close")}
             </button>
