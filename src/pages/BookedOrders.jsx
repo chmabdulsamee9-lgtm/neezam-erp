@@ -100,6 +100,42 @@ const fmtDateTime = (iso) => (iso ? new Date(iso).toLocaleString("en-PK", { day:
 
 const trackingUrl = (trackingNo) => `https://www.dex.com.pk/tracking?references=${encodeURIComponent(trackingNo || "")}`;
 
+// Show Tracking modal ke event rows ke liye — module-level function taake Date.now()
+// direct render/JSX mein inline call na ho (React purity-lint isay flag karta hai).
+function timeAgo(iso) {
+  if (!iso) return "—";
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "abhi";
+  if (mins < 60) return `${mins}m pehle`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h pehle`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d pehle`;
+}
+
+// courier_order_status null ho (dex_status DEX_STATUS_MAP mein na ho) to raw_status ka
+// readable fallback — "domestic_multi_leg_waiting_for_handover" -> "Multi Leg Waiting For Handover"
+function humanizeRawStatus(raw) {
+  if (!raw) return "—";
+  return raw
+    .replace(/^domestic_|^package_/, "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// dex_tracking_events.photos/epod jsonb columns — array ya single string, kabhi bhi
+// ho sakte hain, isliye dono cases ko ek flat URL array mein normalize karte hain.
+function normalizePhotoUrls(...fields) {
+  const urls = [];
+  for (const f of fields) {
+    if (!f) continue;
+    if (Array.isArray(f)) urls.push(...f.filter(Boolean));
+    else if (typeof f === "string") urls.push(f);
+  }
+  return urls;
+}
+
 // "Day N" = pickup_success_at (ya na ho to package_created_at) se aaj tak guzre din + 1
 // (pickup/creation ke din khud "Day 1" hai). Koi bhi final/terminal courier_order_status
 // (Delivered/Returned/Delivery Failed/Return Pending/Lost/Pickup Failed/Cancelled) reach ho
@@ -326,6 +362,10 @@ export default function BookedOrders({ storeId, ordersStore }) {
   const [submittingAdvice, setSubmittingAdvice] = useState(false);
   const [adviceError, setAdviceError] = useState("");
   const [showAdviceSuccessModal, setShowAdviceSuccessModal] = useState(false);
+  const [showTrackingModal, setShowTrackingModal] = useState(null);
+  const [trackingEvents, setTrackingEvents] = useState([]);
+  const [trackingLoading, setTrackingLoading] = useState(false);
+  const [trackingError, setTrackingError] = useState("");
 
   // DEX-serviceable cities — 152 rows, fetch once (not per-row) aur ek lowercased
   // Set mein cache karo, taake har order ke liye sirf ek O(1) lookup lage.
@@ -561,6 +601,25 @@ export default function BookedOrders({ storeId, ordersStore }) {
     setAdviceReattemptDate("");
     setAdviceSellerNote("");
     setAdviceError("");
+  };
+
+  const openTrackingModal = async (order) => {
+    setShowTrackingModal(order);
+    setTrackingEvents([]);
+    setTrackingError("");
+    setTrackingLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${CF_URL}/order-tracking-history?order_id=${order.id}`, {
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      const data = await res.json();
+      if (data.error) setTrackingError(data.error);
+      else setTrackingEvents(data.events || []);
+    } catch (err) {
+      setTrackingError(err.message);
+    }
+    setTrackingLoading(false);
   };
 
   const handleSubmitShipperAdvice = async () => {
@@ -1151,6 +1210,11 @@ export default function BookedOrders({ storeId, ordersStore }) {
                   )}
                 </div>
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
+                  <button onClick={() => openTrackingModal(o)}
+                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                    <Icon name="clock" size={12} />
+                    {t("booked.showTracking")}
+                  </button>
                   <button onClick={() => printEneezamLabel({ order: o, storeId })}
                     style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
                     <Icon name="printer" size={12} />
@@ -1428,6 +1492,75 @@ export default function BookedOrders({ storeId, ordersStore }) {
               style={{ width: "100%", padding: "10px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
               {t("booked.close")}
             </button>
+          </div>
+        </div>
+      )}
+
+      {showTrackingModal && (
+        <div onClick={() => setShowTrackingModal(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000002 }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: "90vw", height: "85vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: "1px solid var(--ne-border)", flexShrink: 0 }}>
+              <h3 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}>
+                <Icon name="clock" size={14} /> {showTrackingModal.name} — {t("booked.trackingModalTitle")}
+              </h3>
+              <button onClick={() => setShowTrackingModal(null)}
+                style={{ background: "none", border: "none", color: "var(--ne-muted)", cursor: "pointer", padding: 4, display: "flex" }}>
+                <Icon name="close" size={16} />
+              </button>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: "8px 20px" }}>
+              {trackingLoading ? (
+                <div style={{ textAlign: "center", padding: "3rem", color: "var(--ne-muted)" }}>{t("booked.loading")}</div>
+              ) : trackingError ? (
+                <p style={{ color: "var(--ne-danger)", fontSize: 12.5, padding: "1rem 0" }}>{trackingError}</p>
+              ) : trackingEvents.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "3rem", color: "var(--ne-muted-2)", fontSize: 12.5 }}>{t("booked.trackingEmpty")}</div>
+              ) : (
+                [...trackingEvents].reverse().map((ev, i, arr) => {
+                  const bucket = bucketCourierStatus(ev.courier_order_status);
+                  const meta = STATUS_BUCKET_META[bucket] || { color: "var(--ne-muted-2)", bg: "var(--ne-surface)" };
+                  const photoUrls = normalizePhotoUrls(ev.photos, ev.epod);
+                  return (
+                    <div key={ev.id || i} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "7px 0", borderBottom: i < arr.length - 1 ? "1px solid var(--ne-border)" : "none" }}>
+                      <div style={{ width: 108, minWidth: 108 }} title={fmtDateTime(ev.event_time)}>
+                        <div style={{ fontSize: 11, color: "var(--ne-text)", fontWeight: 600 }}>{timeAgo(ev.event_time)}</div>
+                        <div style={{ fontSize: 9.5, color: "var(--ne-muted-2)" }}>{fmtDateTime(ev.event_time)}</div>
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <span style={{ padding: "2px 8px", borderRadius: 6, fontSize: 10.5, fontWeight: 700, background: meta.bg, color: meta.color }}>
+                            {ev.courier_order_status || humanizeRawStatus(ev.raw_status)}
+                          </span>
+                          {ev.location && (
+                            <span style={{ fontSize: 11, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 3 }}>
+                              <Icon name="pin" size={10} /> {ev.location}
+                            </span>
+                          )}
+                        </div>
+                        {ev.driver_name && (
+                          <div style={{ fontSize: 11, color: "var(--ne-muted)", marginTop: 3, display: "flex", alignItems: "center", gap: 5 }}>
+                            <Icon name="truck" size={10} /> {ev.driver_name}
+                            {ev.driver_phone && (
+                              <a href={`tel:${ev.driver_phone}`} style={{ color: "var(--ne-accent)", textDecoration: "none" }}>{ev.driver_phone}</a>
+                            )}
+                          </div>
+                        )}
+                        {photoUrls.length > 0 && (
+                          <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                            {photoUrls.map((url, pi) => (
+                              <img key={pi} src={url} alt="" onClick={() => window.open(url, "_blank")}
+                                style={{ width: 40, height: 40, borderRadius: 6, objectFit: "cover", cursor: "pointer", border: "1px solid var(--ne-border)" }} />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -235,6 +235,9 @@ export const translations = {
     'booked.submittingAdvice': 'Advice bheji ja rahi hai...',
     'booked.adviceSuccessTitle': 'Advice Bhej Di Gayi',
     'booked.adviceSuccessMessage': 'Advice Dex ko bhej di gayi hai.',
+    'booked.showTracking': 'Show Tracking',
+    'booked.trackingModalTitle': 'Poori Tracking History',
+    'booked.trackingEmpty': 'Abhi tak is order ke liye koi tracking event nahi mila.',
 
     'courier.title': 'Courier Connect',
     'courier.subtitle': 'Daraz Express (Dex) Logistics',
@@ -1492,6 +1495,9 @@ export const translations = {
     'booked.submittingAdvice': 'Submitting advice...',
     'booked.adviceSuccessTitle': 'Advice Sent',
     'booked.adviceSuccessMessage': 'The advice has been sent to Dex.',
+    'booked.showTracking': 'Show Tracking',
+    'booked.trackingModalTitle': 'Full Tracking History',
+    'booked.trackingEmpty': 'No tracking events found for this order yet.',
 
     'courier.title': 'Courier Connect',
     'courier.subtitle': 'Daraz Express (Dex) Logistics',
