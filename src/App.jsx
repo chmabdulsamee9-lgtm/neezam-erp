@@ -44,6 +44,7 @@ import StoreConnect from './pages/StoreConnect'
 import ProductsManagement from './pages/ProductsManagement'
 import InventoryManagement from './pages/InventoryManagement'
 import ProductCosting from './pages/ProductCosting'
+import FinanceStatement from './pages/FinanceStatement'
 import DevMonitorDetailed from './pages/DevMonitorDetailed'
 import GeminiUsageMonitor from './pages/GeminiUsageMonitor'
 import ShopifyCallback from './pages/ShopifyCallback'
@@ -151,6 +152,7 @@ const NAV_ICONS = {
   settings: <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.5v2M10 15.5v2M17.5 10h-2M4.5 10h-2M15.1 4.9l-1.4 1.4M6.3 13.7l-1.4 1.4M15.1 15.1l-1.4-1.4M6.3 6.3 4.9 4.9"/></svg>,
   inventory: <svg viewBox="0 0 20 20"><rect x="2.5" y="4" width="15" height="4" rx="1"/><rect x="3.5" y="9" width="13" height="7" rx="1"/><path d="M8 12.5h4"/></svg>,
   'dev-monitor': <svg viewBox="0 0 20 20"><rect x="2" y="3.5" width="16" height="10.5" rx="1.5"/><path d="M7 17h6M10 14v3"/><path d="M5 8l2.5 2.5L10 7l2 2 3-3"/></svg>,
+  'finance-statement': <svg viewBox="0 0 20 20"><rect x="4" y="2" width="12" height="16" rx="2"/><rect x="6" y="4.3" width="8" height="3" rx="0.5"/><circle cx="6.8" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="10" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="13.2" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="6.8" cy="14.5" r=".9" fill="currentColor" stroke="none"/><circle cx="10" cy="14.5" r=".9" fill="currentColor" stroke="none"/><circle cx="13.2" cy="14.5" r=".9" fill="currentColor" stroke="none"/></svg>,
 }
 
 function SplashScreen() {
@@ -1632,7 +1634,7 @@ function App() {
   // Sirf explicitly listed modules subscription-gated hain (jaisa Block C mein ask kiya gaya
   // tha — "Finance/Ads/WhatsApp") — baaki menu items (orders/dashboard/courier waghera) har
   // plan mein already included hote hain, unhe gate karne ki zaroorat nahi.
-  const SUBSCRIPTION_GATED_MODULES = { ledger: ['finance'], ads: ['ads'], whatsapp: ['whatsapp_linked', 'whatsapp_meta'] }
+  const SUBSCRIPTION_GATED_MODULES = { ledger: ['finance'], 'finance-statement': ['finance'], ads: ['ads'], whatsapp: ['whatsapp_linked', 'whatsapp_meta'] }
   const hasSubscriptionAccess = (moduleId) => {
     const requiredKeys = SUBSCRIPTION_GATED_MODULES[moduleId]
     return !requiredKeys || requiredKeys.some((k) => accessibleModuleKeys.has(k))
@@ -1647,6 +1649,7 @@ function App() {
     { id: 'products', label: t('nav.products'), group: t('nav.group.operations') },
     { id: 'inventory', label: t('nav.inventory'), group: t('nav.group.operations') },
     { id: 'product-costing', label: t('nav.product-costing'), group: t('nav.group.operations') },
+    { id: 'finance-statement', label: t('nav.finance-statement'), group: t('nav.group.finance') },
     { id: 'ads', label: t('nav.ads'), group: t('nav.group.insights') },
     { id: 'pnl', label: t('nav.pnl'), group: t('nav.group.insights') },
     { id: 'ledger', label: t('nav.ledger'), group: t('nav.group.insights') },
@@ -1675,7 +1678,7 @@ function App() {
   const currentStoreInfo = userStoresList.find(us => us.store_id === selectedStoreId)?.stores
 
   // Group nav items in original order, preserving group sequence
-  const groupOrder = [t('nav.group.overview'), t('nav.group.operations'), t('nav.group.insights'), t('nav.group.channels')]
+  const groupOrder = [t('nav.group.overview'), t('nav.group.operations'), t('nav.group.finance'), t('nav.group.insights'), t('nav.group.channels')]
   const groupedMenu = groupOrder.map(g => ({ group: g, items: menuItems.filter(m => m.group === g) })).filter(g => g.items.length > 0)
 
   const closeDrawer = () => setMobileDrawerOpen(false)
@@ -1843,6 +1846,9 @@ function App() {
             {activeMenu === 'product-costing' && hasAccess('product-costing') && (
               <ProductCosting storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
             )}
+            {activeMenu === 'finance-statement' && hasAccess('finance-statement') && (
+              <FinanceStatement storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
+            )}
             {activeMenu === 'meta-connect' && hasAccess('meta-connect') && <MetaConnect storeId={selectedStoreId} />}
             {activeMenu === 'ads' && hasAccess('ads') && (
               <AdsAnalytics ordersData={ordersData} storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
@@ -1887,7 +1893,7 @@ function App() {
             {activeMenu === 'master-dashboard/gemini-monitor' && profile.role === 'creator' && (
               <GeminiUsageMonitor cfUrl={CF_URL} session={session} />
             )}
-            {!['dashboard', 'store-connect', 'products', 'inventory', 'product-costing', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor'].includes(activeMenu) && (
+            {!['dashboard', 'store-connect', 'products', 'inventory', 'product-costing', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor'].includes(activeMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{menuItems.find(m => m.id === activeMenu)?.label}</h2>
