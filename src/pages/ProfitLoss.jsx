@@ -21,6 +21,11 @@ const rupees = (n) => `Rs. ${Math.round(Number(n) || 0).toLocaleString()}`;
 // toDateStr/effective_from handling, so "today" and order-date comparisons agree
 // across both pages of the rate-history system.
 const toDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const addDays = (dateStr, n) => {
+  const d = new Date(`${dateStr}T00:00:00`);
+  d.setDate(d.getDate() + n);
+  return toDateStr(d);
+};
 
 export default function ProfitLoss({ ordersData, storeId }) {
   const [lang] = useLanguage();
@@ -45,6 +50,8 @@ export default function ProfitLoss({ ordersData, storeId }) {
 
   const [editingCostSku, setEditingCostSku] = useState(null);
   const [editingCostValue, setEditingCostValue] = useState("");
+  const [costDateMode, setCostDateMode] = useState("immediate"); // 'immediate' | 'scheduled'
+  const [costDateValue, setCostDateValue] = useState("");
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
@@ -169,7 +176,7 @@ export default function ProfitLoss({ ordersData, storeId }) {
         const sku = overrideSku || (liveSkuForLineItem(li) || "").trim() || "(no SKU)";
         const qty = Number(li.quantity || 1);
         const lineRevenue = Number(li.price || 0) * qty;
-        if (!map[sku]) map[sku] = { sku, orders: 0, qty: 0, revenue: 0, cost: 0, costedQty: 0 };
+        if (!map[sku]) map[sku] = { sku, orders: 0, qty: 0, revenue: 0, cost: 0, costedQty: 0, hasMissingRate: false };
         if (!seenInOrder.has(sku)) { map[sku].orders += 1; seenInOrder.add(sku); }
         map[sku].qty += qty;
         map[sku].revenue += lineRevenue;
@@ -180,6 +187,8 @@ export default function ProfitLoss({ ordersData, storeId }) {
         if (rate != null) {
           map[sku].cost += rate * qty;
           map[sku].costedQty += qty;
+        } else {
+          map[sku].hasMissingRate = true;
         }
       });
     });
@@ -187,7 +196,11 @@ export default function ProfitLoss({ ordersData, storeId }) {
       const cost = row.costedQty > 0 ? row.cost : null;
       const costPer = cost != null ? cost / row.costedQty : null;
       const profit = cost != null ? row.revenue - cost : null;
-      return { sku: row.sku, orders: row.orders, qty: row.qty, revenue: row.revenue, costPer, cost, profit };
+      // Sirf tab flag karo jab COST PARTIALLY resolve hua ho (kuch line items costed,
+      // kuch nahi) — agar koi bhi rate resolve nahi hui (cost === null), woh "Cost Not
+      // Set" wali existing UI se already saaf zahir hai, dobara warning ki zaroorat nahi.
+      const hasIncompleteCost = cost != null && row.hasMissingRate;
+      return { sku: row.sku, orders: row.orders, qty: row.qty, revenue: row.revenue, costPer, cost, profit, hasIncompleteCost };
     }).sort((a, b) => b.revenue - a.revenue);
   }, [approvedOrders, resolveCostAsOf, liveSkuForLineItem]);
 
@@ -257,21 +270,26 @@ export default function ProfitLoss({ ordersData, storeId }) {
   const openSetCost = (sku, currentCost) => {
     setEditingCostSku(sku);
     setEditingCostValue(currentCost != null ? String(currentCost) : "");
+    setCostDateMode("immediate");
+    setCostDateValue(addDays(toDateStr(new Date()), 1));
   };
 
-  // Quick "Set Cost" shortcut — product_costs versioned hai ab, isliye yeh hamesha AAJ
-  // (effective_from = today) ki rate set/update karta hai, purani history ko chhue bina
-  // (agar aaj ke liye pehle se koi row hai to usse in-place update, warna naya row) —
-  // isi liye purane orders ka profit is se retroactively nahi badalta. Yeh sirf cost_price
-  // set karta hai — agar us SKU ka koi purana row mein return_value/supplier_id tha, woh
-  // ek NAYE (yahan se create hue) row pe carry-forward nahi hota; poori carry-forward
-  // logic sirf ProductCosting.jsx ke Save flow mein hai.
+  // Quick "Set Cost" shortcut — product_costs versioned hai ab, isliye yeh ek versioned
+  // row likhta hai (Apply Immediately = aaj, Apply From Date = chuni hui future date) —
+  // agar us exact date pe row already hai to in-place update, warna naya row, taake purane
+  // orders ka profit retroactively na badle. Naya row banate waqt SKU ke sabse recent
+  // pehle wale row ka return_value/supplier_id carry-forward hota hai (ProductCosting.jsx
+  // ke applyCostVersion() jaisa hi) — sirf cost_price set karne se yeh dono fields ab
+  // khaali nahi hote.
   const saveCost = async (sku) => {
     if (!editingCostValue || Number(editingCostValue) < 0) return;
     const value = Number(editingCostValue);
-    const now = new Date().toISOString();
     const todayStr = toDateStr(new Date());
-    const existing = costVersionsBySku[sku]?.find((r) => (r.effective_from || "0000-01-01") === todayStr);
+    const effectiveFromStr = costDateMode === "scheduled" ? costDateValue : todayStr;
+    if (costDateMode === "scheduled" && !effectiveFromStr) return;
+    const now = new Date().toISOString();
+    const versions = costVersionsBySku[sku] || []; // effective_from descending sorted
+    const existing = versions.find((r) => (r.effective_from || "0000-01-01") === effectiveFromStr);
     let savedRow;
     if (existing) {
       const { data, error } = await supabase.from("product_costs")
@@ -279,8 +297,13 @@ export default function ProfitLoss({ ordersData, storeId }) {
       if (error) return;
       savedRow = data;
     } else {
+      const mostRecentPrior = versions[0];
       const { data, error } = await supabase.from("product_costs")
-        .upsert({ store_id: storeId, sku, cost_price: value, effective_from: todayStr, updated_at: now }, { onConflict: "store_id,sku,effective_from" })
+        .upsert({
+          store_id: storeId, sku, cost_price: value, effective_from: effectiveFromStr,
+          return_value: mostRecentPrior?.return_value ?? null, supplier_id: mostRecentPrior?.supplier_id ?? null,
+          updated_at: now,
+        }, { onConflict: "store_id,sku,effective_from" })
         .select().single();
       if (error) return;
       savedRow = data;
@@ -309,9 +332,18 @@ export default function ProfitLoss({ ordersData, storeId }) {
   const CostCell = ({ row }) => {
     if (editingCostSku === row.sku) {
       return (
-        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap", maxWidth: 220 }}>
           <input type="number" autoFocus value={editingCostValue} onChange={e => setEditingCostValue(e.target.value)}
             style={{ width: 70, padding: "3px 6px", borderRadius: 5, border: "1px solid var(--ne-accent)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11 }} />
+          <select value={costDateMode} onChange={e => setCostDateMode(e.target.value)}
+            style={{ padding: "3px 4px", borderRadius: 5, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 10 }}>
+            <option value="immediate">{t("pnl.applyImmediately")}</option>
+            <option value="scheduled">{t("pnl.applyFromDate")}</option>
+          </select>
+          {costDateMode === "scheduled" && (
+            <input type="date" value={costDateValue} min={addDays(toDateStr(new Date()), 1)} onChange={e => setCostDateValue(e.target.value)}
+              style={{ padding: "3px 5px", borderRadius: 5, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 10, width: 118 }} />
+          )}
           <button onClick={() => saveCost(row.sku)}
             style={{ background: "var(--ne-grad)", border: "none", borderRadius: 5, color: "#fff", padding: "3px 8px", cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center" }}><Icon name="check" size={9} /></button>
           <button onClick={() => setEditingCostSku(null)}
@@ -331,8 +363,15 @@ export default function ProfitLoss({ ordersData, storeId }) {
       );
     }
     return (
-      <span onClick={() => openSetCost(row.sku, row.costPer)} style={{ cursor: "pointer", fontSize: 11.5, color: "var(--ne-text)" }} title={t("pnl.editCostTitle")}>
-        {rupees(row.cost)}
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+        <span onClick={() => openSetCost(row.sku, row.costPer)} style={{ cursor: "pointer", fontSize: 11.5, color: "var(--ne-text)" }} title={t("pnl.editCostTitle")}>
+          {rupees(row.cost)}
+        </span>
+        {row.hasIncompleteCost && (
+          <span title={t("pnl.incompleteCostTooltip")} style={{ display: "inline-flex", color: "var(--ne-warning)" }}>
+            <Icon name="warning" size={11} />
+          </span>
+        )}
       </span>
     );
   };
