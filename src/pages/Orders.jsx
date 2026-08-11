@@ -514,7 +514,7 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
           detail ab reasoning text (neeche) mein hi hota hai, alag se chips dikhane ki
           zaroorat nahi. selArea/selSubarea (system row wali shared state) ko seedha
           Gemini ke raw guess se set karta hai. */}
-      {source === "manual_review" && (ad.address_match_gemini_area_raw || ad.address_match_gemini_subarea_raw) && (
+      {!confirmed && source === "manual_review" && (ad.address_match_gemini_area_raw || ad.address_match_gemini_subarea_raw) && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <button onClick={handleAcceptSuggestedMapping} disabled={reformatting}
             style={{ ...addressSmallBtnSecondary, cursor: reformatting ? "default" : "pointer" }}>
@@ -523,7 +523,7 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
         </div>
       )}
 
-      {source === "manual_review" && ad.address_match_reason && (
+      {!confirmed && source === "manual_review" && ad.address_match_reason && (
         <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)", fontStyle: "italic" }}>
           {ad.address_match_reason}
           {(ad.address_match_gemini_area_raw || ad.address_match_gemini_subarea_raw) &&
@@ -537,7 +537,7 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
           se editingChip namespaced rehta hai (system/ai rows ke chips ke sath collide
           nahi karta). autoCapitalize=true — har word ka pehla letter type karte hi
           force-uppercase hota hai. */}
-      {source === "manual_review" && (
+      {!confirmed && source === "manual_review" && (
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           <span style={{ fontSize: 10.5, color: "var(--ne-muted-2)", fontWeight: 700 }}>{t("orders.addressManualEntryLabel")}:</span>
           {renderChip("area", selArea, true, true, "manual", true)}
@@ -552,7 +552,7 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
         </div>
       )}
 
-      {source === "manual_review" && (
+      {!confirmed && source === "manual_review" && (
         <div style={{ fontSize: 10, color: "var(--ne-warning)" }}>
           {t("orders.addressCallCustomerNudge")}
         </div>
