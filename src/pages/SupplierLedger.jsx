@@ -3,15 +3,19 @@ import { supabase } from "../supabase";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
 
+const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 const rupees = (n) => `Rs. ${Math.round(Number(n) || 0).toLocaleString()}`;
 
-export default function SupplierLedger({ storeId }) {
+export default function SupplierLedger({ storeId, cfUrl = CF_URL }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const [suppliers, setSuppliers] = useState([]);
   const [transactions, setTransactions] = useState({}); // { supplierId: [tx, ...] }
   const [loading, setLoading] = useState(true);
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
+
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState("");
 
   const [showAddSupplier, setShowAddSupplier] = useState(false);
   const [supplierForm, setSupplierForm] = useState({ name: "", contact_phone: "", notes: "", is_dropship: false });
@@ -47,6 +51,32 @@ export default function SupplierLedger({ storeId }) {
     });
     setTransactions(grouped);
     setLoading(false);
+  };
+
+  // sync_all_dropship_debits() RPC (Worker se) — Delivered orders check karke naye
+  // supplier debit entries banata hai. fetchAll() se poori transactions state refresh
+  // hoti hai, isliye currently khuli hui supplier ledger (agar koi ho) bhi apne-aap
+  // updated dikhti hai.
+  const syncDropshipDebits = async () => {
+    setSyncing(true);
+    setSyncMessage("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${cfUrl}/sync-dropship-debits`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+      });
+      const data = await res.json();
+      if (data.error) {
+        setSyncMessage(data.error);
+      } else {
+        setSyncMessage(`${data.orders_checked ?? 0} ${t("ledger.syncOrdersChecked")}, ${data.new_entries ?? 0} ${t("ledger.syncNewEntries")}`);
+        await fetchAll();
+      }
+    } catch (err) {
+      setSyncMessage(err.message);
+    }
+    setSyncing(false);
   };
 
   const balanceOf = (supplierId) => {
@@ -125,17 +155,24 @@ export default function SupplierLedger({ storeId }) {
             <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{viewingSupplier.name}</h1>
             <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{viewingSupplier.contact_phone || t("common.noPhone")}</p>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 18, fontWeight: 800, color: balance > 0 ? "var(--ne-danger)" : "var(--ne-success)" }}>{rupees(Math.abs(balance))}</div>
               <div style={{ fontSize: 10, color: "var(--ne-muted)" }}>{balance > 0 ? t("ledger.payable") : balance < 0 ? t("ledger.advance") : t("ledger.clear")}</div>
             </div>
+            <button onClick={syncDropshipDebits} disabled={syncing}
+              style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: syncing ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: syncing ? "default" : "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <Icon name="refresh" size={13} /> {syncing ? t("ledger.syncing") : t("ledger.syncButton")}
+            </button>
             <button onClick={() => { setEntryForm({ type: "debit", amount: "", transaction_date: new Date().toISOString().slice(0, 10), notes: "" }); setEntryError(""); setShowAddEntry(true); }}
               style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
               {t("ledger.addEntry")}
             </button>
           </div>
         </div>
+        {syncMessage && (
+          <p style={{ margin: "-6px 0 12px", fontSize: 11.5, color: "var(--ne-muted)", textAlign: "right" }}>{syncMessage}</p>
+        )}
 
         <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem" }}>
           {ledgerRows.length === 0 ? (
@@ -241,10 +278,17 @@ export default function SupplierLedger({ storeId }) {
           <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><Icon name="clipboard" size={17} /> {t("ledger.title")}</h1>
           <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{suppliers.length} {t("ledger.suppliersSuffix")}</p>
         </div>
-        <button onClick={() => { setSupplierForm({ name: "", contact_phone: "", notes: "", is_dropship: false }); setSupplierError(""); setShowAddSupplier(true); }}
-          style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-          {t("ledger.addSupplier")}
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {syncMessage && <span style={{ fontSize: 11, color: "var(--ne-muted)" }}>{syncMessage}</span>}
+          <button onClick={syncDropshipDebits} disabled={syncing}
+            style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: syncing ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: syncing ? "default" : "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <Icon name="refresh" size={13} /> {syncing ? t("ledger.syncing") : t("ledger.syncButton")}
+          </button>
+          <button onClick={() => { setSupplierForm({ name: "", contact_phone: "", notes: "", is_dropship: false }); setSupplierError(""); setShowAddSupplier(true); }}
+            style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+            {t("ledger.addSupplier")}
+          </button>
+        </div>
       </div>
 
       {loading ? (

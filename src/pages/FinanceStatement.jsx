@@ -47,31 +47,39 @@ const toolbarBtnStyle = {
   color: "var(--ne-text)", fontSize: 11.5, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6,
 };
 
-function StatementRow({ period, t, cfUrl, storeId }) {
+function StatementRow({ period, t, cfUrl, storeId, ordersStore }) {
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [data, setData] = useState(null);
 
-  const toggle = async () => {
-    if (expanded) { setExpanded(false); return; }
-    setExpanded(true);
-    if (data || loading) return;
-    setLoading(true);
-    setError("");
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`${cfUrl}/finance-statement?store_id=${encodeURIComponent(storeId)}&period_start=${encodeURIComponent(period.start.toISOString())}&period_end=${encodeURIComponent(period.end.toISOString())}`, {
-        headers: { Authorization: `Bearer ${session?.access_token}` },
-      });
-      const json = await res.json();
-      if (json.error) setError(json.error);
-      else setData(json);
-    } catch (err) {
-      setError(err.message);
-    }
-    setLoading(false);
-  };
+  // Collapsed header ko bhi Total Payable/counts/approximation-warning dikhani hai
+  // (ab sirf expand karne pe nahi), isliye fetch ab mount pe hi ho jata hai — pehle
+  // wala lazy-on-first-expand pattern is requirement se match nahi karta tha.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError("");
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch(`${cfUrl}/finance-statement?store_id=${encodeURIComponent(storeId)}&period_start=${encodeURIComponent(period.start.toISOString())}&period_end=${encodeURIComponent(period.end.toISOString())}`, {
+          headers: { Authorization: `Bearer ${session?.access_token}` },
+        });
+        const json = await res.json();
+        if (cancelled) return;
+        if (json.error) setError(json.error);
+        else setData(json);
+      } catch (err) {
+        if (!cancelled) setError(err.message);
+      }
+      if (!cancelled) setLoading(false);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cfUrl, storeId]);
+
+  const toggle = () => setExpanded((e) => !e);
 
   const lastDay = new Date(period.end.getTime() - 1);
   const approximatedCount = (data?.line_items || []).filter((li) => li.approximated_rate).length;
@@ -101,97 +109,105 @@ function StatementRow({ period, t, cfUrl, storeId }) {
         </div>
       </div>
 
-      {expanded && (
+      {/* Collapsed AND expanded dono mein visible — Period/Total Payable header ke
+          upar, counts + approximation warning yahan, taake See More kholay bina bhi
+          period ka pura summary dikhe. */}
+      {loading ? (
+        <div style={{ padding: "0 18px 12px", fontSize: 10.5, color: "var(--ne-muted-2)" }}>{t("finance.loading")}</div>
+      ) : error ? (
+        <div style={{ padding: "0 18px 12px", color: "var(--ne-danger)", fontSize: 11 }}>{error}</div>
+      ) : data ? (
+        <div style={{ padding: "0 18px 12px" }}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 10.5, color: "var(--ne-muted-2)", marginBottom: (approximatedCount > 0 || skippedCount > 0) ? 8 : 0 }}>
+            <span>{t("finance.orderCount")}: <b style={{ color: "var(--ne-text)" }}>{data.order_count}</b></span>
+            <span>{t("finance.matchedCount")}: <b style={{ color: "var(--ne-text)" }}>{data.matched_count}</b></span>
+            <span>{t("finance.unmatchedCount")}: <b style={{ color: "var(--ne-warning)" }}>{data.unmatched_count}</b></span>
+            {approximatedCount > 0 && <span>{t("finance.approximatedCount")}: <b style={{ color: "var(--ne-warning)" }}>{approximatedCount}</b></span>}
+            {skippedCount > 0 && <span>{t("finance.skippedCount")}: <b style={{ color: "var(--ne-danger)" }}>{skippedCount}</b></span>}
+          </div>
+          {(approximatedCount > 0 || skippedCount > 0) && (
+            <div style={{ padding: "8px 12px", borderRadius: 9, background: "var(--ne-warning-soft)", color: "var(--ne-warning)", fontSize: 10.5, display: "flex", alignItems: "center", gap: 6 }}>
+              <Icon name="warning" size={11} /> {t("finance.approximationNote")}
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {expanded && data && (
         <div style={{ borderTop: "1px solid var(--ne-border)", padding: "14px 18px" }}>
-          {loading ? (
-            <div style={{ textAlign: "center", padding: "1.5rem", color: "var(--ne-muted)", fontSize: 12 }}>{t("finance.loading")}</div>
-          ) : error ? (
-            <div style={{ color: "var(--ne-danger)", fontSize: 12 }}>{error}</div>
-          ) : data ? (
-            <>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 10.5, color: "var(--ne-muted-2)", marginBottom: 12 }}>
-                <span>{t("finance.orderCount")}: <b style={{ color: "var(--ne-text)" }}>{data.order_count}</b></span>
-                <span>{t("finance.matchedCount")}: <b style={{ color: "var(--ne-text)" }}>{data.matched_count}</b></span>
-                <span>{t("finance.unmatchedCount")}: <b style={{ color: "var(--ne-warning)" }}>{data.unmatched_count}</b></span>
-                {approximatedCount > 0 && <span>{t("finance.approximatedCount")}: <b style={{ color: "var(--ne-warning)" }}>{approximatedCount}</b></span>}
-                {skippedCount > 0 && <span>{t("finance.skippedCount")}: <b style={{ color: "var(--ne-danger)" }}>{skippedCount}</b></span>}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <div style={{ background: "var(--ne-surface)", borderRadius: 10, padding: "12px 14px" }}>
+              <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 8, fontWeight: 700 }}>{t("finance.codBlockTitle")}</div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
+                <span style={{ color: "var(--ne-muted-2)" }}>{t("finance.totalCod")}</span>
+                <span style={{ color: "var(--ne-text)", fontWeight: 600 }}>{fmtMoney(data.total_cod)}</span>
               </div>
-
-              {(approximatedCount > 0 || skippedCount > 0) && (
-                <div style={{ marginBottom: 12, padding: "8px 12px", borderRadius: 9, background: "var(--ne-warning-soft)", color: "var(--ne-warning)", fontSize: 10.5, display: "flex", alignItems: "center", gap: 6 }}>
-                  <Icon name="warning" size={11} /> {t("finance.approximationNote")}
-                </div>
-              )}
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                <div style={{ background: "var(--ne-surface)", borderRadius: 10, padding: "12px 14px" }}>
-                  <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 8, fontWeight: 700 }}>{t("finance.codBlockTitle")}</div>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
-                    <span style={{ color: "var(--ne-muted-2)" }}>{t("finance.totalCod")}</span>
-                    <span style={{ color: "var(--ne-text)", fontWeight: 600 }}>{fmtMoney(data.total_cod)}</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                    <span style={{ color: "var(--ne-muted-2)" }}>{t("finance.totalIncomeTax")}</span>
-                    <span style={{ color: "var(--ne-danger)" }}>-{fmtMoney(data.total_income_tax)}</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                    <span style={{ color: "var(--ne-muted-2)" }}>{t("finance.totalSalesTax")}</span>
-                    <span style={{ color: "var(--ne-danger)" }}>-{fmtMoney(data.total_sales_tax)}</span>
-                  </div>
-                </div>
-                <div style={{ background: "var(--ne-surface)", borderRadius: 10, padding: "12px 14px" }}>
-                  <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 8, fontWeight: 700 }}>{t("finance.shippingBlockTitle")}</div>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
-                    <span style={{ color: "var(--ne-muted-2)" }}>{t("finance.totalShippingFee")}</span>
-                    <span style={{ color: "var(--ne-danger)" }}>-{fmtMoney(data.total_shipping_fee)}</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                    <span style={{ color: "var(--ne-muted-2)" }}>{t("finance.totalVat")}</span>
-                    <span style={{ color: "var(--ne-danger)" }}>-{fmtMoney(data.total_vat)}</span>
-                  </div>
-                </div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                <span style={{ color: "var(--ne-muted-2)" }}>{t("finance.totalIncomeTax")}</span>
+                <span style={{ color: "var(--ne-danger)" }}>-{fmtMoney(data.total_income_tax)}</span>
               </div>
-
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 14, padding: "12px 14px", borderRadius: 10, background: "var(--ne-accent-soft)" }}>
-                <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--ne-accent)" }}>{t("finance.totalPayable")}</span>
-                <span style={{ fontSize: 16, fontWeight: 800, color: "var(--ne-accent)" }}>{fmtMoney(data.total_payable)}</span>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                <span style={{ color: "var(--ne-muted-2)" }}>{t("finance.totalSalesTax")}</span>
+                <span style={{ color: "var(--ne-danger)" }}>-{fmtMoney(data.total_sales_tax)}</span>
               </div>
+            </div>
+            <div style={{ background: "var(--ne-surface)", borderRadius: 10, padding: "12px 14px" }}>
+              <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 8, fontWeight: 700 }}>{t("finance.shippingBlockTitle")}</div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
+                <span style={{ color: "var(--ne-muted-2)" }}>{t("finance.totalShippingFee")}</span>
+                <span style={{ color: "var(--ne-danger)" }}>-{fmtMoney(data.total_shipping_fee)}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                <span style={{ color: "var(--ne-muted-2)" }}>{t("finance.totalVat")}</span>
+                <span style={{ color: "var(--ne-danger)" }}>-{fmtMoney(data.total_vat)}</span>
+              </div>
+            </div>
+          </div>
 
-              {data.line_items?.length > 0 && (
-                <div style={{ marginTop: 14, overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-                    <thead>
-                      <tr>
-                        {[t("finance.col.order"), t("finance.col.status"), t("finance.col.province"), t("finance.col.cod"), t("finance.col.shippingFee"), t("finance.col.payable")].map((h) => (
-                          <th key={h} style={{ textAlign: "left", padding: "5px 8px", color: "var(--ne-muted)", borderBottom: "1px solid var(--ne-border)", fontWeight: 600, fontSize: 9.5, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.line_items.map((li, idx) => (
-                        <tr key={idx} style={{ borderBottom: "1px solid var(--ne-border)", opacity: li.skipped ? 0.55 : 1 }}>
-                          <td style={{ padding: "5px 8px", color: "var(--ne-text)" }}>{li.order_id || li.manual_order_number || "—"}</td>
-                          <td style={{ padding: "5px 8px" }}>
-                            <span style={{ padding: "2px 7px", borderRadius: 6, fontSize: 9.5, fontWeight: 700, background: li.status === "Delivered" ? "var(--ne-success-soft)" : "var(--ne-danger-soft)", color: li.status === "Delivered" ? "var(--ne-success)" : "var(--ne-danger)" }}>
-                              {li.status}
-                            </span>
-                          </td>
-                          <td style={{ padding: "5px 8px", color: "var(--ne-muted)" }}>
-                            {li.province_used || "—"}{li.approximated_rate && <Icon name="warning" size={9} style={{ marginLeft: 4, color: "var(--ne-warning)" }} />}
-                          </td>
-                          <td style={{ padding: "5px 8px", color: "var(--ne-text)" }}>{li.skipped ? "—" : fmtMoney(li.cod_amount)}</td>
-                          <td style={{ padding: "5px 8px", color: "var(--ne-text)" }}>{li.skipped ? "—" : fmtMoney(li.shipping_fee)}</td>
-                          <td style={{ padding: "5px 8px", fontWeight: 700, color: li.skipped ? "var(--ne-muted-2)" : (li.payable >= 0 ? "var(--ne-success)" : "var(--ne-danger)") }}>
-                            {li.skipped ? t("finance.skipped") : fmtMoney(li.payable)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </>
-          ) : null}
+          {data.line_items?.length > 0 && (
+            <div style={{ marginTop: 14, overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                <thead>
+                  <tr>
+                    {[t("finance.col.order"), t("finance.col.status"), t("finance.col.province"), t("finance.col.cod"), t("finance.col.shippingFee"), t("finance.col.vat"), t("finance.col.incomeTax"), t("finance.col.salesTax"), t("finance.col.totalDeduction"), t("finance.col.payable")].map((h) => (
+                      <th key={h} style={{ textAlign: "left", padding: "5px 8px", color: "var(--ne-muted)", borderBottom: "1px solid var(--ne-border)", fontWeight: 600, fontSize: 9.5, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.line_items.map((li, idx) => (
+                    <tr key={idx} style={{ borderBottom: "1px solid var(--ne-border)", opacity: li.skipped ? 0.55 : 1 }}>
+                      <td style={{ padding: "5px 8px", color: "var(--ne-text)", whiteSpace: "nowrap" }}>
+                        {li.order_id ? (
+                          <a href={`https://${ordersStore?.shopify_url}/admin/orders/${li.order_id}`} target="_blank" rel="noreferrer"
+                            style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none" }}>
+                            {li.order_number || li.order_id}
+                          </a>
+                        ) : (li.order_number || "—")}
+                      </td>
+                      <td style={{ padding: "5px 8px" }}>
+                        <span style={{ padding: "2px 7px", borderRadius: 6, fontSize: 9.5, fontWeight: 700, background: li.status === "Delivered" ? "var(--ne-success-soft)" : "var(--ne-danger-soft)", color: li.status === "Delivered" ? "var(--ne-success)" : "var(--ne-danger)" }}>
+                          {li.status}
+                        </span>
+                      </td>
+                      <td style={{ padding: "5px 8px", color: "var(--ne-muted)" }}>
+                        {li.province_used || "—"}{li.approximated_rate && <Icon name="warning" size={9} style={{ marginLeft: 4, color: "var(--ne-warning)" }} />}
+                      </td>
+                      <td style={{ padding: "5px 8px", color: "var(--ne-text)" }}>{li.skipped ? "—" : fmtMoney(li.cod_amount)}</td>
+                      <td style={{ padding: "5px 8px", color: "var(--ne-text)" }}>{li.skipped ? "—" : fmtMoney(li.shipping_fee)}</td>
+                      <td style={{ padding: "5px 8px", color: "var(--ne-text)" }}>{li.skipped ? "—" : fmtMoney(li.vat)}</td>
+                      <td style={{ padding: "5px 8px", color: "var(--ne-text)" }}>{li.skipped ? "—" : fmtMoney(li.income_tax)}</td>
+                      <td style={{ padding: "5px 8px", color: "var(--ne-text)" }}>{li.skipped ? "—" : fmtMoney(li.sales_tax)}</td>
+                      <td style={{ padding: "5px 8px", color: "var(--ne-danger)", fontWeight: 600 }}>{li.skipped ? "—" : fmtMoney(li.total_deduction)}</td>
+                      <td style={{ padding: "5px 8px", fontWeight: 700, color: li.skipped ? "var(--ne-muted-2)" : (li.payable >= 0 ? "var(--ne-success)" : "var(--ne-danger)") }}>
+                        {li.skipped ? t("finance.skipped") : fmtMoney(li.payable)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -348,7 +364,7 @@ export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL 
 
       <div>
         {periods.map((p) => (
-          <StatementRow key={periodKey(p)} period={p} t={t} cfUrl={cfUrl} storeId={storeId} />
+          <StatementRow key={periodKey(p)} period={p} t={t} cfUrl={cfUrl} storeId={storeId} ordersStore={ordersStore} />
         ))}
       </div>
 

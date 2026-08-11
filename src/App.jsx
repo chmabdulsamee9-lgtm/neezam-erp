@@ -1876,7 +1876,7 @@ function App() {
               <ProfitLoss ordersData={ordersData} storeId={selectedStoreId} />
             )}
             {activeMenu === 'ledger' && hasAccess('ledger') && (
-              <SupplierLedger storeId={selectedStoreId} />
+              <SupplierLedger storeId={selectedStoreId} cfUrl={CF_URL} />
             )}
             {activeMenu === 'budget' && hasAccess('budget') && (
               <BudgetCalculator ordersData={ordersData} />
