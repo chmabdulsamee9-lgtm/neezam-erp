@@ -617,6 +617,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const [perPage, setPerPage] = useState(20);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
+  const [bulkStatusPos, setBulkStatusPos] = useState({ top: 0, left: 0 });
   const [activeTab, setActiveTab] = useState("All");
   const [cancelReasonModal, setCancelReasonModal] = useState(null);
   const [cancelReasonOtherMode, setCancelReasonOtherMode] = useState(false);
@@ -758,7 +759,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         setCancelReasonCustomText("");
       }
       if (!e.target.closest("[data-status-multi]")) setStatusMultiOpen(false);
-      if (!e.target.closest("[data-bulk-status]")) setBulkStatusOpen(false);
+      if (!e.target.closest("[data-bulk-status-dropdown]") && !e.target.closest("[data-bulk-status-btn]")) setBulkStatusOpen(false);
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -1413,6 +1414,25 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     setStatusDropdown(orderId);
   };
 
+  // Bulk Status dropdown ka trigger button "Quick filters + search + tab nav" wale
+  // overflow:hidden collapse-wrapper (CSS-grid Nfr/0fr trick) ke andar hai — dropdown
+  // panel ko wahin absolute-position karne se woh us wrapper ki boundary pe clip ho
+  // kar table header ke sath overlap karta tha. handleStatusBtnClick jaisa hi fixed-
+  // position "portal" pattern reuse karte hain taake dropdown us clipping ancestor se
+  // bahar render ho.
+  const handleBulkStatusBtnClick = (e) => {
+    if (bulkStatusOpen) { setBulkStatusOpen(false); return; }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const dropdownHeight = 290;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const showAbove = spaceBelow < dropdownHeight;
+    setBulkStatusPos({
+      top: showAbove ? rect.top - dropdownHeight - 4 : rect.bottom + 4,
+      left: Math.min(rect.left, window.innerWidth - 185),
+    });
+    setBulkStatusOpen(true);
+  };
+
   const handleDateBtn = (type) => {
     if (activeDateBtn === type) {
       setActiveDateBtn(null);
@@ -1963,23 +1983,11 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
         {selectedIds.size > 0 && (
           <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: "auto", flexWrap: "wrap" }}>
             <span style={{ fontSize: 11, color: "var(--ne-muted)", fontWeight: 600 }}>{selectedIds.size} {t("orders.selectedSuffix")}</span>
-            <div style={{ position: "relative" }} data-bulk-status>
-              <button onClick={() => setBulkStatusOpen(!bulkStatusOpen)}
+            <div style={{ position: "relative" }}>
+              <button data-bulk-status-btn onClick={handleBulkStatusBtnClick}
                 style={{ padding: "6px 12px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-accent-soft)", color: "var(--ne-accent)", fontSize: 11, cursor: "pointer", fontWeight: 700 }}>
                 {t("orders.bulkStatus")} ▼
               </button>
-              {bulkStatusOpen && (
-                <div style={{ position: "absolute", top: "100%", right: 0, zIndex: 9999, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "6px", minWidth: 180, marginTop: 4, boxShadow: "0 8px 30px rgba(0,0,0,.5)" }}>
-                  {STATUSES.map(s => (
-                    <div key={s.label} onClick={() => bulkUpdateStatus(s.label)}
-                      style={{ padding: "6px 10px", borderRadius: 7, cursor: "pointer", color: s.color, fontSize: 11, fontWeight: 500 }}
-                      onMouseEnter={e => e.currentTarget.style.background = s.bg}
-                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                      {s.label}
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
             <button onClick={() => openSyncConfirm(orders.filter(o => selectedIds.has(o.id)))}
               style={{ padding: "6px 12px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11, cursor: "pointer", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 5 }}>
@@ -2296,6 +2304,24 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
           {STATUSES.map(s => (
             <div key={s.label} onClick={() => updateStatus(statusDropdown, s.label)}
               style={{ padding: "7px 10px", borderRadius: 7, cursor: "pointer", color: s.color, fontSize: 11, fontWeight: 500 }}
+              onMouseEnter={e => e.currentTarget.style.background = s.bg}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              {s.label}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Bulk Status Dropdown Portal — is button ki apni jagah (Filters + Bulk Actions
+          row) ek overflow:hidden collapse-wrapper ke andar hai, is liye dropdown ko
+          us wrapper se bahar, fixed-position "portal" ke tor par render karte hain
+          (Status Dropdown Portal jaisa hi pattern) — warna panel us wrapper ki
+          boundary pe clip ho kar table header ke sath overlap karta tha. */}
+      {bulkStatusOpen && (
+        <div data-bulk-status-dropdown style={{ position: "fixed", top: bulkStatusPos.top, left: bulkStatusPos.left, zIndex: 999999, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "6px", minWidth: 180, boxShadow: "0 8px 30px rgba(0,0,0,.5)" }}>
+          {STATUSES.map(s => (
+            <div key={s.label} onClick={() => bulkUpdateStatus(s.label)}
+              style={{ padding: "6px 10px", borderRadius: 7, cursor: "pointer", color: s.color, fontSize: 11, fontWeight: 500 }}
               onMouseEnter={e => e.currentTarget.style.background = s.bg}
               onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
               {s.label}
