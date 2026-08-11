@@ -10,7 +10,25 @@ const PER_PAGE_OPTIONS = [10, 20, 50];
 const DEFAULT_COMPONENT_KEYS = ["component_1", "component_2", "component_3"];
 const DEFAULT_LABELS = { component_1: "Raw Material", component_2: "Packaging", component_3: "Other" };
 
-const firstVariant = (row) => row?.raw_data?.variants?.[0] || {};
+// Har variant apni khud ki row hai — variant.id hi is component ke andar row ki asal
+// stable identity hai (selection/draft/saving-state ke liye), SKU nahi (khaali ho sakta
+// hai). Sirf woh rare edge-case (product ke variants array hi khaali/missing ho) ke
+// liye fallback chahiye.
+const rowKeyFor = (product, variant) => (variant?.id != null ? String(variant.id) : `${product.shopify_product_id}-empty`);
+
+// Har product ke SAARE variants apni-apni independent row banate hain (sirf pehla
+// variant nahi) — Products.jsx (ProductsManagement.jsx) ke variant-title display
+// convention se match karta hai. Product ka apna koi variant hi na ho (raw_data
+// missing/khaali) to ek placeholder `{}` row rakhte hain, taake purana firstVariant()-
+// jaisa fallback behavior barqarar rahe. Plain function (koi hook nahi) — jahan bhi
+// zaroorat ho seedha call hoti hai, memoization ki zaroorat nahi (product count itna
+// bara nahi hota ke recompute mehenga ho).
+function buildVariantRows(products) {
+  return products.flatMap((product) => {
+    const variants = product?.raw_data?.variants?.length ? product.raw_data.variants : [{}];
+    return variants.map((variant) => ({ product, variant }));
+  });
+}
 
 // Case/whitespace/underscore-insensitive header comparison, used for both matching
 // an uploaded CSV/Excel header against the current component labels and for
@@ -310,8 +328,8 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
       cells.forEach((cellText, cOffset) => {
         const targetRow = rowIndexOnPage + rOffset;
         const targetCol = colIndex + cOffset;
-        if (targetCol > 2 || targetRow >= pagedProducts.length) return;
-        const targetSku = firstVariant(pagedProducts[targetRow]).sku;
+        if (targetCol > 2 || targetRow >= pagedRows.length) return;
+        const targetSku = pagedRows[targetRow].variant.sku;
         if (!targetSku) return;
         const componentKey = DEFAULT_COMPONENT_KEYS[targetCol];
         if (!changesBySku[targetSku]) changesBySku[targetSku] = {};
@@ -357,21 +375,23 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
     }
   };
 
-  const getSkuInputValue = (product) => skuDrafts[product.shopify_product_id] ?? "";
+  const getSkuInputValue = (rowKey) => skuDrafts[rowKey] ?? "";
 
-  const saveSku = async (product) => {
-    const draft = (skuDrafts[product.shopify_product_id] || "").trim();
+  // product/variant explicitly liye jate hain (rowKey se hi derive hue the, caller ke
+  // paas already available hain) — is se yahan dobara "kis product ka kaunsa variant"
+  // firstVariant() se guess nahi karna padta, row apna sahi variant khud carry karta hai.
+  const saveSku = async (product, variant, rowKey) => {
+    const draft = (skuDrafts[rowKey] || "").trim();
     if (!draft) return;
-    setSavingSkuIds((prev) => new Set(prev).add(product.shopify_product_id));
+    setSavingSkuIds((prev) => new Set(prev).add(rowKey));
     setError("");
     try {
-      const v = firstVariant(product);
       const data = await authedFetch("/shopify-product-update", {
         method: "POST",
         body: JSON.stringify({
           store_id: storeId,
           product_id: product.shopify_product_id,
-          updates: { variants: [{ id: v.id, sku: draft }] },
+          updates: { variants: [{ id: variant.id, sku: draft }] },
         }),
       });
       if (data.error) {
@@ -382,7 +402,7 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
         await upsertProduct(eneezamId, row);
         setSkuDrafts((prev) => {
           const n = { ...prev };
-          delete n[product.shopify_product_id];
+          delete n[rowKey];
           return n;
         });
       }
@@ -391,7 +411,7 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
     }
     setSavingSkuIds((prev) => {
       const n = new Set(prev);
-      n.delete(product.shopify_product_id);
+      n.delete(rowKey);
       return n;
     });
   };
@@ -406,8 +426,11 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
 
   const applyBulkSupplier = async () => {
     if (!bulkSupplierId) return;
-    const targets = products.filter((p) => selectedIds.has(p.shopify_product_id));
-    const skuList = [...new Set(targets.map((p) => firstVariant(p).sku).filter(Boolean))];
+    // Poori unfiltered list se dhoondte hain, filtered/pagedRows se nahi — taake ek row
+    // select karke search/filter badalne (ya doosre page pe jaane) se woh selection
+    // kho na jaye, purane products-level behavior jaisa hi.
+    const targets = buildVariantRows(products).filter(({ product, variant }) => selectedIds.has(rowKeyFor(product, variant)));
+    const skuList = [...new Set(targets.map(({ variant }) => variant.sku).filter(Boolean))];
     if (skuList.length === 0) { setShowBulkSupplierModal(false); return; }
     setBulkSupplierApplying(true);
     try {
@@ -429,11 +452,13 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
   };
 
   const downloadTemplate = () => {
-    const rowsWithSku = products.filter((p) => firstVariant(p).sku);
+    // Poori unfiltered list se — har variant ka apna SKU export hota hai, sirf har
+    // product ke pehle variant ka nahi (jaisa firstVariant() se pehle hota tha).
+    const rowsWithSku = buildVariantRows(products).filter(({ variant }) => variant.sku);
     const header = ["SKU", labels.component_1, labels.component_2, labels.component_3, "Return Value"];
     const lines = [header.map(csvEscape).join(",")];
-    rowsWithSku.forEach((p) => {
-      const sku = firstVariant(p).sku;
+    rowsWithSku.forEach(({ variant }) => {
+      const sku = variant.sku;
       const compMap = components[sku] || {};
       lines.push([
         sku,
@@ -561,9 +586,9 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return products.filter((p) => {
-      const title = (p.raw_data?.title || "").toLowerCase();
-      const sku = firstVariant(p).sku || "";
+    return buildVariantRows(products).filter(({ product, variant }) => {
+      const title = (product.raw_data?.title || "").toLowerCase();
+      const sku = variant.sku || "";
       const matchSearch = !q || title.includes(q) || sku.toLowerCase().includes(q);
       if (!matchSearch) return false;
       if (filterMode === "skuMissing") return !sku;
@@ -574,7 +599,7 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
   }, [products, search, filterMode, components, legacyCosts]);
 
   const totalPages = Math.ceil(filtered.length / perPage) || 1;
-  const pagedProducts = filtered.slice((page - 1) * perPage, page * perPage);
+  const pagedRows = filtered.slice((page - 1) * perPage, page * perPage);
 
   const cardStyle = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "18px 20px" };
   const cellInputStyle = {
@@ -695,8 +720,10 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
               </tr>
             </thead>
             <tbody>
-              {pagedProducts.map((p, rowIndex) => {
-                const v = firstVariant(p);
+              {pagedRows.map(({ product, variant }, rowIndex) => {
+                const p = product;
+                const v = variant;
+                const rowKey = rowKeyFor(product, variant);
                 const sku = v.sku || "";
                 const image = p.raw_data?.image?.src || p.raw_data?.images?.[0]?.src;
                 const skuComponents = sku ? components[sku] : null;
@@ -705,13 +732,13 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
                 const namedExtraKeys = extraKeys.filter((k) => !/^extra_\d+$/.test(k));
                 const slotCount = Math.max(extraCounts[sku] || 0, numberedExtraKeys.length);
                 const hasExpandedContent = slotCount > 0 || namedExtraKeys.length > 0;
-                const isSavingSku = savingSkuIds.has(p.shopify_product_id);
+                const isSavingSku = savingSkuIds.has(rowKey);
                 const variationTitle = v.title && v.title !== "Default Title" ? v.title : "";
                 return (
-                  <Fragment key={p.shopify_product_id}>
+                  <Fragment key={rowKey}>
                     <tr style={{ borderBottom: hasExpandedContent ? "none" : "1px solid var(--ne-border)" }}>
                       <td style={{ padding: "7px 8px" }}>
-                        <input type="checkbox" checked={selectedIds.has(p.shopify_product_id)} onChange={() => toggleSelect(p.shopify_product_id)} style={{ cursor: "pointer" }} />
+                        <input type="checkbox" checked={selectedIds.has(rowKey)} onChange={() => toggleSelect(rowKey)} style={{ cursor: "pointer" }} />
                       </td>
                       <td style={{ padding: "7px 8px" }}>
                         {image ? (
@@ -742,10 +769,10 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
                           <span style={{ color: "var(--ne-muted)", fontFamily: "monospace" }}>{sku}</span>
                         ) : (
                           <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                            <input type="text" placeholder={t("costing.skuPlaceholder")} value={getSkuInputValue(p)}
-                              onChange={(e) => setSkuDrafts((prev) => ({ ...prev, [p.shopify_product_id]: e.target.value }))}
+                            <input type="text" placeholder={t("costing.skuPlaceholder")} value={getSkuInputValue(rowKey)}
+                              onChange={(e) => setSkuDrafts((prev) => ({ ...prev, [rowKey]: e.target.value }))}
                               style={{ width: 90, padding: "5px 7px", borderRadius: 7, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11 }} />
-                            <button onClick={() => saveSku(p)} disabled={isSavingSku || !getSkuInputValue(p).trim()}
+                            <button onClick={() => saveSku(p, v, rowKey)} disabled={isSavingSku || !getSkuInputValue(rowKey).trim()}
                               style={{ padding: "5px 9px", borderRadius: 7, border: "none", background: isSavingSku ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", fontSize: 10.5, fontWeight: 700, cursor: isSavingSku ? "default" : "pointer", whiteSpace: "nowrap" }}>
                               {isSavingSku ? t("costing.savingSku") : t("costing.saveSku")}
                             </button>
