@@ -17,6 +17,11 @@ const EXPENSE_CATEGORIES = [
 
 const rupees = (n) => `Rs. ${Math.round(Number(n) || 0).toLocaleString()}`;
 
+// Local-calendar-date string (not UTC) — same convention as ProductCosting.jsx's
+// toDateStr/effective_from handling, so "today" and order-date comparisons agree
+// across both pages of the rate-history system.
+const toDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
 export default function ProfitLoss({ ordersData, storeId }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
@@ -26,7 +31,10 @@ export default function ProfitLoss({ ordersData, storeId }) {
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
 
   const [expenses, setExpenses] = useState([]);
-  const [productCosts, setProductCosts] = useState({}); // { sku: cost_price }
+  // productCostRows: ALL product_costs rows (every SKU, every effective_from version) —
+  // NOT collapsed to "latest per SKU", since COGS now needs to resolve the rate that was
+  // effective as of each individual order's booked date, not just today's rate.
+  const [productCostRows, setProductCostRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [variantSkuRows, setVariantSkuRows] = useState([]); // lightweight products_cache projection (raw_data->variants only) for the live-SKU lookup, Orders.jsx/BookedOrders.jsx jaisa hi
 
@@ -79,10 +87,42 @@ export default function ProfitLoss({ ordersData, storeId }) {
       supabase.from("product_costs").select("*").eq("store_id", storeId),
     ]);
     setExpenses(expenseRows || []);
-    const costMap = {};
-    (costRows || []).forEach(r => { costMap[r.sku] = Number(r.cost_price); });
-    setProductCosts(costMap);
+    setProductCostRows(costRows || []);
     setLoading(false);
+  };
+
+  // Har SKU ke saare versions, effective_from descending sorted (null = "hamesha se
+  // effective", ProductCosting.jsx wala hi defensive fallback — isliye sabse purana/last
+  // treat hota hai, sirf tab select hota hai jab koi dated row bhi qualify na kare).
+  const costVersionsBySku = useMemo(() => {
+    const map = {};
+    productCostRows.forEach((r) => {
+      if (!map[r.sku]) map[r.sku] = [];
+      map[r.sku].push(r);
+    });
+    Object.values(map).forEach((rows) => rows.sort((a, b) => (b.effective_from || "0000-01-01").localeCompare(a.effective_from || "0000-01-01")));
+    return map;
+  }, [productCostRows]);
+
+  // Us SKU ki rate jo `dateStr` (order ke booked-date) tak effective thi — ProductCosting.jsx
+  // ke get_product_cost_as_of()-equivalent client-side resolution, sirf "aaj" ki jagah
+  // arbitrary date ke against.
+  const resolveCostAsOf = useCallback((sku, dateStr) => {
+    const versions = costVersionsBySku[sku];
+    if (!versions) return null;
+    const hit = versions.find((r) => (r.effective_from || "0000-01-01") <= dateStr);
+    return hit ? Number(hit.cost_price) : null;
+  }, [costVersionsBySku]);
+
+  // Order ka "booked" date — package_created_at (courier ke saath book hone ki date,
+  // order_statuses trigger wala hi field) — lekin "Approved" bucket ke bohot se orders
+  // abhi tak courier se booked hi nahi hote, is liye package_created_at na ho to order ke
+  // apne created_at (Shopify order date) pe fallback karte hain, taake un orders ka COGS
+  // bhi resolve ho sake (na ke hamesha "aaj" ki rate lag jaye, jo is poore feature ka
+  // maqsad hi khatam kar degi).
+  const orderDateStr = (o) => {
+    const raw = o.agent_data?.package_created_at || o.created_at;
+    return raw ? toDateStr(new Date(raw)) : null;
   };
 
   const getDateRange = () => {
@@ -119,6 +159,7 @@ export default function ProfitLoss({ ordersData, storeId }) {
       const itemsOverride = o.agent_data?.line_items_override;
       const usingOverride = itemsOverride?.length > 0;
       const items = usingOverride ? itemsOverride : (o.line_items || []);
+      const orderDate = orderDateStr(o);
       const seenInOrder = new Set();
       items.forEach(li => {
         // Priority: override item's own sku (staff ne manually chosen tha, isse trust
@@ -128,19 +169,27 @@ export default function ProfitLoss({ ordersData, storeId }) {
         const sku = overrideSku || (liveSkuForLineItem(li) || "").trim() || "(no SKU)";
         const qty = Number(li.quantity || 1);
         const lineRevenue = Number(li.price || 0) * qty;
-        if (!map[sku]) map[sku] = { sku, orders: 0, qty: 0, revenue: 0 };
+        if (!map[sku]) map[sku] = { sku, orders: 0, qty: 0, revenue: 0, cost: 0, costedQty: 0 };
         if (!seenInOrder.has(sku)) { map[sku].orders += 1; seenInOrder.add(sku); }
         map[sku].qty += qty;
         map[sku].revenue += lineRevenue;
+        // Is order ke apne booked-date (ya created_at fallback) ke hisaab se us waqt
+        // effective rate — total qty pe ek hi "aaj" wali rate multiply karne ke bajaye,
+        // taake purane orders ka profit rate change hone pe retroactively na badle.
+        const rate = orderDate != null ? resolveCostAsOf(sku, orderDate) : null;
+        if (rate != null) {
+          map[sku].cost += rate * qty;
+          map[sku].costedQty += qty;
+        }
       });
     });
     return Object.values(map).map(row => {
-      const costPer = productCosts[row.sku];
-      const cost = costPer != null ? costPer * row.qty : null;
+      const cost = row.costedQty > 0 ? row.cost : null;
+      const costPer = cost != null ? cost / row.costedQty : null;
       const profit = cost != null ? row.revenue - cost : null;
-      return { ...row, costPer, cost, profit };
+      return { sku: row.sku, orders: row.orders, qty: row.qty, revenue: row.revenue, costPer, cost, profit };
     }).sort((a, b) => b.revenue - a.revenue);
-  }, [approvedOrders, productCosts, liveSkuForLineItem]);
+  }, [approvedOrders, resolveCostAsOf, liveSkuForLineItem]);
 
   const totalCOGS = perSkuStats.reduce((s, row) => s + (row.cost || 0), 0);
 
@@ -210,15 +259,39 @@ export default function ProfitLoss({ ordersData, storeId }) {
     setEditingCostValue(currentCost != null ? String(currentCost) : "");
   };
 
+  // Quick "Set Cost" shortcut — product_costs versioned hai ab, isliye yeh hamesha AAJ
+  // (effective_from = today) ki rate set/update karta hai, purani history ko chhue bina
+  // (agar aaj ke liye pehle se koi row hai to usse in-place update, warna naya row) —
+  // isi liye purane orders ka profit is se retroactively nahi badalta. Yeh sirf cost_price
+  // set karta hai — agar us SKU ka koi purana row mein return_value/supplier_id tha, woh
+  // ek NAYE (yahan se create hue) row pe carry-forward nahi hota; poori carry-forward
+  // logic sirf ProductCosting.jsx ke Save flow mein hai.
   const saveCost = async (sku) => {
     if (!editingCostValue || Number(editingCostValue) < 0) return;
-    await supabase.from("product_costs").upsert({
-      store_id: storeId,
-      sku,
-      cost_price: Number(editingCostValue),
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "store_id,sku" });
-    setProductCosts(prev => ({ ...prev, [sku]: Number(editingCostValue) }));
+    const value = Number(editingCostValue);
+    const now = new Date().toISOString();
+    const todayStr = toDateStr(new Date());
+    const existing = costVersionsBySku[sku]?.find((r) => (r.effective_from || "0000-01-01") === todayStr);
+    let savedRow;
+    if (existing) {
+      const { data, error } = await supabase.from("product_costs")
+        .update({ cost_price: value, updated_at: now }).eq("id", existing.id).select().single();
+      if (error) return;
+      savedRow = data;
+    } else {
+      const { data, error } = await supabase.from("product_costs")
+        .upsert({ store_id: storeId, sku, cost_price: value, effective_from: todayStr, updated_at: now }, { onConflict: "store_id,sku,effective_from" })
+        .select().single();
+      if (error) return;
+      savedRow = data;
+    }
+    setProductCostRows((prev) => {
+      const idx = prev.findIndex((r) => r.id === savedRow.id);
+      if (idx === -1) return [...prev, savedRow];
+      const next = [...prev];
+      next[idx] = savedRow;
+      return next;
+    });
     setEditingCostSku(null);
   };
 
