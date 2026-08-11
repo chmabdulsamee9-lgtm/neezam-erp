@@ -131,20 +131,42 @@ async function fetchDistinctAddressValues(column, filters) {
 // Plain <select> Area/SubArea ke 11,000+ possible values ke sath unusable hai — yeh
 // lightweight text-filter combobox koi naya npm dependency add kiye bina wahi kaam
 // deta hai: type karo, list filter hoti hai, click se select ho jata hai.
-function SearchableCombo({ value, options, placeholder, onSelect, loading, t, allowFreeText = false }) {
+function SearchableCombo({ value, options, placeholder, onSelect, loading, t, allowFreeText = false, autoCapitalize = false }) {
   const [query, setQuery] = useState(value || "");
   const filtered = (query ? options.filter((o) => o.toLowerCase().includes(query.toLowerCase())) : options).slice(0, 300);
+  const trimmedQuery = query.trim();
+  // allowFreeText=true wale combos (AI Match row, manual Area/SubArea entry) mein agar
+  // typed value list ke kisi bhi option se exact match nahi karti, usay khud ek
+  // selectable dropdown item (checkmark ke sath) ke tor par dikhate hain — sirf Enter
+  // dabane ka wait nahi karte.
+  const showFreeTextOption = allowFreeText && trimmedQuery && !options.some((o) => o.toLowerCase() === trimmedQuery.toLowerCase());
+
+  const handleChange = (e) => {
+    const raw = e.target.value;
+    // Har word ka pehla letter force-uppercase — cursor position se na uljhein, poori
+    // string par ek simple regex-replace har keystroke pe (jaisa manual Area/SubArea
+    // entry ke liye chahiye tha).
+    setQuery(autoCapitalize ? raw.replace(/(^|\s)\S/g, (c) => c.toUpperCase()) : raw);
+  };
 
   return (
     <div style={{ position: "relative", display: "inline-block" }}>
-      <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder={placeholder}
-        onKeyDown={(e) => { if (allowFreeText && e.key === "Enter" && query.trim()) onSelect(query.trim()); }}
+      <input autoFocus value={query} onChange={handleChange} placeholder={placeholder}
+        onKeyDown={(e) => { if (allowFreeText && e.key === "Enter" && trimmedQuery) onSelect(trimmedQuery); }}
         style={{ ...addressMiniSelectStyle, width: 150, boxSizing: "border-box" }} />
       <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 10000, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 7, marginTop: 2, maxHeight: 260, overflowY: "auto", minWidth: 170, boxShadow: "0 8px 30px rgba(0,0,0,.4)" }}>
+        {showFreeTextOption && (
+          <div onClick={() => onSelect(trimmedQuery)}
+            style={{ padding: "6px 9px", fontSize: 11, cursor: "pointer", color: "var(--ne-accent)", display: "flex", alignItems: "center", gap: 6, borderBottom: "1px solid var(--ne-border)", fontWeight: 700 }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = "var(--ne-accent-soft)")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+            <Icon name="check" size={10} /> {trimmedQuery}
+          </div>
+        )}
         {loading ? (
           <div style={{ padding: "6px 9px", fontSize: 11, color: "var(--ne-muted-2)" }}>{t("orders.comboLoading")}</div>
         ) : filtered.length === 0 ? (
-          <div style={{ padding: "6px 9px", fontSize: 11, color: "var(--ne-muted-2)" }}>{t("orders.comboNoMatches")}</div>
+          !showFreeTextOption && <div style={{ padding: "6px 9px", fontSize: 11, color: "var(--ne-muted-2)" }}>{t("orders.comboNoMatches")}</div>
         ) : filtered.map((opt) => (
           <div key={opt} onClick={() => onSelect(opt)}
             style={{ padding: "6px 9px", fontSize: 11, cursor: "pointer", color: "var(--ne-text)" }}
@@ -237,6 +259,13 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
   };
 
   const handleConfirm = async () => {
+    // Defense in depth — /confirm-order-address worker-side bhi yehi guard karta hai
+    // (same message), lekin client-side check karke ek fazool round-trip bachate hain
+    // aur staff ko turant inline error dikhate hain.
+    if (!selArea && (source === "manual_review" || source === "system_partial")) {
+      setMatchError("Area select kiye bina unresolved address confirm nahi ho sakta");
+      return;
+    }
     setConfirming(true);
     setMatchError("");
     try {
@@ -333,17 +362,32 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
     setEditingChip(null);
   };
 
-  // "Accept Suggested Mapping" button — Gemini ke list-match raw guess (area_raw/
-  // subarea_raw) ko seedha shared selArea/selSubarea state mein set karta hai, aur
-  // preview textarea usi tarah rebuild karta hai jaise purana handleSaveMapping karta tha.
+  // Preview textarea ka formatted-address string banata hai — "Accept Suggested
+  // Mapping" aur "Correct Address Format" dono isay reuse karte hain. Partial-safe:
+  // area akela, subarea akela, ya dono, .filter(Boolean) khud handle kar leta hai.
+  const buildPreviewFromParts = (area, subarea) => (
+    [ad.address || order.shipping_address?.address1 || order.billing_address?.address1 || "", area, subarea, selCity, selProvince]
+      .filter(Boolean).join(", ")
+  );
+
+  // "Accept Suggested Mapping" button — Gemini ke raw guess (area_raw/subarea_raw) ko
+  // seedha shared selArea/selSubarea state mein set karta hai. Local newArea/newSubarea
+  // consts use karte hain (setSelArea/setSelSubarea ke turant baad selArea/selSubarea
+  // state khud abhi tak stale hoti — is single click ke andar ek hi baar mein preview
+  // bhi rebuild karna hai).
   const handleAcceptSuggestedMapping = () => {
     const newArea = ad.address_match_gemini_area_raw || "";
     const newSubarea = ad.address_match_gemini_subarea_raw || "";
     setSelArea(newArea);
     setSelSubarea(newSubarea);
-    const rebuilt = [ad.address || order.shipping_address?.address1 || order.billing_address?.address1 || "", newArea, newSubarea, selCity, selProvince]
-      .filter(Boolean).join(", ");
-    setPreview(rebuilt);
+    setPreview(buildPreviewFromParts(newArea, newSubarea));
+  };
+
+  // "Correct Address Format" button — manual Area/SubArea combos alag click se
+  // selArea/selSubarea already update kar chuke hote hain (fresh render), is liye
+  // yahan seedha current state se preview rebuild karna safe hai.
+  const handleCorrectAddressFormat = () => {
+    setPreview(buildPreviewFromParts(selArea, selSubarea));
   };
 
   const chipOptionsFor = { province: provinces, city: cities, area: areas, subarea: subareas };
@@ -355,13 +399,13 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
   };
   const chipEmptyLabelFor = { province: "—", city: "—", area: t("orders.addressSelectArea"), subarea: t("orders.addressSelectSubarea") };
 
-  const renderChip = (level, value, enabled, allowFreeText = false, rowKey = "system") => {
+  const renderChip = (level, value, enabled, allowFreeText = false, rowKey = "system", autoCapitalize = false) => {
     const editKey = `${rowKey}:${level}`;
     if (editingChip === editKey) {
       return (
         <span data-address-chip-editor style={{ display: "inline-block" }}>
           <SearchableCombo t={t} value={value} options={chipOptionsFor[level]} placeholder={chipPlaceholderFor[level]}
-            loading={chipLoading} allowFreeText={allowFreeText} onSelect={(v) => selectChipValue(level, v)} />
+            loading={chipLoading} allowFreeText={allowFreeText} autoCapitalize={autoCapitalize} onSelect={(v) => selectChipValue(level, v)} />
         </span>
       );
     }
@@ -465,6 +509,28 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
       {source === "manual_review" && ad.address_match_reason && (
         <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)", fontStyle: "italic" }}>
           {ad.address_match_reason}
+          {(ad.address_match_gemini_area_raw || ad.address_match_gemini_subarea_raw) &&
+            ` Proposed: ${ad.address_match_gemini_area_raw || "—"} / ${ad.address_match_gemini_subarea_raw || "—"}`}
+        </div>
+      )}
+
+      {/* Manual free-text Area/SubArea entry — suggestion accept karne ka alternative.
+          renderChip ka EXACT wahi allowFreeText mechanism reuse karta hai jo AI Match
+          row (purani task) mein use hua tha — koi nayi combobox logic nahi. rowKey="manual"
+          se editingChip namespaced rehta hai (system/ai rows ke chips ke sath collide
+          nahi karta). autoCapitalize=true — har word ka pehla letter type karte hi
+          force-uppercase hota hai. */}
+      {source === "manual_review" && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 10.5, color: "var(--ne-muted-2)", fontWeight: 700 }}>{t("orders.addressManualEntryLabel")}:</span>
+          {renderChip("area", selArea, true, true, "manual", true)}
+          <span style={{ color: "var(--ne-muted-2)", fontSize: 10 }}>›</span>
+          {renderChip("subarea", selSubarea, true, true, "manual", true)}
+          {(selArea || selSubarea) && (
+            <button onClick={handleCorrectAddressFormat} style={addressSmallBtnSecondary}>
+              {t("orders.addressCorrectFormat")}
+            </button>
+          )}
         </div>
       )}
 
