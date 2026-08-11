@@ -195,6 +195,7 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
   const [matchError, setMatchError] = useState("");
   const [preview, setPreview] = useState(ad.address_match_preview || "");
   const [confirming, setConfirming] = useState(false);
+  const [reformatting, setReformatting] = useState(false);
   const [editingChip, setEditingChip] = useState(null); // null | "<rowKey>:<province|city|area|subarea>" — rowKey namespaces system vs AI Match row so their chips open independently
   const [chipLoading, setChipLoading] = useState(false);
   const [provinces, setProvinces] = useState([]);
@@ -362,32 +363,47 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
     setEditingChip(null);
   };
 
-  // Preview textarea ka formatted-address string banata hai — "Accept Suggested
-  // Mapping" aur "Correct Address Format" dono isay reuse karte hain. Partial-safe:
-  // area akela, subarea akela, ya dono, .filter(Boolean) khud handle kar leta hai.
-  const buildPreviewFromParts = (area, subarea) => (
-    [ad.address || order.shipping_address?.address1 || order.billing_address?.address1 || "", area, subarea, selCity, selProvince]
-      .filter(Boolean).join(", ")
-  );
+  // Preview ko AI se properly reformat karwata hai (raw string-concat ki jagah) —
+  // "Accept Suggested Mapping" aur "Correct Address Format" dono isay reuse karte hain.
+  // Failure par purana preview untouched rehta hai, sirf inline error dikhta hai.
+  const callReformatEndpoint = async (area, subarea) => {
+    setReformatting(true);
+    setMatchError("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${cfUrl}/reformat-address-with-mapping`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ order_id: order.id, area: area || null, subarea: subarea || null }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setMatchError(data.error);
+      } else {
+        setPreview(data.formatted_address);
+      }
+    } catch (err) {
+      setMatchError(err.message);
+    }
+    setReformatting(false);
+  };
 
   // "Accept Suggested Mapping" button — Gemini ke raw guess (area_raw/subarea_raw) ko
-  // seedha shared selArea/selSubarea state mein set karta hai. Local newArea/newSubarea
-  // consts use karte hain (setSelArea/setSelSubarea ke turant baad selArea/selSubarea
-  // state khud abhi tak stale hoti — is single click ke andar ek hi baar mein preview
-  // bhi rebuild karna hai).
+  // seedha shared selArea/selSubarea state mein set karta hai, phir AI-reformatted
+  // preview mangwata hai.
   const handleAcceptSuggestedMapping = () => {
     const newArea = ad.address_match_gemini_area_raw || "";
     const newSubarea = ad.address_match_gemini_subarea_raw || "";
     setSelArea(newArea);
     setSelSubarea(newSubarea);
-    setPreview(buildPreviewFromParts(newArea, newSubarea));
+    callReformatEndpoint(newArea, newSubarea);
   };
 
   // "Correct Address Format" button — manual Area/SubArea combos alag click se
   // selArea/selSubarea already update kar chuke hote hain (fresh render), is liye
-  // yahan seedha current state se preview rebuild karna safe hai.
+  // yahan seedha current state se reformat mangwana safe hai.
   const handleCorrectAddressFormat = () => {
-    setPreview(buildPreviewFromParts(selArea, selSubarea));
+    callReformatEndpoint(selArea, selSubarea);
   };
 
   const chipOptionsFor = { province: provinces, city: cities, area: areas, subarea: subareas };
@@ -500,8 +516,9 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
           Gemini ke raw guess se set karta hai. */}
       {source === "manual_review" && (ad.address_match_gemini_area_raw || ad.address_match_gemini_subarea_raw) && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <button onClick={handleAcceptSuggestedMapping} style={addressSmallBtnSecondary}>
-            <Monogram size={10} /> {t("orders.addressAcceptSuggestedMapping")}
+          <button onClick={handleAcceptSuggestedMapping} disabled={reformatting}
+            style={{ ...addressSmallBtnSecondary, cursor: reformatting ? "default" : "pointer" }}>
+            {reformatting ? <Icon name="pending" size={10} /> : <Monogram size={10} />} {reformatting ? t("orders.addressReformatting") : t("orders.addressAcceptSuggestedMapping")}
           </button>
         </div>
       )}
@@ -527,8 +544,9 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
           <span style={{ color: "var(--ne-muted-2)", fontSize: 10 }}>›</span>
           {renderChip("subarea", selSubarea, true, true, "manual", true)}
           {(selArea || selSubarea) && (
-            <button onClick={handleCorrectAddressFormat} style={addressSmallBtnSecondary}>
-              {t("orders.addressCorrectFormat")}
+            <button onClick={handleCorrectAddressFormat} disabled={reformatting}
+              style={{ ...addressSmallBtnSecondary, cursor: reformatting ? "default" : "pointer" }}>
+              {reformatting ? t("orders.addressReformatting") : t("orders.addressCorrectFormat")}
             </button>
           )}
         </div>
