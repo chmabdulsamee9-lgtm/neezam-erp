@@ -60,10 +60,20 @@ const csvEscape = (val) => {
   return s;
 };
 
+// Local-calendar-date string (not UTC — matches what a <input type="date"> picker and
+// a Pakistan-based user both mean by "today"), used for effective_from comparisons.
+const toDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const addDays = (dateStr, n) => {
+  const d = new Date(`${dateStr}T00:00:00`);
+  d.setDate(d.getDate() + n);
+  return toDateStr(d);
+};
+
 export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const eneezamId = ordersStore?.eneezam_id;
+  const today = toDateStr(new Date());
 
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -72,19 +82,33 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
 
   // components: { [sku]: { [component_name]: number } } — from product_cost_components
   const [components, setComponents] = useState({});
-  // legacyCosts: { [sku]: number } — from product_costs.cost_price, used as Total fallback when no components exist yet
+  // legacyCosts: { [sku]: number } — the CURRENT effective product_costs.cost_price
+  // (latest effective_from <= today) for that SKU, used as Total fallback when no
+  // components exist yet, and as the "previous value" baseline for the rate-change prompt.
   const [legacyCosts, setLegacyCosts] = useState({});
   const [returnValues, setReturnValues] = useState({}); // { [sku]: number } — product_costs.return_value
   const [supplierAssignments, setSupplierAssignments] = useState({}); // { [sku]: supplier_id }
+  // currentCostRow: { [sku]: { id, effective_from } } — the CURRENT effective
+  // product_costs row per SKU (product_costs is now versioned: multiple rows per SKU,
+  // one per effective_from). Non-cost-price fields (return_value/supplier_id) update
+  // this row in place; a cost_price change inserts a NEW versioned row instead.
+  const [currentCostRow, setCurrentCostRow] = useState({});
   const [suppliers, setSuppliers] = useState([]);
   const [labels, setLabels] = useState(DEFAULT_LABELS);
   const [extraCounts, setExtraCounts] = useState({}); // { [sku]: number } — min visible numbered extra-slots for that row
 
   // Transient in-progress typing, keyed by `${sku}::${componentKey}` (or a reserved
-  // "__return_value__" key) — falls back to saved value once cleared
+  // "__return_value__" key) — falls back to saved value once cleared. Component-value
+  // drafts are NO LONGER auto-committed on blur — they stay pending until the row's
+  // explicit "Save" is clicked, since a cost_price change now needs the Apply
+  // Immediately/Apply From Date choice before it can be written.
   const [drafts, setDrafts] = useState({});
   const [skuDrafts, setSkuDrafts] = useState({});
   const [savingSkuIds, setSavingSkuIds] = useState(new Set());
+  const [savingCostSkus, setSavingCostSkus] = useState(new Set());
+  const [costSavePrompt, setCostSavePrompt] = useState(null); // { skus: string[] }
+  const [promptMode, setPromptMode] = useState("immediate"); // 'immediate' | 'scheduled'
+  const [promptDate, setPromptDate] = useState("");
 
   const [editingLabelKey, setEditingLabelKey] = useState(null);
   const [labelDraft, setLabelDraft] = useState("");
@@ -135,17 +159,30 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
       if (labelErr) throw labelErr;
       if (supplierErr) throw supplierErr;
 
+      // product_costs ab versioned hai (multiple rows per SKU, ek effective_from ke
+      // saath) — page ko sirf "aaj ke hisaab se current" rate dikhani hai: har SKU ka
+      // sabse recent row jiska effective_from <= aaj hai. Null effective_from (migration
+      // se pehle ki purani rows) ko "hamesha se effective" treat karte hain — taake
+      // purana data bina kisi backfill ke bhi sahi dikhe, jab tak koi dated row use supersede na kare.
+      const todayStr = toDateStr(new Date());
+      const sortedCostRows = [...(costRows || [])].sort((a, b) => (b.effective_from || "0000-01-01").localeCompare(a.effective_from || "0000-01-01"));
       const legacyMap = {};
       const returnMap = {};
       const supplierMap = {};
-      (costRows || []).forEach((r) => {
+      const currentRowMap = {};
+      sortedCostRows.forEach((r) => {
+        const ef = r.effective_from || "0000-01-01";
+        if (ef > todayStr) return; // future-dated row — abhi effective nahi hua
+        if (currentRowMap[r.sku]) return; // is SKU ka usse zyada recent effective row already mil chuka hai
         legacyMap[r.sku] = Number(r.cost_price);
         if (r.return_value != null) returnMap[r.sku] = Number(r.return_value);
         if (r.supplier_id) supplierMap[r.sku] = r.supplier_id;
+        currentRowMap[r.sku] = { id: r.id, effective_from: ef };
       });
       setLegacyCosts(legacyMap);
       setReturnValues(returnMap);
       setSupplierAssignments(supplierMap);
+      setCurrentCostRow(currentRowMap);
       setSuppliers(supplierRows || []);
 
       const compMap = {};
@@ -182,18 +219,21 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
     return legacyCosts[sku] ?? 0;
   };
 
-  // Applies one or more component changes to a single SKU atomically — a single-cell
-  // onBlur/Enter save, a multi-cell paste, and bulk-upload rows all funnel through
-  // here, so a change that touches several columns of the SAME row computes its next
-  // component-map/total from one consistent base instead of clobbering itself via a
-  // stale `components[sku]` closure snapshot. Returns {success,error} so bulk-upload
-  // can build an accurate per-row result summary without relying on exceptions.
-  const saveComponentValues = async (sku, changes) => {
+  // Applies one or more component changes to a single SKU AND writes the resulting
+  // cost_price at a specific effective_from date — bulk-upload rows and the row-level
+  // "Save" (after the Apply Immediately/Apply From Date choice) both funnel through
+  // here. product_costs is versioned now (unique on store_id+sku+effective_from): if a
+  // row already exists at exactly this date, it's UPDATEd in place (idempotent re-save
+  // of the same day); otherwise a NEW row is INSERTed, preserving the old rate's history
+  // instead of overwriting it. Returns {success,error} so callers can build an accurate
+  // per-row result summary without relying on exceptions.
+  const applyCostVersion = async (sku, changes, effectiveFromStr, overrides = {}) => {
     if (!sku) return { success: false, error: "No SKU" };
     const currentSkuMap = components[sku] || {};
     const nextSkuMap = { ...currentSkuMap };
     const toDelete = [];
     const toUpsert = [];
+    const now = new Date().toISOString();
     Object.entries(changes).forEach(([componentKey, rawValue]) => {
       const trimmed = String(rawValue ?? "").trim();
       const value = trimmed === "" ? 0 : Number(trimmed);
@@ -202,11 +242,9 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
         toDelete.push(componentKey);
       } else {
         nextSkuMap[componentKey] = value;
-        toUpsert.push({ store_id: storeId, sku, component_name: componentKey, cost_price: value, updated_at: new Date().toISOString() });
+        toUpsert.push({ store_id: storeId, sku, component_name: componentKey, cost_price: value, updated_at: now });
       }
     });
-    setComponents((prev) => ({ ...prev, [sku]: nextSkuMap }));
-
     const total = Object.values(nextSkuMap).reduce((sum, v) => sum + (Number(v) || 0), 0);
 
     try {
@@ -219,30 +257,68 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
         const { error: upErr } = await supabase.from("product_cost_components").upsert(toUpsert, { onConflict: "store_id,sku,component_name" });
         if (upErr) throw upErr;
       }
-      const { error: totalErr } = await supabase.from("product_costs").upsert({
-        store_id: storeId, sku, cost_price: total, updated_at: new Date().toISOString(),
-      }, { onConflict: "store_id,sku" });
-      if (totalErr) throw totalErr;
-      setLegacyCosts((prev) => ({ ...prev, [sku]: total }));
-      return { success: true };
+
+      const existing = currentCostRow[sku];
+      // return_value/supplier_id ko naye version pe carry-forward karte hain (jab tak
+      // koi explicit override na diya ho) — taake sirf cost_price change karne se
+      // yeh dono fields khaali na ho jayein.
+      const returnValue = overrides.returnValue !== undefined ? overrides.returnValue : (returnValues[sku] ?? null);
+      const supplierId = overrides.supplierId !== undefined ? overrides.supplierId : (supplierAssignments[sku] ?? null);
+      let savedRow;
+      if (existing && existing.effective_from === effectiveFromStr) {
+        const { data, error } = await supabase.from("product_costs")
+          .update({ cost_price: total, return_value: returnValue, supplier_id: supplierId, updated_at: now })
+          .eq("id", existing.id).select().single();
+        if (error) throw error;
+        savedRow = data;
+      } else {
+        const { data, error } = await supabase.from("product_costs")
+          .upsert({ store_id: storeId, sku, cost_price: total, effective_from: effectiveFromStr, return_value: returnValue, supplier_id: supplierId, updated_at: now }, { onConflict: "store_id,sku,effective_from" })
+          .select().single();
+        if (error) throw error;
+        savedRow = data;
+      }
+
+      setComponents((prev) => ({ ...prev, [sku]: nextSkuMap }));
+      if (overrides.returnValue !== undefined) setReturnValues((prev) => ({ ...prev, [sku]: overrides.returnValue }));
+      if (overrides.supplierId !== undefined) setSupplierAssignments((prev) => ({ ...prev, [sku]: overrides.supplierId }));
+      // Sirf tab "current" state update karo jab yeh row aaj (ya pehle) se effective ho
+      // aur kisi purani-tracked row se zyada ya barabar recent ho — warna ek future-dated
+      // ("Apply From Date") row ko abhi se current dikhana galat hoga.
+      if (effectiveFromStr <= today && (!existing || effectiveFromStr >= existing.effective_from)) {
+        setLegacyCosts((prev) => ({ ...prev, [sku]: total }));
+        setCurrentCostRow((prev) => ({ ...prev, [sku]: { id: savedRow.id, effective_from: savedRow.effective_from } }));
+      }
+      return { success: true, total };
     } catch (err) {
       setError(err.message);
       return { success: false, error: err.message };
     }
   };
 
-  const saveComponentValue = (sku, componentKey, rawValue) => saveComponentValues(sku, { [componentKey]: rawValue });
-
+  // return_value/supplier_id badalne se koi nayi rate-history version nahi banti —
+  // yeh dono hamesha CURRENT row ko in-place update karte hain (ya, agar SKU ka koi
+  // product_costs row abhi tak hai hi nahi, aaj ki date se ek naya row bana dete hain).
   const saveReturnValue = async (sku, rawValue) => {
     if (!sku) return { success: false, error: "No SKU" };
     const trimmed = String(rawValue ?? "").trim();
     const value = trimmed === "" ? 0 : Number(trimmed);
     setReturnValues((prev) => ({ ...prev, [sku]: value }));
     try {
-      const { error: rvErr } = await supabase.from("product_costs").upsert({
-        store_id: storeId, sku, return_value: value, updated_at: new Date().toISOString(),
-      }, { onConflict: "store_id,sku" });
-      if (rvErr) throw rvErr;
+      const now = new Date().toISOString();
+      const existing = currentCostRow[sku];
+      if (existing) {
+        const { error } = await supabase.from("product_costs")
+          .update({ return_value: value, updated_at: now }).eq("id", existing.id);
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase.from("product_costs")
+          .upsert({ store_id: storeId, sku, cost_price: legacyCosts[sku] ?? 0, effective_from: today, return_value: value, updated_at: now }, { onConflict: "store_id,sku,effective_from" })
+          .select().single();
+        if (error) throw error;
+        setCurrentCostRow((prev) => ({ ...prev, [sku]: { id: data.id, effective_from: data.effective_from } }));
+        setLegacyCosts((prev) => (prev[sku] != null ? prev : { ...prev, [sku]: 0 }));
+      }
       return { success: true };
     } catch (err) {
       setError(err.message);
@@ -254,10 +330,20 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
     if (!sku) return { success: false, error: "No SKU" };
     setSupplierAssignments((prev) => ({ ...prev, [sku]: supplierId || null }));
     try {
-      const { error: supErr } = await supabase.from("product_costs").upsert({
-        store_id: storeId, sku, supplier_id: supplierId || null, updated_at: new Date().toISOString(),
-      }, { onConflict: "store_id,sku" });
-      if (supErr) throw supErr;
+      const now = new Date().toISOString();
+      const existing = currentCostRow[sku];
+      if (existing) {
+        const { error } = await supabase.from("product_costs")
+          .update({ supplier_id: supplierId || null, updated_at: now }).eq("id", existing.id);
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase.from("product_costs")
+          .upsert({ store_id: storeId, sku, cost_price: legacyCosts[sku] ?? 0, effective_from: today, supplier_id: supplierId || null, updated_at: now }, { onConflict: "store_id,sku,effective_from" })
+          .select().single();
+        if (error) throw error;
+        setCurrentCostRow((prev) => ({ ...prev, [sku]: { id: data.id, effective_from: data.effective_from } }));
+        setLegacyCosts((prev) => (prev[sku] != null ? prev : { ...prev, [sku]: 0 }));
+      }
       return { success: true };
     } catch (err) {
       setError(err.message);
@@ -279,16 +365,91 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
     setDrafts((prev) => ({ ...prev, [draftKey(sku, componentKey)]: val }));
   };
 
-  const commitDraft = (sku, componentKey) => {
-    const dk = draftKey(sku, componentKey);
-    const val = drafts[dk];
+  // Component-value drafts persist in `drafts` until the row's explicit "Save" is
+  // clicked (no more onBlur auto-save) — see isDirty/pendingTotal/saveRow below.
+  const isDirty = (sku) => !!sku && Object.keys(drafts).some((k) => k.startsWith(`${sku}::`) && k !== returnDraftKey(sku));
+
+  const pendingComponentMap = (sku) => {
+    const next = { ...(components[sku] || {}) };
+    Object.keys(drafts).forEach((dk) => {
+      if (dk === returnDraftKey(sku) || !dk.startsWith(`${sku}::`)) return;
+      const componentKey = dk.slice(sku.length + 2);
+      const trimmed = String(drafts[dk] ?? "").trim();
+      const value = trimmed === "" ? 0 : Number(trimmed);
+      if (!trimmed || value === 0) delete next[componentKey];
+      else next[componentKey] = value;
+    });
+    return next;
+  };
+
+  const pendingTotal = (sku) => Object.values(pendingComponentMap(sku)).reduce((sum, v) => sum + (Number(v) || 0), 0);
+
+  const changesForSku = (sku) => {
+    const changes = {};
+    Object.keys(drafts).forEach((dk) => {
+      if (dk === returnDraftKey(sku) || !dk.startsWith(`${sku}::`)) return;
+      changes[dk.slice(sku.length + 2)] = drafts[dk];
+    });
+    return changes;
+  };
+
+  const clearComponentDraftsForSku = (sku) => {
     setDrafts((prev) => {
       const n = { ...prev };
-      delete n[dk];
+      Object.keys(n).forEach((dk) => { if (dk.startsWith(`${sku}::`) && dk !== returnDraftKey(sku)) delete n[dk]; });
       return n;
     });
-    if (val === undefined) return;
-    saveComponentValue(sku, componentKey, val);
+  };
+
+  const dirtySkus = useMemo(() => {
+    const set = new Set();
+    Object.keys(drafts).forEach((dk) => {
+      if (dk.endsWith("::__return_value__")) return;
+      const idx = dk.indexOf("::");
+      if (idx > 0) set.add(dk.slice(0, idx));
+    });
+    return [...set];
+  }, [drafts]);
+
+  // SKUs jinka total nahi badla (sirf ek component se doosre mein shift hua, ya draft
+  // type karke wapis revert kar diya) unhe seedha (currently-effective date pe) commit
+  // kar dete hain — sirf woh SKUs prompt mangte hain jinka cost_price waqai badla ho.
+  const attemptSaveSkus = async (skus) => {
+    const changed = [];
+    const unchanged = [];
+    skus.forEach((sku) => {
+      (pendingTotal(sku) !== (legacyCosts[sku] ?? 0) ? changed : unchanged).push(sku);
+    });
+    if (unchanged.length > 0) {
+      setSavingCostSkus((prev) => new Set([...prev, ...unchanged]));
+      await Promise.all(unchanged.map(async (sku) => {
+        const existing = currentCostRow[sku];
+        await applyCostVersion(sku, changesForSku(sku), existing ? existing.effective_from : today);
+        clearComponentDraftsForSku(sku);
+      }));
+      setSavingCostSkus((prev) => { const n = new Set(prev); unchanged.forEach((s) => n.delete(s)); return n; });
+    }
+    if (changed.length > 0) {
+      setPromptMode("immediate");
+      setPromptDate(addDays(today, 1));
+      setCostSavePrompt({ skus: changed });
+    }
+  };
+
+  const saveRow = (sku) => attemptSaveSkus([sku]);
+
+  const confirmCostSavePrompt = async () => {
+    if (!costSavePrompt) return;
+    const { skus } = costSavePrompt;
+    const effectiveFromStr = promptMode === "immediate" ? today : promptDate;
+    if (promptMode === "scheduled" && !effectiveFromStr) return;
+    setSavingCostSkus((prev) => new Set([...prev, ...skus]));
+    setCostSavePrompt(null);
+    await Promise.all(skus.map(async (sku) => {
+      await applyCostVersion(sku, changesForSku(sku), effectiveFromStr);
+      clearComponentDraftsForSku(sku);
+    }));
+    setSavingCostSkus((prev) => { const n = new Set(prev); skus.forEach((s) => n.delete(s)); return n; });
   };
 
   const getReturnInputValue = (sku) => {
@@ -314,40 +475,29 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
     saveReturnValue(sku, val);
   };
 
+  // Pasted cells sirf drafts mein jaate hain (auto-save nahi) — row/"Save All" button
+  // se hi commit hote hain, taake ek multi-row paste bhi rate-history date-prompt se guzre.
   const handleComponentPaste = (e, rowIndexOnPage, colIndex) => {
     const text = e.clipboardData.getData("text");
     if (!text || (!text.includes("\t") && !text.includes("\n"))) return;
     e.preventDefault();
     const rows = text.replace(/\r/g, "").split("\n").filter((r) => r !== "");
 
-    // Group every pasted cell by target SKU first, so a block that fills multiple
-    // columns of the same row gets applied as one saveComponentValues() call.
-    const changesBySku = {};
-    rows.forEach((rowText, rOffset) => {
-      const cells = rowText.split("\t");
-      cells.forEach((cellText, cOffset) => {
-        const targetRow = rowIndexOnPage + rOffset;
-        const targetCol = colIndex + cOffset;
-        if (targetCol > 2 || targetRow >= pagedRows.length) return;
-        const targetSku = pagedRows[targetRow].variant.sku;
-        if (!targetSku) return;
-        const componentKey = DEFAULT_COMPONENT_KEYS[targetCol];
-        if (!changesBySku[targetSku]) changesBySku[targetSku] = {};
-        changesBySku[targetSku][componentKey] = cellText.trim();
-      });
-    });
-
-    Object.entries(changesBySku).forEach(([sku, changes]) => {
-      Object.keys(changes).forEach((componentKey) => {
-        const dk = draftKey(sku, componentKey);
-        setDrafts((prev) => {
-          if (!(dk in prev)) return prev;
-          const n = { ...prev };
-          delete n[dk];
-          return n;
+    setDrafts((prev) => {
+      const next = { ...prev };
+      rows.forEach((rowText, rOffset) => {
+        const cells = rowText.split("\t");
+        cells.forEach((cellText, cOffset) => {
+          const targetRow = rowIndexOnPage + rOffset;
+          const targetCol = colIndex + cOffset;
+          if (targetCol > 2 || targetRow >= pagedRows.length) return;
+          const targetSku = pagedRows[targetRow].variant.sku;
+          if (!targetSku) return;
+          const componentKey = DEFAULT_COMPONENT_KEYS[targetCol];
+          next[draftKey(targetSku, componentKey)] = cellText.trim();
         });
       });
-      saveComponentValues(sku, changes);
+      return next;
     });
   };
 
@@ -434,12 +584,36 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
     if (skuList.length === 0) { setShowBulkSupplierModal(false); return; }
     setBulkSupplierApplying(true);
     try {
-      const payload = skuList.map((sku) => ({ store_id: storeId, sku, supplier_id: bulkSupplierId, updated_at: new Date().toISOString() }));
-      const { error: bulkErr } = await supabase.from("product_costs").upsert(payload, { onConflict: "store_id,sku" });
-      if (bulkErr) throw bulkErr;
+      // supplier_id koi rate-history nahi — CURRENT row ko in-place update karo (ya, agar
+      // SKU ka koi row abhi tak hai hi nahi, aaj ki date se naya bana do).
+      const now = new Date().toISOString();
+      const results = await Promise.all(skuList.map(async (sku) => {
+        const existing = currentCostRow[sku];
+        if (existing) {
+          const { error } = await supabase.from("product_costs")
+            .update({ supplier_id: bulkSupplierId, updated_at: now }).eq("id", existing.id);
+          if (error) throw error;
+          return { sku, row: existing };
+        }
+        const { data, error } = await supabase.from("product_costs")
+          .upsert({ store_id: storeId, sku, cost_price: legacyCosts[sku] ?? 0, effective_from: today, supplier_id: bulkSupplierId, updated_at: now }, { onConflict: "store_id,sku,effective_from" })
+          .select().single();
+        if (error) throw error;
+        return { sku, row: { id: data.id, effective_from: data.effective_from } };
+      }));
       setSupplierAssignments((prev) => {
         const n = { ...prev };
         skuList.forEach((sku) => { n[sku] = bulkSupplierId; });
+        return n;
+      });
+      setCurrentCostRow((prev) => {
+        const n = { ...prev };
+        results.forEach(({ sku, row }) => { n[sku] = row; });
+        return n;
+      });
+      setLegacyCosts((prev) => {
+        const n = { ...prev };
+        skuList.forEach((sku) => { if (n[sku] == null) n[sku] = 0; });
         return n;
       });
       setSelectedIds(new Set());
@@ -510,9 +684,10 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
     return rows;
   };
 
-  // Row-by-row, reuses the exact same upsert logic as the single-cell save
-  // (saveComponentValues/saveReturnValue) — just looped, with a result recorded
-  // per row instead of relying on exceptions.
+  // Row-by-row, reuses applyCostVersion (same as the row-level "Save") — just looped,
+  // with a result recorded per row instead of relying on exceptions. Bulk upload has no
+  // per-row interactive UI, so it always applies immediately (effective_from = today,
+  // no Apply Immediately/Apply From Date prompt) — treated like a single bulk rate event.
   const processBulkUpload = async (rows) => {
     setBulkUploading(true);
     setBulkUploadResult(null);
@@ -556,14 +731,9 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
       }
 
       let rowFailed = false;
-      if (Object.keys(changes).length > 0) {
-        const res = await saveComponentValues(sku, changes);
-        if (!res.success) { skipped.push({ row: i + 2, reason: res.error }); rowFailed = true; }
-      }
-      if (!rowFailed && returnVal !== undefined) {
-        const res2 = await saveReturnValue(sku, returnVal);
-        if (!res2.success) { skipped.push({ row: i + 2, reason: res2.error }); rowFailed = true; }
-      }
+      const overrides = returnVal !== undefined ? { returnValue: Number(returnVal) || 0 } : {};
+      const res = await applyCostVersion(sku, changes, today, overrides);
+      if (!res.success) { skipped.push({ row: i + 2, reason: res.error }); rowFailed = true; }
       if (!rowFailed) updated++;
     }
     setBulkUploading(false);
@@ -635,6 +805,12 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
           <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{ordersStore?.store_name} — {filtered.length}</p>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          {dirtySkus.length > 1 && (
+            <button onClick={() => attemptSaveSkus(dirtySkus)}
+              style={{ ...toolbarBtnStyle, background: "var(--ne-grad)", color: "#fff", border: "none" }}>
+              <Icon name="check" size={12} /> {t("costing.saveAllRows")} ({dirtySkus.length})
+            </button>
+          )}
           <button onClick={downloadTemplate} style={toolbarBtnStyle}>
             <Icon name="download" size={12} /> {t("costing.downloadTemplate")}
           </button>
@@ -783,7 +959,6 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
                         <td key={key} style={{ padding: "7px 8px" }}>
                           <input type="number" step="0.01" disabled={!sku} value={getInputValue(sku, key)}
                             onChange={(e) => handleDraftChange(sku, key, e.target.value)}
-                            onBlur={() => commitDraft(sku, key)}
                             onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
                             onPaste={(e) => handleComponentPaste(e, rowIndex, colIndex)}
                             style={{ ...cellInputStyle, opacity: sku ? 1 : 0.5 }} />
@@ -797,8 +972,16 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
                           </button>
                         )}
                       </td>
-                      <td style={{ padding: "7px 8px", color: "var(--ne-text)", fontWeight: 700 }}>
-                        Rs. {rowTotal(sku).toLocaleString()}
+                      <td style={{ padding: "7px 8px", color: "var(--ne-text)", fontWeight: 700, whiteSpace: "nowrap" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span>Rs. {pendingTotal(sku).toLocaleString()}</span>
+                          {sku && isDirty(sku) && (
+                            <button onClick={() => saveRow(sku)} disabled={savingCostSkus.has(sku)}
+                              style={{ padding: "3px 8px", borderRadius: 6, border: "none", background: savingCostSkus.has(sku) ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", fontSize: 10, fontWeight: 700, cursor: savingCostSkus.has(sku) ? "default" : "pointer" }}>
+                              {savingCostSkus.has(sku) ? t("costing.saving") : t("costing.save")}
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td style={{ padding: "7px 8px" }}>
                         <input type="number" step="0.01" disabled={!sku} value={getReturnInputValue(sku)}
@@ -828,7 +1011,6 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
                                   <span style={{ fontSize: 9.5, color: "var(--ne-muted-2)", textTransform: "uppercase", fontWeight: 600 }}>{t("costing.extraPrefix")} {n}</span>
                                   <input type="number" step="0.01" value={getInputValue(sku, key)}
                                     onChange={(e) => handleDraftChange(sku, key, e.target.value)}
-                                    onBlur={() => commitDraft(sku, key)}
                                     onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
                                     style={cellInputStyle} />
                                 </div>
@@ -839,7 +1021,6 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
                                 <span style={{ fontSize: 9.5, color: "var(--ne-muted-2)", textTransform: "uppercase", fontWeight: 600 }}>{humanizeKey(key, t("costing.extraPrefix"))}</span>
                                 <input type="number" step="0.01" value={getInputValue(sku, key)}
                                   onChange={(e) => handleDraftChange(sku, key, e.target.value)}
-                                  onBlur={() => commitDraft(sku, key)}
                                   onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
                                   style={cellInputStyle} />
                               </div>
@@ -896,6 +1077,41 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
               <button onClick={applyBulkSupplier} disabled={bulkSupplierApplying || !bulkSupplierId}
                 style={{ flex: 1, padding: "10px", borderRadius: 9, border: "none", background: (bulkSupplierApplying || !bulkSupplierId) ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
                 {bulkSupplierApplying ? t("costing.applying") : t("costing.apply")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {costSavePrompt && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
+          <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 380, maxWidth: "92vw", padding: "20px" }}>
+            <h3 style={{ margin: "0 0 6px", fontSize: 15, color: "var(--ne-text)" }}>{t("costing.ratePromptTitle")}</h3>
+            <p style={{ margin: "0 0 14px", fontSize: 11.5, color: "var(--ne-muted)" }}>
+              {costSavePrompt.skus.length === 1 ? costSavePrompt.skus[0] : `${costSavePrompt.skus.length} ${t("costing.skusSuffix")}`}
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "var(--ne-text)", cursor: "pointer" }}>
+                <input type="radio" checked={promptMode === "immediate"} onChange={() => setPromptMode("immediate")} />
+                {t("costing.applyImmediately")}
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "var(--ne-text)", cursor: "pointer" }}>
+                <input type="radio" checked={promptMode === "scheduled"} onChange={() => setPromptMode("scheduled")} />
+                {t("costing.applyFromDate")}
+              </label>
+              {promptMode === "scheduled" && (
+                <input type="date" value={promptDate} min={addDays(today, 1)} onChange={(e) => setPromptDate(e.target.value)}
+                  style={{ marginLeft: 22, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 12.5 }} />
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setCostSavePrompt(null)}
+                style={{ flex: 1, padding: "10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 13, cursor: "pointer" }}>
+                {t("action.cancel")}
+              </button>
+              <button onClick={confirmCostSavePrompt} disabled={promptMode === "scheduled" && !promptDate}
+                style={{ flex: 1, padding: "10px", borderRadius: 9, border: "none", background: (promptMode === "scheduled" && !promptDate) ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                {t("costing.apply")}
               </button>
             </div>
           </div>
