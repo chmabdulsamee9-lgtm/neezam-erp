@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { PDFDocument } from "pdf-lib";
 import { supabase } from "../supabase";
 import { getCachedBookedOrders } from "../ordersCache";
@@ -334,6 +334,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
   const [remarkSubmitting, setRemarkSubmitting] = useState(null);
   const [loadingCount, setLoadingCount] = useState(0);
   const [readyOrders, setReadyOrders] = useState([]);
+  const [variantSkuRows, setVariantSkuRows] = useState([]); // lightweight products_cache projection (raw_data->variants only) for the live-SKU lookup
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showBookModal, setShowBookModal] = useState(false);
   const [bookCourier, setBookCourier] = useState("dex");
@@ -445,6 +446,31 @@ export default function BookedOrders({ storeId, ordersStore }) {
       if (addrs && addrs.length > 0) setBookAddressId((addrs.find((a) => a.is_default) || addrs[0]).id);
     })();
   }, [storeId]);
+
+  // Live SKU lookup (Orders.jsx jaisa hi) — "raw_data->variants" sirf, poora raw_data(*)
+  // nahi, taake page-load payload halka rahe (images/body_html/tags/options waghera
+  // drop ho jate hain).
+  useEffect(() => {
+    if (!storeId) return;
+    supabase.from("products_cache").select("raw_data->variants").eq("store_id", storeId)
+      .then(({ data, error }) => { if (!error) setVariantSkuRows(data || []); });
+  }, [storeId]);
+
+  const variantSkuMap = useMemo(() => {
+    const map = new Map();
+    variantSkuRows.forEach((row) => {
+      (row.variants || []).forEach((v) => {
+        if (v?.id != null) map.set(String(v.id), v.sku || "");
+      });
+    });
+    return map;
+  }, [variantSkuRows]);
+
+  const liveSkuForLineItem = (li) => {
+    const key = li?.variant_id != null ? String(li.variant_id) : null;
+    if (key && variantSkuMap.has(key)) return variantSkuMap.get(key);
+    return li?.sku || "";
+  };
 
   // Remarks ke "author" field ke liye current user ka naam (Orders.jsx ke currentProfile
   // fetch jaisa hi pattern)
@@ -972,8 +998,10 @@ export default function BookedOrders({ storeId, ordersStore }) {
               const products = (o._line_items_override || o.line_items || []).map((li) => `${li.quantity > 1 ? li.quantity + "x " : ""}${li.title}`).join(" + ") || "—";
               // Staff ka manual SKU override (order_statuses.sku, Orders.jsx ki EditableCell
               // se editable) ko priority — Orders.jsx ka agent_data?.sku || line_items ka
-              // exact wahi fallback pattern, yahan _sku_override ke naam se.
-              const skus = o._sku_override || (o._line_items_override || o.line_items || []).map((li) => `${li.quantity > 1 ? li.quantity : ""}${li.sku || ""}`).join(" + ") || "—";
+              // exact wahi fallback pattern, yahan _sku_override ke naam se. Har line item
+              // apna live SKU (variant_id se products_cache lookup) ke through dikhata hai,
+              // stored sku sirf tab jab variant ab products_cache mein hi nahi (deleted/archived).
+              const skus = o._sku_override || (o._line_items_override || o.line_items || []).map((li) => `${li.quantity > 1 ? li.quantity : ""}${liveSkuForLineItem(li)}`).join(" + ") || "—";
               const variantNote = (o._line_items_override || o.line_items || [])
                 .map((li) => (li.variant_title && li.variant_title !== "Default Title" ? li.variant_title : null))
                 .filter(Boolean).join(" + ");

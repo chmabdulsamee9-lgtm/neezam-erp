@@ -691,6 +691,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   const [itemsSyncState, setItemsSyncState] = useState(null); // null | "syncing" | "synced" | "error" | "skipped-fulfilled"
   const [itemsSyncError, setItemsSyncError] = useState("");
   const [productsForSearch, setProductsForSearch] = useState([]); // products_cache rows for this store, fetched when modal opens
+  const [variantSkuRows, setVariantSkuRows] = useState([]); // lightweight products_cache projection (raw_data->variants only) for the live-SKU lookup, fetched eagerly
 
   const registerMiddleRef = (key) => (el) => {
     if (el) middleRefs.current[key] = el;
@@ -1633,6 +1634,40 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       .then(({ data, error }) => { if (!error) setProductsForSearch(data || []); });
   }, [itemsModal, currentStore?.id]);
 
+  // Live SKU lookup — eager (page-load pe hi, itemsModal ka wait nahi karta, kyunke
+  // har order card ke SKU display ke liye chahiye, sirf Edit Items modal ke liye nahi).
+  // "raw_data->variants" — poora raw_data(*) nahi — sirf variants array select karte
+  // hain (images/body_html/tags/options waghera drop ho jate hain), taake page-load
+  // payload halka rahe.
+  useEffect(() => {
+    if (!currentStore?.id) return;
+    supabase.from("products_cache").select("raw_data->variants").eq("store_id", currentStore.id)
+      .then(({ data, error }) => { if (!error) setVariantSkuRows(data || []); });
+  }, [currentStore?.id]);
+
+  // variant_id -> current SKU. Map() taake "variant map mein maujood hai lekin sku
+  // ab khaali hai" (asal current state) aur "variant map mein hai hi nahi" (fallback
+  // zaroori) mein farak ho sake — sirf `|| ""` se yeh farak pata nahi chalta.
+  const variantSkuMap = useMemo(() => {
+    const map = new Map();
+    variantSkuRows.forEach((row) => {
+      (row.variants || []).forEach((v) => {
+        if (v?.id != null) map.set(String(v.id), v.sku || "");
+      });
+    });
+    return map;
+  }, [variantSkuRows]);
+
+  // Line item ka current SKU nikalta hai — variant_id se fresh products_cache lookup
+  // mein mile to wahi (Shopify/Product page pe baad mein SKU badla ho to bhi live
+  // rahe), warna line item ka apna stored sku (deleted/archived variants ke liye,
+  // jo ab products_cache mein hai hi nahi).
+  const liveSkuForLineItem = (li) => {
+    const key = li?.variant_id != null ? String(li.variant_id) : null;
+    if (key && variantSkuMap.has(key)) return variantSkuMap.get(key);
+    return li?.sku || "";
+  };
+
   useEffect(() => {
     const q = itemsSearch.trim().toLowerCase();
     const handle = setTimeout(() => {
@@ -1829,7 +1864,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       .map(i => ({ title: i.title, variant_title: i.variant_title, quantity: i.quantity }));
     const wasAddress = addressFlash[order.id];
     const displayTotal = itemsOverride?.length > 0 ? computeOverrideTotal(itemsOverride) : (Number(order.total_price) || 0);
-    const skus = order.agent_data?.sku || order.line_items?.map(i => `${i.quantity > 1 ? i.quantity : ""}${i.sku || ""}`).join(" + ") || "—";
+    const skus = order.agent_data?.sku || order.line_items?.map(i => `${i.quantity > 1 ? i.quantity : ""}${liveSkuForLineItem(i)}`).join(" + ") || "—";
     const unitPrices = (order.agent_data?.line_items_override || order.line_items)?.map(i => i.price).join(" + ") || "—";
     const shipping = order.agent_data?.shipping || order.total_shipping_price_set?.presentment_money?.amount || "0";
     const discount = order.agent_data?.discount || order.total_discounts || "0";
