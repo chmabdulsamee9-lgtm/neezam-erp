@@ -1864,7 +1864,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       .map(i => ({ title: i.title, variant_title: i.variant_title, quantity: i.quantity }));
     const wasAddress = addressFlash[order.id];
     const displayTotal = itemsOverride?.length > 0 ? computeOverrideTotal(itemsOverride) : (Number(order.total_price) || 0);
-    const skus = order.agent_data?.sku || order.line_items?.map(i => `${i.quantity > 1 ? i.quantity : ""}${liveSkuForLineItem(i)}`).join(" + ") || "—";
+    const skus = order.agent_data?.sku || (itemsOverride?.length > 0 ? itemsOverride : order.line_items)?.map(i => `${i.quantity > 1 ? i.quantity : ""}${liveSkuForLineItem(i)}`).join(" + ") || "—";
     const unitPrices = (order.agent_data?.line_items_override || order.line_items)?.map(i => i.price).join(" + ") || "—";
     const shipping = order.agent_data?.shipping || order.total_shipping_price_set?.presentment_money?.amount || "0";
     const discount = order.agent_data?.discount || order.total_discounts || "0";

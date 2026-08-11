@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
@@ -28,6 +28,7 @@ export default function ProfitLoss({ ordersData, storeId }) {
   const [expenses, setExpenses] = useState([]);
   const [productCosts, setProductCosts] = useState({}); // { sku: cost_price }
   const [loading, setLoading] = useState(true);
+  const [variantSkuRows, setVariantSkuRows] = useState([]); // lightweight products_cache projection (raw_data->variants only) for the live-SKU lookup, Orders.jsx/BookedOrders.jsx jaisa hi
 
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [expenseForm, setExpenseForm] = useState({ category: "ad_spend", amount: "", expense_date: new Date().toISOString().slice(0, 10), notes: "" });
@@ -46,6 +47,30 @@ export default function ProfitLoss({ ordersData, storeId }) {
   useEffect(() => {
     if (storeId) fetchAll();
   }, [storeId]);
+
+  // Live SKU lookup (Orders.jsx/BookedOrders.jsx jaisa hi) — "raw_data->variants" sirf,
+  // taake per-SKU stats mein product page pe baad mein badla hua SKU bhi live reflect ho.
+  useEffect(() => {
+    if (!storeId) return;
+    supabase.from("products_cache").select("raw_data->variants").eq("store_id", storeId)
+      .then(({ data, error }) => { if (!error) setVariantSkuRows(data || []); });
+  }, [storeId]);
+
+  const variantSkuMap = useMemo(() => {
+    const map = new Map();
+    variantSkuRows.forEach((row) => {
+      (row.variants || []).forEach((v) => {
+        if (v?.id != null) map.set(String(v.id), v.sku || "");
+      });
+    });
+    return map;
+  }, [variantSkuRows]);
+
+  const liveSkuForLineItem = useCallback((li) => {
+    const key = li?.variant_id != null ? String(li.variant_id) : null;
+    if (key && variantSkuMap.has(key)) return variantSkuMap.get(key);
+    return li?.sku || "";
+  }, [variantSkuMap]);
 
   const fetchAll = async () => {
     setLoading(true);
@@ -91,9 +116,16 @@ export default function ProfitLoss({ ordersData, storeId }) {
   const perSkuStats = useMemo(() => {
     const map = {};
     approvedOrders.forEach(o => {
+      const itemsOverride = o.agent_data?.line_items_override;
+      const usingOverride = itemsOverride?.length > 0;
+      const items = usingOverride ? itemsOverride : (o.line_items || []);
       const seenInOrder = new Set();
-      (o.line_items || []).forEach(li => {
-        const sku = (li.sku || "").trim() || "(no SKU)";
+      items.forEach(li => {
+        // Priority: override item's own sku (staff ne manually chosen tha, isse trust
+        // karo) -> live products_cache lookup by variant_id -> raw line_items sku ->
+        // "(no SKU)". Orders.jsx/BookedOrders.jsx ke priority pattern se match karta hai.
+        const overrideSku = usingOverride ? (li.sku || "").trim() : "";
+        const sku = overrideSku || (liveSkuForLineItem(li) || "").trim() || "(no SKU)";
         const qty = Number(li.quantity || 1);
         const lineRevenue = Number(li.price || 0) * qty;
         if (!map[sku]) map[sku] = { sku, orders: 0, qty: 0, revenue: 0 };
@@ -108,7 +140,7 @@ export default function ProfitLoss({ ordersData, storeId }) {
       const profit = cost != null ? row.revenue - cost : null;
       return { ...row, costPer, cost, profit };
     }).sort((a, b) => b.revenue - a.revenue);
-  }, [approvedOrders, productCosts]);
+  }, [approvedOrders, productCosts, liveSkuForLineItem]);
 
   const totalCOGS = perSkuStats.reduce((s, row) => s + (row.cost || 0), 0);
 
