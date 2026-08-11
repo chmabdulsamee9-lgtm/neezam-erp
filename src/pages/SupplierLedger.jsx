@@ -70,7 +70,7 @@ export default function SupplierLedger({ storeId, cfUrl = CF_URL }) {
       if (data.error) {
         setSyncMessage(data.error);
       } else {
-        setSyncMessage(`${data.orders_checked ?? 0} ${t("ledger.syncOrdersChecked")}, ${data.new_entries ?? 0} ${t("ledger.syncNewEntries")}`);
+        setSyncMessage(`${data.orders_scanned ?? 0} ${t("ledger.syncOrdersScanned")} (${data.sku_combinations_checked ?? 0} ${t("ledger.syncSkuCombinationsChecked")}), ${data.new_entries ?? 0} ${t("ledger.syncNewEntries")}`);
         await fetchAll();
       }
     } catch (err) {

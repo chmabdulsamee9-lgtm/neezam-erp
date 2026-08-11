@@ -85,6 +85,16 @@ function StatementRow({ period, t, cfUrl, storeId, ordersStore }) {
   const approximatedCount = (data?.line_items || []).filter((li) => li.approximated_rate).length;
   const skippedCount = (data?.line_items || []).filter((li) => li.skipped).length;
 
+  // Skipped rows (koi COD/shipping/vat waghera computed hi nahi, unmatched orphan
+  // Delivered) averages se exclude — warna "—" ko 0 treat karke average galat neeche
+  // khinch degi. Averages sirf un rows pe jinke liye asal numbers maujood hain.
+  const costedItems = (data?.line_items || []).filter((li) => !li.skipped);
+  const avgOf = (field) => (costedItems.length > 0 ? costedItems.reduce((s, li) => s + (Number(li[field]) || 0), 0) / costedItems.length : null);
+  const averages = costedItems.length > 0 ? {
+    cod_amount: avgOf("cod_amount"), shipping_fee: avgOf("shipping_fee"), vat: avgOf("vat"),
+    income_tax: avgOf("income_tax"), sales_tax: avgOf("sales_tax"), total_deduction: avgOf("total_deduction"), payable: avgOf("payable"),
+  } : null;
+
   return (
     <div style={{ ...cardStyle, padding: 0, overflow: "hidden", marginBottom: 10 }}>
       <div onClick={toggle}
@@ -126,15 +136,11 @@ function StatementRow({ period, t, cfUrl, storeId, ordersStore }) {
             {skippedCount > 0 && <span>{t("finance.skippedCount")}: <b style={{ color: "var(--ne-danger)" }}>{skippedCount}</b></span>}
           </div>
           {(approximatedCount > 0 || skippedCount > 0) && (
-            <div style={{ padding: "8px 12px", borderRadius: 9, background: "var(--ne-warning-soft)", color: "var(--ne-warning)", fontSize: 10.5, display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{ marginBottom: 12, padding: "8px 12px", borderRadius: 9, background: "var(--ne-warning-soft)", color: "var(--ne-warning)", fontSize: 10.5, display: "flex", alignItems: "center", gap: 6 }}>
               <Icon name="warning" size={11} /> {t("finance.approximationNote")}
             </div>
           )}
-        </div>
-      ) : null}
 
-      {expanded && data && (
-        <div style={{ borderTop: "1px solid var(--ne-border)", padding: "14px 18px" }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             <div style={{ background: "var(--ne-surface)", borderRadius: 10, padding: "12px 14px" }}>
               <div style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".3px", marginBottom: 8, fontWeight: 700 }}>{t("finance.codBlockTitle")}</div>
@@ -163,7 +169,11 @@ function StatementRow({ period, t, cfUrl, storeId, ordersStore }) {
               </div>
             </div>
           </div>
+        </div>
+      ) : null}
 
+      {expanded && data && (
+        <div style={{ borderTop: "1px solid var(--ne-border)", padding: "14px 18px" }}>
           {data.line_items?.length > 0 && (
             <div style={{ marginTop: 14, overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
@@ -205,6 +215,22 @@ function StatementRow({ period, t, cfUrl, storeId, ordersStore }) {
                     </tr>
                   ))}
                 </tbody>
+                {averages && (
+                  <tfoot>
+                    <tr style={{ background: "var(--ne-accent-soft)" }}>
+                      <td style={{ padding: "6px 8px", fontWeight: 700, color: "var(--ne-accent)" }}>{t("finance.averageRowLabel")}</td>
+                      <td style={{ padding: "6px 8px" }}></td>
+                      <td style={{ padding: "6px 8px" }}></td>
+                      <td style={{ padding: "6px 8px", color: "var(--ne-accent)", fontWeight: 700 }}>{fmtMoney(averages.cod_amount)}</td>
+                      <td style={{ padding: "6px 8px", color: "var(--ne-accent)", fontWeight: 700 }}>{fmtMoney(averages.shipping_fee)}</td>
+                      <td style={{ padding: "6px 8px", color: "var(--ne-accent)", fontWeight: 700 }}>{fmtMoney(averages.vat)}</td>
+                      <td style={{ padding: "6px 8px", color: "var(--ne-accent)", fontWeight: 700 }}>{fmtMoney(averages.income_tax)}</td>
+                      <td style={{ padding: "6px 8px", color: "var(--ne-accent)", fontWeight: 700 }}>{fmtMoney(averages.sales_tax)}</td>
+                      <td style={{ padding: "6px 8px", color: "var(--ne-accent)", fontWeight: 700 }}>{fmtMoney(averages.total_deduction)}</td>
+                      <td style={{ padding: "6px 8px", color: "var(--ne-accent)", fontWeight: 700 }}>{fmtMoney(averages.payable)}</td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
           )}
