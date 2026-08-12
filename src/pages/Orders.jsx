@@ -1641,7 +1641,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   // payload halka rahe.
   useEffect(() => {
     if (!currentStore?.id) return;
-    supabase.from("products_cache").select("raw_data->variants").eq("store_id", currentStore.id)
+    supabase.from("products_cache").select("shopify_product_id, raw_data->variants").eq("store_id", currentStore.id)
       .then(({ data, error }) => { if (!error) setVariantSkuRows(data || []); });
   }, [currentStore?.id]);
 
@@ -1658,14 +1658,48 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     return map;
   }, [variantSkuRows]);
 
-  // Line item ka current SKU nikalta hai — variant_id se fresh products_cache lookup
-  // mein mile to wahi (Shopify/Product page pe baad mein SKU badla ho to bhi live
-  // rahe), warna line item ka apna stored sku (deleted/archived variants ke liye,
-  // jo ab products_cache mein hai hi nahi).
+  // Override items "Default Title" ke liye "" store karte hain (addItemFromSearch),
+  // raw Shopify line_items literal "Default Title" — dono ko ek hi canonical form pe
+  // laate hain taake product_id::variant_title key dono taraf match kare.
+  const normVariantTitle = (vt) => (vt && vt !== "Default Title" ? vt : "Default Title");
+
+  // Fallback map jab variant_id se lookup fail ho jaye (variant delete karke usi naam
+  // se dobara banaya gaya — naya variant_id, lekin product_id + title same rehte hain).
+  const productVariantSkuMap = useMemo(() => {
+    const map = new Map();
+    variantSkuRows.forEach((row) => {
+      if (row.shopify_product_id == null) return;
+      (row.variants || []).forEach((v) => {
+        map.set(`${row.shopify_product_id}::${normVariantTitle(v?.title)}`, v?.sku || "");
+      });
+    });
+    return map;
+  }, [variantSkuRows]);
+
+  // Line item ka current SKU nikalta hai. Priority: variant_id se fresh products_cache
+  // lookup (Shopify/Product page pe baad mein SKU badla ho to bhi live rahe) -> product_id
+  // + variant_title se lookup (variant delete/recreate ke baad naya variant_id mila ho
+  // to bhi SKU recover ho jaye) -> line item ka apna stored sku (deleted/archived variants
+  // ke liye, jo ab products_cache mein hai hi nahi).
   const liveSkuForLineItem = (li) => {
     const key = li?.variant_id != null ? String(li.variant_id) : null;
     if (key && variantSkuMap.has(key)) return variantSkuMap.get(key);
+    const productId = li?.product_id ?? li?.shopify_product_id;
+    if (productId != null) {
+      const pvKey = `${productId}::${normVariantTitle(li?.variant_title)}`;
+      if (productVariantSkuMap.has(pvKey)) return productVariantSkuMap.get(pvKey);
+    }
     return li?.sku || "";
+  };
+
+  // Koi bhi lookup SKU resolve na kar paye (bilkul naya/renamed variant, ya data hi
+  // missing) to blank/dash ke bajaye product ka apna title + variant dikhao — kam se
+  // kam yeh to pata chale ke order mein kya bheja gaya tha.
+  const displaySkuForLineItem = (li) => {
+    const sku = liveSkuForLineItem(li);
+    if (sku) return sku;
+    const variantTitle = li?.variant_title && li.variant_title !== "Default Title" ? li.variant_title : "";
+    return [li?.title || "", variantTitle].filter(Boolean).join(" - ");
   };
 
   useEffect(() => {
@@ -1864,7 +1898,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       .map(i => ({ title: i.title, variant_title: i.variant_title, quantity: i.quantity }));
     const wasAddress = addressFlash[order.id];
     const displayTotal = itemsOverride?.length > 0 ? computeOverrideTotal(itemsOverride) : (Number(order.total_price) || 0);
-    const skus = order.agent_data?.sku || (itemsOverride?.length > 0 ? itemsOverride : order.line_items)?.map(i => `${i.quantity > 1 ? i.quantity : ""}${liveSkuForLineItem(i)}`).join(" + ") || "—";
+    const skus = order.agent_data?.sku || (itemsOverride?.length > 0 ? itemsOverride : order.line_items)?.map(i => `${i.quantity > 1 ? i.quantity : ""}${displaySkuForLineItem(i)}`).join(" + ") || "—";
     const unitPrices = (order.agent_data?.line_items_override || order.line_items)?.map(i => i.price).join(" + ") || "—";
     const shipping = order.agent_data?.shipping || order.total_shipping_price_set?.presentment_money?.amount || "0";
     const discount = order.agent_data?.discount || order.total_discounts || "0";

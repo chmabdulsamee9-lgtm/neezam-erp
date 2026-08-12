@@ -452,7 +452,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
   // drop ho jate hain).
   useEffect(() => {
     if (!storeId) return;
-    supabase.from("products_cache").select("raw_data->variants").eq("store_id", storeId)
+    supabase.from("products_cache").select("shopify_product_id, raw_data->variants").eq("store_id", storeId)
       .then(({ data, error }) => { if (!error) setVariantSkuRows(data || []); });
   }, [storeId]);
 
@@ -466,10 +466,42 @@ export default function BookedOrders({ storeId, ordersStore }) {
     return map;
   }, [variantSkuRows]);
 
+  // Override items "Default Title" ke liye "" store karte hain, raw Shopify line_items
+  // literal "Default Title" — dono ko ek hi canonical form pe laate hain taake
+  // product_id::variant_title key dono taraf match kare.
+  const normVariantTitle = (vt) => (vt && vt !== "Default Title" ? vt : "Default Title");
+
+  // Fallback map jab variant_id se lookup fail ho jaye (variant delete karke usi naam
+  // se dobara banaya gaya — naya variant_id, lekin product_id + title same rehte hain).
+  const productVariantSkuMap = useMemo(() => {
+    const map = new Map();
+    variantSkuRows.forEach((row) => {
+      if (row.shopify_product_id == null) return;
+      (row.variants || []).forEach((v) => {
+        map.set(`${row.shopify_product_id}::${normVariantTitle(v?.title)}`, v?.sku || "");
+      });
+    });
+    return map;
+  }, [variantSkuRows]);
+
   const liveSkuForLineItem = (li) => {
     const key = li?.variant_id != null ? String(li.variant_id) : null;
     if (key && variantSkuMap.has(key)) return variantSkuMap.get(key);
+    const productId = li?.product_id ?? li?.shopify_product_id;
+    if (productId != null) {
+      const pvKey = `${productId}::${normVariantTitle(li?.variant_title)}`;
+      if (productVariantSkuMap.has(pvKey)) return productVariantSkuMap.get(pvKey);
+    }
     return li?.sku || "";
+  };
+
+  // Koi bhi lookup SKU resolve na kar paye to blank/dash ke bajaye product ka apna
+  // title + variant dikhao.
+  const displaySkuForLineItem = (li) => {
+    const sku = liveSkuForLineItem(li);
+    if (sku) return sku;
+    const variantTitle = li?.variant_title && li.variant_title !== "Default Title" ? li.variant_title : "";
+    return [li?.title || "", variantTitle].filter(Boolean).join(" - ");
   };
 
   // Remarks ke "author" field ke liye current user ka naam (Orders.jsx ke currentProfile
@@ -1001,7 +1033,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
               // exact wahi fallback pattern, yahan _sku_override ke naam se. Har line item
               // apna live SKU (variant_id se products_cache lookup) ke through dikhata hai,
               // stored sku sirf tab jab variant ab products_cache mein hi nahi (deleted/archived).
-              const skus = o._sku_override || (o._line_items_override || o.line_items || []).map((li) => `${li.quantity > 1 ? li.quantity : ""}${liveSkuForLineItem(li)}`).join(" + ") || "—";
+              const skus = o._sku_override || (o._line_items_override || o.line_items || []).map((li) => `${li.quantity > 1 ? li.quantity : ""}${displaySkuForLineItem(li)}`).join(" + ") || "—";
               const variantNote = (o._line_items_override || o.line_items || [])
                 .map((li) => (li.variant_title && li.variant_title !== "Default Title" ? li.variant_title : null))
                 .filter(Boolean).join(" + ");
