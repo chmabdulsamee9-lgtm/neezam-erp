@@ -99,7 +99,15 @@ export default function ProfitLoss({ ordersData, storeId }) {
     return map;
   }, [variantSkuRows]);
 
+  // Priority: line item ka apna stored sku (order ke purchase-time ka frozen record —
+  // Shopify variant_id ko baad mein kisi bilkul different variant ke liye REUSE kar
+  // sakta hai, is liye "live" lookup order ke asal SKU se unrelated cheez wapas de
+  // sakta hai; raw sku hamesha sahi hota hai jab tak khaali na ho) -> variant_id se
+  // fresh products_cache lookup (sirf jab raw sku khaali ho) -> product_id +
+  // variant_title se lookup.
   const liveSkuForLineItem = useCallback((li) => {
+    const rawSku = (li?.sku || "").trim();
+    if (rawSku) return rawSku;
     const key = li?.variant_id != null ? String(li.variant_id) : null;
     if (key && variantSkuMap.has(key)) return variantSkuMap.get(key);
     const productId = li?.product_id ?? li?.shopify_product_id;
@@ -107,7 +115,7 @@ export default function ProfitLoss({ ordersData, storeId }) {
       const pvKey = `${productId}::${normVariantTitle(li?.variant_title)}`;
       if (productVariantSkuMap.has(pvKey)) return productVariantSkuMap.get(pvKey);
     }
-    return li?.sku || "";
+    return "";
   }, [variantSkuMap, productVariantSkuMap]);
 
   // Koi bhi lookup SKU resolve na kar paye to "(no SKU)" ke ek hi shared bucket mein

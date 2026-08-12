@@ -1676,12 +1676,16 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     return map;
   }, [variantSkuRows]);
 
-  // Line item ka current SKU nikalta hai. Priority: variant_id se fresh products_cache
-  // lookup (Shopify/Product page pe baad mein SKU badla ho to bhi live rahe) -> product_id
-  // + variant_title se lookup (variant delete/recreate ke baad naya variant_id mila ho
-  // to bhi SKU recover ho jaye) -> line item ka apna stored sku (deleted/archived variants
-  // ke liye, jo ab products_cache mein hai hi nahi).
+  // Line item ka current SKU nikalta hai. Priority: line item ka apna stored sku
+  // (order ke purchase-time ka frozen record — Shopify variant_id ko baad mein
+  // kisi bilkul different variant ke liye REUSE kar sakta hai, is liye "live"
+  // lookup order ke asal SKU se unrelated cheez wapas de sakta hai; raw sku hamesha
+  // sahi hota hai jab tak khaali na ho) -> variant_id se fresh products_cache lookup
+  // (sirf jab raw sku khaali ho) -> product_id + variant_title se lookup (variant
+  // delete/recreate ke baad naya variant_id mila ho to bhi SKU recover ho jaye).
   const liveSkuForLineItem = (li) => {
+    const rawSku = (li?.sku || "").trim();
+    if (rawSku) return rawSku;
     const key = li?.variant_id != null ? String(li.variant_id) : null;
     if (key && variantSkuMap.has(key)) return variantSkuMap.get(key);
     const productId = li?.product_id ?? li?.shopify_product_id;
@@ -1689,7 +1693,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       const pvKey = `${productId}::${normVariantTitle(li?.variant_title)}`;
       if (productVariantSkuMap.has(pvKey)) return productVariantSkuMap.get(pvKey);
     }
-    return li?.sku || "";
+    return "";
   };
 
   // Koi bhi lookup SKU resolve na kar paye (bilkul naya/renamed variant, ya data hi
