@@ -297,6 +297,11 @@ export default function SupplierLedger({ storeId, cfUrl = CF_URL }) {
     return Object.values(stats).sort((a, b) => b.count - a.count).slice(0, 8);
   }, [displayedEntries]);
 
+  // Currently-filtered (date-range-limited) entries ke Amount ka sum — total
+  // transaction volume us period mein (debit + credit dono, Running Balance ke net
+  // se alag), dashboard mein date filter ke saath prominently dikhane ke liye.
+  const filteredTotalAmount = useMemo(() => displayedEntries.reduce((s, row) => s + (Number(row.amount) || 0), 0), [displayedEntries]);
+
   if (viewingSupplier) {
     const balance = balanceOf(viewingSupplier.id);
     const maxSkuCount = topSkus[0]?.count || 1;
@@ -331,20 +336,26 @@ export default function SupplierLedger({ storeId, cfUrl = CF_URL }) {
           <p style={{ margin: "-6px 0 12px", fontSize: 11.5, color: "var(--ne-muted)", textAlign: "right" }}>{syncMessage}</p>
         )}
 
-        {/* ---------- Dashboard: date filter + Top SKUs ---------- */}
+        {/* ---------- Dashboard: date filter + total amount + Top SKUs ---------- */}
         <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem", marginBottom: "0.85rem" }}>
-          <div style={{ display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center", marginBottom: topSkus.length > 0 ? 14 : 0 }}>
-            {DATE_FILTERS.map(f => (
-              <button key={f} style={dateBtnStyle(f)} onClick={() => setDateFilter(f)}>{t(DATE_FILTER_LABEL_KEYS[f])}</button>
-            ))}
-            {dateFilter === "custom" && (
-              <>
-                <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
-                  style={{ padding: "6px 9px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
-                <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
-                  style={{ padding: "6px 9px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
-              </>
-            )}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", marginBottom: topSkus.length > 0 ? 14 : 0 }}>
+            <div style={{ display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center" }}>
+              {DATE_FILTERS.map(f => (
+                <button key={f} style={dateBtnStyle(f)} onClick={() => setDateFilter(f)}>{t(DATE_FILTER_LABEL_KEYS[f])}</button>
+              ))}
+              {dateFilter === "custom" && (
+                <>
+                  <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
+                    style={{ padding: "6px 9px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
+                  <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
+                    style={{ padding: "6px 9px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
+                </>
+              )}
+            </div>
+            <div style={{ background: "var(--ne-accent-soft)", borderRadius: 10, padding: "8px 14px", textAlign: "right" }}>
+              <div style={{ fontSize: 9.5, color: "var(--ne-accent)", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".3px" }}>{t("ledger.totalAmountLabel")}</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: "var(--ne-accent)" }}>{rupees(filteredTotalAmount)}</div>
+            </div>
           </div>
           {topSkus.length > 0 && (
             <div>
@@ -381,7 +392,7 @@ export default function SupplierLedger({ storeId, cfUrl = CF_URL }) {
                       {row.type === "debit" ? t("ledger.debitType") : t("ledger.paymentType")}
                     </span>
                   </div>
-                  {!row.is_manual && <div style={{ fontSize: 11, color: "var(--ne-muted-2)", marginBottom: 4 }}>#{row.order_id}</div>}
+                  {!row.is_manual && <div style={{ fontSize: 11, color: "var(--ne-muted-2)", marginBottom: 4 }}>#{row.order_number || row.order_id}</div>}
                   {!row.is_manual && row.items.map((it, i) => (
                     <div key={i} style={{ fontSize: 11.5, color: "var(--ne-text)", marginBottom: 2 }}>
                       {it.title}{it.variant_title ? ` — ${it.variant_title}` : ""} {it.sku ? <span style={{ color: "var(--ne-muted-2)", fontFamily: "monospace" }}>({it.sku})</span> : null}
@@ -416,7 +427,7 @@ export default function SupplierLedger({ storeId, cfUrl = CF_URL }) {
                     <tr key={row.is_manual ? row.id : row.order_id}>
                       <td style={{ padding: "7px 8px", color: "var(--ne-muted-2)", verticalAlign: "top" }}>{idx + 1}</td>
                       <td style={{ padding: "7px 8px", color: "var(--ne-text)", whiteSpace: "nowrap", verticalAlign: "top" }}>{new Date(row.date).toLocaleDateString("en-PK")}</td>
-                      <td style={{ padding: "7px 8px", color: "var(--ne-muted)", whiteSpace: "nowrap", verticalAlign: "top" }}>{row.is_manual ? "—" : `#${row.order_id}`}</td>
+                      <td style={{ padding: "7px 8px", color: "var(--ne-muted)", whiteSpace: "nowrap", verticalAlign: "top" }}>{row.is_manual ? "—" : `#${row.order_number || row.order_id}`}</td>
                       <td style={{ padding: "7px 8px", verticalAlign: "top" }}>
                         <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, fontWeight: 700, whiteSpace: "nowrap", background: row.type === "debit" ? "var(--ne-danger-soft)" : "var(--ne-success-soft)", color: row.type === "debit" ? "var(--ne-danger)" : "var(--ne-success)" }}>
                           {row.type === "debit" ? t("ledger.debitType") : t("ledger.paymentType")}
