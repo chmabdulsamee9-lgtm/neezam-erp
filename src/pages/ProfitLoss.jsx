@@ -27,7 +27,14 @@ const addDays = (dateStr, n) => {
   return toDateStr(d);
 };
 
-export default function ProfitLoss({ ordersData, storeId }) {
+const PERIOD_OPTIONS = [
+  { value: "30d", labelKey: "orders.period30d" },
+  { value: "90d", labelKey: "orders.period90d" },
+  { value: "180d", labelKey: "orders.period180d" },
+  { value: "all", labelKey: "orders.periodAll" },
+]
+
+export default function ProfitLoss({ ordersData, storeId, activePeriod, onPeriodChange }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const [dateFilter, setDateFilter] = useState("today");
@@ -61,6 +68,30 @@ export default function ProfitLoss({ ordersData, storeId }) {
 
   useEffect(() => {
     if (storeId) fetchAll();
+  }, [storeId]);
+
+  useEffect(() => {
+    if (!storeId) return
+
+    const channel = supabase
+      .channel(`profit-loss-${storeId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'expenses',
+        filter: `store_id=eq.${storeId}`
+      }, () => { fetchAll() })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'product_costs',
+        filter: `store_id=eq.${storeId}`
+      }, () => { fetchAll() })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
   }, [storeId]);
 
   // Live SKU lookup (Orders.jsx/BookedOrders.jsx jaisa hi) — "raw_data->variants" sirf,
@@ -445,6 +476,37 @@ export default function ProfitLoss({ ordersData, storeId }) {
           </>
         )}
       </div>
+
+      {/* Period Selector */}
+      {onPeriodChange && (
+        <div style={{
+          display: 'flex', gap: 4, alignItems: 'center',
+          flexWrap: 'wrap', marginBottom: "1rem"
+        }}>
+          {PERIOD_OPTIONS.map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => onPeriodChange(opt.value)}
+              style={{
+                padding: '4px 10px',
+                borderRadius: 6,
+                border: '1px solid var(--ne-border)',
+                background: activePeriod === opt.value
+                  ? 'var(--ne-grad)' : 'transparent',
+                color: activePeriod === opt.value
+                  ? '#fff' : 'var(--ne-muted)',
+                fontSize: 11,
+                fontWeight: activePeriod === opt.value
+                  ? 700 : 400,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {t(opt.labelKey)}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Hero Net Profit Card */}
       <div style={{ background: "var(--ne-grad)", borderRadius: 18, padding: "1.4rem", marginBottom: "0.75rem", display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "center", flexWrap: "wrap", gap: 16 }}>

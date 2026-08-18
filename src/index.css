@@ -12,6 +12,7 @@ html, body {
                      visible viewport ke barabar rehta hai */
   width: 100%;
   overflow: hidden;
+  overscroll-behavior: auto;
   background: var(--ne-bg);
   font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;

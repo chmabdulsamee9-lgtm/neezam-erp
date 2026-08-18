@@ -36,14 +36,23 @@ function openDB() {
   });
 }
 
-export async function getCachedOrders(storeId) {
+export async function getCachedOrders(storeId, fromDate = null) {
   try {
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(ORDERS_STORE, "readonly");
       const idx = tx.objectStore(ORDERS_STORE).index("by_store");
       const req = idx.getAll(storeId);
-      req.onsuccess = () => resolve((req.result || []).map(({ _cacheKey, ...rest }) => rest));
+      req.onsuccess = (e) => {
+        let results = e.target.result || [];
+        if (fromDate) {
+          results = results.filter(o => {
+            const created = o.raw_data?.created_at || o.created_at;
+            return created && created >= fromDate;
+          });
+        }
+        resolve(results.map(({ _cacheKey, ...rest }) => rest));
+      };
       req.onerror = () => reject(req.error);
     });
   } catch (err) {
@@ -148,4 +157,38 @@ export async function clearCache() {
   } catch (err) {
     console.log("IndexedDB clear error:", err.message);
   }
+}
+
+export async function getCachedPeriod(storeId) {
+  return getMeta(`cachedPeriod-${storeId}`)
+}
+
+export async function setCachedPeriod(storeId, period) {
+  return setMeta(`cachedPeriod-${storeId}`, period)
+}
+
+export async function clearStoreOrders(storeId) {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME)
+    request.onsuccess = (e) => {
+      const db = e.target.result
+      const tx = db.transaction(
+        [ORDERS_STORE, META_STORE], 'readwrite'
+      )
+      const store = tx.objectStore(ORDERS_STORE)
+      const index = store.index('by_store')
+      const req = index.getAll(storeId)
+      req.onsuccess = (e2) => {
+        const records = e2.target.result || []
+        records.forEach(r => store.delete(r._cacheKey))
+        tx.objectStore(META_STORE)
+          .delete(`lastSyncedAt-${storeId}`)
+        tx.objectStore(META_STORE)
+          .delete(`cachedPeriod-${storeId}`)
+        tx.oncomplete = () => resolve(true)
+        tx.onerror = () => reject(tx.error)
+      }
+    }
+    request.onerror = () => reject(request.error)
+  })
 }

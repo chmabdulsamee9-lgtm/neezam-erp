@@ -34,6 +34,13 @@ const STATUSES = [
 const SOURCE_COLORS = { Meta: "#5C7CFA", TikTok: "#F472B6", Snapchat: "#F2A83E", Google: "#34D88E", Direct: "#8C93C4" };
 const PER_PAGE_OPTIONS = [20, 50, 100];
 const TABS = ["All", "New", "Approved", "Pending", "Ready to Sync", "Cancelled"];
+
+const PERIOD_OPTIONS = [
+  { value: "30d", labelKey: "orders.period30d" },
+  { value: "90d", labelKey: "orders.period90d" },
+  { value: "180d", labelKey: "orders.period180d" },
+  { value: "all", labelKey: "orders.periodAll" },
+]
 const CANCEL_REASONS = ["Not Interested", "Wrong Number", "Duplicate Order", "Customer Cancelled", "Out of Stock", "Other"];
 const PAGE_SIZE = 1000;
 const MIDDLE_CONTENT_WIDTH = 925; // Customer(140)+Address(190)+Items(160)+Pricing(115)+Source(75)+Courier(90)+Remarks(95) + 6*10 gaps — single source of truth so header/rows/scrollbar always match; MUST equal the sum of each column's actual width below (header widths and row-cell widths are declared separately and can drift out of sync — that's what caused the earlier header/cell column-misalignment bug)
@@ -578,7 +585,7 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
   );
 }
 
-export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrdersLoaded, ordersStore, setOrdersStore, cfUrl }) {
+export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrdersLoaded, ordersStore, setOrdersStore, cfUrl, activePeriod, onPeriodChange }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const orders = ordersData;
@@ -723,8 +730,27 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   };
 
   useEffect(() => {
-    if (!ordersLoaded) loadStore();
-  }, []);
+    if (!ordersLoaded) {
+      console.warn(
+        'Orders.jsx mounted before ordersLoaded — ' +
+        'App.jsx should guarantee this never happens'
+      )
+    }
+  }, [ordersLoaded]);
+
+  // Undo Sync feature ke liye order_sync_history — pehle sirf loadStore()'s dangerous
+  // unscoped-platform-wide fallback path se load hota tha (jo hata diya gaya hai), ab
+  // apna alag chhota effect hai taake historyMap/isHistoryValid (Undo Sync) kaam karta rahe.
+  useEffect(() => {
+    if (!ordersStore?.id) return;
+    fetchAllSyncHistory()
+      .then(history => {
+        const hMap = {};
+        history.forEach(h => { hMap[h.order_id] = h; });
+        setHistoryMap(hMap);
+      })
+      .catch(err => console.log("Sync history load error:", err.message));
+  }, [ordersStore?.id]);
 
   // Activity log entries ke liye current user ka naam/id ek dafa fetch kar lo
   useEffect(() => {
@@ -766,54 +792,6 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  const loadStore = async () => {
-    const { data } = await supabase.from("stores").select("*").limit(1).single();
-    if (data) {
-      setStore(data);
-      setOrdersStore(data);
-      fetchOrders(data);
-    } else {
-      setError(t("orders.storeConnectFirst"));
-      setLoading(false);
-    }
-  };
-
-  const fetchAllCachedOrders = async (storeId) => {
-    let allRows = [];
-    let from = 0;
-    while (true) {
-      const { data, error } = await supabase
-        .from("shopify_orders_cache")
-        .select("raw_data")
-        .eq("store_id", storeId)
-        .order("created_at", { ascending: false })
-        .range(from, from + PAGE_SIZE - 1);
-      if (error) throw error;
-      if (!data || data.length === 0) break;
-      allRows = allRows.concat(data.map(r => r.raw_data));
-      if (data.length < PAGE_SIZE) break;
-      from += PAGE_SIZE;
-    }
-    return allRows;
-  };
-
-  const fetchAllOrderStatuses = async () => {
-    let allRows = [];
-    let from = 0;
-    while (true) {
-      const { data, error } = await supabase
-        .from("order_statuses")
-        .select("*")
-        .range(from, from + PAGE_SIZE - 1);
-      if (error) throw error;
-      if (!data || data.length === 0) break;
-      allRows = allRows.concat(data);
-      if (data.length < PAGE_SIZE) break;
-      from += PAGE_SIZE;
-    }
-    return allRows;
-  };
-
   const fetchAllSyncHistory = async () => {
     let allRows = [];
     let from = 0;
@@ -829,32 +807,6 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       from += PAGE_SIZE;
     }
     return allRows;
-  };
-
-  const fetchOrders = async (storeData) => {
-    setLoading(true);
-    try {
-      const cachedOrders = await fetchAllCachedOrders(storeData.id);
-      const statuses = await fetchAllOrderStatuses();
-      const history = await fetchAllSyncHistory();
-      const statusMap = {};
-      statuses.forEach(s => { statusMap[s.order_id] = s; });
-      const hMap = {};
-      history.forEach(h => { hMap[h.order_id] = h; });
-      setHistoryMap(hMap);
-      const merged = cachedOrders.map(o => ({
-        ...o,
-        agent_data: statusMap[String(o.id)] || {},
-        agent_status: statusMap[String(o.id)]?.status || null,
-        synced_at: statusMap[String(o.id)]?.synced_at || null,
-        last_edited_at: statusMap[String(o.id)]?.last_edited_at || null,
-      }));
-      setOrders(merged);
-      setOrdersLoaded(true);
-    } catch (err) {
-      setError(`${t("orders.errorPrefix")} ${err.message}`);
-    }
-    setLoading(false);
   };
 
   // referring_site akela unreliable hai — TikTok/Instagram ke in-app browsers
@@ -1724,35 +1676,46 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
   }, [itemsSearch, productsForSearch]);
 
   // Step 1: date range only — source of truth for tab counts
-  const dateFilteredOrders = orders.filter(order => {
-    const orderDate = new Date(order.created_at);
-    const matchFrom = !dateFrom || orderDate >= new Date(dateFrom + "T00:00:00");
-    const matchTo = !dateTo || orderDate <= new Date(dateTo + "T23:59:59");
-    return matchFrom && matchTo;
-  });
+  const { dateFilteredOrders, tabCounts, baseFilteredOrders, availableCities, availableSKUs, filteredOrders } = useMemo(() => {
+    const dateFiltered = orders.filter(order => {
+      const orderDate = new Date(order.created_at);
+      const matchFrom = !dateFrom || orderDate >= new Date(dateFrom + "T00:00:00");
+      const matchTo = !dateTo || orderDate <= new Date(dateTo + "T23:59:59");
+      return matchFrom && matchTo;
+    });
 
-  const tabCounts = Object.fromEntries(TABS.map(t => [t, t === "All" ? dateFilteredOrders.length : dateFilteredOrders.filter(o => tabFilter(t, o)).length]));
+    const counts = Object.fromEntries(TABS.map(t => [t, t === "All" ? dateFiltered.length : dateFiltered.filter(o => tabFilter(t, o)).length]));
 
-  const baseFilteredOrders = dateFilteredOrders.filter(order => {
-    const name = `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.toLowerCase();
-    const phone = order.customer?.phone || order.shipping_address?.phone || "";
-    const orderNum = order.name || "";
-    const matchSearch = !search || name.includes(search.toLowerCase()) || phone.includes(search) || orderNum.includes(search);
-    const matchSource = sourceFilter === "All" || getSource(order) === sourceFilter;
-    const matchTab = activeTab === "All" || tabFilter(activeTab, order);
-    return matchSearch && matchSource && matchTab;
-  });
+    const baseFiltered = dateFiltered.filter(order => {
+      const name = `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.toLowerCase();
+      const phone = order.customer?.phone || order.shipping_address?.phone || "";
+      const orderNum = order.name || "";
+      const matchSearch = !search || name.includes(search.toLowerCase()) || phone.includes(search) || orderNum.includes(search);
+      const matchSource = sourceFilter === "All" || getSource(order) === sourceFilter;
+      const matchTab = activeTab === "All" || tabFilter(activeTab, order);
+      return matchSearch && matchSource && matchTab;
+    });
 
-  const availableCities = ["All", ...new Set(baseFilteredOrders.map(o => o.agent_data?.city || o.shipping_address?.city).filter(Boolean))].sort();
-  const availableSKUs = [...new Set(baseFilteredOrders.flatMap(o => getSKUs(o)))].filter(Boolean).sort();
+    const cities = ["All", ...new Set(baseFiltered.map(o => o.agent_data?.city || o.shipping_address?.city).filter(Boolean))].sort();
+    const skus = [...new Set(baseFiltered.flatMap(o => getSKUs(o)))].filter(Boolean).sort();
 
-  const filteredOrders = baseFilteredOrders.filter(order => {
-    const orderCity = order.agent_data?.city || order.shipping_address?.city || "";
-    const matchStatus = statusFilters.length === 0 || statusFilters.includes(order.agent_status);
-    const matchCity = cityFilter === "All" || orderCity === cityFilter;
-    const matchSku = skuFilter === "All" || getSKUs(order).includes(skuFilter);
-    return matchStatus && matchCity && matchSku;
-  });
+    const filtered = baseFiltered.filter(order => {
+      const orderCity = order.agent_data?.city || order.shipping_address?.city || "";
+      const matchStatus = statusFilters.length === 0 || statusFilters.includes(order.agent_status);
+      const matchCity = cityFilter === "All" || orderCity === cityFilter;
+      const matchSku = skuFilter === "All" || getSKUs(order).includes(skuFilter);
+      return matchStatus && matchCity && matchSku;
+    });
+
+    return {
+      dateFilteredOrders: dateFiltered,
+      tabCounts: counts,
+      baseFilteredOrders: baseFiltered,
+      availableCities: cities,
+      availableSKUs: skus,
+      filteredOrders: filtered,
+    };
+  }, [orders, dateFrom, dateTo, search, sourceFilter, activeTab, statusFilters, cityFilter, skuFilter]);
 
   const tabFilteredOrders = filteredOrders;
   const totalPages = Math.ceil(filteredOrders.length / perPage);
@@ -2001,6 +1964,37 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
             style={{ padding: "5px 10px", borderRadius: 18, border: "1px solid var(--ne-danger)", background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontSize: 11, cursor: "pointer", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}><Icon name="close" size={9} /> {t("orders.clear")}</button>
         )}
       </div>
+
+      {/* Period Selector */}
+      {onPeriodChange && (
+        <div style={{
+          display: 'flex', gap: 4, alignItems: 'center',
+          flexWrap: 'wrap', marginBottom: "6px"
+        }}>
+          {PERIOD_OPTIONS.map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => onPeriodChange(opt.value)}
+              style={{
+                padding: '4px 10px',
+                borderRadius: 6,
+                border: '1px solid var(--ne-border)',
+                background: activePeriod === opt.value
+                  ? 'var(--ne-grad)' : 'transparent',
+                color: activePeriod === opt.value
+                  ? '#fff' : 'var(--ne-muted)',
+                fontSize: 11,
+                fontWeight: activePeriod === opt.value
+                  ? 700 : 400,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {t(opt.labelKey)}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Search + Date Range */}
       <div style={{ display: "flex", gap: 6, marginBottom: "6px", flexWrap: "wrap" }}>

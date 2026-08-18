@@ -47,8 +47,10 @@ export default function DevMonitorDetailed({ allStores }) {
   const [brandFilter, setBrandFilter] = useState("");
   const [endpointFilter, setEndpointFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("");
   const [searchText, setSearchText] = useState("");
   const [expandedIds, setExpandedIds] = useState(() => new Set());
+  const [hitRowCap, setHitRowCap] = useState(false);
 
   const storeMap = useMemo(() => {
     const map = {};
@@ -62,16 +64,16 @@ export default function DevMonitorDetailed({ allStores }) {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  useEffect(() => { loadLogs(); }, [dateFilter]);
+  useEffect(() => { loadLogs(); }, [dateFilter, brandFilter, endpointFilter, statusFilter, sourceFilter]);
   useEffect(() => { loadDeployments(); }, []);
 
   const exportLogsCsv = () => {
-    const columns = ["created_at", "brand_name", "source", "store_id", "user_name", "page_or_endpoint", "action", "status", "http_status_code", "order_id", "error_message", "duration_ms", "request_details", "response_details", "stack_trace"];
+    const columns = ["created_at", "brand_name", "source", "store_id", "user_name", "page_or_endpoint", "action", "status", "http_status_code", "order_id", "error_message", "duration_ms", "details", "request_details", "response_details", "stack_trace"];
     const escapeCsv = (value) => {
       const s = value == null ? "" : (typeof value === "object" ? JSON.stringify(value) : String(value));
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
-    const rows = logs.map((l) => columns.map((c) => escapeCsv(c === "brand_name" ? (storeMap[l.store_id] || "") : l[c])).join(","));
+    const rows = filteredLogs.map((l) => columns.map((c) => escapeCsv(c === "brand_name" ? (storeMap[l.store_id] || "") : l[c])).join(","));
     const csv = [columns.join(","), ...rows].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -87,6 +89,7 @@ export default function DevMonitorDetailed({ allStores }) {
   const loadLogs = async () => {
     setLoading(true);
     setError("");
+    setHitRowCap(false);
     try {
       const { from, to } = getDateRange(dateFilter);
       const PAGE_SIZE = 1000;
@@ -94,18 +97,23 @@ export default function DevMonitorDetailed({ allStores }) {
       let offset = 0;
       // eslint-disable-next-line no-constant-condition
       while (true) {
-        const { data, error: fetchError } = await supabase
+        let query = supabase
           .from("dev_monitoring_log")
           .select("*")
           .gte("created_at", from.toISOString())
-          .lte("created_at", to.toISOString())
+          .lte("created_at", to.toISOString());
+        if (brandFilter) query = query.eq("store_id", brandFilter);
+        if (endpointFilter) query = query.eq("page_or_endpoint", endpointFilter);
+        if (statusFilter) query = query.eq("status", statusFilter);
+        if (sourceFilter) query = query.eq("source", sourceFilter);
+        const { data, error: fetchError } = await query
           .order("created_at", { ascending: false })
           .range(offset, offset + PAGE_SIZE - 1);
         if (fetchError) throw fetchError;
         allRows = allRows.concat(data || []);
         if (!data || data.length < PAGE_SIZE) break; // last page reached
         offset += PAGE_SIZE;
-        if (offset > 50000) break; // hard safety ceiling so a runaway date-range can't loop forever
+        if (offset > 5000) { setHitRowCap(true); break; } // hard safety ceiling so a runaway date-range can't loop forever
       }
       setLogs(allRows);
     } catch (err) {
@@ -180,7 +188,89 @@ export default function DevMonitorDetailed({ allStores }) {
 
     const recentErrors = logs.filter((l) => l.status === "error").slice(0, 20);
 
-    return { total, successCount, errorCount, errorRate, avgFrontend, avgWorker, perUser, dailyBreakdown, recentErrors };
+    // P50/P95/P99 helper
+    const percentile = (arr, p) => {
+      if (!arr.length) return null
+      const sorted = [...arr].sort((a, b) => a - b)
+      const idx = Math.ceil((p / 100) * sorted.length) - 1
+      return sorted[Math.max(0, idx)]
+    }
+
+    // Worker response time percentiles
+    const workerP50 = percentile(workerDurations, 50)
+    const workerP95 = percentile(workerDurations, 95)
+    const workerP99 = percentile(workerDurations, 99)
+
+    // 4xx/5xx breakdown
+    const errors4xx = logs.filter(l =>
+      l.http_status_code >= 400 &&
+      l.http_status_code < 500
+    ).length
+    const errors5xx = logs.filter(l =>
+      l.http_status_code >= 500
+    ).length
+
+    // Top endpoints by volume
+    const endpointVolumeMap = {}
+    logs.forEach(l => {
+      if (!l.page_or_endpoint) return
+      if (!endpointVolumeMap[l.page_or_endpoint])
+        endpointVolumeMap[l.page_or_endpoint] = {
+          endpoint: l.page_or_endpoint,
+          total: 0, errors: 0, durations: []
+        }
+      endpointVolumeMap[l.page_or_endpoint].total++
+      if (l.status === 'error')
+        endpointVolumeMap[l.page_or_endpoint].errors++
+      if (l.duration_ms != null)
+        endpointVolumeMap[l.page_or_endpoint]
+          .durations.push(l.duration_ms)
+    })
+    const topEndpointsByVolume = Object.values(endpointVolumeMap)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 10)
+      .map(e => ({
+        ...e,
+        errorRate: e.total ?
+          Math.round((e.errors / e.total) * 100) : 0,
+        avgMs: e.durations.length ?
+          Math.round(
+            e.durations.reduce((a,b) => a+b,0) /
+            e.durations.length
+          ) : null,
+        p99Ms: percentile(e.durations, 99)
+      }))
+
+    // Source breakdown
+    const frontendCount = logs.filter(
+      l => l.source === 'frontend'
+    ).length
+    const workerCount = logs.filter(
+      l => l.source === 'worker'
+    ).length
+
+    // Hourly breakdown for line chart
+    const hourlyMap = {}
+    logs.forEach(l => {
+      const d = new Date(l.created_at)
+      const key = `${ymd(d)} ${String(d.getHours())
+        .padStart(2,'0')}:00`
+      if (!hourlyMap[key])
+        hourlyMap[key] = { key, success: 0, error: 0 }
+      if (l.status === 'error') hourlyMap[key].error++
+      else hourlyMap[key].success++
+    })
+    const hourlyBreakdown = Object.values(hourlyMap)
+      .sort((a,b) => a.key < b.key ? -1 : 1)
+
+    return {
+      total, successCount, errorCount, errorRate, avgFrontend, avgWorker, perUser, dailyBreakdown, recentErrors,
+      workerP50, workerP95, workerP99,
+      errors4xx, errors5xx,
+      topEndpointsByVolume,
+      frontendCount, workerCount,
+      hourlyBreakdown
+    };
   }, [logs, t, storeMap]);
 
   const endpointOptions = useMemo(() => {
@@ -231,6 +321,43 @@ export default function DevMonitorDetailed({ allStores }) {
     { label: t("devMonitor.errorRate"), value: `${stats.errorRate}%`, color: stats.errorRate > 10 ? "var(--ne-danger)" : "var(--ne-warning)" },
     { label: t("devMonitor.avgFrontend"), value: stats.avgFrontend != null ? `${stats.avgFrontend}ms` : "—", color: "var(--ne-accent2)" },
     { label: t("devMonitor.avgWorker"), value: stats.avgWorker != null ? `${stats.avgWorker}ms` : "—", color: "var(--ne-accent2)" },
+    {
+      label: "Worker P50",
+      value: stats.workerP50 != null ?
+        `${stats.workerP50}ms` : "—",
+      color: "var(--ne-accent)"
+    },
+    {
+      label: "Worker P95",
+      value: stats.workerP95 != null ?
+        `${stats.workerP95}ms` : "—",
+      color: stats.workerP95 > 2000 ?
+        "var(--ne-warning)" : "var(--ne-accent)"
+    },
+    {
+      label: "Worker P99",
+      value: stats.workerP99 != null ?
+        `${stats.workerP99}ms` : "—",
+      color: stats.workerP99 > 5000 ?
+        "var(--ne-danger)" : "var(--ne-accent)"
+    },
+    {
+      label: "4xx Errors",
+      value: stats.errors4xx,
+      color: stats.errors4xx > 0 ?
+        "var(--ne-warning)" : "var(--ne-muted)"
+    },
+    {
+      label: "5xx Errors",
+      value: stats.errors5xx,
+      color: stats.errors5xx > 0 ?
+        "var(--ne-danger)" : "var(--ne-muted)"
+    },
+    {
+      label: "Frontend Calls",
+      value: stats.frontendCount,
+      color: "var(--ne-accent2)"
+    },
   ];
   const maxDayTotal = Math.max(...stats.dailyBreakdown.map((d) => d.success + d.error), 1);
 
@@ -261,6 +388,12 @@ export default function DevMonitorDetailed({ allStores }) {
         </div>
       )}
 
+      {hitRowCap && !loading && (
+        <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 9, fontSize: 12, background: "var(--ne-warning-soft)", color: "var(--ne-warning)", display: "flex", alignItems: "center", gap: 6 }}>
+          <Icon name="warning" size={12} /> 5,000 results shown — narrow your filters for more specific results
+        </div>
+      )}
+
       {loading ? (
         <div style={{ textAlign: "center", padding: "3rem", color: "var(--ne-muted)" }}>{t("devMonitor.loading")}</div>
       ) : stats.total === 0 ? (
@@ -275,6 +408,70 @@ export default function DevMonitorDetailed({ allStores }) {
                 <div style={{ fontSize: 9.5, color: "var(--ne-muted)", fontWeight: 600, marginTop: 3 }}>{c.label}</div>
               </div>
             ))}
+          </div>
+
+          {/* Hourly breakdown */}
+          <div style={{ ...cardStyle, marginBottom: "0.75rem" }}>
+            <h2 style={{
+              margin: "0 0 0.75rem", fontSize: 13,
+              color: "var(--ne-muted)", fontWeight: 600,
+              display: "flex", alignItems: "center", gap: 6
+            }}>
+              <Icon name="chart" size={13} />
+              Requests Over Time (Hourly)
+            </h2>
+            {stats.hourlyBreakdown.length === 0 ? (
+              <div style={{
+                color: "var(--ne-muted-2)",
+                fontSize: 12, textAlign: "center"
+              }}>No data</div>
+            ) : (
+              <div style={{
+                display: "flex", alignItems: "flex-end",
+                gap: 3, height: 80, overflowX: "auto"
+              }}>
+                {stats.hourlyBreakdown.map(h => {
+                  const maxH = Math.max(
+                    ...stats.hourlyBreakdown.map(
+                      x => x.success + x.error
+                    ), 1
+                  )
+                  const total = h.success + h.error
+                  const height = (total / maxH) * 100
+                  const errH = total ?
+                    (h.error / total) * height : 0
+                  const sucH = total ?
+                    (h.success / total) * height : 0
+                  return (
+                    <div
+                      key={h.key}
+                      title={`${h.key}: ${h.success} ok, ${h.error} err`}
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        justifyContent: "flex-end",
+                        height: "100%",
+                        width: 14,
+                        flexShrink: 0,
+                        cursor: "default"
+                      }}
+                    >
+                      <div style={{
+                        height: `${errH}%`,
+                        background: "var(--ne-danger)",
+                        borderRadius: "2px 2px 0 0",
+                        minHeight: h.error > 0 ? 2 : 0
+                      }} />
+                      <div style={{
+                        height: `${sucH}%`,
+                        background: "var(--ne-success)",
+                        minHeight: h.success > 0 ? 2 : 0
+                      }} />
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           {/* Daily breakdown */}
@@ -350,6 +547,87 @@ export default function DevMonitorDetailed({ allStores }) {
               )}
             </div>
           </div>
+
+          {/* Top Endpoints */}
+          <div style={{ ...cardStyle, marginBottom: "0.75rem" }}>
+            <h2 style={{
+              margin: "0 0 0.75rem", fontSize: 13,
+              color: "var(--ne-muted)", fontWeight: 600,
+              display: "flex", alignItems: "center", gap: 6
+            }}>
+              <Icon name="chart" size={13} />
+              Top Endpoints
+            </h2>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: 11
+              }}>
+                <thead>
+                  <tr>
+                    {[
+                      "Endpoint", "Requests",
+                      "Errors", "Error %",
+                      "Avg ms", "P99 ms"
+                    ].map(h => (
+                      <th key={h} style={thStyle}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.topEndpointsByVolume.map(e => (
+                    <tr key={e.endpoint}>
+                      <td style={{
+                        ...tdStyle,
+                        fontFamily: "monospace",
+                        fontSize: 10.5,
+                        maxWidth: 200,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap"
+                      }}>
+                        {e.endpoint}
+                      </td>
+                      <td style={tdStyle}>{e.total}</td>
+                      <td style={{
+                        ...tdStyle,
+                        color: e.errors > 0 ?
+                          "var(--ne-danger)" :
+                          "var(--ne-muted)",
+                        fontWeight: e.errors > 0 ? 700 : 400
+                      }}>
+                        {e.errors}
+                      </td>
+                      <td style={{
+                        ...tdStyle,
+                        color: e.errorRate > 10 ?
+                          "var(--ne-danger)" :
+                          e.errorRate > 5 ?
+                            "var(--ne-warning)" :
+                            "var(--ne-muted)"
+                      }}>
+                        {e.errorRate}%
+                      </td>
+                      <td style={tdStyle}>
+                        {e.avgMs != null ? `${e.avgMs}ms` : "—"}
+                      </td>
+                      <td style={{
+                        ...tdStyle,
+                        color: e.p99Ms > 5000 ?
+                          "var(--ne-danger)" :
+                          e.p99Ms > 2000 ?
+                            "var(--ne-warning)" :
+                            "var(--ne-muted)"
+                      }}>
+                        {e.p99Ms != null ? `${e.p99Ms}ms` : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </>
       )}
 
@@ -363,6 +641,15 @@ export default function DevMonitorDetailed({ allStores }) {
           <select value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)} style={controlStyle}>
             <option value="">Sab Brands</option>
             {(allStores || []).map((s) => <option key={s.id} value={s.id}>{s.store_name}</option>)}
+          </select>
+          <select
+            value={sourceFilter}
+            onChange={e => setSourceFilter(e.target.value)}
+            style={controlStyle}
+          >
+            <option value="">Sab Sources</option>
+            <option value="worker">Worker</option>
+            <option value="frontend">Frontend</option>
           </select>
           <select value={endpointFilter} onChange={(e) => setEndpointFilter(e.target.value)} style={controlStyle}>
             <option value="">Sab Endpoints</option>
@@ -389,7 +676,7 @@ export default function DevMonitorDetailed({ allStores }) {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5 }}>
               <thead>
                 <tr>
-                  {["", "Time", "Brand", "Endpoint", "Status", "HTTP", "Order ID", "Error"].map((h) => (
+                  {["", "Time", "Brand", "Endpoint", "Status", "HTTP", "Order ID", "Error", "Source", "Action", "Duration"].map((h) => (
                     <th key={h} style={thStyle}>{h}</th>
                   ))}
                 </tr>
@@ -410,11 +697,61 @@ export default function DevMonitorDetailed({ allStores }) {
                         <td style={tdStyle}>{l.http_status_code ?? "—"}</td>
                         <td style={tdStyle}>{l.order_id || "—"}</td>
                         <td style={{ ...tdStyle, color: "var(--ne-muted)", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.error_message || "—"}</td>
+                        <td style={tdStyle}>{l.source || "—"}</td>
+                        <td style={tdStyle}>{l.action || "—"}</td>
+                        <td style={{
+                          ...tdStyle,
+                          color: l.duration_ms > 5000 ?
+                            "var(--ne-danger)" :
+                            l.duration_ms > 2000 ?
+                              "var(--ne-warning)" :
+                              "var(--ne-muted)"
+                        }}>
+                          {l.duration_ms != null ? `${l.duration_ms}ms` : "—"}
+                        </td>
                       </tr>
                       {isOpen && (
                         <tr>
-                          <td colSpan={8} style={{ padding: "10px 12px", background: "var(--ne-surface)", borderBottom: "1px solid var(--ne-border)" }}>
+                          <td colSpan={11} style={{ padding: "10px 12px", background: "var(--ne-surface)", borderBottom: "1px solid var(--ne-border)" }}>
                             <div style={{ display: "grid", gap: 8 }}>
+                              <div>
+                                <strong style={{
+                                  fontSize: 10.5, color: "var(--ne-muted)",
+                                  textTransform: "uppercase"
+                                }}>
+                                  Action
+                                </strong>
+                                <div style={{ fontSize: 12 }}>
+                                  {l.action || "—"}
+                                </div>
+                              </div>
+                              <div>
+                                <strong style={{
+                                  fontSize: 10.5, color: "var(--ne-muted)",
+                                  textTransform: "uppercase"
+                                }}>
+                                  Duration
+                                </strong>
+                                <div style={{ fontSize: 12 }}>
+                                  {l.duration_ms != null ?
+                                    `${l.duration_ms}ms` : "—"}
+                                </div>
+                              </div>
+                              <div>
+                                <strong style={{
+                                  fontSize: 10.5, color: "var(--ne-muted)",
+                                  textTransform: "uppercase"
+                                }}>
+                                  Details
+                                </strong>
+                                <pre style={{
+                                  margin: "4px 0 0", fontSize: 11,
+                                  whiteSpace: "pre-wrap",
+                                  wordBreak: "break-all"
+                                }}>
+                                  {prettyJson(l.details) || "—"}
+                                </pre>
+                              </div>
                               <div>
                                 <strong style={{ fontSize: 10.5, color: "var(--ne-muted)", textTransform: "uppercase" }}>HTTP Status</strong>
                                 <div style={{ fontSize: 12 }}>{l.http_status_code ?? "—"}</div>

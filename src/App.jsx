@@ -2,11 +2,12 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import './theme.css'
 import { supabase } from './supabase'
-import { getCachedOrders, saveOrdersBulk, upsertOrder, getMeta, setMeta, clearCache } from './ordersCache'
-import { syncBookedOrdersCache } from './bookedOrdersData'
+import { getCachedOrders, saveOrdersBulk, upsertOrder, getMeta, setMeta, clearCache, getCachedPeriod, setCachedPeriod, clearStoreOrders } from './ordersCache'
+// import { syncBookedOrdersCache } from './bookedOrdersData' // DISABLED with the Fix 1F block below
 import { Monogram, Wordmark } from './components/Logo'
 import { SunIcon, MoonIcon, GlobeIcon } from './components/Icons'
 import Icon from './components/Icon'
+import ErrorBoundary from './components/ErrorBoundary'
 import { useLanguage, useTranslation } from './i18n'
 import Login from './pages/Login'
 import Home from './pages/public/Home'
@@ -806,7 +807,7 @@ function App() {
   }, [theme])
 
   useEffect(() => {
-    const timer = setTimeout(() => setMinSplashDone(true), 1800)
+    const timer = setTimeout(() => setMinSplashDone(true), 800)
     return () => clearTimeout(timer)
   }, [])
 
@@ -837,17 +838,23 @@ function App() {
     }
   }, [])
 
-  // Dev-monitoring: per-page-navigation load timing, sirf isDevEnv() par active
+  // Dev-monitoring: per-page-navigation load timing, sirf isDevEnv() par active.
+  // Fix 5B: pehle start/duration ek hi line ke baad measure hota tha (hamesha ~0ms) — ab
+  // requestAnimationFrame se agle paint tak wait karte hain taake actual mount-to-paint
+  // duration capture ho.
   useEffect(() => {
     if (!isDevEnv()) return
     const start = performance.now()
-    logDevMonitoring({
-      store_id: ordersStore?.eneezam_id || null,
-      page_or_endpoint: location.pathname,
-      action: 'page_load',
-      status: 'success',
-      duration_ms: Math.round(performance.now() - start),
+    const rafId = requestAnimationFrame(() => {
+      logDevMonitoring({
+        store_id: ordersStore?.id || null,
+        page_or_endpoint: location.pathname,
+        action: 'page_load',
+        status: 'success',
+        duration_ms: Math.round(performance.now() - start),
+      })
     })
+    return () => cancelAnimationFrame(rafId)
   }, [location.pathname])
 
   // activeMenu ab URL se derive hota hai (React Router) — setActiveMenu shim navigate() ko
@@ -888,10 +895,15 @@ function App() {
         .limit(1)
         .maybeSingle()
       if (!sub) { setAccessibleModuleKeys(new Set()); return }
+      const validAddonIds = (sub.selected_addon_ids || [])
+        .filter(id =>
+          typeof id === 'string' &&
+          /^[0-9a-f-]{36}$/i.test(id)
+        )
       const [{ data: plan }, { data: addonRows }] = await Promise.all([
         supabase.from('plans').select('included_modules').eq('id', sub.plan_id).single(),
-        sub.selected_addon_ids?.length > 0
-          ? supabase.from('addons').select('module_key').in('id', sub.selected_addon_ids)
+        validAddonIds.length > 0
+          ? supabase.from('addons').select('module_key').in('id', validAddonIds)
           : Promise.resolve({ data: [] }),
       ])
       setAccessibleModuleKeys(new Set([...(plan?.included_modules || []), ...(addonRows || []).map((a) => a.module_key)]))
@@ -908,6 +920,8 @@ function App() {
   const [allAddonsList, setAllAddonsList] = useState([])
   const [pendingProfiles, setPendingProfiles] = useState([])
   const [selectedStoreId, setSelectedStoreId] = useState(null)
+  const [activePeriod, setActivePeriod] = useState("30d")
+  const selectedStoreIdRef = useRef(selectedStoreId)
   // isMasterView ab URL se derive hoti hai (koi alag state nahi) — pehle yeh independent
   // boolean thi jo har reload par creator ke liye hamesha true force ho jati thi, current
   // URL/store ko ignore karte hue. Master Dashboard ka apna route (/master-dashboard) hai.
@@ -930,6 +944,7 @@ function App() {
   const activeMenuRef = useRef(activeMenu)
 
   useEffect(() => { activeMenuRef.current = activeMenu }, [activeMenu])
+  useEffect(() => { selectedStoreIdRef.current = selectedStoreId }, [selectedStoreId])
   useEffect(() => { if (activeMenu === 'orders') setNotifCount(0) }, [activeMenu])
 
   // TASK 17: naya order aane par simple beep (Web Audio API — koi asset file ki zaroorat nahi)
@@ -1019,21 +1034,19 @@ function App() {
   useEffect(() => {
     if (session && profile?.approved && selectedStoreId && !hasStartedLoadRef.current) {
       hasStartedLoadRef.current = true
-      autoLoadOrders(selectedStoreId)
+      autoLoadOrders(selectedStoreId, activePeriod)
     }
   }, [session, profile, selectedStoreId])
 
-  // Orders ke autoLoadOrders() jaisa hi parallel trigger — Booked Orders/Courier Dashboard
-  // ka data bhi background mein preload ho jaye (chahe user abhi kisi aur page pe ho), taake
-  // jab woh un pages pe navigate kare to cache already warm mile. Yeh sirf IndexedDB cache
-  // populate karta hai (koi App.jsx-level UI state nahi) — BookedOrders.jsx/CourierDashboard.jsx
-  // apne mount-time cache-check se hi yeh data utha lete hain.
-  useEffect(() => {
-    if (session && profile?.approved && selectedStoreId && !hasStartedBookedLoadRef.current) {
-      hasStartedBookedLoadRef.current = true
-      syncBookedOrdersCache(selectedStoreId, ordersStore?.eneezam_id).catch(err => console.log('Booked orders preload error:', err.message))
-    }
-  }, [session, profile, selectedStoreId])
+  // DISABLED (Phase 1 / Fix 1F, perf rewrite): yeh background preload BookedOrders.jsx aur
+  // CourierDashboard.jsx ke apne mount-time syncBookedOrdersCache() calls ke sath redundant
+  // double-fetch banata tha — dono pages khud already apna sync trigger karte hain.
+  // useEffect(() => {
+  //   if (session && profile?.approved && selectedStoreId && !hasStartedBookedLoadRef.current) {
+  //     hasStartedBookedLoadRef.current = true
+  //     syncBookedOrdersCache(selectedStoreId, ordersStore?.eneezam_id).catch(err => console.log('Booked orders preload error:', err.message))
+  //   }
+  // }, [session, profile, selectedStoreId])
 
   useEffect(() => {
     return () => {
@@ -1235,6 +1248,7 @@ function App() {
   const handleSwitchStore = (newStoreId) => {
     if (!newStoreId || newStoreId === selectedStoreId) return
     setSelectedStoreId(newStoreId)
+    selectedStoreIdRef.current = newStoreId
     persistStoreId(newStoreId)
     setOrdersData([])
     setOrdersLoaded(false)
@@ -1243,15 +1257,30 @@ function App() {
     statusMapRef.current = {}
     hasStartedLoadRef.current = false
     hasStartedBookedLoadRef.current = false
+    setActivePeriod("30d") // existing lines ke sath add karo
   }
 
-  const fetchAllOrderStatuses = async () => {
+  const handlePeriodChange = async (newPeriod) => {
+    if (newPeriod === activePeriod) return
+    setActivePeriod(newPeriod)
+    setOrdersData([])
+    setOrdersLoaded(false)
+    rawOrdersRef.current = []
+    statusMapRef.current = {}
+    hasStartedLoadRef.current = false
+    await setCachedPeriod(selectedStoreId, newPeriod)
+    autoLoadOrders(selectedStoreId, newPeriod)
+  }
+
+  const fetchAllOrderStatuses = async (storeId, fromDate = null) => {
     let allRows = []
     let from = 0
     while (true) {
-      const { data, error } = await supabase
+      let query = supabase
         .from("order_statuses")
         .select("*")
+        .eq("store_id", storeId)
+      const { data, error } = await query
         .range(from, from + BATCH_SIZE - 1)
       if (error) throw error
       if (!data || data.length === 0) break
@@ -1350,14 +1379,13 @@ function App() {
     // mein likhe jaate hain, shopify_orders_cache mein nahi — is liye upar wala listener yeh
     // pick nahi karta. Webhook order create hone ke ~1 min baad tak background mein
     // matchOrderAddress() chalata hai; bina is listener ke woh result sirf manual reload par
-    // dikhta tha. order_statuses mein store_id column nahi hai, is liye server-side filter
-    // nahi laga sakte — client-side check karte hain ke yeh order_id currently-loaded orders
-    // mein hai ya nahi (doosre store ka event ho to ignore).
+    // dikhta tha. Server-side store_id filter lagaya hua hai; neeche wala order_id lookup
+    // ab bhi rakha hai as a safety no-op (agar row currently-loaded orders mein na ho).
     const statusChannel = supabase
       .channel(`order-statuses-changes-${storeId}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "order_statuses" },
+        { event: "*", schema: "public", table: "order_statuses", filter: `store_id=eq.${storeId}` },
         (payload) => {
           const row = payload.new
           if (!row || !row.order_id) return
@@ -1387,10 +1415,21 @@ function App() {
     realtimeStatusChannelRef.current = statusChannel
   }
 
-  const autoLoadOrders = async (storeId) => {
+  const periodToFromDate = (period) => {
+    if (!period || period === "all") return null
+    const days = period === "30d" ? 30
+      : period === "90d" ? 90
+      : period === "180d" ? 180 : 30
+    return new Date(
+      Date.now() - days * 24 * 60 * 60 * 1000
+    ).toISOString()
+  }
+
+  const autoLoadOrders = async (storeId, period = "30d") => {
+    const fromDate = periodToFromDate(period)
     setOrdersLoading(true)
     const expectedUserId = session?.user?.id
-    const isStale = () => session?.user?.id !== expectedUserId
+    const isStale = () => session?.user?.id !== expectedUserId || selectedStoreIdRef.current !== storeId
 
     try {
       const { data: storeData } = await supabase.from('stores').select('*').eq('id', storeId).single()
@@ -1399,14 +1438,30 @@ function App() {
       setOrdersStore(storeData)
       const cacheId = storeData.eneezam_id
 
-      const statuses = await fetchAllOrderStatuses()
+      const __fetchStatusesStart = performance.now()
+      let statuses
+      try {
+        statuses = await fetchAllOrderStatuses(storeId, fromDate)
+        logDevMonitoring({ source: 'frontend', store_id: storeId, action: 'fetchOrderStatuses', status: 'success', duration_ms: Math.round(performance.now() - __fetchStatusesStart) })
+      } catch (err) {
+        logDevMonitoring({ source: 'frontend', store_id: storeId, action: 'fetchOrderStatuses', status: 'error', error_message: err.message, duration_ms: Math.round(performance.now() - __fetchStatusesStart) })
+        throw err
+      }
       if (isStale()) return
       const statusMap = {}
       statuses.forEach(s => { statusMap[s.order_id] = s })
       statusMapRef.current = statusMap
 
       const loadStartTime = new Date().toISOString()
-      const cachedRaw = await getCachedOrders(cacheId)
+      const __getCachedStart = performance.now()
+      let cachedRaw
+      try {
+        cachedRaw = await getCachedOrders(cacheId, fromDate)
+        logDevMonitoring({ source: 'frontend', store_id: storeId, action: 'getCachedOrders', status: 'success', duration_ms: Math.round(performance.now() - __getCachedStart) })
+      } catch (err) {
+        logDevMonitoring({ source: 'frontend', store_id: storeId, action: 'getCachedOrders', status: 'error', error_message: err.message, duration_ms: Math.round(performance.now() - __getCachedStart) })
+        throw err
+      }
       if (isStale()) return
 
       if (cachedRaw.length > 0) {
@@ -1418,6 +1473,7 @@ function App() {
 
         const lastSyncedAt = (await getMeta(`lastSyncedAt-${cacheId}`)) || "2000-01-01T00:00:00Z"
         setSyncStatusText(t('sync.checkingNew'))
+        const __deltaSyncStart = performance.now()
         try {
           let from = 0
           let deltaOrders = []
@@ -1450,20 +1506,24 @@ function App() {
             setOrdersData(rebuildOrdersData(merged, statusMap))
           }
           await setMeta(`lastSyncedAt-${cacheId}`, loadStartTime)
+          logDevMonitoring({ source: 'frontend', store_id: storeId, action: 'deltaSync', status: 'success', duration_ms: Math.round(performance.now() - __deltaSyncStart) })
         } catch (err) {
           console.log("Delta sync error:", err.message)
+          logDevMonitoring({ source: 'frontend', store_id: storeId, action: 'deltaSync', status: 'error', error_message: err.message, duration_ms: Math.round(performance.now() - __deltaSyncStart) })
         }
         if (!isStale()) setSyncStatusText("")
         return
       }
 
-      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+      const fetchFrom = fromDate || new Date(
+        Date.now() - 30 * 24 * 60 * 60 * 1000
+      ).toISOString()
 
       const { data: recentBatch, error: recentError } = await supabase
         .from("shopify_orders_cache")
         .select("raw_data")
         .eq("store_id", storeId)
-        .gte("created_at", sevenDaysAgo)
+        .gte("created_at", fetchFrom)
         .order("created_at", { ascending: false })
       if (recentError) throw recentError
       if (isStale()) return
@@ -1485,7 +1545,7 @@ function App() {
             .from("shopify_orders_cache")
             .select("raw_data")
             .eq("store_id", storeId)
-            .lt("created_at", sevenDaysAgo)
+            .lt("created_at", fetchFrom)
             .order("created_at", { ascending: false })
             .range(from, from + BATCH_SIZE - 1)
           if (olderError) break
@@ -1626,7 +1686,9 @@ function App() {
   }
 
   if (!selectedStoreId) return <SplashScreen />
-  if (!ordersLoaded) return <SplashScreen />
+  const isAdminOnlyPage = activeMenu === 'master-dashboard/dev-monitor' ||
+    activeMenu === 'master-dashboard/gemini-monitor'
+  if (!ordersLoaded && !isAdminOnlyPage) return <SplashScreen />
 
   const currentUserStoreEntry = userStoresList.find(us => us.store_id === selectedStoreId)
   const isStaff = profile.role === 'staff'
@@ -1815,12 +1877,15 @@ function App() {
           )}
 
           <div className="ne-content">
+          <ErrorBoundary key={activeMenu}>
             {activeMenu === 'orders' && hasAccess('orders') && (
               <Orders
                 ordersData={ordersData} setOrdersData={setOrdersData}
                 ordersLoaded={ordersLoaded} setOrdersLoaded={setOrdersLoaded}
                 ordersStore={ordersStore} setOrdersStore={setOrdersStore}
                 cfUrl={CF_URL}
+                activePeriod={activePeriod}
+                onPeriodChange={handlePeriodChange}
               />
             )}
             {activeMenu === 'dashboard' && hasAccess('dashboard') && (
@@ -1828,12 +1893,12 @@ function App() {
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '300px', color: 'var(--ne-muted)', fontSize: 14, gap: 8 }}>
                   <Icon name="package" size={32} />
                   <div>{t('dashboard.noOrders')}</div>
-                  <button onClick={() => autoLoadOrders(selectedStoreId)} style={{ padding: '6px 16px', borderRadius: 8, background: 'var(--ne-grad)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <button onClick={() => autoLoadOrders(selectedStoreId, activePeriod)} style={{ padding: '6px 16px', borderRadius: 8, background: 'var(--ne-grad)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     <Icon name="refresh" size={13} /> {t('dashboard.retryLoad')}
                   </button>
                 </div>
               ) : (
-                <Dashboard ordersData={ordersData} />
+                <Dashboard ordersData={ordersData} activePeriod={activePeriod} onPeriodChange={handlePeriodChange} />
               )
             )}
             {activeMenu === 'store-connect' && hasAccess('store-connect') && <StoreConnect storeId={selectedStoreId} />}
@@ -1873,7 +1938,7 @@ function App() {
               <Settings profile={profile} onProfileUpdated={(updated) => setProfile(updated)} />
             )}
             {activeMenu === 'pnl' && hasAccess('pnl') && (
-              <ProfitLoss ordersData={ordersData} storeId={selectedStoreId} />
+              <ProfitLoss ordersData={ordersData} storeId={selectedStoreId} activePeriod={activePeriod} onPeriodChange={handlePeriodChange} />
             )}
             {activeMenu === 'ledger' && hasAccess('ledger') && (
               <SupplierLedger storeId={selectedStoreId} cfUrl={CF_URL} />
@@ -1901,6 +1966,7 @@ function App() {
                 </div>
               </div>
             )}
+          </ErrorBoundary>
           </div>
         </div>
 

@@ -326,6 +326,8 @@ export default function BookedOrders({ storeId, ordersStore }) {
   const [activeTab, setActiveTab] = useState("All");
   const [activeSubTab, setActiveSubTab] = useState(null);
   const [courierFilter, setCourierFilter] = useState("All");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(20);
   const [currentProfile, setCurrentProfile] = useState(null);
@@ -386,6 +388,62 @@ export default function BookedOrders({ storeId, ordersStore }) {
 
   useEffect(() => {
     if (storeId) loadBooked();
+  }, [storeId]);
+
+  // Realtime: order_statuses par live changes — orders[] items ka top-level identifying
+  // field `.id` hai (`.order_id` nahi, mergeStatusesWithCache ka convention), aur order_statuses
+  // ka data `.agent_data` ke andar nested hota hai (top-level spread nahi) — poori file mein
+  // rendering (bucketCourierStatus, Timeline, etc.) isi shape se `.agent_data.*` padhti hai.
+  useEffect(() => {
+    if (!storeId) return;
+
+    const channel = supabase
+      .channel(`booked-orders-${storeId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'order_statuses',
+        filter: `store_id=eq.${storeId}`
+      }, (payload) => {
+        const updated = payload.new;
+        if (!updated?.order_id) return;
+
+        setOrders(prev => {
+          const idx = prev.findIndex(o => String(o.id) === String(updated.order_id));
+          if (idx === -1) return prev;
+          const next = [...prev];
+          next[idx] = { ...next[idx], agent_data: { ...next[idx].agent_data, ...updated } };
+          return next;
+        });
+
+        setReadyOrders(prev => {
+          const idx = prev.findIndex(o => String(o.id) === String(updated.order_id));
+          if (idx === -1) return prev;
+          if (updated.status !== 'Approved' || updated.dex_tracking_number) {
+            return prev.filter((_, i) => i !== idx);
+          }
+          const next = [...prev];
+          next[idx] = {
+            ...next[idx],
+            _line_items_override: updated.line_items_override || next[idx]._line_items_override,
+            _sku_override: updated.sku || next[idx]._sku_override,
+            _customer_name_override: updated.customer_name || next[idx]._customer_name_override,
+            _matched_city: updated.matched_city || next[idx]._matched_city,
+            _matched_address: {
+              province: updated.matched_province || null,
+              city: updated.matched_city || null,
+              area: updated.matched_area || null,
+              subarea: updated.matched_subarea || null,
+            },
+          };
+          return next;
+        });
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [storeId]);
 
   // "Ready for Booking" = order_statuses.status "Approved" hai (agent_status, Orders.jsx wala
@@ -870,44 +928,78 @@ export default function BookedOrders({ storeId, ordersStore }) {
 
   const availableCouriers = ["All", ...new Set(orders.map((o) => o.agent_data.courier_name).filter(Boolean))].sort();
 
-  const classified = orders.map((o) => ({ o, cls: classifyTab(o) }));
+  // package_created_at (booking date) order.agent_data ke andar hota hai (order_statuses row),
+  // top-level nahi — mergeStatusesWithCache (bookedOrdersData.js) ka convention, poori file
+  // isi shape se ad.package_created_at padhti hai (jaise computeAgingDay/buildTimeline).
+  const matchDate = (order) => {
+    if (!dateFrom && !dateTo) return true
+    const created = order.agent_data?.package_created_at
+    if (!created) return false
+    const createdDate = new Date(created)
+    if (dateFrom && createdDate < new Date(dateFrom))
+      return false
+    if (dateTo) {
+      const toEnd = new Date(dateTo)
+      toEnd.setHours(23, 59, 59, 999)
+      if (createdDate > toEnd) return false
+    }
+    return true
+  }
 
-  const unmappedTabKeys = [...new Set(classified.map((c) => c.cls.tab).filter((key) => key.startsWith("Unmapped: ")))];
+  // classified/TAB_STRUCTURE/tabCounts/subTabCounts/filtered ek hi useMemo mein — TAB_STRUCTURE
+  // aur unmappedTabKeys yahan bhi shamil hain kyunki tabCounts/subTabCounts unhi par depend
+  // karte hain (agar TAB_STRUCTURE bahar plain const rehta to har render pe nayi array reference
+  // banti aur memoization ka fayda hi na hota). activeTabDef neeche ek chhota alag const hai,
+  // kyunki woh sirf activeTab badalne par hi dobara chahiye, poore orders array pe depend nahi karta.
+  const { classified, TAB_STRUCTURE, tabCounts, subTabCounts, filtered } = useMemo(() => {
+    const classifiedResult = orders.map((o) => ({ o, cls: classifyTab(o) }));
 
-  const TAB_STRUCTURE = [
-    ...TAB_KEYS.map((td) => ({
-      ...td,
-      label: t(td.labelKey),
-      subs: td.subs?.map((s) => ({ ...s, label: t(s.labelKey) })),
-    })),
-    ...unmappedTabKeys.map((key) => ({ key, label: key })),
-  ];
+    const unmappedTabKeys = [...new Set(classifiedResult.map((c) => c.cls.tab).filter((key) => key.startsWith("Unmapped: ")))];
+
+    const tabStructureResult = [
+      ...TAB_KEYS.map((td) => ({
+        ...td,
+        label: t(td.labelKey),
+        subs: td.subs?.map((s) => ({ ...s, label: t(s.labelKey) })),
+      })),
+      ...unmappedTabKeys.map((key) => ({ key, label: key })),
+    ];
+
+    const counts = Object.fromEntries(
+      tabStructureResult.map((td) => [td.key, td.key === "All" ? orders.length : td.key === "Ready for Booking" ? readyOrders.length : classifiedResult.filter((c) => c.cls.tab === td.key).length])
+    );
+    const subCounts = Object.fromEntries(
+      tabStructureResult.filter((td) => td.subs).flatMap((td) =>
+        td.subs.map((s) => [`${td.key}::${s.key}`, classifiedResult.filter((c) => c.cls.tab === td.key && c.cls.sub === s.key).length])
+      )
+    );
+
+    const filteredResult = classifiedResult.filter(({ o, cls }) => {
+      const ad = o.agent_data;
+      const fullName = `${o.customer?.first_name || ""} ${o.customer?.last_name || ""}`.toLowerCase();
+      const phone = o.customer?.phone || o.shipping_address?.phone || "";
+      const q = search.toLowerCase();
+      const matchSearch =
+        !search ||
+        (o.name || "").toLowerCase().includes(q) ||
+        fullName.includes(q) ||
+        phone.includes(search) ||
+        (ad.dex_tracking_number || "").toLowerCase().includes(q);
+      const matchTab = activeTab === "All" || (cls.tab === activeTab && (!activeSubTab || cls.sub === activeSubTab));
+      const matchCourier = courierFilter === "All" || ad.courier_name === courierFilter;
+      return matchSearch && matchTab && matchCourier && matchDate(o);
+    }).map(({ o }) => o).sort((a, b) => extractOrderNum(b) - extractOrderNum(a));
+
+    return {
+      classified: classifiedResult,
+      TAB_STRUCTURE: tabStructureResult,
+      tabCounts: counts,
+      subTabCounts: subCounts,
+      filtered: filteredResult,
+    };
+  }, [orders, readyOrders, search, activeTab, activeSubTab, courierFilter, dateFrom, dateTo, t]);
+
   const activeTabDef = TAB_STRUCTURE.find((td) => td.key === activeTab);
-
-  const tabCounts = Object.fromEntries(
-    TAB_STRUCTURE.map((td) => [td.key, td.key === "All" ? orders.length : td.key === "Ready for Booking" ? readyOrders.length : classified.filter((c) => c.cls.tab === td.key).length])
-  );
-  const subTabCounts = Object.fromEntries(
-    TAB_STRUCTURE.filter((td) => td.subs).flatMap((td) =>
-      td.subs.map((s) => [`${td.key}::${s.key}`, classified.filter((c) => c.cls.tab === td.key && c.cls.sub === s.key).length])
-    )
-  );
-
-  const filtered = classified.filter(({ o, cls }) => {
-    const ad = o.agent_data;
-    const fullName = `${o.customer?.first_name || ""} ${o.customer?.last_name || ""}`.toLowerCase();
-    const phone = o.customer?.phone || o.shipping_address?.phone || "";
-    const q = search.toLowerCase();
-    const matchSearch =
-      !search ||
-      (o.name || "").toLowerCase().includes(q) ||
-      fullName.includes(q) ||
-      phone.includes(search) ||
-      (ad.dex_tracking_number || "").toLowerCase().includes(q);
-    const matchTab = activeTab === "All" || (cls.tab === activeTab && (!activeSubTab || cls.sub === activeSubTab));
-    const matchCourier = courierFilter === "All" || ad.courier_name === courierFilter;
-    return matchSearch && matchTab && matchCourier;
-  }).map(({ o }) => o).sort((a, b) => extractOrderNum(b) - extractOrderNum(a));
 
   const totalPages = Math.ceil(filtered.length / perPage) || 1;
   const pagedFiltered = filtered.slice((page - 1) * perPage, page * perPage);
@@ -966,6 +1058,42 @@ export default function BookedOrders({ storeId, ordersStore }) {
           style={{ padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }}>
           {availableCouriers.map((c) => <option key={c} value={c}>{c === "All" ? t("booked.allCouriers") : c}</option>)}
         </select>
+        <div style={{
+          display: 'flex', gap: 8, alignItems: 'center'
+        }}>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={e => { setDateFrom(e.target.value); setPage(1); }}
+            style={{ padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }}
+          />
+          <span style={{
+            color: 'var(--ne-muted)', fontSize: 11
+          }}>{t("booked.dateRangeTo")}</span>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={e => { setDateTo(e.target.value); setPage(1); }}
+            style={{ padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }}
+          />
+          {(dateFrom || dateTo) && (
+            <button
+              onClick={() => {
+                setDateFrom(''); setDateTo(''); setPage(1)
+              }}
+              style={{
+                fontSize: 11, padding: '4px 10px',
+                borderRadius: 6,
+                border: '1px solid var(--ne-border)',
+                background: 'transparent',
+                color: 'var(--ne-muted)',
+                cursor: 'pointer'
+              }}
+            >
+              {t("booked.clear")}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Top-level Tabs — "To Ship"/"Shipped" ke apne nested sub-buckets hain, baaki

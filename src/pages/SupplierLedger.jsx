@@ -57,6 +57,29 @@ export default function SupplierLedger({ storeId, cfUrl = CF_URL }) {
     if (storeId) fetchAll();
   }, [storeId]);
 
+  useEffect(() => {
+    if (!storeId) return
+
+    const channel = supabase
+      .channel(`supplier-ledger-${storeId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'supplier_transactions',
+        filter: `store_id=eq.${storeId}`
+      }, () => {
+        fetchAll()
+        if (viewingSupplier) {
+          loadLedgerEntries(viewingSupplier.id)
+        }
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [storeId]);
+
   const fetchAll = async () => {
     setLoading(true);
     const { data: supplierRows } = await supabase.from("suppliers").select("*").eq("store_id", storeId).order("created_at", { ascending: false });

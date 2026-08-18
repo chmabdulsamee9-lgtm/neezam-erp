@@ -351,7 +351,14 @@ function HourlyComparisonChart({ ordersData }) {
   );
 }
 
-export default function Dashboard({ ordersData }) {
+const PERIOD_OPTIONS = [
+  { value: "30d", labelKey: "orders.period30d" },
+  { value: "90d", labelKey: "orders.period90d" },
+  { value: "180d", labelKey: "orders.period180d" },
+  { value: "all", labelKey: "orders.periodAll" },
+]
+
+export default function Dashboard({ ordersData, activePeriod, onPeriodChange }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const [dateFilter, setDateFilter] = useState("today");
@@ -484,6 +491,37 @@ export default function Dashboard({ ordersData }) {
         )}
         <span style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>{filtered.length} {t("dashboard.ordersSuffix")}</span>
       </div>
+
+      {/* Period Selector */}
+      {onPeriodChange && (
+        <div style={{
+          display: 'flex', gap: 4, alignItems: 'center',
+          flexWrap: 'wrap', marginBottom: "1rem"
+        }}>
+          {PERIOD_OPTIONS.map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => onPeriodChange(opt.value)}
+              style={{
+                padding: '4px 10px',
+                borderRadius: 6,
+                border: '1px solid var(--ne-border)',
+                background: activePeriod === opt.value
+                  ? 'var(--ne-grad)' : 'transparent',
+                color: activePeriod === opt.value
+                  ? '#fff' : 'var(--ne-muted)',
+                fontSize: 11,
+                fontWeight: activePeriod === opt.value
+                  ? 700 : 400,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {t(opt.labelKey)}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Hero Revenue Card */}
       <div style={{ background: "var(--ne-grad)", borderRadius: 18, padding: "1.4rem", marginBottom: "0.75rem", display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "center", flexWrap: "wrap", gap: 16 }}>
