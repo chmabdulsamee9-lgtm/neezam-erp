@@ -811,6 +811,34 @@ function App() {
     return () => clearTimeout(timer)
   }, [])
 
+  const [releaseNotes, setReleaseNotes] = useState([])
+  const [showReleasePopup, setShowReleasePopup] = useState(false)
+
+  useEffect(() => {
+    if (!session) return
+    const dismissedKey = 'ne_release_notes_dismissed'
+    const alreadyDismissedThisSession = sessionStorage.getItem(dismissedKey)
+    if (alreadyDismissedThisSession) return
+
+    ;(async () => {
+      try {
+        const res = await fetch(`${CF_URL}/release-notes`)
+        const data = await res.json()
+        if (data.notes && data.notes.length > 0) {
+          setReleaseNotes(data.notes)
+          setShowReleasePopup(true)
+        }
+      } catch (err) {
+        // best-effort, silently fail
+      }
+    })()
+  }, [session])
+
+  const handleCloseReleasePopup = () => {
+    sessionStorage.setItem('ne_release_notes_dismissed', 'true')
+    setShowReleasePopup(false)
+  }
+
   // Dev-monitoring: global JS-error/unhandled-rejection capture, sirf isDevEnv() par active
   useEffect(() => {
     if (!isDevEnv()) return
@@ -1976,6 +2004,45 @@ function App() {
           </ErrorBoundary>
           </div>
         </div>
+
+        {showReleasePopup && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000000 }}>
+            <div style={{
+              background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)',
+              borderRadius: 16, width: 420, maxWidth: '94vw',
+              maxHeight: '80vh', overflowY: 'auto',
+              boxShadow: '0 12px 40px rgba(0,0,0,0.6)',
+              padding: '1.5rem'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--ne-text)' }}>
+                  ✨ Naye Updates
+                </h3>
+                <button onClick={handleCloseReleasePopup} style={{
+                  background: 'transparent', border: 'none', cursor: 'pointer',
+                  fontSize: 20, color: 'var(--ne-muted)', lineHeight: 1, padding: 4
+                }}>×</button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {releaseNotes.map((note) => (
+                  <div key={note.id} style={{
+                    fontSize: 13, color: 'var(--ne-text)', lineHeight: 1.6,
+                    whiteSpace: 'pre-wrap'
+                  }}>
+                    {note.message}
+                  </div>
+                ))}
+              </div>
+              <button onClick={handleCloseReleasePopup} style={{
+                width: '100%', marginTop: 16, padding: '10px',
+                borderRadius: 9, border: 'none', background: 'var(--ne-grad)',
+                color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 13
+              }}>
+                Theek Hai
+              </button>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>
