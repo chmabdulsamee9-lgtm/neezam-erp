@@ -203,6 +203,7 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
   const [preview, setPreview] = useState(ad.address_match_preview || "");
   const [confirming, setConfirming] = useState(false);
   const [reformatting, setReformatting] = useState(false);
+  const [retryingSystemMatch, setRetryingSystemMatch] = useState(false);
   const [editingChip, setEditingChip] = useState(null); // null | "<rowKey>:<province|city|area|subarea>" — rowKey namespaces system vs AI Match row so their chips open independently
   const [chipLoading, setChipLoading] = useState(false);
   const [provinces, setProvinces] = useState([]);
@@ -229,7 +230,7 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
     return () => document.removeEventListener("mousedown", handleClick);
   }, [editingChip]);
 
-  const handleMatch = async () => {
+  const handleMatch = async (forceGrounded = false) => {
     setMatching(true);
     setMatchError("");
     try {
@@ -237,7 +238,11 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
       const res = await fetch(`${cfUrl}/match-order-address`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ store_id: storeId, order_id: order.id }),
+        body: JSON.stringify({
+          store_id: storeId,
+          order_id: order.id,
+          force_grounded: forceGrounded,
+        }),
       });
       const data = await res.json();
       if (!data.success) {
@@ -445,7 +450,7 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
     return (
       <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--ne-border)", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <span style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>{t("orders.addressMatchNotYet")}</span>
-        <button onClick={handleMatch} disabled={matching} style={{ ...addressSmallBtnPrimary, cursor: matching ? "default" : "pointer" }}>
+        <button onClick={() => handleMatch()} disabled={matching} style={{ ...addressSmallBtnPrimary, cursor: matching ? "default" : "pointer" }}>
           <Icon name={matching ? "pending" : "search"} size={11} /> {matching ? t("orders.addressMatching") : t("orders.addressMatchButton")}
         </button>
         {matchError && <span style={{ color: "var(--ne-danger)", fontSize: 11 }}>{matchError}</span>}
@@ -485,7 +490,7 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
           </span>
         )}
         {!confirmed && (source === "manual_review" || source === "system_partial") && (
-          <button onClick={handleMatch} disabled={matching}
+          <button onClick={() => handleMatch()} disabled={matching}
             style={{ ...addressBadgeBase, background: "var(--ne-surface)", color: "var(--ne-text)", border: "1px solid var(--ne-border)", cursor: matching ? "default" : "pointer" }}>
             <Icon name={matching ? "pending" : "refresh"} size={9} /> {matching ? t("orders.addressMatching") : t("orders.addressRetryMapping")}
           </button>
@@ -512,7 +517,32 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
             ✨ {t("orders.addressGeminiCorrected")}
           </span>
         )}
+        {/* System-matched orders ke liye retry — forceGrounded se Neezam AI ko fresh
+            se consult karta hai (systemMatched gate bypass, worker-side), taake ek
+            galat/pehle-se-tayyar system match manually override ho sake. */}
+        {!confirmed && source === "system" && !retryingSystemMatch && (
+          <button onClick={() => setRetryingSystemMatch(true)} disabled={matching}
+            style={{ ...addressBadgeBase, background: "var(--ne-surface)", color: "var(--ne-text)", border: "1px solid var(--ne-border)", cursor: matching ? "default" : "pointer" }}>
+            <Icon name="refresh" size={9} /> {t("orders.addressRetryMapping")}
+          </button>
+        )}
       </div>
+
+      {!confirmed && source === "system" && retryingSystemMatch && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ fontSize: 10.5, color: "var(--ne-warning)" }}>{t("orders.addressRetryWarning")}</div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button onClick={() => { handleMatch(true); setRetryingSystemMatch(false); }} disabled={matching}
+              style={{ ...addressSmallBtnPrimary, cursor: matching ? "default" : "pointer" }}>
+              {matching ? t("orders.addressMatching") : t("orders.addressRetryMapping")}
+            </button>
+            <button onClick={() => setRetryingSystemMatch(false)} disabled={matching}
+              style={{ ...addressSmallBtnSecondary, cursor: matching ? "default" : "pointer" }}>
+              {t("orders.cancel")}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Accept Suggested Mapping — sirf manual_review pe, jab Neezam AI ka koi raw
           area/subarea guess ho (list-match step se: ek verified ClosestExisting line,
