@@ -226,7 +226,7 @@ function buildDocumentHtml(title, bodyHtml) {
   .meta-row { padding: 7px 18px; font-size: 10.5px; border-bottom: 2px solid #000; display: flex; justify-content: space-between; gap: 8px; }
   .dates-row { padding: 6px 18px; font-size: 10px; border-bottom: 2px solid #000; display: flex; justify-content: space-between; color: #444; }
   .meta-row b { font-weight: bold; }
-  .items { flex: 1; padding: 10px 18px; }
+  .items { flex: 1; padding: 10px 18px; overflow: hidden; min-height: 0; }
   .items .h { font-size: 10px; color: #666; text-transform: uppercase; margin-bottom: 6px; }
   .il {
     display: flex; align-items: baseline;
@@ -256,7 +256,7 @@ function buildDocumentHtml(title, bodyHtml) {
   .items-tier-4 .il-title { font-size: 10px; line-height: 1.15; }
   .items-tier-4 .il-variant, .items-tier-4 .il-sku { font-size: 9px; }
   .items-tier-4 .il-qty { font-size: 10px; }
-  .footer { position: absolute; bottom: 0; left: 0; right: 0; text-align: center; padding: 6px; border-top: 2px solid #000; background: #fff; display: flex; align-items: center; justify-content: center; gap: 5px; }
+  .footer { position: static; flex-shrink: 0; margin-top: auto; text-align: center; padding: 6px; border-top: 2px solid #000; background: #fff; display: flex; align-items: center; justify-content: center; gap: 5px; }
   .footer svg { width: 12px; height: 12px; }
   .footer span { font-size: 8px; color: #888; }
   @media print {
