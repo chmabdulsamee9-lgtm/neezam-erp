@@ -121,15 +121,17 @@ function itemsHtml(items, displayMode) {
           html += `<div class="il-variant">${escapeHtml(i.variantTitle)}</div>`;
         }
       }
+      html += `<div class="il-meta">`;
       if (showSku) {
         // sku kabhi resolve na ho paye (koi bhi lookup tier match nahi hui) to bare
         // dash ke bajaye title+variant hi SKU-line par dikhao (jaise Orders.jsx
         // displaySkuForLineItem() karta hai) — sirf "sku"-only mode mein farak padta
         // hai, "both"/"name" mode mein title already alag se dikh raha hota hai.
         const skuText = i.sku || [i.title, i.variantTitle].filter(Boolean).join(" - ");
-        html += `<div class="il-sku">SKU: ${escapeHtml(skuText)}</div>`;
+        html += `<span class="il-sku">SKU: ${escapeHtml(skuText)}</span>`;
       }
-      html += `<div class="il-qty">Qty: ${escapeHtml(i.qty)}</div>`;
+      html += `<span class="il-qty">Qty: ${escapeHtml(i.qty)}</span>`;
+      html += `</div>`;
       html += `</div>`;
       return html;
     })
@@ -211,8 +213,8 @@ function buildDocumentHtml(title, bodyHtml) {
   .addr-hero .line { font-size: 13px; line-height: 1.45; }
   .addr-hero .city { font-size: 15px; font-weight: bold; margin-top: 4px; }
   .addr-hero .phone { font-size: 13px; margin-top: 3px; font-weight: bold; }
-  .bc-full { padding: 13px 18px; text-align: center; border-bottom: 2px solid #000; }
-  .bc-full svg { width: 100%; height: 60px; }
+  .bc-full { padding: 13px 18px; text-align: center; border-bottom: 2px solid #000; display: flex; flex-direction: column; justify-content: center; }
+  .bc-full svg { width: 90%; height: 69px; display: block; margin: 0 auto; }
   .bc-full .tn { font-size: 13px; font-weight: bold; margin-top: 4px; }
   .sender-hero { padding: 10px 18px; border-bottom: 2px solid #000; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
   .sender-hero .info { flex: 1; }
@@ -229,10 +231,19 @@ function buildDocumentHtml(title, bodyHtml) {
   .items .il { font-size: 12px; padding: 4px 0; border-bottom: 1px dashed #ccc; }
   .items .il b { font-weight: bold; }
   .il { margin-bottom: 6px; }
-  .il-title { font-weight: bold; text-align: left; }
+  .il-title {
+    font-weight: bold; text-align: left;
+    white-space: normal; word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
   .il-variant { font-size: 11px; color: #555; text-align: left; margin-top: 1px; }
-  .il-sku { font-size: 12px; text-align: left; margin-top: 1px; }
-  .il-qty { font-size: 12px; text-align: left; margin-top: 1px; }
+  .il-meta {
+    display: flex; justify-content: space-between;
+    align-items: center; margin-top: 3px;
+    font-size: 12px;
+  }
+  .il-sku { text-align: left; }
+  .il-qty { text-align: right; }
   .footer { text-align: center; padding: 6px; border-top: 2px solid #000; display: flex; align-items: center; justify-content: center; gap: 5px; }
   .footer svg { width: 12px; height: 12px; }
   .footer span { font-size: 8px; color: #888; }
@@ -250,14 +261,13 @@ function buildDocumentHtml(title, bodyHtml) {
   function renderCodes() {
     document.querySelectorAll(".bc").forEach(function (el) {
       JsBarcode(el, el.dataset.value, { format: "CODE128", displayValue: false, height: 52, margin: 0 });
-      // JsBarcode sets its own natural width/height on the svg — CSS width:100%
-      // alone lets the browser letterbox (preserve aspect ratio, blank space on
-      // sides) instead of actually filling the block. Setting viewBox to the
-      // barcode's real rendered size + preserveAspectRatio="none" makes the CSS
-      // width:100% genuinely stretch the barcode to fill the block's full width.
+      // JsBarcode sets its own natural width/height on the svg. Setting viewBox to
+      // the barcode's real rendered size + preserveAspectRatio="xMidYMid meet" scales
+      // it uniformly (no squish) to fit within the CSS box, centered — "none" used to
+      // stretch it non-uniformly to fill width:100%, distorting the bars.
       var bbox = el.getBBox();
       el.setAttribute("viewBox", "0 0 " + bbox.width + " " + bbox.height);
-      el.setAttribute("preserveAspectRatio", "none");
+      el.setAttribute("preserveAspectRatio", "xMidYMid meet");
     });
     document.querySelectorAll(".qr").forEach(function (el) {
       el.innerHTML = "";
