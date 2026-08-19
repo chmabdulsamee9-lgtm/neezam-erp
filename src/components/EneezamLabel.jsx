@@ -15,9 +15,44 @@ import dexLogo from "../assets/couriers/dex.png?inline";
 const escapeHtml = (s) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+// Orders.jsx ke liveSkuForLineItem() jaisa hi priority chain, is file ke liye mirror kiya
+// gaya (koi shared/exported function nahi hai Orders.jsx mein — sirf default export). Priority:
+// raw line_item.sku (non-empty) -> variant_id se products_cache lookup -> product_id +
+// variant_title se lookup (variant delete/recreate ke baad naya variant_id mila ho to bhi
+// recover ho jaye) -> kuch na mile to caller title+variantTitle ko hi SKU-line par dikhata hai.
+const normVariantTitleKey = (vt) => (vt && vt !== "Default Title" ? vt : "Default Title");
+const displayVariantTitle = (vt) => (vt && vt !== "Default Title" ? vt : "");
+
+function resolveLineItemSkuAndVariant(li, variantMap, productVariantMap) {
+  const rawSku = (li?.sku || "").trim();
+  let resolvedSku = rawSku;
+  let variantInfo = null;
+
+  if (!resolvedSku) {
+    const key = li?.variant_id != null ? String(li.variant_id) : null;
+    if (key && variantMap[key]) {
+      variantInfo = variantMap[key];
+      resolvedSku = variantInfo.sku || "";
+    }
+  }
+  if (!resolvedSku) {
+    const productId = li?.product_id ?? li?.shopify_product_id;
+    if (productId != null) {
+      const pvKey = `${productId}::${normVariantTitleKey(li?.variant_title)}`;
+      if (productVariantMap[pvKey]) {
+        variantInfo = productVariantMap[pvKey];
+        resolvedSku = variantInfo.sku || "";
+      }
+    }
+  }
+
+  const resolvedVariantTitle = displayVariantTitle(li?.variant_title) || variantInfo?.variantTitle || "";
+  return { sku: resolvedSku, variantTitle: resolvedVariantTitle };
+}
+
 // Same resolution order as worker's /dex-book-order: staff-confirmed order_statuses
 // (agentData) first, then Shopify shipping_address, then billing_address fallback.
-function resolveEneezamLabelData({ raw, agentData, store, pickupAddr }) {
+function resolveEneezamLabelData({ raw, agentData, store, pickupAddr, variantMap, productVariantMap }) {
   const customer = raw.customer || {};
   const shippingAddr = raw.shipping_address || {};
   const billingAddr = raw.billing_address || {};
@@ -32,11 +67,15 @@ function resolveEneezamLabelData({ raw, agentData, store, pickupAddr }) {
 
   const hasOverride = agentData.line_items_override && agentData.line_items_override.length > 0;
   const itemsSource = hasOverride ? agentData.line_items_override : (raw.line_items || []);
-  const items = itemsSource.map((li) => ({
-    title: li.title || li.name || "Item",
-    sku: li.sku || "—",
-    qty: li.quantity || 1,
-  }));
+  const items = itemsSource.map((li) => {
+    const { sku, variantTitle } = resolveLineItemSkuAndVariant(li, variantMap || {}, productVariantMap || {});
+    return {
+      title: li.title || li.name || "Item",
+      variantTitle,
+      sku, // "" agar kahin se resolve nahi hui — itemsHtml() display-time par title+variant fallback dikhata hai, dash nahi
+      qty: li.quantity || 1,
+    };
+  });
   const totalQty = items.reduce((sum, i) => sum + (i.qty || 0), 0);
 
   const totalPrice = hasOverride
@@ -45,8 +84,10 @@ function resolveEneezamLabelData({ raw, agentData, store, pickupAddr }) {
 
   const weight = Number(store?.default_weight_kg) || 0.5;
   const trackingNumber = agentData.dex_tracking_number || "";
+  const labelDisplayMode = store?.label_display_mode || "both";
 
   return {
+    labelDisplayMode,
     codAmount: `Rs. ${totalPrice.toLocaleString()}`,
     recipient: { name: customerName, addr: resolvedAddress, city: cityDisplay, phone: customerPhone },
     trackingNumber,
@@ -67,9 +108,31 @@ function resolveEneezamLabelData({ raw, agentData, store, pickupAddr }) {
 
 const LOGO_SVG = `<svg viewBox="0 0 32 32" width="12" height="12"><path d="M6 24 L14 13 L20 18 L27 7" stroke="#5C7CFA" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="6" cy="24" r="3.5" fill="#5C7CFA"/><circle cx="14" cy="13" r="3.5" fill="#5C7CFA"/><circle cx="20" cy="18" r="3.5" fill="#A855F7"/></svg>`;
 
-function itemsHtml(items) {
+function itemsHtml(items, displayMode) {
+  const mode = displayMode || "both";
   return items
-    .map((i) => `<div class="il">${escapeHtml(i.title)} <b>(${escapeHtml(i.sku)})</b> — Qty: ${escapeHtml(i.qty)}</div>`)
+    .map((i) => {
+      const showName = mode === "name" || mode === "both";
+      const showSku = mode === "sku" || mode === "both";
+      let html = `<div class="il">`;
+      if (showName) {
+        html += `<div class="il-title">${escapeHtml(i.title)}</div>`;
+        if (i.variantTitle) {
+          html += `<div class="il-variant">${escapeHtml(i.variantTitle)}</div>`;
+        }
+      }
+      if (showSku) {
+        // sku kabhi resolve na ho paye (koi bhi lookup tier match nahi hui) to bare
+        // dash ke bajaye title+variant hi SKU-line par dikhao (jaise Orders.jsx
+        // displaySkuForLineItem() karta hai) — sirf "sku"-only mode mein farak padta
+        // hai, "both"/"name" mode mein title already alag se dikh raha hota hai.
+        const skuText = i.sku || [i.title, i.variantTitle].filter(Boolean).join(" - ");
+        html += `<div class="il-sku">SKU: ${escapeHtml(skuText)}</div>`;
+      }
+      html += `<div class="il-qty">Qty: ${escapeHtml(i.qty)}</div>`;
+      html += `</div>`;
+      return html;
+    })
     .join("");
 }
 
@@ -99,7 +162,7 @@ function buildLabelHtml(d) {
     </div>
     <div class="meta-row"><span>Order: <b>${escapeHtml(d.orderNumber)}</b></span><span>Weight: <b>${escapeHtml(d.weight)}</b></span><span>Total Qty: <b>${escapeHtml(d.totalQty)}</b></span></div>
     <div class="dates-row"><span>Order Created: <b>${escapeHtml(d.createdDate)}</b></span><span>AWB Printed: <b>${escapeHtml(d.printDate)}</b></span></div>
-    <div class="items"><div class="h">Items in this package</div>${itemsHtml(d.items)}</div>
+    <div class="items"><div class="h">Items in this package</div>${itemsHtml(d.items, d.labelDisplayMode)}</div>
     <div class="footer">${LOGO_SVG}<span>booked via eNeezam</span></div>
   </div>`;
 }
@@ -165,6 +228,11 @@ function buildDocumentHtml(title, bodyHtml) {
   .items .h { font-size: 10px; color: #666; text-transform: uppercase; margin-bottom: 6px; }
   .items .il { font-size: 12px; padding: 4px 0; border-bottom: 1px dashed #ccc; }
   .items .il b { font-weight: bold; }
+  .il { margin-bottom: 6px; }
+  .il-title { font-weight: bold; text-align: left; }
+  .il-variant { font-size: 11px; color: #555; text-align: left; margin-top: 1px; }
+  .il-sku { font-size: 12px; text-align: left; margin-top: 1px; }
+  .il-qty { font-size: 12px; text-align: left; margin-top: 1px; }
   .footer { text-align: center; padding: 6px; border-top: 2px solid #000; display: flex; align-items: center; justify-content: center; gap: 5px; }
   .footer svg { width: 12px; height: 12px; }
   .footer span { font-size: 8px; color: #888; }
@@ -220,10 +288,32 @@ function openLabelDocument(html) {
 }
 
 async function fetchLabelDeps(storeId) {
-  const { data: storeRow } = await supabase.from("stores").select("default_weight_kg").eq("id", storeId).single();
+  const { data: storeRow } = await supabase.from("stores").select("default_weight_kg, label_display_mode").eq("id", storeId).single();
   const { data: addrRows } = await supabase.from("pickup_addresses").select("*").eq("store_id", storeId).order("created_at");
   const pickupAddr = (addrRows || []).find((a) => a.is_default) || (addrRows || [])[0] || null;
-  return { storeRow, pickupAddr };
+
+  // Orders.jsx ka variantSkuMap/productVariantSkuMap jaisa hi do-tier lookup, is file ke
+  // liye mirror kiya gaya — variant_id-tier pehle try hoti hai, product_id+variant_title-tier
+  // fallback (variant delete/recreate ke baad naya variant_id mila ho to bhi SKU recover ho).
+  const { data: productsRows } = await supabase
+    .from("products_cache")
+    .select("shopify_product_id, raw_data->title, raw_data->variants")
+    .eq("store_id", storeId);
+
+  const variantMap = {};
+  const productVariantMap = {};
+  (productsRows || []).forEach((p) => {
+    (p.variants || []).forEach((v) => {
+      const variantTitle = displayVariantTitle(v?.title);
+      const info = { sku: v?.sku || "", title: p.title || "", variantTitle };
+      if (v?.id != null) variantMap[String(v.id)] = info;
+      if (p.shopify_product_id != null) {
+        productVariantMap[`${p.shopify_product_id}::${normVariantTitleKey(v?.title)}`] = info;
+      }
+    });
+  });
+
+  return { storeRow, pickupAddr, variantMap, productVariantMap };
 }
 
 // order = an entry from BookedOrders.jsx's `orders` array (agent_data = order_statuses row).
@@ -236,12 +326,12 @@ export async function printEneezamLabel({ order, storeId }) {
     alert("This is a manual/unmatched order (no linked Shopify order) — an eNeezam label can't be built for it.");
     return;
   }
-  const [{ data: cacheRow }, { storeRow, pickupAddr }] = await Promise.all([
+  const [{ data: cacheRow }, { storeRow, pickupAddr, variantMap, productVariantMap }] = await Promise.all([
     supabase.from("shopify_orders_cache").select("raw_data").eq("id", orderId).single(),
     fetchLabelDeps(storeId),
   ]);
   const raw = cacheRow?.raw_data || {};
-  const d = resolveEneezamLabelData({ raw, agentData: order.agent_data || {}, store: storeRow, pickupAddr });
+  const d = resolveEneezamLabelData({ raw, agentData: order.agent_data || {}, store: storeRow, pickupAddr, variantMap, productVariantMap });
   openLabelDocument(buildDocumentHtml(`eNeezam Shipping Label — ${d.orderNumber}`, buildPagesHtml([d])));
 }
 
@@ -262,7 +352,7 @@ export async function printEneezamLabelsMerged({ orders, storeId }) {
   }
 
   const orderIds = bookable.map((o) => o.agent_data.order_id);
-  const [{ data: cacheRows }, { storeRow, pickupAddr }] = await Promise.all([
+  const [{ data: cacheRows }, { storeRow, pickupAddr, variantMap, productVariantMap }] = await Promise.all([
     supabase.from("shopify_orders_cache").select("id, raw_data").in("id", orderIds),
     fetchLabelDeps(storeId),
   ]);
@@ -270,7 +360,7 @@ export async function printEneezamLabelsMerged({ orders, storeId }) {
   (cacheRows || []).forEach((r) => { rawMap[r.id] = r.raw_data; });
 
   const dataList = bookable.map((o) =>
-    resolveEneezamLabelData({ raw: rawMap[o.agent_data.order_id] || {}, agentData: o.agent_data || {}, store: storeRow, pickupAddr })
+    resolveEneezamLabelData({ raw: rawMap[o.agent_data.order_id] || {}, agentData: o.agent_data || {}, store: storeRow, pickupAddr, variantMap, productVariantMap })
   );
 
   if (skippedNames.length > 0) {

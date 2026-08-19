@@ -146,6 +146,8 @@ export default function CourierConnect({ storeId }) {
   const [addingAddr, setAddingAddr] = useState(false);
   const [defaultWeight, setDefaultWeight] = useState("");
   const [savingWeight, setSavingWeight] = useState(false);
+  const [labelDisplayMode, setLabelDisplayMode] = useState("both");
+  const [savingLabelMode, setSavingLabelMode] = useState(false);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
@@ -194,6 +196,7 @@ export default function CourierConnect({ storeId }) {
     setDefaultLength(data?.default_length_cm ?? "20");
     setDefaultWidth(data?.default_width_cm ?? "20");
     setDefaultHeight(data?.default_height_cm ?? "10");
+    setLabelDisplayMode(data?.label_display_mode ?? "both");
     setLoading(false);
   };
 
@@ -259,6 +262,16 @@ export default function CourierConnect({ storeId }) {
     await supabase.from("stores").update(payload).eq("id", storeId);
     logActivity("default_weight_updated", payload);
     setSavingWeight(false);
+  };
+
+  const handleSaveLabelMode = async (mode) => {
+    setSavingLabelMode(true);
+    setLabelDisplayMode(mode);
+    await supabase.from("stores")
+      .update({ label_display_mode: mode })
+      .eq("id", storeId);
+    logActivity("label_display_mode_updated", { label_display_mode: mode });
+    setSavingLabelMode(false);
   };
 
   const handleConnect = async (e) => {
@@ -520,6 +533,47 @@ export default function CourierConnect({ storeId }) {
             style={{ padding: "9px 18px", background: "var(--ne-grad)", color: "#fff", border: "none", borderRadius: 9, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
             {t("courier.save")}
           </button>
+        </div>
+      )}
+
+      {!loading && (
+        <div style={{
+          background: 'var(--ne-surface-2)',
+          border: '1px solid var(--ne-border)',
+          borderRadius: 14, padding: '1.5rem',
+          marginTop: '1rem'
+        }}>
+          <p style={{
+            margin: '0 0 4px', fontWeight: 700, fontSize: 15,
+            color: 'var(--ne-text)'
+          }}>
+            eNeezam Label Display
+          </p>
+          <p style={{
+            margin: '0 0 12px', fontSize: 12,
+            color: 'var(--ne-muted-2)'
+          }}>
+            Label pe items kaise print hon
+          </p>
+          {[
+            { value: "name", label: "Sirf Product Name (variant ke sath)" },
+            { value: "sku", label: "Sirf SKU" },
+            { value: "both", label: "Dono — Product Name + Variant + SKU" },
+          ].map((opt) => (
+            <label key={opt.value} style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '8px 0', fontSize: 13, cursor: 'pointer'
+            }}>
+              <input
+                type="radio"
+                name="labelDisplayMode"
+                checked={labelDisplayMode === opt.value}
+                onChange={() => handleSaveLabelMode(opt.value)}
+                disabled={savingLabelMode}
+              />
+              {opt.label}
+            </label>
+          ))}
         </div>
       )}
     </div>
