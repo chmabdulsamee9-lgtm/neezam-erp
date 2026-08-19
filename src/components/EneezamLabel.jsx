@@ -123,9 +123,7 @@ function itemsHtml(items, displayMode) {
         parts.push(namePart);
       }
       if (showSku) {
-        // sku kabhi resolve na ho paye to title+variant hi SKU-line par
-        // dikhao (jaise Orders.jsx displaySkuForLineItem() karta hai)
-        const skuText = i.sku || [i.title, i.variantTitle].filter(Boolean).join(" - ");
+        const skuText = i.sku || "—";
         parts.push(`<span class="il-sku">SKU: ${escapeHtml(skuText)}</span>`);
       }
       const infoLine = parts.join(' <span class="il-sep">•</span> ');
@@ -197,7 +195,7 @@ function buildDocumentHtml(title, bodyHtml) {
   .controls { display: flex; justify-content: center; margin-bottom: 16px; }
   .controls button { padding: 8px 20px; border-radius: 8px; border: none; background: #5C7CFA; color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; }
   .stage { display: flex; flex-direction: column; align-items: center; gap: 20px; }
-  .label { width: 148mm; height: 210mm; background: #fff; color: #000; text-align: left; overflow: hidden; display: flex; flex-direction: column; border: 2px solid #000; }
+  .label { position: relative; width: 148mm; height: 210mm; background: #fff; color: #000; text-align: left; overflow: hidden; display: flex; flex-direction: column; border: 2px solid #000; }
   .top { display: flex; border-bottom: 2px solid #000; }
   .top-logo { width: 55%; display: flex; align-items: center; justify-content: center; gap: 10px; border-right: 2px solid #000; padding: 14px; }
   .top-logo .dex-logo { height: 40px; width: auto; display: block; }
@@ -233,32 +231,32 @@ function buildDocumentHtml(title, bodyHtml) {
   .il {
     display: flex; align-items: baseline;
     justify-content: space-between; gap: 8px;
-    margin-bottom: 6px; padding: 4px 0;
+    margin-bottom: 2px; padding: 2px 0;
     border-bottom: 1px dashed #ccc;
-    font-size: 12px;
+    font-size: 13px;
   }
   .il-info { flex: 1; min-width: 0; }
-  .il-title { font-weight: bold; }
-  .il-variant { font-weight: normal; color: #555; }
+  .il-title { font-weight: bold; font-size: 14px; }
+  .il-variant { font-weight: normal; color: #555; font-size: 13px; }
   .il-sep { color: #999; margin: 0 2px; }
-  .il-sku { color: #333; }
-  .il-qty { flex-shrink: 0; white-space: nowrap; font-weight: 600; }
+  .il-sku { color: #333; font-weight: bold; font-size: 13px; }
+  .il-qty { flex-shrink: 0; white-space: nowrap; font-weight: 600; font-size: 14px; }
 
-  .items-tier-2 .il { margin-bottom: 4px; padding: 3px 0; }
-  .items-tier-2 .il-title { font-size: 11px; }
-  .items-tier-2 .il-variant, .items-tier-2 .il-sku { font-size: 10px; }
-  .items-tier-2 .il-qty { font-size: 11px; }
+  .items-tier-2 .il { margin-bottom: 2px; padding: 1px 0; }
+  .items-tier-2 .il-title { font-size: 12px; }
+  .items-tier-2 .il-variant, .items-tier-2 .il-sku { font-size: 11px; }
+  .items-tier-2 .il-qty { font-size: 12px; }
 
-  .items-tier-3 .il { margin-bottom: 3px; padding: 2px 0; }
-  .items-tier-3 .il-title { font-size: 10px; }
-  .items-tier-3 .il-variant, .items-tier-3 .il-sku { font-size: 9px; }
-  .items-tier-3 .il-qty { font-size: 10px; }
+  .items-tier-3 .il { margin-bottom: 1px; padding: 1px 0; }
+  .items-tier-3 .il-title { font-size: 11px; }
+  .items-tier-3 .il-variant, .items-tier-3 .il-sku { font-size: 10px; }
+  .items-tier-3 .il-qty { font-size: 11px; }
 
-  .items-tier-4 .il { margin-bottom: 2px; padding: 1px 0; }
-  .items-tier-4 .il-title { font-size: 9px; line-height: 1.2; }
-  .items-tier-4 .il-variant, .items-tier-4 .il-sku { font-size: 8px; }
-  .items-tier-4 .il-qty { font-size: 9px; }
-  .footer { text-align: center; padding: 6px; border-top: 2px solid #000; display: flex; align-items: center; justify-content: center; gap: 5px; }
+  .items-tier-4 .il { margin-bottom: 1px; padding: 0.5px 0; }
+  .items-tier-4 .il-title { font-size: 10px; line-height: 1.15; }
+  .items-tier-4 .il-variant, .items-tier-4 .il-sku { font-size: 9px; }
+  .items-tier-4 .il-qty { font-size: 10px; }
+  .footer { position: absolute; bottom: 0; left: 0; right: 0; text-align: center; padding: 6px; border-top: 2px solid #000; background: #fff; display: flex; align-items: center; justify-content: center; gap: 5px; }
   .footer svg { width: 12px; height: 12px; }
   .footer span { font-size: 8px; color: #888; }
   @media print {
