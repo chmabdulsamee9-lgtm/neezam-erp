@@ -884,6 +884,7 @@ function App() {
   const [accessibleModuleKeys, setAccessibleModuleKeys] = useState(new Set())
 
   useEffect(() => {
+    console.log('[DEBUG] accessibleModuleKeys effect running, ordersStore:', ordersStore)
     if (!ordersStore?.eneezam_id) { setAccessibleModuleKeys(new Set()); return }
     (async () => {
       const { data: sub } = await supabase
@@ -894,6 +895,7 @@ function App() {
         .order('approved_at', { ascending: false })
         .limit(1)
         .maybeSingle()
+      console.log('[DEBUG] sub result:', sub)
       if (!sub) { setAccessibleModuleKeys(new Set()); return }
       const validAddonIds = (sub.selected_addon_ids || [])
         .filter(id =>
@@ -906,6 +908,8 @@ function App() {
           ? supabase.from('addons').select('module_key').in('id', validAddonIds)
           : Promise.resolve({ data: [] }),
       ])
+      console.log('[DEBUG] plan:', plan, 'addonRows:', addonRows)
+      console.log('[DEBUG] final module keys:', [...(plan?.included_modules || []), ...(addonRows || []).map(a => a.module_key)])
       setAccessibleModuleKeys(new Set([...(plan?.included_modules || []), ...(addonRows || []).map((a) => a.module_key)]))
     })()
   }, [ordersStore?.eneezam_id])
