@@ -114,31 +114,33 @@ function itemsHtml(items, displayMode) {
     .map((i) => {
       const showName = mode === "name" || mode === "both";
       const showSku = mode === "sku" || mode === "both";
-      let html = `<div class="il">`;
+      const parts = [];
       if (showName) {
-        html += `<div class="il-title">${escapeHtml(i.title)}</div>`;
+        let namePart = `<span class="il-title">${escapeHtml(i.title)}</span>`;
         if (i.variantTitle) {
-          html += `<div class="il-variant">${escapeHtml(i.variantTitle)}</div>`;
+          namePart += ` <span class="il-variant">- ${escapeHtml(i.variantTitle)}</span>`;
         }
+        parts.push(namePart);
       }
-      html += `<div class="il-meta">`;
       if (showSku) {
-        // sku kabhi resolve na ho paye (koi bhi lookup tier match nahi hui) to bare
-        // dash ke bajaye title+variant hi SKU-line par dikhao (jaise Orders.jsx
-        // displaySkuForLineItem() karta hai) — sirf "sku"-only mode mein farak padta
-        // hai, "both"/"name" mode mein title already alag se dikh raha hota hai.
+        // sku kabhi resolve na ho paye to title+variant hi SKU-line par
+        // dikhao (jaise Orders.jsx displaySkuForLineItem() karta hai)
         const skuText = i.sku || [i.title, i.variantTitle].filter(Boolean).join(" - ");
-        html += `<span class="il-sku">SKU: ${escapeHtml(skuText)}</span>`;
+        parts.push(`<span class="il-sku">SKU: ${escapeHtml(skuText)}</span>`);
       }
-      html += `<span class="il-qty">Qty: ${escapeHtml(i.qty)}</span>`;
-      html += `</div>`;
-      html += `</div>`;
-      return html;
+      const infoLine = parts.join(' <span class="il-sep">•</span> ');
+      return `<div class="il"><div class="il-info">${infoLine}</div><span class="il-qty">Qty: ${escapeHtml(i.qty)}</span></div>`;
     })
     .join("");
 }
 
 function buildLabelHtml(d) {
+  const itemCount = (d.items || []).length;
+  const scaleTier =
+    itemCount <= 4 ? "" :
+    itemCount <= 6 ? "items-tier-2" :
+    itemCount <= 9 ? "items-tier-3" :
+    "items-tier-4";
   return `<div class="label">
     <div class="top">
       <div class="top-logo"><img src="${dexLogo}" alt="Dex" class="dex-logo" /></div>
@@ -164,7 +166,7 @@ function buildLabelHtml(d) {
     </div>
     <div class="meta-row"><span>Order: <b>${escapeHtml(d.orderNumber)}</b></span><span>Weight: <b>${escapeHtml(d.weight)}</b></span><span>Total Qty: <b>${escapeHtml(d.totalQty)}</b></span></div>
     <div class="dates-row"><span>Order Created: <b>${escapeHtml(d.createdDate)}</b></span><span>AWB Printed: <b>${escapeHtml(d.printDate)}</b></span></div>
-    <div class="items"><div class="h">Items in this package</div>${itemsHtml(d.items, d.labelDisplayMode)}</div>
+    <div class="items ${scaleTier}"><div class="h">Items in this package</div>${itemsHtml(d.items, d.labelDisplayMode)}</div>
     <div class="footer">${LOGO_SVG}<span>booked via eNeezam</span></div>
   </div>`;
 }
@@ -226,24 +228,36 @@ function buildDocumentHtml(title, bodyHtml) {
   .meta-row { padding: 7px 18px; font-size: 10.5px; border-bottom: 2px solid #000; display: flex; justify-content: space-between; gap: 8px; }
   .dates-row { padding: 6px 18px; font-size: 10px; border-bottom: 2px solid #000; display: flex; justify-content: space-between; color: #444; }
   .meta-row b { font-weight: bold; }
-  .items { flex: 1; padding: 10px 18px; overflow: hidden; }
+  .items { flex: 1; padding: 10px 18px; }
   .items .h { font-size: 10px; color: #666; text-transform: uppercase; margin-bottom: 6px; }
-  .items .il { font-size: 12px; padding: 4px 0; border-bottom: 1px dashed #ccc; }
-  .items .il b { font-weight: bold; }
-  .il { margin-bottom: 6px; }
-  .il-title {
-    font-weight: bold; text-align: left;
-    white-space: normal; word-wrap: break-word;
-    overflow-wrap: break-word;
-  }
-  .il-variant { font-size: 11px; color: #555; text-align: left; margin-top: 1px; }
-  .il-meta {
-    display: flex; justify-content: space-between;
-    align-items: center; margin-top: 3px;
+  .il {
+    display: flex; align-items: baseline;
+    justify-content: space-between; gap: 8px;
+    margin-bottom: 6px; padding: 4px 0;
+    border-bottom: 1px dashed #ccc;
     font-size: 12px;
   }
-  .il-sku { text-align: left; }
-  .il-qty { text-align: right; }
+  .il-info { flex: 1; min-width: 0; }
+  .il-title { font-weight: bold; }
+  .il-variant { font-weight: normal; color: #555; }
+  .il-sep { color: #999; margin: 0 2px; }
+  .il-sku { color: #333; }
+  .il-qty { flex-shrink: 0; white-space: nowrap; font-weight: 600; }
+
+  .items-tier-2 .il { margin-bottom: 4px; padding: 3px 0; }
+  .items-tier-2 .il-title { font-size: 11px; }
+  .items-tier-2 .il-variant, .items-tier-2 .il-sku { font-size: 10px; }
+  .items-tier-2 .il-qty { font-size: 11px; }
+
+  .items-tier-3 .il { margin-bottom: 3px; padding: 2px 0; }
+  .items-tier-3 .il-title { font-size: 10px; }
+  .items-tier-3 .il-variant, .items-tier-3 .il-sku { font-size: 9px; }
+  .items-tier-3 .il-qty { font-size: 10px; }
+
+  .items-tier-4 .il { margin-bottom: 2px; padding: 1px 0; }
+  .items-tier-4 .il-title { font-size: 9px; line-height: 1.2; }
+  .items-tier-4 .il-variant, .items-tier-4 .il-sku { font-size: 8px; }
+  .items-tier-4 .il-qty { font-size: 9px; }
   .footer { text-align: center; padding: 6px; border-top: 2px solid #000; display: flex; align-items: center; justify-content: center; gap: 5px; }
   .footer svg { width: 12px; height: 12px; }
   .footer span { font-size: 8px; color: #888; }
