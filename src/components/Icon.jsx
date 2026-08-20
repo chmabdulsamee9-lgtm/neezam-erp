@@ -49,6 +49,8 @@ const PATHS = {
   building: <><rect x="4" y="2.5" width="12" height="15" rx="1" /><path d="M7 6h2M11 6h2M7 9.5h2M11 9.5h2M7 13h2M11 13h2" /></>,
   shield: <path d="M10 2.5 16 5v5c0 4-2.5 6.8-6 7.5-3.5-.7-6-3.5-6-7.5V5Z" />,
   calculator: <><rect x="4" y="2" width="12" height="16" rx="2" /><rect x="6" y="4.3" width="8" height="3" rx="0.5" /><circle cx="6.8" cy="11" r=".9" fill="currentColor" stroke="none" /><circle cx="10" cy="11" r=".9" fill="currentColor" stroke="none" /><circle cx="13.2" cy="11" r=".9" fill="currentColor" stroke="none" /><circle cx="6.8" cy="14.5" r=".9" fill="currentColor" stroke="none" /><circle cx="10" cy="14.5" r=".9" fill="currentColor" stroke="none" /><circle cx="13.2" cy="14.5" r=".9" fill="currentColor" stroke="none" /></>,
+  cash: <><rect x="2" y="5.5" width="16" height="9" rx="1.5" /><circle cx="10" cy="10" r="2.3" /><path d="M4.5 7.5h.01M15.5 12.5h.01" /></>,
+  sparkle: <path d="M10 2l1.8 5.2L17 9l-5.2 1.8L10 16l-1.8-5.2L3 9l5.2-1.8Z" />,
 }
 
 export default function Icon({ name, size = 15, style, className, ...rest }) {

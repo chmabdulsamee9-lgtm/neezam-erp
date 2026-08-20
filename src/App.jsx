@@ -845,14 +845,23 @@ function App() {
       const trimmed = line.trim()
       if (!trimmed) return <div key={idx} style={{ height: 10 }} />
       if (trimmed.startsWith('## ')) {
+        let headingText = trimmed.slice(3)
+        let iconName = null
+        const iconMatch = headingText.match(/^icon:(\S+)\s+(.*)$/)
+        if (iconMatch) {
+          iconName = iconMatch[1]
+          headingText = iconMatch[2]
+        }
         return (
           <div key={idx} style={{
+            display: 'flex', alignItems: 'center', gap: 6,
             fontWeight: 700, fontSize: 14,
             color: 'var(--ne-text)',
             marginTop: idx === 0 ? 0 : 14,
             marginBottom: 4
           }}>
-            {trimmed.slice(3)}
+            {iconName && <Icon name={iconName} size={14} />}
+            {headingText}
           </div>
         )
       }
@@ -2052,8 +2061,8 @@ function App() {
               padding: '1.5rem'
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--ne-text)' }}>
-                  ✨ Naye Updates
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--ne-text)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="sparkle" size={16} /> Naye Updates
                 </h3>
                 <button onClick={handleCloseReleasePopup} style={{
                   background: 'transparent', border: 'none', cursor: 'pointer',
