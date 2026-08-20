@@ -839,6 +839,43 @@ function App() {
     setShowReleasePopup(false)
   }
 
+  function renderReleaseNoteContent(message) {
+    const lines = message.split('\n')
+    return lines.map((line, idx) => {
+      const trimmed = line.trim()
+      if (!trimmed) return <div key={idx} style={{ height: 10 }} />
+      if (trimmed.startsWith('## ')) {
+        return (
+          <div key={idx} style={{
+            fontWeight: 700, fontSize: 14,
+            color: 'var(--ne-text)',
+            marginTop: idx === 0 ? 0 : 14,
+            marginBottom: 4
+          }}>
+            {trimmed.slice(3)}
+          </div>
+        )
+      }
+      if (trimmed.startsWith('- ')) {
+        return (
+          <div key={idx} style={{
+            display: 'flex', gap: 6, fontSize: 12.5,
+            color: 'var(--ne-muted)', lineHeight: 1.5,
+            paddingLeft: 4, marginBottom: 2
+          }}>
+            <span style={{ color: 'var(--ne-accent)' }}>•</span>
+            <span>{trimmed.slice(2)}</span>
+          </div>
+        )
+      }
+      return (
+        <div key={idx} style={{ fontSize: 12.5, color: 'var(--ne-muted)' }}>
+          {trimmed}
+        </div>
+      )
+    })
+  }
+
   // Dev-monitoring: global JS-error/unhandled-rejection capture, sirf isDevEnv() par active
   useEffect(() => {
     if (!isDevEnv()) return
@@ -2025,12 +2062,7 @@ function App() {
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {releaseNotes.map((note) => (
-                  <div key={note.id} style={{
-                    fontSize: 13, color: 'var(--ne-text)', lineHeight: 1.6,
-                    whiteSpace: 'pre-wrap'
-                  }}>
-                    {note.message}
-                  </div>
+                  <div key={note.id}>{renderReleaseNoteContent(note.message)}</div>
                 ))}
               </div>
               <button onClick={handleCloseReleasePopup} style={{
