@@ -91,9 +91,18 @@ function TrendChart({ ordersData }) {
 
   const getX = (i) => PAD.left + (i / (n - 1)) * cW;
 
+  const countKeys = CHART_LINES
+    .filter(({ key }) => key !== "Revenue")
+    .map(({ key }) => key);
+  const combinedCountMax = Math.max(
+    ...days.flatMap((d) => countKeys.map((k) => d[k])),
+    1
+  );
   const maxVal = {};
   CHART_LINES.forEach(({ key }) => {
-    maxVal[key] = Math.max(...days.map(d => d[key]), 1);
+    maxVal[key] = key === "Revenue"
+      ? Math.max(...days.map((d) => d[key]), 1)
+      : combinedCountMax;
   });
 
   const getY = (key, val) => PAD.top + cH - (val / maxVal[key]) * cH;
