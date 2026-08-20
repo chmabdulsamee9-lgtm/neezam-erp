@@ -274,8 +274,11 @@ function HourlyComparisonChart({ ordersData }) {
   const barH = (v) => (v / maxVal) * cH;
   const fmtVal = (v) => metric === "revenue" ? `Rs.${Math.round(v).toLocaleString()}` : Math.round(v);
 
-  const todayTotal = todayHours.reduce((a, b) => a + b, 0);
-  const yestTotal = yestHours.reduce((a, b) => a + b, 0);
+  // Fair comparison — Today abhi poora din nahi guzra, is liye Yesterday ke sath
+  // sirf same time-window (0 se current hour tak) compare karte hain, poore 24h se nahi.
+  const currentHour = new Date().getHours();
+  const todayTotal = todayHours.slice(0, currentHour + 1).reduce((a, b) => a + b, 0);
+  const yestTotal = yestHours.slice(0, currentHour + 1).reduce((a, b) => a + b, 0);
   const pctDiff = yestTotal > 0 ? ((todayTotal - yestTotal) / yestTotal) * 100 : (todayTotal > 0 ? 100 : 0);
 
   const [hoveredHour, setHoveredHour] = useState(null);
@@ -296,18 +299,15 @@ function HourlyComparisonChart({ ordersData }) {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 14, marginBottom: 8, fontSize: 10, color: "var(--ne-muted)", fontWeight: 600 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 10, fontSize: 10.5, color: "var(--ne-muted)", fontWeight: 600, flexWrap: "wrap" }}>
         <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-          <span style={{ width: 9, height: 9, borderRadius: 3, background: "var(--ne-grad)", display: "inline-block" }} /> {t("dashboard.today")}
+          <span style={{ width: 9, height: 9, borderRadius: 3, background: "var(--ne-grad)", display: "inline-block" }} />
+          {t("dashboard.today")}: <strong style={{ color: "var(--ne-text)" }}>{fmtVal(todayTotal)}</strong>
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-          <span style={{ width: 9, height: 9, borderRadius: 3, background: "var(--ne-border)", display: "inline-block" }} /> {t("dashboard.yesterday")}
+          <span style={{ width: 9, height: 9, borderRadius: 3, background: "var(--ne-border)", display: "inline-block" }} />
+          {t("dashboard.yesterday")}: <strong style={{ color: "var(--ne-text)" }}>{fmtVal(yestTotal)}</strong>
         </span>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 11, color: "var(--ne-muted)" }}>
-        <span>{t("dashboard.today")}: <strong style={{ color: "var(--ne-text)" }}>{fmtVal(todayTotal)}</strong></span>
-        <span>{t("dashboard.yesterday")}: <strong style={{ color: "var(--ne-text)" }}>{fmtVal(yestTotal)}</strong></span>
         <span style={{
           padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700,
           background: pctDiff >= 0 ? "var(--ne-success-soft)" : "var(--ne-danger-soft)",
