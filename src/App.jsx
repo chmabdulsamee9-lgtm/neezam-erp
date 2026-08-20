@@ -1361,6 +1361,7 @@ function App() {
         .from("order_statuses")
         .select("*")
         .eq("store_id", storeId)
+        .order("id", { ascending: true })
       const { data, error } = await query
         .range(from, from + BATCH_SIZE - 1)
       if (error) throw error
