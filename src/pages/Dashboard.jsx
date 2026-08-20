@@ -91,23 +91,18 @@ function TrendChart({ ordersData }) {
 
   const getX = (i) => PAD.left + (i / (n - 1)) * cW;
 
-  const countKeys = CHART_LINES
-    .filter(({ key }) => key !== "Revenue")
-    .map(({ key }) => key);
-  const combinedCountMax = Math.max(
-    ...days.flatMap((d) => countKeys.map((k) => d[k])),
+  const combinedMax = Math.max(
+    ...days.flatMap((d) => CHART_LINES.map(({ key }) => (key === "Revenue" ? d[key] / 1000 : d[key]))),
     1
   );
   const maxVal = {};
   CHART_LINES.forEach(({ key }) => {
-    maxVal[key] = key === "Revenue"
-      ? Math.max(...days.map((d) => d[key]), 1)
-      : combinedCountMax;
+    maxVal[key] = combinedMax;
   });
 
   const getY = (key, val) => PAD.top + cH - (val / maxVal[key]) * cH;
 
-  const linePoints = (key) => days.map((d, i) => ({ x: getX(i), y: getY(key, d[key]) }));
+  const linePoints = (key) => days.map((d, i) => ({ x: getX(i), y: getY(key, key === "Revenue" ? d[key] / 1000 : d[key]) }));
   const buildPath = (key) => smoothLinePath(linePoints(key));
   const buildAreaPath = (key) => {
     const pts = linePoints(key);
@@ -157,7 +152,7 @@ function TrendChart({ ordersData }) {
           {/* Grid lines */}
           {[0, 0.25, 0.5, 0.75, 1].map(t => (
             <line key={t} x1={PAD.left} y1={PAD.top + t * cH} x2={PAD.left + cW} y2={PAD.top + t * cH}
-              stroke="#232A52" strokeWidth="0.8" />
+              stroke="#232A52" strokeWidth="0.8" strokeOpacity="0.07" />
           ))}
 
           {/* X axis labels every 5 days */}
@@ -180,9 +175,9 @@ function TrendChart({ ordersData }) {
           {CHART_LINES.filter(({ key }) => activeLines.includes(key)).map(({ key, color }) =>
             days.map((d, i) => (
               <circle key={`${key}-${i}`}
-                cx={getX(i)} cy={getY(key, d[key])}
+                cx={getX(i)} cy={getY(key, key === "Revenue" ? d[key] / 1000 : d[key])}
                 r={hoveredDay === i ? 4 : 2.5}
-                fill={color} stroke="#070A1A" strokeWidth="1.5" />
+                fill={color} stroke="none" />
             ))
           )}
 
@@ -279,6 +274,10 @@ function HourlyComparisonChart({ ordersData }) {
   const barH = (v) => (v / maxVal) * cH;
   const fmtVal = (v) => metric === "revenue" ? `Rs.${Math.round(v).toLocaleString()}` : Math.round(v);
 
+  const todayTotal = todayHours.reduce((a, b) => a + b, 0);
+  const yestTotal = yestHours.reduce((a, b) => a + b, 0);
+  const pctDiff = yestTotal > 0 ? ((todayTotal - yestTotal) / yestTotal) * 100 : (todayTotal > 0 ? 100 : 0);
+
   const [hoveredHour, setHoveredHour] = useState(null);
 
   return (
@@ -306,6 +305,18 @@ function HourlyComparisonChart({ ordersData }) {
         </span>
       </div>
 
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 11, color: "var(--ne-muted)" }}>
+        <span>{t("dashboard.today")}: <strong style={{ color: "var(--ne-text)" }}>{fmtVal(todayTotal)}</strong></span>
+        <span>{t("dashboard.yesterday")}: <strong style={{ color: "var(--ne-text)" }}>{fmtVal(yestTotal)}</strong></span>
+        <span style={{
+          padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700,
+          background: pctDiff >= 0 ? "var(--ne-success-soft)" : "var(--ne-danger-soft)",
+          color: pctDiff >= 0 ? "var(--ne-success)" : "var(--ne-danger)"
+        }}>
+          {pctDiff >= 0 ? "+" : ""}{pctDiff.toFixed(1)}%
+        </span>
+      </div>
+
       <div style={{ background: "var(--ne-bg)", borderRadius: 10, overflow: "hidden" }}>
         <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", display: "block" }} onMouseLeave={() => setHoveredHour(null)}>
           <defs>
@@ -317,7 +328,7 @@ function HourlyComparisonChart({ ordersData }) {
 
           {[0, 0.5, 1].map(t => (
             <line key={t} x1={PAD.left} y1={PAD.top + t * cH} x2={PAD.left + cW} y2={PAD.top + t * cH}
-              stroke="#232A52" strokeWidth="0.8" />
+              stroke="#232A52" strokeWidth="0.8" strokeOpacity="0.07" />
           ))}
 
           {Array.from({ length: 24 }, (_, h) => {

@@ -1471,17 +1471,18 @@ function App() {
         (payload) => {
           const row = payload.new
           if (!row || !row.order_id) return
-          statusMapRef.current = { ...statusMapRef.current, [String(row.order_id)]: row }
+          const mergedRow = { ...(statusMapRef.current[String(row.order_id)] || {}), ...row }
+          statusMapRef.current = { ...statusMapRef.current, [String(row.order_id)]: mergedRow }
           setOrdersData(prev => {
             const idx = prev.findIndex(o => String(o.id) === String(row.order_id))
             if (idx < 0) return prev
             const next = [...prev]
             next[idx] = {
               ...next[idx],
-              agent_data: row,
-              agent_status: row.status || null,
-              synced_at: row.synced_at || null,
-              last_edited_at: row.last_edited_at || null,
+              agent_data: mergedRow,
+              agent_status: mergedRow.status || null,
+              synced_at: mergedRow.synced_at || null,
+              last_edited_at: mergedRow.last_edited_at || null,
             }
             return next
           })
