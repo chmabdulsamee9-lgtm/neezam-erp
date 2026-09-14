@@ -1429,7 +1429,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
 
                 {ad.latest_fail_reason && (
                   <div style={{ marginBottom: 14 }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <div style={{ padding: "5px 9px", borderRadius: 8, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6, width: "fit-content" }}>
                         <Icon name="warning" size={12} /> {friendlyFailReason(ad.latest_fail_reason)}
                       </div>
@@ -1438,6 +1438,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
                           aria-label="Purani history dekhein"
                           onClick={() => toggleReasonHistory(o)}
                           style={{
+                            position: "relative",
                             background: "transparent",
                             border: "1px solid var(--ne-border)",
                             borderRadius: 8,
@@ -1452,6 +1453,24 @@ export default function BookedOrders({ storeId, ordersStore }) {
                           }}
                         >
                           <Icon name="clock" size={14} />
+                          <span style={{
+                            position: "absolute",
+                            top: -6,
+                            right: -6,
+                            background: "var(--ne-danger)",
+                            color: "#fff",
+                            fontSize: 10,
+                            fontWeight: 700,
+                            borderRadius: "50%",
+                            width: 16,
+                            height: 16,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            lineHeight: 1,
+                          }}>
+                            {ad.delivery_attempt_count}
+                          </span>
                         </button>
                       )}
                     </div>
