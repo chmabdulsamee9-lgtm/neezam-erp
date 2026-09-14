@@ -1429,35 +1429,63 @@ export default function BookedOrders({ storeId, ordersStore }) {
 
                 {ad.latest_fail_reason && (
                   <div style={{ marginBottom: 14 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <div style={{ padding: "5px 9px", borderRadius: 8, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                      <div style={{ padding: "5px 9px", borderRadius: 8, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6, width: "fit-content" }}>
                         <Icon name="warning" size={12} /> {friendlyFailReason(ad.latest_fail_reason)}
                       </div>
                       {ad.delivery_attempt_count > 1 && (
                         <button
+                          aria-label="Purani history dekhein"
                           onClick={() => toggleReasonHistory(o)}
-                          style={{ fontSize: 11.5, color: "var(--ne-muted)", background: "transparent", border: "none", cursor: "pointer", textDecoration: "underline" }}
+                          style={{
+                            background: "transparent",
+                            border: "1px solid var(--ne-border)",
+                            borderRadius: 8,
+                            width: 28,
+                            height: 28,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            cursor: "pointer",
+                            color: "var(--ne-muted)",
+                            flexShrink: 0,
+                          }}
                         >
-                          + {ad.delivery_attempt_count - 1} purane reasons {expandedReasonsOrderId === o.id ? "▲" : "▼"}
+                          <Icon name="clock" size={14} />
                         </button>
                       )}
                     </div>
                     {expandedReasonsOrderId === o.id && (
-                      <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", fontSize: 12 }}>
-                        {reasonHistoryLoading ? (
-                          <div style={{ color: "var(--ne-muted)" }}>Loading...</div>
-                        ) : reasonHistory.length === 0 ? (
-                          <div style={{ color: "var(--ne-muted)" }}>Koi purana reason nahi mila</div>
-                        ) : (
-                          reasonHistory.map((ev, idx) => (
-                            <div key={idx} style={{ padding: "4px 0", borderBottom: idx < reasonHistory.length - 1 ? "1px solid var(--ne-border)" : "none" }}>
-                              <span style={{ color: "var(--ne-muted-2)", fontSize: 10.5 }}>
-                                {new Date(ev.event_time).toLocaleString()}
-                              </span>
-                              <div>{friendlyFailReason(ev.fail_reason)}</div>
-                            </div>
-                          ))
-                        )}
+                      <div style={{ marginTop: 8 }}>
+                        <div style={{ background: "var(--ne-surface-2)", borderRadius: 8, border: "1px solid var(--ne-border)" }}>
+                          {reasonHistoryLoading ? (
+                            <div style={{ padding: "8px 10px", fontSize: 12, color: "var(--ne-muted)" }}>Loading...</div>
+                          ) : reasonHistory.length === 0 ? (
+                            <div style={{ padding: "8px 10px", fontSize: 12, color: "var(--ne-muted)" }}>Koi purana reason nahi mila</div>
+                          ) : (
+                            reasonHistory.map((ev, idx) => (
+                              <div
+                                key={idx}
+                                style={{
+                                  padding: "8px 10px",
+                                  fontSize: 13,
+                                  borderBottom: idx < reasonHistory.length - 1 ? "1px solid var(--ne-border)" : "none",
+                                }}
+                              >
+                                <div style={{ color: "var(--ne-muted-2)", fontSize: 11 }}>
+                                  {new Date(ev.event_time).toLocaleString("en-US", {
+                                    day: "numeric",
+                                    month: "short",
+                                    hour: "numeric",
+                                    minute: "2-digit",
+                                    hour12: true,
+                                  })}
+                                </div>
+                                <div>{friendlyFailReason(ev.fail_reason)}</div>
+                              </div>
+                            ))
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
