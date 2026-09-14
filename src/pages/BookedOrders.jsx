@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useId } from "react";
 import { PDFDocument } from "pdf-lib";
 import { supabase } from "../supabase";
 import { getCachedBookedOrders } from "../ordersCache";
@@ -205,11 +205,18 @@ const FINAL_STATE_COLOR = {
 };
 const IN_PROGRESS_COLOR = "var(--ne-accent)";
 
-function daysBetween(fromIso, toIso) {
+function formatDuration(fromIso, toIso) {
   if (!fromIso) return null;
   const from = new Date(fromIso).getTime();
   const to = toIso ? new Date(toIso).getTime() : Date.now();
-  return Math.max(0, Math.floor((to - from) / 86400000));
+  const diffMs = Math.max(0, to - from);
+  const totalHours = Math.floor(diffMs / 3600000);
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  if (days === 0 && hours === 0) return "< 1 hr";
+  if (days === 0) return `${hours} hr${hours === 1 ? "" : "s"}`;
+  if (hours === 0) return `${days} day${days === 1 ? "" : "s"}`;
+  return `${days} day${days === 1 ? "" : "s"} ${hours} hr${hours === 1 ? "" : "s"}`;
 }
 
 // Booking ke turant baad, bina kisi intermediate status ke, seedha Cancelled/Pickup-Failed ho
@@ -238,8 +245,8 @@ function buildTimeline(o) {
       currentIdx: -1,
       isReached: true,
       stages: [
-        { label: "Booked", at: ad.package_created_at, done: true, days: daysBetween(ad.package_created_at, finalAt) },
-        { label: finalStatus, at: finalAt, done: true, days: null, isFinal: true },
+        { label: "Booked", at: ad.package_created_at, done: true, duration: formatDuration(ad.package_created_at, finalAt) },
+        { label: finalStatus, at: finalAt, done: true, duration: null, isFinal: true },
       ],
     };
   }
@@ -262,7 +269,7 @@ function buildTimeline(o) {
   const checkpoints = [...rawStages, finalMeta];
   const stages = rawStages.map((s, i) => {
     const nextKnownAt = checkpoints.slice(i + 1).find((c) => !!c.at)?.at || null;
-    return { ...s, done: isReached || !!s.at, days: s.at ? daysBetween(s.at, nextKnownAt) : null };
+    return { ...s, done: isReached || !!s.at, duration: s.at ? formatDuration(s.at, nextKnownAt) : null };
   });
 
   let currentIdx = -1;
@@ -275,25 +282,40 @@ function buildTimeline(o) {
     color: isReached ? finalMeta.color : IN_PROGRESS_COLOR,
     isReached,
     currentIdx: isReached ? -1 : currentIdx,
-    stages: [...stages, { label: finalMeta.label, at: finalMeta.at, done: isReached, days: null, isFinal: true }],
+    stages: [...stages, { label: finalMeta.label, at: finalMeta.at, done: isReached, duration: null, isFinal: true }],
   };
 }
 
 function Timeline({ order }) {
   const tl = buildTimeline(order);
+  const loopArrowUid = useId();
+  const hasRetries = (order.agent_data?.delivery_attempt_count || 0) > 1;
   return (
     <div style={{ display: "flex" }}>
       {tl.stages.map((s, i) => {
         const isCurrent = i === tl.currentIdx;
         const dotColor = tl.isReached || tl.special ? tl.color : (s.done ? IN_PROGRESS_COLOR : "var(--ne-border)");
         const lineColor = tl.isReached || tl.special ? tl.color : (i > 0 && tl.stages[i - 1].done ? IN_PROGRESS_COLOR : "var(--ne-border)");
+        const showRetryLoop = i > 0 && tl.stages[i - 1].label === "Out for Delivery" && hasRetries;
         return (
           <div key={s.label} style={{ flex: 1, textAlign: "center", position: "relative", minWidth: 72 }}>
             <div style={{ fontSize: 9, fontWeight: 700, color: dotColor, marginBottom: 3, minHeight: 12 }}>
-              {s.days !== null && s.days !== undefined ? `${s.days} day${s.days === 1 ? "" : "s"}` : " "}
+              {s.duration || " "}
             </div>
             {i > 0 && (
               <div style={{ position: "absolute", top: 20, left: "-50%", width: "100%", height: 2, background: lineColor }} />
+            )}
+            {showRetryLoop && (
+              <svg width="100%" height="24" viewBox="0 0 100 24" preserveAspectRatio="none"
+                style={{ position: "absolute", top: 0, left: "-50%", width: "100%", height: 24, overflow: "visible", pointerEvents: "none" }}>
+                <defs>
+                  <marker id={`loopArrow-${loopArrowUid}`} markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+                    <path d="M0,0 L6,3 L0,6" fill="var(--ne-warning)" />
+                  </marker>
+                </defs>
+                <path d="M5,20 C5,2 95,2 95,20" fill="none" stroke="var(--ne-warning)" strokeWidth="1.5"
+                  vectorEffect="non-scaling-stroke" markerEnd={`url(#loopArrow-${loopArrowUid})`} />
+              </svg>
             )}
             <div style={{
               width: 11, height: 11, borderRadius: "50%", margin: "0 auto", position: "relative", zIndex: 1,
