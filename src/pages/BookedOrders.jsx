@@ -13,6 +13,34 @@ const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 
 const PER_PAGE_OPTIONS = [20, 50, 100];
 
+const FAIL_REASON_LABELS = {
+  "customer reject at doorstep": "Customer ne delivery lene se inkar kiya",
+  "customer not reachable": "Customer se raabta nahi ho saka",
+  "others_missing_mapping": "Wrong Address Mapping",
+  "customer not at delivery location": "Customer location par mojood nahi tha",
+  "customer invalid address": "Address ghalat/na-mukammal hai",
+  "customer request cancellation": "Customer ne cancellation ki request ki",
+  "customer rescheduled": "Customer ne delivery reschedule ki",
+  "Re-inbound": "Package hub ko wapas bheja gaya",
+  "Merchant requested cancellation": "Merchant ne order cancel kiya",
+  "suspected buyer seller fraud": "Fraud ka shak zahir hua",
+  "3pl driver overloaded": "Rider ka load zyada tha",
+  "outside 3pl coverage": "Ye area courier coverage se bahar hai",
+  "customer had insufficient cash": "Customer ke paas cash kam tha",
+  "3pl accident": "Rider ka accident ho gaya",
+  "road closure or heavy traffic": "Rasta band ya traffic zyada tha",
+  "customer reject at doorstep due to wrong product": "Ghalat product ki wajah se delivery reject hui",
+  "3pl breach sla": "Courier time-limit poori nahi kar saka",
+  "force majeure": "Na-qabil-e-control halaat",
+  "package damaged": "Package damage ho gaya tha",
+  "police confiscation": "Police ne parcel zabt kar liya",
+};
+
+function friendlyFailReason(raw) {
+  if (!raw) return raw;
+  return FAIL_REASON_LABELS[raw] || raw;
+}
+
 // Courier company brand colors — jaise Dashboard.jsx ke SOURCE_COLORS (Meta/TikTok/etc),
 // yeh company-identity colors hain, theme-reactive semantic vars nahi
 const COURIER_COLORS = {
@@ -370,6 +398,9 @@ export default function BookedOrders({ storeId, ordersStore }) {
   const [trackingEvents, setTrackingEvents] = useState([]);
   const [trackingLoading, setTrackingLoading] = useState(false);
   const [trackingError, setTrackingError] = useState("");
+  const [expandedReasonsOrderId, setExpandedReasonsOrderId] = useState(null);
+  const [reasonHistory, setReasonHistory] = useState([]);
+  const [reasonHistoryLoading, setReasonHistoryLoading] = useState(false);
 
   // DEX-serviceable cities — 152 rows, fetch once (not per-row) aur ek lowercased
   // Set mein cache karo, taake har order ke liye sirf ek O(1) lookup lage.
@@ -745,6 +776,30 @@ export default function BookedOrders({ storeId, ordersStore }) {
       setTrackingError(err.message);
     }
     setTrackingLoading(false);
+  };
+
+  const toggleReasonHistory = async (order) => {
+    if (expandedReasonsOrderId === order.id) {
+      setExpandedReasonsOrderId(null);
+      return;
+    }
+    setExpandedReasonsOrderId(order.id);
+    setReasonHistoryLoading(true);
+    setReasonHistory([]);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${CF_URL}/order-tracking-history?order_id=${order.id}`, {
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      const data = await res.json();
+      const withReasons = (data.events || [])
+        .filter((e) => e.fail_reason)
+        .sort((a, b) => new Date(b.event_time) - new Date(a.event_time));
+      setReasonHistory(withReasons);
+    } catch (err) {
+      setReasonHistory([]);
+    }
+    setReasonHistoryLoading(false);
   };
 
   const handleSubmitShipperAdvice = async () => {
@@ -1373,8 +1428,38 @@ export default function BookedOrders({ storeId, ordersStore }) {
                 </div>
 
                 {ad.latest_fail_reason && (
-                  <div style={{ marginBottom: 14, padding: "5px 9px", borderRadius: 8, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, width: "fit-content", display: "flex", alignItems: "center", gap: 6 }}>
-                    <Icon name="warning" size={12} /> {ad.latest_fail_reason}
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <div style={{ padding: "5px 9px", borderRadius: 8, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                        <Icon name="warning" size={12} /> {friendlyFailReason(ad.latest_fail_reason)}
+                      </div>
+                      {ad.delivery_attempt_count > 1 && (
+                        <button
+                          onClick={() => toggleReasonHistory(o)}
+                          style={{ fontSize: 11.5, color: "var(--ne-muted)", background: "transparent", border: "none", cursor: "pointer", textDecoration: "underline" }}
+                        >
+                          + {ad.delivery_attempt_count - 1} purane reasons {expandedReasonsOrderId === o.id ? "▲" : "▼"}
+                        </button>
+                      )}
+                    </div>
+                    {expandedReasonsOrderId === o.id && (
+                      <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", fontSize: 12 }}>
+                        {reasonHistoryLoading ? (
+                          <div style={{ color: "var(--ne-muted)" }}>Loading...</div>
+                        ) : reasonHistory.length === 0 ? (
+                          <div style={{ color: "var(--ne-muted)" }}>Koi purana reason nahi mila</div>
+                        ) : (
+                          reasonHistory.map((ev, idx) => (
+                            <div key={idx} style={{ padding: "4px 0", borderBottom: idx < reasonHistory.length - 1 ? "1px solid var(--ne-border)" : "none" }}>
+                              <span style={{ color: "var(--ne-muted-2)", fontSize: 10.5 }}>
+                                {new Date(ev.event_time).toLocaleString()}
+                              </span>
+                              <div>{friendlyFailReason(ev.fail_reason)}</div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
