@@ -285,7 +285,13 @@ function buildTimeline(o) {
     color: isReached ? finalMeta.color : IN_PROGRESS_COLOR,
     isReached,
     currentIdx: isReached ? -1 : currentIdx,
-    stages: [...stages, { label: finalMeta.label, at: finalMeta.at, done: isReached, duration: null, isFinal: true }],
+    stages: [...stages, {
+      label: finalMeta.label,
+      at: finalMeta.at,
+      done: isReached,
+      duration: (createdAt && finalMeta.at) ? formatDuration(createdAt, finalMeta.at) : null,
+      isFinal: true,
+    }],
   };
 }
 
@@ -300,13 +306,31 @@ function Timeline({ order }) {
         const dotColor = tl.isReached || tl.special ? tl.color : (s.done ? IN_PROGRESS_COLOR : "var(--ne-border)");
         const lineColor = tl.isReached || tl.special ? tl.color : (i > 0 && tl.stages[i - 1].done ? IN_PROGRESS_COLOR : "var(--ne-border)");
         const showRetryLoop = i > 0 && tl.stages[i - 1].label === "Out for Delivery" && hasRetries;
+        // Gap segment — stage khud confirm nahi hui (koi "at" nahi), lekin order koi
+        // BAAD wale stage tak pahunch chuka hai (skip ho gaya, kabhi is stage ka apna
+        // webhook event nahi mila) — connecting-line ko poori nahi, sirf aadhi (unconfirmed
+        // signal) dikhate hain, muted color + arrowhead ke sath.
+        const isGapSegment = i > 0 && !s.at && tl.stages.slice(i + 1).some((later) => !!later.at);
         return (
           <div key={s.label} style={{ flex: 1, textAlign: "center", position: "relative", minWidth: 72 }}>
             <div style={{ fontSize: 9, fontWeight: 700, color: dotColor, marginBottom: 3, minHeight: 12 }}>
               {s.duration || " "}
             </div>
             {i > 0 && (
-              <div style={{ position: "absolute", top: 20, left: "-50%", width: "100%", height: 2, background: lineColor }} />
+              isGapSegment ? (
+                <>
+                  <div style={{ position: "absolute", top: 20, left: "-50%", width: "50%", height: 2, background: "var(--ne-muted-2)" }} />
+                  <div style={{
+                    position: "absolute", top: 17, left: "0%",
+                    width: 0, height: 0,
+                    borderTop: "4px solid transparent",
+                    borderBottom: "4px solid transparent",
+                    borderLeft: "6px solid var(--ne-muted-2)",
+                  }} />
+                </>
+              ) : (
+                <div style={{ position: "absolute", top: 20, left: "-50%", width: "100%", height: 2, background: lineColor }} />
+              )
             )}
             {showRetryLoop && (
               <>
