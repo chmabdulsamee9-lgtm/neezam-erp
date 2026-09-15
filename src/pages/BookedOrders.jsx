@@ -309,16 +309,38 @@ function Timeline({ order }) {
               <div style={{ position: "absolute", top: 20, left: "-50%", width: "100%", height: 2, background: lineColor }} />
             )}
             {showRetryLoop && (
-              <svg width="100%" height="24" viewBox="0 0 100 24" preserveAspectRatio="none"
-                style={{ position: "absolute", top: 0, left: "-50%", width: "100%", height: 24, overflow: "visible", pointerEvents: "none" }}>
-                <defs>
-                  <marker id={`loopArrow-${loopArrowUid}`} markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-                    <path d="M0,0 L6,3 L0,6" fill="var(--ne-warning)" />
-                  </marker>
-                </defs>
-                <path d="M5,20 C5,2 95,2 95,20" fill="none" stroke="var(--ne-warning)" strokeWidth="1.5"
-                  vectorEffect="non-scaling-stroke" markerEnd={`url(#loopArrow-${loopArrowUid})`} />
-              </svg>
+              <>
+                {Array.from({ length: (order.agent_data?.delivery_attempt_count || 0) - 1 }).map((_, idx) => (
+                  <svg
+                    key={idx}
+                    viewBox="0 0 100 24"
+                    preserveAspectRatio="none"
+                    style={{
+                      position: "absolute",
+                      top: `${-16 - idx * 10}px`,
+                      left: "-50%",
+                      width: "100%",
+                      height: "24px",
+                      overflow: "visible",
+                      pointerEvents: "none",
+                    }}
+                  >
+                    <path
+                      d="M5,20 C5,2 95,2 95,20"
+                      fill="none"
+                      stroke="var(--ne-warning)"
+                      strokeWidth="1.5"
+                      vectorEffect="non-scaling-stroke"
+                      markerEnd={`url(#loopArrow-${loopArrowUid}-${idx})`}
+                    />
+                    <defs>
+                      <marker id={`loopArrow-${loopArrowUid}-${idx}`} markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+                        <path d="M0,0 L6,3 L0,6" fill="var(--ne-warning)" />
+                      </marker>
+                    </defs>
+                  </svg>
+                ))}
+              </>
             )}
             <div style={{
               width: 11, height: 11, borderRadius: "50%", margin: "0 auto", position: "relative", zIndex: 1,
@@ -1447,8 +1469,11 @@ export default function BookedOrders({ storeId, ordersStore }) {
                   </div>
                 </div>
 
-                {/* Timeline — hamesha visible, koi toggle/wrapper nahi */}
-                <div style={{ marginBottom: 16, overflowX: "auto" }}>
+                {/* Timeline — hamesha visible, koi toggle/wrapper nahi. overflowY explicitly
+                    "visible" — warna overflowX:auto (koi overflowY specify na hone par) browsers
+                    isay bhi auto compute kar dete hain, jo retry-curve stack (negative top
+                    offsets, node ke apne box se upar) ko clip kar deta. */}
+                <div style={{ marginBottom: 16, overflowX: "auto", overflowY: "visible" }}>
                   <Timeline order={o} />
                 </div>
 
