@@ -157,13 +157,17 @@ export function mergeStatusesWithCache(statuses, cacheMap) {
 // ke liye — dex_status (granular logistics snapshot) sirf in-progress stage detect karne ke kaam
 // aata hai (Timeline component mein). Real data se confirmed keyword-rules (2026-07-09 query se):
 // "Deliver Failed" > "Return pending" > "Returned" > "Delivered" > "Lost damaged" > "Pickup failed"
-// > "Canceled" — pehle jo match ho jaye wahi jeetta hai. "Delivery Attempt Failed" (retry-able,
-// single-attempt failure) explicitly excluded — sirf "fail" + "deliver" hone se yeh pehle "Deliver
-// Failed" (terminal) ke sath misclassify ho raha tha. Baaki (Last Mile Inbound/Transit to
-// ship/Ready to ship/Shipping/NULL) abhi in-progress hain, final nahi.
+// > "Canceled" — pehle jo match ho jaye wahi jeetta hai. "attempt" wale koi bhi status (jaise
+// "Delivery Attempt Failed") sabse pehle hi exclude ho jaate hain — ek localized !includes("attempt")
+// sirf "Deliver Failed" rule mein lagane se line 169 ka bare "deliver" check abhi bhi
+// "delivery attempt failed" ko "Delivered" maan raha tha ("deliver" khud "delivery" ka substring
+// hai) — is liye ab ek hi upfront guard, har rule se pehle, taake koi bhi "X Attempt Y" status
+// kabhi terminal na bane, chahe X/Y kuch bhi ho. Baaki (Last Mile Inbound/Transit to ship/Ready
+// to ship/Shipping/NULL) abhi in-progress hain, final nahi.
 export function bucketFinalStatus(courierOrderStatus) {
   const s = (courierOrderStatus || "").toLowerCase();
-  if (s.includes("deliver") && s.includes("fail") && !s.includes("attempt")) return "Delivery Failed";
+  if (s.includes("attempt")) return null;
+  if (s.includes("deliver") && s.includes("fail")) return "Delivery Failed";
   if (s.includes("return") && s.includes("pending")) return "Return Pending";
   if (s.includes("return")) return "Returned";
   if (s.includes("deliver")) return "Delivered";
