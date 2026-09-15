@@ -266,10 +266,13 @@ function buildTimeline(o) {
   rawStages.push({ label: "Arrived at Destination City", at: ad.arrived_at_destination_at });
   rawStages.push({ label: "Out for Delivery", at: ad.out_for_delivery_at });
 
-  const checkpoints = [...rawStages, finalMeta];
-  const stages = rawStages.map((s, i) => {
-    const nextKnownAt = checkpoints.slice(i + 1).find((c) => !!c.at)?.at || null;
-    return { ...s, done: isReached || !!s.at, duration: s.at ? formatDuration(s.at, nextKnownAt) : null };
+  const createdAt = rawStages.find((s) => s.label === "Created")?.at || null;
+  const stages = rawStages.map((s) => {
+    const isCreated = s.label === "Created";
+    const duration = (!isCreated && s.at && createdAt)
+      ? formatDuration(createdAt, s.at)
+      : null;
+    return { ...s, done: isReached || !!s.at, duration };
   });
 
   let currentIdx = -1;
