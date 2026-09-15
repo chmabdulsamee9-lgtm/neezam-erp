@@ -350,7 +350,6 @@ function Timeline({ order }) {
                   <svg
                     key={idx}
                     viewBox="0 0 100 24"
-                    preserveAspectRatio="none"
                     style={{
                       position: "absolute",
                       top: `${-16 - idx * 10}px`,
