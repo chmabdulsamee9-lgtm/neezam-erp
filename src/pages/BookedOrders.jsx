@@ -254,10 +254,22 @@ function buildTimeline(o) {
   const finalAt = finalStatus === "Delivered" ? (ad.delivered_at || ad.logistics_status_at)
     : finalStatus === "Returned" ? (ad.return_success_at || ad.logistics_status_at)
     : ad.logistics_status_at;
+  const ON_TRACK_STATUSES = [
+    "ready to ship", "transit to ship", "pickup success",
+    "last mile inbound", "shipping"
+  ];
+  const isOnTrack = ON_TRACK_STATUSES.includes(
+    (ad.courier_order_status || "").toLowerCase()
+  );
   const finalMeta = finalStatus && FINAL_STATE_COLOR[finalStatus]
     ? { label: finalStatus, at: finalAt, color: FINAL_STATE_COLOR[finalStatus] }
-    : { label: "Delivered", at: null, color: null };
-  const isReached = !!finalMeta.color;
+    : isOnTrack
+      ? { label: "Delivered", at: null, color: null }
+      : { label: ad.courier_order_status || "Processing", at: ad.logistics_status_at, color: "#F2A83E", pending: true };
+  // finalMeta.pending waale case mein color set hone ke bawajood "reached" nahi maana
+  // jaata — warna poori timeline (dots/line/done) galat tarah se "complete" dikhne
+  // lagti, jabke order genuinely unresolved hai (koi on-track ya terminal status nahi).
+  const isReached = !!finalMeta.color && !finalMeta.pending;
 
   const rawStages = [];
   if (!o.isManual) rawStages.push({ label: "Created", at: o.created_at });
