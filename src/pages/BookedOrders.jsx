@@ -303,6 +303,7 @@ function buildTimeline(o) {
       done: isReached,
       duration: (createdAt && finalMeta.at) ? formatDuration(createdAt, finalMeta.at) : null,
       isFinal: true,
+      pending: !!finalMeta.pending,
     }],
   };
 }
@@ -315,7 +316,7 @@ function Timeline({ order }) {
     <div style={{ display: "flex" }}>
       {tl.stages.map((s, i) => {
         const isCurrent = i === tl.currentIdx;
-        const dotColor = tl.isReached || tl.special ? tl.color : (s.done ? IN_PROGRESS_COLOR : "var(--ne-border)");
+        const dotColor = tl.isReached || tl.special ? tl.color : (s.pending ? "#F2A83E" : (s.done ? IN_PROGRESS_COLOR : "var(--ne-border)"));
         const lineColor = tl.isReached || tl.special ? tl.color : (i > 0 && tl.stages[i - 1].done ? IN_PROGRESS_COLOR : "var(--ne-border)");
         const showRetryLoop = i > 0 && tl.stages[i - 1].label === "Out for Delivery" && hasRetries;
         // Gap segment — stage khud confirm nahi hui (koi "at" nahi), lekin order koi
@@ -353,8 +354,9 @@ function Timeline({ order }) {
                     style={{
                       position: "absolute",
                       top: `${-16 - idx * 10}px`,
-                      left: "-50%",
-                      width: "100%",
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      width: "56px",
                       height: "24px",
                       overflow: "visible",
                       pointerEvents: "none",
@@ -382,7 +384,7 @@ function Timeline({ order }) {
               background: dotColor,
               boxShadow: isCurrent ? `0 0 0 4px ${dotColor}33` : "none",
             }} />
-            <div style={{ fontSize: 9.5, marginTop: 6, fontWeight: s.done ? 700 : 500, color: s.done ? "var(--ne-text)" : "var(--ne-muted-2)" }}>{s.label}</div>
+            <div style={{ fontSize: 9.5, marginTop: 6, fontWeight: s.done ? 700 : 500, color: s.pending ? "#F2A83E" : (s.done ? "var(--ne-text)" : "var(--ne-muted-2)") }}>{s.label}</div>
             <div style={{ fontSize: 8.5, color: "var(--ne-muted-2)", marginTop: 2 }}>{fmtDateTime(s.at) || "—"}</div>
           </div>
         );
