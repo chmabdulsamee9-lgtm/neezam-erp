@@ -353,7 +353,7 @@ function Timeline({ order }) {
                     viewBox="0 0 100 24"
                     style={{
                       position: "absolute",
-                      top: `${-16 - idx * 10}px`,
+                      top: `${1 - idx * 14}px`,
                       left: "-50%",
                       width: "100%",
                       height: "24px",
