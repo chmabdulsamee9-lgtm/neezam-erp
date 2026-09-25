@@ -80,6 +80,7 @@ const TAB_KEYS = [
   { key: "All", labelKey: "booked.tab.all" },
   { key: "Ready for Booking", labelKey: "booked.tab.readyForBooking" },
   { key: "Shipper Advice", labelKey: "booked.tab.shipperAdvice" },
+  { key: "Shipper Remarks", labelKey: "booked.tab.shipperRemarks" },
   { key: "To Ship", labelKey: "booked.tab.toShip", subs: [
       { key: "Booked", labelKey: "booked.tab.booked" },
       { key: "Pickup Failed", labelKey: "booked.tab.pickupFailed" },
@@ -1091,12 +1092,19 @@ export default function BookedOrders({ storeId, ordersStore }) {
   // banti aur memoization ka fayda hi na hota). activeTabDef neeche ek chhota alag const hai,
   // kyunki woh sirf activeTab badalne par hi dobara chahiye, poore orders array pe depend nahi karta.
   const { classified, TAB_STRUCTURE, tabCounts, subTabCounts, filtered } = useMemo(() => {
-    const classifiedResult = orders.map((o) => ({
-      o,
-      cls: o.agent_data?.awaiting_shipper_advice
-        ? { tab: "Shipper Advice", sub: null }
-        : classifyTab(o),
-    }));
+    const classifiedResult = orders.map((o) => {
+      const raw = (o.agent_data?.courier_order_status || "").trim().toLowerCase();
+      const agingDay = computeAgingDay(o);
+      const needsShipperRemarks = raw === "delivery attempt failed" || (agingDay !== null && agingDay >= 5);
+      return {
+        o,
+        cls: o.agent_data?.awaiting_shipper_advice
+          ? { tab: "Shipper Advice", sub: null }
+          : needsShipperRemarks
+            ? { tab: "Shipper Remarks", sub: null }
+            : classifyTab(o),
+      };
+    });
 
     const unmappedTabKeys = [...new Set(classifiedResult.map((c) => c.cls.tab).filter((key) => key.startsWith("Unmapped: ")))];
 
