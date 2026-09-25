@@ -354,9 +354,8 @@ function Timeline({ order }) {
                     style={{
                       position: "absolute",
                       top: `${-16 - idx * 10}px`,
-                      left: "50%",
-                      transform: "translateX(-50%)",
-                      width: "56px",
+                      left: "-50%",
+                      width: "100%",
                       height: "24px",
                       overflow: "visible",
                       pointerEvents: "none",
