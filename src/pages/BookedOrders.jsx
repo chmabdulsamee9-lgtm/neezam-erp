@@ -79,8 +79,8 @@ function bucketCourierStatus(raw) {
 const TAB_KEYS = [
   { key: "All", labelKey: "booked.tab.all" },
   { key: "Ready for Booking", labelKey: "booked.tab.readyForBooking" },
-  { key: "Shipper Advice", labelKey: "booked.tab.shipperAdvice" },
   { key: "Shipper Remarks", labelKey: "booked.tab.shipperRemarks", subs: [
+      { key: "Shipper Advice", labelKey: "booked.tab.shipperAdvice" },
       { key: "Delivery Attempt Failed", labelKey: "booked.tab.deliveryAttemptFailed" },
       { key: "Aging Orders", labelKey: "booked.tab.agingOrders" },
     ] },
@@ -93,7 +93,6 @@ const TAB_KEYS = [
       { key: "Transit to Ship", labelKey: "booked.tab.transitToShip" },
       { key: "Arrived at Destination City", labelKey: "booked.tab.arrivedAtDestination" },
       { key: "Out for Delivery", labelKey: "booked.tab.outForDelivery" },
-      { key: "Delivery attempt failed", labelKey: "booked.tab.deliveryAttemptFailed" },
       { key: "Failed Delivery", labelKey: "booked.tab.failedDelivery" },
     ] },
   { key: "Delivered", labelKey: "booked.tab.delivered" },
@@ -1099,14 +1098,14 @@ export default function BookedOrders({ storeId, ordersStore }) {
       const raw = (o.agent_data?.courier_order_status || "").trim().toLowerCase();
       const agingDay = computeAgingDay(o);
       const isAttemptFailed = raw === "delivery attempt failed";
-      const needsShipperRemarks = isAttemptFailed || (agingDay !== null && agingDay >= 5);
+      const isAwaitingAdvice = !!o.agent_data?.awaiting_shipper_advice;
+      const needsShipperRemarks = isAwaitingAdvice || isAttemptFailed || (agingDay !== null && agingDay >= 5);
+      const shipperRemarksSub = isAwaitingAdvice ? "Shipper Advice" : isAttemptFailed ? "Delivery Attempt Failed" : "Aging Orders";
       return {
         o,
-        cls: o.agent_data?.awaiting_shipper_advice
-          ? { tab: "Shipper Advice", sub: null }
-          : needsShipperRemarks
-            ? { tab: "Shipper Remarks", sub: isAttemptFailed ? "Delivery Attempt Failed" : "Aging Orders" }
-            : classifyTab(o),
+        cls: needsShipperRemarks
+          ? { tab: "Shipper Remarks", sub: shipperRemarksSub }
+          : classifyTab(o),
       };
     });
 
