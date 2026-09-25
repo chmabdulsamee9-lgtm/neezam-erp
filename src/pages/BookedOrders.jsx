@@ -80,7 +80,10 @@ const TAB_KEYS = [
   { key: "All", labelKey: "booked.tab.all" },
   { key: "Ready for Booking", labelKey: "booked.tab.readyForBooking" },
   { key: "Shipper Advice", labelKey: "booked.tab.shipperAdvice" },
-  { key: "Shipper Remarks", labelKey: "booked.tab.shipperRemarks" },
+  { key: "Shipper Remarks", labelKey: "booked.tab.shipperRemarks", subs: [
+      { key: "Delivery Attempt Failed", labelKey: "booked.tab.deliveryAttemptFailed" },
+      { key: "Aging Orders", labelKey: "booked.tab.agingOrders" },
+    ] },
   { key: "To Ship", labelKey: "booked.tab.toShip", subs: [
       { key: "Booked", labelKey: "booked.tab.booked" },
       { key: "Pickup Failed", labelKey: "booked.tab.pickupFailed" },
@@ -1095,13 +1098,14 @@ export default function BookedOrders({ storeId, ordersStore }) {
     const classifiedResult = orders.map((o) => {
       const raw = (o.agent_data?.courier_order_status || "").trim().toLowerCase();
       const agingDay = computeAgingDay(o);
-      const needsShipperRemarks = raw === "delivery attempt failed" || (agingDay !== null && agingDay >= 5);
+      const isAttemptFailed = raw === "delivery attempt failed";
+      const needsShipperRemarks = isAttemptFailed || (agingDay !== null && agingDay >= 5);
       return {
         o,
         cls: o.agent_data?.awaiting_shipper_advice
           ? { tab: "Shipper Advice", sub: null }
           : needsShipperRemarks
-            ? { tab: "Shipper Remarks", sub: null }
+            ? { tab: "Shipper Remarks", sub: isAttemptFailed ? "Delivery Attempt Failed" : "Aging Orders" }
             : classifyTab(o),
       };
     });
