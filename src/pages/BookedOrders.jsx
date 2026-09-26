@@ -1174,7 +1174,9 @@ export default function BookedOrders({ storeId, ordersStore }) {
       { header: "Tracking Number", key: "tracking_number", width: 20 },
       { header: "Current Status", key: "current_status", width: 22 },
       { header: "Aging (Days)", key: "aging_days", width: 12 },
+      { header: "Delivery Attempts", key: "delivery_attempts", width: 14 },
       { header: "Our Remarks History", key: "our_remarks", width: 40 },
+      { header: "Courier's Reported Reason", key: "dex_fail_reason", width: 30 },
       { header: "Courier Status", key: "courier_status", width: 18 },
       { header: "Courier Reason / Remarks", key: "courier_reason", width: 40 },
       { header: "internal_order_id", key: "internal_order_id", width: 14 },
@@ -1182,14 +1184,17 @@ export default function BookedOrders({ storeId, ordersStore }) {
     sheet1.getColumn("internal_order_id").hidden = true;
 
     ordersToExport.forEach((o) => {
-      const remarksLog = o.agent_data?.remarks_log || [];
+      const ad = o.agent_data || {};
+      const remarksLog = ad.remarks_log || [];
       const ourRemarks = remarksLog.map((r) => `[${r.author || ""}] ${r.text || ""}`).join(" | ");
       sheet1.addRow({
-        order_number: o.manual_order_number || "",
-        tracking_number: o.dex_tracking_number || "",
-        current_status: o.agent_data?.courier_order_status || "",
+        order_number: o.name || "",
+        tracking_number: ad.dex_tracking_number || "",
+        current_status: ad.courier_order_status || "",
         aging_days: computeAgingDay(o) ?? "",
+        delivery_attempts: ad.delivery_attempt_count || 0,
         our_remarks: ourRemarks,
+        dex_fail_reason: ad.latest_fail_reason ? friendlyFailReason(ad.latest_fail_reason) : "",
         courier_status: "",
         courier_reason: "",
         internal_order_id: o.id,
@@ -1233,7 +1238,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
     const lines = ordersToExport.map((o, idx) => {
       const remarksLog = o.agent_data?.remarks_log || [];
       const latestRemark = remarksLog.length ? remarksLog[remarksLog.length - 1].text : "-";
-      return `${idx + 1}. Order #${o.manual_order_number || "-"} | Tracking: ${o.dex_tracking_number || "-"} | Status: ${o.agent_data?.courier_order_status || "-"} | Remarks: ${latestRemark}`;
+      return `${idx + 1}. Order #${o.name || "-"} | Tracking: ${o.agent_data?.dex_tracking_number || "-"} | Status: ${o.agent_data?.courier_order_status || "-"} | Remarks: ${latestRemark}`;
     });
     navigator.clipboard.writeText(lines.join("\n"));
     logActivity("copy_shipper_remarks_whatsapp", null, { count: ordersToExport.length });
@@ -1367,6 +1372,18 @@ export default function BookedOrders({ storeId, ordersStore }) {
     setSelectedIds((prev) => {
       const n = new Set(prev);
       if (allToShipSelected) filtered.forEach((o) => n.delete(o.id));
+      else filtered.forEach((o) => n.add(o.id));
+      return n;
+    });
+  };
+
+  // "Shipper Remarks" tab ke liye select-all — same pattern jaisa "To Ship" tab ke
+  // liye upar hai ("filtered" already activeTab === "Shipper Remarks" par scoped hai).
+  const allShipperRemarksSelected = filtered.length > 0 && filtered.every((o) => selectedIds.has(o.id));
+  const toggleSelectAllShipperRemarks = () => {
+    setSelectedIds((prev) => {
+      const n = new Set(prev);
+      if (allShipperRemarksSelected) filtered.forEach((o) => n.delete(o.id));
       else filtered.forEach((o) => n.add(o.id));
       return n;
     });
@@ -1599,12 +1616,18 @@ export default function BookedOrders({ storeId, ordersStore }) {
           )}
           {activeTab === "Shipper Remarks" && (
             <div style={{ display: "flex", gap: 8, marginBottom: 12, padding: "10px 14px", background: "var(--ne-accent-soft)", borderRadius: 10, alignItems: "center", flexWrap: "wrap" }}>
-              <button onClick={() => exportShipperRemarksExcel(selectedIds.size > 0 ? orders.filter((o) => selectedIds.has(o.id)) : filtered)}
-                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "var(--ne-text)", cursor: "pointer" }}>
+                <input type="checkbox" checked={allShipperRemarksSelected} onChange={toggleSelectAllShipperRemarks} />
+                {t("booked.selectAll")}
+              </label>
+              <button onClick={() => exportShipperRemarksExcel(orders.filter((o) => selectedIds.has(o.id)))}
+                disabled={selectedIds.size === 0}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: selectedIds.size === 0 ? "not-allowed" : "pointer", opacity: selectedIds.size === 0 ? 0.5 : 1 }}>
                 <Icon name="download" size={13} /> {t("booked.exportShipperRemarks")}
               </button>
-              <button onClick={() => copyShipperRemarksForWhatsApp(selectedIds.size > 0 ? orders.filter((o) => selectedIds.has(o.id)) : filtered)}
-                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+              <button onClick={() => copyShipperRemarksForWhatsApp(orders.filter((o) => selectedIds.has(o.id)))}
+                disabled={selectedIds.size === 0}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 12, fontWeight: 700, cursor: selectedIds.size === 0 ? "not-allowed" : "pointer", opacity: selectedIds.size === 0 ? 0.5 : 1 }}>
                 <Icon name="comment" size={13} /> {t("booked.copyForWhatsapp")}
               </button>
               <label style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
