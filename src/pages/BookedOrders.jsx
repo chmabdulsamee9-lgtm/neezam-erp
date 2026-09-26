@@ -430,6 +430,98 @@ function computeOverrideTotal(items) {
   return (items || []).reduce((sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 0) - (Number(it.discount) || 0), 0);
 }
 
+// Excel-based courier (Dex) feedback import — parseDexExcelFile (CourierConnect.jsx)
+// jaisa hi pattern (exceljs, dynamic import), sirf columns/mapping alag hain. Pure
+// parsing function, koi component-scope dependency nahi (t/logActivity/storeId
+// waghera), isliye top-level.
+async function parseCourierFeedbackFile(file) {
+  const { default: ExcelJS } = await import("exceljs");
+  const buffer = await file.arrayBuffer();
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.worksheets[0];
+  if (!sheet) return [];
+
+  const headerToCol = {};
+  sheet.getRow(1).eachCell((cell, colNumber) => {
+    headerToCol[String(cell.value || "").trim()] = colNumber;
+  });
+
+  const rows = [];
+  sheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const get = (header) => {
+      const col = headerToCol[header];
+      if (!col) return null;
+      const cell = row.getCell(col);
+      return cell.value != null ? String(cell.value).trim() : "";
+    };
+    const internalOrderId = get("internal_order_id");
+    const courierStatus = get("Courier Status");
+    const courierReason = get("Courier Reason / Remarks");
+    if (!internalOrderId) return;
+    if (!courierStatus && !courierReason) return;
+    rows.push({
+      order_id: Number(internalOrderId),
+      tracking_number: get("Tracking Number") || null,
+      courier_status: courierStatus || null,
+      courier_reason: courierReason || null,
+    });
+  });
+  return rows;
+}
+
+// Standalone component (Timeline/ReadOnlyAddressChips jaisa) — apna khud ka t()
+// leta hai (useLanguage/useTranslation), kyunki ye BookedOrders() ke render-scope
+// se bahar, alag function component hai. Styling remarks_log accordion box
+// (line ~1613) se exact match karta hai.
+function CourierFeedbackHistory({ orderId }) {
+  const [lang] = useLanguage();
+  const t = useTranslation(lang);
+  const [expanded, setExpanded] = useState(false);
+  const [history, setHistory] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const toggle = async () => {
+    if (!expanded && history === null) {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from("courier_feedback_log")
+        .select("*")
+        .eq("order_id", orderId)
+        .order("imported_at", { ascending: false });
+      setHistory(error ? [] : data);
+      setLoading(false);
+    }
+    setExpanded(!expanded);
+  };
+
+  if (history !== null && history.length === 0 && !expanded) return null;
+
+  return (
+    <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, padding: "14px 16px", boxShadow: "0 2px 8px rgba(0,0,0,.18)" }}>
+      <button type="button" onClick={toggle}
+        style={{ background: "none", border: "none", color: "var(--ne-text)", fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, padding: 0 }}>
+        <Icon name="truck" size={14} /> {t("booked.courierFeedbackHistory")} {history && <span style={{ fontSize: 10.5, background: "var(--ne-accent)", color: "#fff", padding: "1px 8px", borderRadius: 10 }}>{history.length}</span>}
+      </button>
+      {expanded && (
+        loading ? (
+          <div style={{ marginTop: 12, fontSize: 12, color: "var(--ne-muted-2)" }}>...</div>
+        ) : (
+          <div style={{ marginTop: 12 }}>
+            {(history || []).map((h) => (
+              <div key={h.id} style={{ background: "var(--ne-surface)", borderRadius: 8, padding: "10px 12px", marginBottom: 8, fontSize: 12 }}>
+                <div style={{ color: "var(--ne-text)" }}><strong>{h.courier_status || "-"}</strong> — {h.courier_reason || "-"}</div>
+                <div style={{ fontSize: 10, color: "var(--ne-muted-2)", marginTop: 4 }}>{new Date(h.imported_at).toLocaleDateString()}</div>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
 export default function BookedOrders({ storeId, ordersStore }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
@@ -1068,6 +1160,115 @@ export default function BookedOrders({ storeId, ordersStore }) {
     setRemarkSubmitting(null);
   };
 
+  // logActivity/t/storeId component-scope ki cheezein hain — is liye ye 3 handlers
+  // (parseCourierFeedbackFile ke ulat) yahan component ke andar define hain, top-level
+  // nahi (computeAgingDay jaisa top-level rakhne se logActivity/t/storeId scope mein
+  // available na hote — ReferenceError deta).
+  const exportShipperRemarksExcel = async (ordersToExport) => {
+    const { default: ExcelJS } = await import("exceljs");
+    const workbook = new ExcelJS.Workbook();
+
+    const sheet1 = workbook.addWorksheet("Orders");
+    sheet1.columns = [
+      { header: "Order Number", key: "order_number", width: 18 },
+      { header: "Tracking Number", key: "tracking_number", width: 20 },
+      { header: "Current Status", key: "current_status", width: 22 },
+      { header: "Aging (Days)", key: "aging_days", width: 12 },
+      { header: "Our Remarks History", key: "our_remarks", width: 40 },
+      { header: "Courier Status", key: "courier_status", width: 18 },
+      { header: "Courier Reason / Remarks", key: "courier_reason", width: 40 },
+      { header: "internal_order_id", key: "internal_order_id", width: 14 },
+    ];
+    sheet1.getColumn("internal_order_id").hidden = true;
+
+    ordersToExport.forEach((o) => {
+      const remarksLog = o.agent_data?.remarks_log || [];
+      const ourRemarks = remarksLog.map((r) => `[${r.author || ""}] ${r.text || ""}`).join(" | ");
+      sheet1.addRow({
+        order_number: o.manual_order_number || "",
+        tracking_number: o.dex_tracking_number || "",
+        current_status: o.agent_data?.courier_order_status || "",
+        aging_days: computeAgingDay(o) ?? "",
+        our_remarks: ourRemarks,
+        courier_status: "",
+        courier_reason: "",
+        internal_order_id: o.id,
+      });
+    });
+
+    const sheet2 = workbook.addWorksheet("Dashboard");
+    sheet2.columns = [
+      { header: "Reason / Status", key: "reason", width: 30 },
+      { header: "Order Count", key: "count", width: 14 },
+      { header: "Revenue Impact (Rs.)", key: "revenue", width: 20 },
+    ];
+    const reasonMap = {};
+    ordersToExport.forEach((o) => {
+      const reason = o.agent_data?.courier_order_status || "Unknown";
+      if (!reasonMap[reason]) reasonMap[reason] = { count: 0, revenue: 0 };
+      reasonMap[reason].count += 1;
+      // Order card pe "COD Amount" ke liye jo field already display hoti hai
+      // (line ~1511: {o.total_price ? `Rs. ${Number(o.total_price)...`} — wahi
+      // o.total_price yahan reuse kiya, koi naya/guessed field nahi.
+      reasonMap[reason].revenue += Number(o.total_price) || 0;
+    });
+    Object.entries(reasonMap).forEach(([reason, data]) => {
+      sheet2.addRow({ reason, count: data.count, revenue: data.revenue });
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `shipper-remarks-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+    logActivity("export_shipper_remarks_excel", null, { count: ordersToExport.length });
+  };
+
+  const copyShipperRemarksForWhatsApp = (ordersToExport) => {
+    const lines = ordersToExport.map((o, idx) => {
+      const remarksLog = o.agent_data?.remarks_log || [];
+      const latestRemark = remarksLog.length ? remarksLog[remarksLog.length - 1].text : "-";
+      return `${idx + 1}. Order #${o.manual_order_number || "-"} | Tracking: ${o.dex_tracking_number || "-"} | Status: ${o.agent_data?.courier_order_status || "-"} | Remarks: ${latestRemark}`;
+    });
+    navigator.clipboard.writeText(lines.join("\n"));
+    logActivity("copy_shipper_remarks_whatsapp", null, { count: ordersToExport.length });
+    alert(t("booked.copiedForWhatsapp"));
+  };
+
+  const handleCourierFeedbackImport = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    try {
+      const rows = await parseCourierFeedbackFile(file);
+      if (rows.length === 0) {
+        alert(t("booked.noCourierFeedbackRows"));
+        return;
+      }
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${CF_URL}/courier-feedback-import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ storeId, rows }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        alert(data.error);
+        return;
+      }
+      alert(`${data.imported || rows.length} feedback entries imported.`);
+      logActivity("import_courier_feedback", null, { count: data.imported || rows.length });
+    } catch (err) {
+      console.error(err);
+      alert(t("booked.courierFeedbackImportFailed"));
+    }
+  };
+
   const availableCouriers = ["All", ...new Set(orders.map((o) => o.agent_data.courier_name).filter(Boolean))].sort();
 
   // package_created_at (booking date) order.agent_data ke andar hota hai (order_statuses row),
@@ -1396,6 +1597,22 @@ export default function BookedOrders({ storeId, ordersStore }) {
               {t("booked.selectAll")}
             </label>
           )}
+          {activeTab === "Shipper Remarks" && (
+            <div style={{ display: "flex", gap: 8, marginBottom: 12, padding: "10px 14px", background: "var(--ne-accent-soft)", borderRadius: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <button onClick={() => exportShipperRemarksExcel(selectedIds.size > 0 ? orders.filter((o) => selectedIds.has(o.id)) : filtered)}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                <Icon name="download" size={13} /> {t("booked.exportShipperRemarks")}
+              </button>
+              <button onClick={() => copyShipperRemarksForWhatsApp(selectedIds.size > 0 ? orders.filter((o) => selectedIds.has(o.id)) : filtered)}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                <Icon name="comment" size={13} /> {t("booked.copyForWhatsapp")}
+              </button>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                <Icon name="upload" size={13} /> {t("booked.importCourierFeedback")}
+                <input type="file" accept=".xlsx" onChange={handleCourierFeedbackImport} style={{ display: "none" }} />
+              </label>
+            </div>
+          )}
           {selectedIds.size > 0 && (
             <div style={{ display: "flex", gap: 8, marginBottom: 12, padding: "10px 14px", background: "var(--ne-accent-soft)", borderRadius: 10, alignItems: "center", flexWrap: "wrap" }}>
               <span style={{ fontSize: 12, color: "var(--ne-text)", fontWeight: 600 }}>{selectedIds.size} {t("booked.selected")}</span>
@@ -1640,6 +1857,11 @@ export default function BookedOrders({ storeId, ordersStore }) {
                     </div>
                   )}
                 </div>
+                {activeTab === "Shipper Remarks" && (
+                  <div style={{ marginTop: 12 }}>
+                    <CourierFeedbackHistory orderId={o.id} />
+                  </div>
+                )}
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
                   <button onClick={() => openTrackingModal(o)}
                     style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
