@@ -29,3 +29,12 @@ export function GlobeIcon(props) {
     </svg>
   )
 }
+
+export function RefreshIcon(props) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M16.5 10a6.5 6.5 0 1 1-2-4.7" />
+      <path d="M16.5 3v3.5H13" />
+    </svg>
+  )
+}

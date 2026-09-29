@@ -5,7 +5,7 @@ import { supabase } from './supabase'
 import { getCachedOrders, saveOrdersBulk, upsertOrder, getMeta, setMeta, clearCache, getCachedPeriod, setCachedPeriod, clearStoreOrders } from './ordersCache'
 // import { syncBookedOrdersCache } from './bookedOrdersData' // DISABLED with the Fix 1F block below
 import { Monogram, Wordmark } from './components/Logo'
-import { SunIcon, MoonIcon, GlobeIcon } from './components/Icons'
+import { SunIcon, MoonIcon, GlobeIcon, RefreshIcon } from './components/Icons'
 import Icon from './components/Icon'
 import ErrorBoundary from './components/ErrorBoundary'
 import { useLanguage, useTranslation } from './i18n'
@@ -1828,6 +1828,12 @@ function App() {
 
   const closeDrawer = () => setMobileDrawerOpen(false)
 
+  const handleClearCache = async () => {
+    if (!window.confirm(t('action.clearCacheConfirm'))) return;
+    await clearCache();
+    window.location.reload();
+  };
+
   const renderNavItem = (item) => (
     <div key={item.id}
       onClick={() => { setActiveMenu(item.id); closeDrawer() }}
@@ -1929,6 +1935,12 @@ function App() {
                 {theme === 'dark' ? <SunIcon style={{ width: 15, height: 15 }} /> : <MoonIcon style={{ width: 15, height: 15 }} />}
               </button>
             )}
+            <div onClick={handleClearCache} className="ne-navitem" style={{ color: 'var(--ne-text)' }}>
+              <span className="ne-ic">
+                <RefreshIcon style={{ width: 15, height: 15 }} />
+              </span>
+              {(sidebarOpen || mobileDrawerOpen) && <span>{t('action.clearCache')}</span>}
+            </div>
             <div onClick={() => supabase.auth.signOut()} className="ne-navitem" style={{ color: '#F26D6D' }}>
               <span className="ne-ic" style={{ background: 'rgba(242,109,109,.1)' }}>
                 <svg viewBox="0 0 20 20" stroke="#F26D6D"><path d="M7 17H4.5a1.5 1.5 0 0 1-1.5-1.5v-11A1.5 1.5 0 0 1 4.5 3H7"/><path d="M13 14l4-4-4-4"/><path d="M17 10H7"/></svg>
