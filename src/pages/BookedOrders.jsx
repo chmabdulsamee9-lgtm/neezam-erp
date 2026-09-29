@@ -8,6 +8,7 @@ import { addressChipStyle, addressChipMutedStyle } from "../addressChipStyles";
 import dexLogo from "../assets/couriers/dex.png";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
+import { AUTO_REMARK_VARIATIONS } from "../shipperRemarksConstants";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 
@@ -434,7 +435,10 @@ function computeOverrideTotal(items) {
 // jaisa hi pattern (exceljs, dynamic import), sirf columns/mapping alag hain. Pure
 // parsing function, koi component-scope dependency nahi (t/logActivity/storeId
 // waghera), isliye top-level.
-async function parseCourierFeedbackFile(file) {
+// `orders` (component-scoped state, passed in by the sole caller handleCourierFeedbackImport)
+// — sirf fallback tracking-number-match ke liye, taake ye function khud top-level/pure rahe
+// (parseDexExcelFile ke jaisa), component ke andar move na karna pade.
+async function parseCourierFeedbackFile(file, orders) {
   const { default: ExcelJS } = await import("exceljs");
   const buffer = await file.arrayBuffer();
   const workbook = new ExcelJS.Workbook();
@@ -456,14 +460,19 @@ async function parseCourierFeedbackFile(file) {
       const cell = row.getCell(col);
       return cell.value != null ? String(cell.value).trim() : "";
     };
-    const internalOrderId = get("internal_order_id");
+    let internalOrderId = get("internal_order_id");
+    const trackingNumber = get("Tracking Number");
     const courierStatus = get("Courier Status");
-    const courierReason = get("Courier Reason / Remarks");
+    const courierReason = get("Courier Remarks");
+    if (!internalOrderId && trackingNumber) {
+      const matched = (orders || []).find((o) => o.agent_data?.dex_tracking_number === trackingNumber);
+      if (matched) internalOrderId = String(matched.id);
+    }
     if (!internalOrderId) return;
     if (!courierStatus && !courierReason) return;
     rows.push({
       order_id: Number(internalOrderId),
-      tracking_number: get("Tracking Number") || null,
+      tracking_number: trackingNumber || null,
       courier_status: courierStatus || null,
       courier_reason: courierReason || null,
     });
@@ -545,6 +554,11 @@ export default function BookedOrders({ storeId, ordersStore }) {
   const [readyOrders, setReadyOrders] = useState([]);
   const [variantSkuRows, setVariantSkuRows] = useState([]); // lightweight products_cache projection (raw_data->variants only) for the live-SKU lookup
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [copyToastVisible, setCopyToastVisible] = useState(false);
+  const [exportHistoryOpen, setExportHistoryOpen] = useState(false);
+  const [exportHistoryRows, setExportHistoryRows] = useState([]);
+  const [exportHistoryLoading, setExportHistoryLoading] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
   const [showBookModal, setShowBookModal] = useState(false);
   const [bookCourier, setBookCourier] = useState("dex");
   const [bookAddressId, setBookAddressId] = useState("");
@@ -1160,89 +1174,271 @@ export default function BookedOrders({ storeId, ordersStore }) {
     setRemarkSubmitting(null);
   };
 
-  // logActivity/t/storeId component-scope ki cheezein hain — is liye ye 3 handlers
-  // (parseCourierFeedbackFile ke ulat) yahan component ke andar define hain, top-level
-  // nahi (computeAgingDay jaisa top-level rakhne se logActivity/t/storeId scope mein
-  // available na hote — ReferenceError deta).
-  const exportShipperRemarksExcel = async (ordersToExport) => {
-    const { default: ExcelJS } = await import("exceljs");
-    const workbook = new ExcelJS.Workbook();
+  const fmtDateTime = (iso) => {
+    if (!iso) return "";
+    return new Date(iso).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+  };
 
-    const sheet1 = workbook.addWorksheet("Orders");
-    sheet1.columns = [
-      { header: "Order Number", key: "order_number", width: 18 },
-      { header: "Tracking Number", key: "tracking_number", width: 20 },
-      { header: "Current Status", key: "current_status", width: 22 },
-      { header: "Aging (Days)", key: "aging_days", width: 12 },
-      { header: "Delivery Attempts", key: "delivery_attempts", width: 14 },
-      { header: "Our Remarks History", key: "our_remarks", width: 40 },
-      { header: "Courier's Reported Reason", key: "dex_fail_reason", width: 30 },
-      { header: "Courier Status", key: "courier_status", width: 18 },
-      { header: "Courier Reason / Remarks", key: "courier_reason", width: 40 },
-      { header: "internal_order_id", key: "internal_order_id", width: 14 },
-    ];
-    sheet1.getColumn("internal_order_id").hidden = true;
+  const buildShipperRemarksRowData = async (ordersToExport) => {
+    // 1. Auto-fill empty remarks + persist to real system — submitRemark() ka EXACT
+    // RPC-call convention (p_order_id/p_manual_order_number agent_data se aate hain,
+    // order.id/order.manual_order_number top-level se NAHI — jaisa submitRemark()
+    // line ~1146-1147 mein hai).
+    for (const o of ordersToExport) {
+      const ad = o.agent_data || {};
+      if (!ad.remarks_log || ad.remarks_log.length === 0) {
+        const text = AUTO_REMARK_VARIATIONS[Math.floor(Math.random() * AUTO_REMARK_VARIATIONS.length)];
+        try {
+          await supabase.rpc("append_order_remark", {
+            p_order_id: ad.order_id || null,
+            p_manual_order_number: ad.manual_order_number || null,
+            p_text: text,
+            p_author: "System",
+          });
+          ad.remarks_log = [...(ad.remarks_log || []), { text, author: "System", created_at: new Date().toISOString() }];
+          o.agent_data = ad;
+        } catch (err) {
+          console.error("auto-remark failed for order", o.id, err);
+        }
+      }
+    }
 
-    ordersToExport.forEach((o) => {
+    // dex_tracking_events.order_id worker se order_statuses.order_id (= agent_data.order_id)
+    // ke saath likha jata hai (processUpdate()'s matchedRow.order_id) — isi liye agent_data.order_id
+    // use karte hain, o.id (shopify_orders_cache id, jo courier_feedback_log ke liye alag
+    // convention hai) nahi.
+    const orderIds = ordersToExport
+      .map((o) => o.agent_data?.order_id)
+      .filter(Boolean)
+      .map(String);
+
+    // 2. Reason history from dex_tracking_events
+    const { data: reasonEvents } = await supabase
+      .from("dex_tracking_events")
+      .select("order_id, fail_reason, event_time")
+      .in("order_id", orderIds)
+      .not("fail_reason", "is", null)
+      .order("event_time", { ascending: true });
+    const reasonHistoryByOrder = {};
+    (reasonEvents || []).forEach((e) => {
+      if (!reasonHistoryByOrder[e.order_id]) reasonHistoryByOrder[e.order_id] = [];
+      reasonHistoryByOrder[e.order_id].push(e);
+    });
+
+    // 3. Courier feedback history (already-imported courier remarks) — courier_feedback_log.order_id
+    // apna alag convention use karta hai: o.id (shopify_orders_cache id, jaisa
+    // parseCourierFeedbackFile()/CourierFeedbackHistory mein already established hai).
+    const { data: feedbackRows } = await supabase
+      .from("courier_feedback_log")
+      .select("order_id, courier_status, courier_reason, imported_at")
+      .in("order_id", ordersToExport.map((o) => o.id))
+      .order("imported_at", { ascending: false });
+    const feedbackByOrder = {};
+    (feedbackRows || []).forEach((f) => {
+      if (!feedbackByOrder[f.order_id]) feedbackByOrder[f.order_id] = [];
+      feedbackByOrder[f.order_id].push(f);
+    });
+
+    return ordersToExport.map((o) => {
       const ad = o.agent_data || {};
       const remarksLog = ad.remarks_log || [];
-      const ourRemarks = remarksLog.map((r) => `[${r.author || ""}] ${r.text || ""}`).join(" | ");
-      sheet1.addRow({
+      const currentSellerRemarks = remarksLog.length ? remarksLog[remarksLog.length - 1].text : "";
+      const previousSellerRemarks = remarksLog.slice(0, -1).map((r) => r.text).join(" | ");
+
+      const reasonHistory = reasonHistoryByOrder[String(ad.order_id)] || [];
+      let currentReportedReason = "";
+      let previousReportedReason = "";
+      if (reasonHistory.length > 0) {
+        const latest = reasonHistory[reasonHistory.length - 1];
+        currentReportedReason = `${latest.fail_reason} (${fmtDateTime(latest.event_time)})`;
+        previousReportedReason = reasonHistory.slice(0, -1)
+          .map((e) => `${e.fail_reason} (${fmtDateTime(e.event_time)})`)
+          .join(" | ");
+      } else if (ad.latest_fail_reason) {
+        currentReportedReason = ad.latest_fail_reason;
+      }
+
+      const feedbackHistory = feedbackByOrder[o.id] || [];
+      const courierRemarksHistory = feedbackHistory
+        .map((f) => `${f.courier_status || ""} - ${f.courier_reason || ""} (${fmtDateTime(f.imported_at)})`.trim())
+        .join(" | ");
+
+      return {
         order_number: o.name || "",
         tracking_number: ad.dex_tracking_number || "",
         current_status: ad.courier_order_status || "",
         aging_days: computeAgingDay(o) ?? "",
         delivery_attempts: ad.delivery_attempt_count || 0,
-        our_remarks: ourRemarks,
-        dex_fail_reason: ad.latest_fail_reason ? friendlyFailReason(ad.latest_fail_reason) : "",
-        courier_status: "",
-        courier_reason: "",
+        current_seller_remarks: currentSellerRemarks,
+        previous_seller_remarks: previousSellerRemarks,
+        current_reported_reason: currentReportedReason,
+        previous_reported_reason: previousReportedReason,
+        courier_remarks_history: courierRemarksHistory,
         internal_order_id: o.id,
-      });
+      };
+    });
+  };
+
+  const loadExportHistory = async () => {
+    setExportHistoryLoading(true);
+    const { data } = await supabase
+      .from("export_history")
+      .select("*")
+      .eq("store_id", storeId)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    const rowsWithUrls = await Promise.all((data || []).map(async (row) => {
+      const { data: signed } = await supabase.storage.from("courier-exports").createSignedUrl(row.file_path, 3600);
+      return { ...row, downloadUrl: signed?.signedUrl || null };
+    }));
+    setExportHistoryRows(rowsWithUrls);
+    setExportHistoryLoading(false);
+  };
+
+  // logActivity/t/storeId component-scope ki cheezein hain — is liye ye 3 handlers
+  // (parseCourierFeedbackFile ke ulat) yahan component ke andar define hain, top-level
+  // nahi (computeAgingDay jaisa top-level rakhne se logActivity/t/storeId scope mein
+  // available na hote — ReferenceError deta).
+  const exportShipperRemarksExcel = async (ordersToExport) => {
+    const rows = await buildShipperRemarksRowData(ordersToExport);
+    const { default: ExcelJS } = await import("exceljs");
+    const workbook = new ExcelJS.Workbook();
+
+    const sheet1 = workbook.addWorksheet("Orders");
+    sheet1.columns = [
+      { header: "Tracking Number", key: "tracking_number", width: 20 },
+      { header: "Current Status", key: "current_status", width: 22 },
+      { header: "Current Seller Remarks", key: "current_seller_remarks", width: 35 },
+      { header: "Courier Remarks", key: "courier_remarks", width: 30 },
+      { header: "Courier Remarks History", key: "courier_remarks_history", width: 40 },
+      { header: "Previous Seller Remarks", key: "previous_seller_remarks", width: 40 },
+      { header: "Current Reported Reason", key: "current_reported_reason", width: 30 },
+      { header: "Previous Reported Reason", key: "previous_reported_reason", width: 40 },
+      { header: "Aging (Days)", key: "aging_days", width: 12 },
+      { header: "Delivery Attempts", key: "delivery_attempts", width: 14 },
+      { header: "Order Number", key: "order_number", width: 18 },
+      { header: "internal_order_id", key: "internal_order_id", width: 14 },
+    ];
+    sheet1.getColumn("internal_order_id").hidden = true;
+    sheet1.getColumn("internal_order_id").width = 0;
+
+    rows.forEach((r) => {
+      sheet1.addRow({ ...r, courier_remarks: "" });
     });
 
+    const styleHeaderRow = (row) => {
+      row.eachCell((cell) => {
+        cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF6C5CE7" } };
+        cell.alignment = { vertical: "middle" };
+      });
+    };
+
     const sheet2 = workbook.addWorksheet("Dashboard");
-    sheet2.columns = [
-      { header: "Reason / Status", key: "reason", width: 30 },
-      { header: "Order Count", key: "count", width: 14 },
-      { header: "Revenue Impact (Rs.)", key: "revenue", width: 20 },
-    ];
-    const reasonMap = {};
+    sheet2.columns = [{ width: 30 }, { width: 16 }, { width: 20 }];
+    let r = 1;
+
+    sheet2.getCell(`A${r}`).value = "Breakdown by Status";
+    sheet2.getCell(`A${r}`).font = { bold: true, size: 13 };
+    r += 1;
+    const statusHeaderRow = sheet2.getRow(r);
+    statusHeaderRow.values = ["Status", "Order Count", "Revenue at Risk (Rs.)"];
+    styleHeaderRow(statusHeaderRow);
+    r += 1;
+    const statusMap = {};
+    let statusTotalCount = 0, statusTotalRevenue = 0;
     ordersToExport.forEach((o) => {
-      const reason = o.agent_data?.courier_order_status || "Unknown";
+      const status = o.agent_data?.courier_order_status || "Unknown";
+      if (!statusMap[status]) statusMap[status] = { count: 0, revenue: 0 };
+      statusMap[status].count += 1;
+      statusMap[status].revenue += Number(o.total_price) || 0;
+    });
+    Object.entries(statusMap).forEach(([status, data]) => {
+      const row = sheet2.getRow(r);
+      row.values = [status, data.count, data.revenue];
+      row.getCell(3).numFmt = '"Rs. "#,##0';
+      statusTotalCount += data.count;
+      statusTotalRevenue += data.revenue;
+      r += 1;
+    });
+    const statusTotalRow = sheet2.getRow(r);
+    statusTotalRow.values = ["Total", statusTotalCount, statusTotalRevenue];
+    statusTotalRow.font = { bold: true };
+    statusTotalRow.getCell(3).numFmt = '"Rs. "#,##0';
+    r += 3;
+
+    sheet2.getCell(`A${r}`).value = "Breakdown by Reported Reason";
+    sheet2.getCell(`A${r}`).font = { bold: true, size: 13 };
+    r += 1;
+    const reasonHeaderRow = sheet2.getRow(r);
+    reasonHeaderRow.values = ["Reported Reason", "Order Count", "Revenue at Risk (Rs.)"];
+    styleHeaderRow(reasonHeaderRow);
+    r += 1;
+    const reasonMap = {};
+    let reasonTotalCount = 0, reasonTotalRevenue = 0;
+    ordersToExport.forEach((o) => {
+      const reason = o.agent_data?.latest_fail_reason || "Unknown";
       if (!reasonMap[reason]) reasonMap[reason] = { count: 0, revenue: 0 };
       reasonMap[reason].count += 1;
-      // Order card pe "COD Amount" ke liye jo field already display hoti hai
-      // (line ~1511: {o.total_price ? `Rs. ${Number(o.total_price)...`} — wahi
-      // o.total_price yahan reuse kiya, koi naya/guessed field nahi.
       reasonMap[reason].revenue += Number(o.total_price) || 0;
     });
     Object.entries(reasonMap).forEach(([reason, data]) => {
-      sheet2.addRow({ reason, count: data.count, revenue: data.revenue });
+      const row = sheet2.getRow(r);
+      row.values = [reason, data.count, data.revenue];
+      row.getCell(3).numFmt = '"Rs. "#,##0';
+      reasonTotalCount += data.count;
+      reasonTotalRevenue += data.revenue;
+      r += 1;
     });
+    const reasonTotalRow = sheet2.getRow(r);
+    reasonTotalRow.values = ["Total", reasonTotalCount, reasonTotalRevenue];
+    reasonTotalRow.font = { bold: true };
+    reasonTotalRow.getCell(3).numFmt = '"Rs. "#,##0';
 
     const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], {
-      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    const fileName = `shipper-remarks-${new Date().toISOString().replace(/[:.]/g, "-")}.xlsx`;
+    const filePath = `${storeId}/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage.from("courier-exports").upload(filePath, buffer, {
+      contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `shipper-remarks-${new Date().toISOString().slice(0, 10)}.xlsx`;
-    a.click();
-    URL.revokeObjectURL(url);
-    logActivity("export_shipper_remarks_excel", null, { count: ordersToExport.length });
+    if (uploadError) {
+      console.error("courier-exports upload failed:", uploadError.message);
+      alert(`${t("booked.exportUploadFailed")}: ${uploadError.message}`);
+      return;
+    }
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error: historyError } = await supabase.from("export_history").insert({
+      store_id: storeId,
+      created_by: user?.email || null,
+      file_path: filePath,
+      row_count: rows.length,
+    });
+    if (historyError) {
+      console.error("export_history insert failed:", historyError.message);
+    }
+
+    logActivity("export_shipper_remarks_excel", null, { count: rows.length });
+    await loadExportHistory();
+    setExportHistoryOpen(true);
   };
 
-  const copyShipperRemarksForWhatsApp = (ordersToExport) => {
-    const lines = ordersToExport.map((o, idx) => {
-      const remarksLog = o.agent_data?.remarks_log || [];
-      const latestRemark = remarksLog.length ? remarksLog[remarksLog.length - 1].text : "-";
-      return `${idx + 1}. Order #${o.name || "-"} | Tracking: ${o.agent_data?.dex_tracking_number || "-"} | Status: ${o.agent_data?.courier_order_status || "-"} | Remarks: ${latestRemark}`;
+  const copyShipperRemarksForWhatsApp = async (ordersToExport) => {
+    const rows = await buildShipperRemarksRowData(ordersToExport);
+    const lines = rows.map((r, idx) => {
+      let text = `${idx + 1}. Tracking: ${r.tracking_number || "-"} | Status: ${r.current_status || "-"}\n`;
+      text += `Current Seller Remarks: ${r.current_seller_remarks || "-"}`;
+      if (r.courier_remarks_history) text += ` | Courier Remarks History: ${r.courier_remarks_history}`;
+      if (r.previous_seller_remarks) text += ` | Previous Seller Remarks: ${r.previous_seller_remarks}`;
+      if (r.current_reported_reason) text += ` | Current Reported Reason: ${r.current_reported_reason}`;
+      if (r.previous_reported_reason) text += ` | Previous Reported Reason: ${r.previous_reported_reason}`;
+      text += ` | Aging: ${r.aging_days} days | Attempts: ${r.delivery_attempts} | Order#: ${r.order_number}`;
+      return text;
     });
-    navigator.clipboard.writeText(lines.join("\n"));
-    logActivity("copy_shipper_remarks_whatsapp", null, { count: ordersToExport.length });
-    alert(t("booked.copiedForWhatsapp"));
+    navigator.clipboard.writeText(lines.join("\n\n"));
+    logActivity("copy_shipper_remarks_whatsapp", null, { count: rows.length });
+    setCopyToastVisible(true);
+    setTimeout(() => setCopyToastVisible(false), 2000);
   };
 
   const handleCourierFeedbackImport = async (e) => {
@@ -1250,7 +1446,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
     if (!file) return;
     e.target.value = "";
     try {
-      const rows = await parseCourierFeedbackFile(file);
+      const rows = await parseCourierFeedbackFile(file, orders);
       if (rows.length === 0) {
         alert(t("booked.noCourierFeedbackRows"));
         return;
@@ -1625,15 +1821,78 @@ export default function BookedOrders({ storeId, ordersStore }) {
                 style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: selectedIds.size === 0 ? "not-allowed" : "pointer", opacity: selectedIds.size === 0 ? 0.5 : 1 }}>
                 <Icon name="download" size={13} /> {t("booked.exportShipperRemarks")}
               </button>
-              <button onClick={() => copyShipperRemarksForWhatsApp(orders.filter((o) => selectedIds.has(o.id)))}
-                disabled={selectedIds.size === 0}
-                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 12, fontWeight: 700, cursor: selectedIds.size === 0 ? "not-allowed" : "pointer", opacity: selectedIds.size === 0 ? 0.5 : 1 }}>
-                <Icon name="comment" size={13} /> {t("booked.copyForWhatsapp")}
-              </button>
-              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+              <div style={{ position: "relative", display: "inline-block" }}>
+                {copyToastVisible && (
+                  <div style={{ position: "absolute", bottom: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)", background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 600, color: "var(--ne-text)", whiteSpace: "nowrap", boxShadow: "0 4px 12px rgba(0,0,0,0.2)", zIndex: 10 }}>
+                    {t("booked.copiedForWhatsapp")}
+                  </div>
+                )}
+                <button onClick={() => copyShipperRemarksForWhatsApp(orders.filter((o) => selectedIds.has(o.id)))}
+                  disabled={selectedIds.size === 0}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 12, fontWeight: 700, cursor: selectedIds.size === 0 ? "not-allowed" : "pointer", opacity: selectedIds.size === 0 ? 0.5 : 1 }}>
+                  <Icon name="comment" size={13} /> {t("booked.copyForWhatsapp")}
+                </button>
+              </div>
+              <button onClick={() => setImportModalOpen(true)}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                 <Icon name="upload" size={13} /> {t("booked.importCourierFeedback")}
-                <input type="file" accept=".xlsx" onChange={handleCourierFeedbackImport} style={{ display: "none" }} />
-              </label>
+              </button>
+            </div>
+          )}
+
+          {exportHistoryOpen && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
+              <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 600, maxWidth: "92vw", maxHeight: "80vh", overflowY: "auto", padding: 20 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                  <h3 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)" }}>{t("booked.exportHistoryTitle")}</h3>
+                  <button onClick={() => setExportHistoryOpen(false)} style={{ background: "transparent", border: "none", color: "var(--ne-muted)", cursor: "pointer", fontSize: 18 }}>×</button>
+                </div>
+                {exportHistoryLoading ? (
+                  <div style={{ color: "var(--ne-muted)", fontSize: 13 }}>...</div>
+                ) : (
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ borderBottom: "1px solid var(--ne-border)" }}>
+                        <th style={{ textAlign: "left", padding: "8px 6px", color: "var(--ne-muted)" }}>{t("booked.exportCreated")}</th>
+                        <th style={{ textAlign: "left", padding: "8px 6px", color: "var(--ne-muted)" }}>{t("booked.exportRows")}</th>
+                        <th style={{ textAlign: "left", padding: "8px 6px", color: "var(--ne-muted)" }}>{t("booked.exportDownload")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {exportHistoryRows.map((row) => (
+                        <tr key={row.id} style={{ borderBottom: "1px solid var(--ne-border)" }}>
+                          <td style={{ padding: "8px 6px", color: "var(--ne-text)" }}>
+                            {new Date(row.created_at).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}
+                          </td>
+                          <td style={{ padding: "8px 6px", color: "var(--ne-text)" }}>{row.row_count}</td>
+                          <td style={{ padding: "8px 6px" }}>
+                            {row.downloadUrl ? (
+                              <a href={row.downloadUrl} target="_blank" rel="noreferrer">{t("booked.downloadResultFile")}</a>
+                            ) : "-"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          )}
+
+          {importModalOpen && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
+              <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 420, maxWidth: "92vw", padding: 20 }}>
+                <h3 style={{ margin: "0 0 14px", fontSize: 15, color: "var(--ne-text)" }}>{t("booked.importCourierFeedback")}</h3>
+                <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, height: 44, borderRadius: 8, border: "1px dashed var(--ne-border)", cursor: "pointer", color: "var(--ne-text)", fontSize: 13, fontWeight: 600 }}>
+                  <Icon name="upload" size={14} /> {t("booked.chooseFile")}
+                  <input type="file" accept=".xlsx" onChange={async (e) => { await handleCourierFeedbackImport(e); setImportModalOpen(false); }} style={{ display: "none" }} />
+                </label>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+                  <button onClick={() => setImportModalOpen(false)} style={{ padding: "7px 16px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>
+                    {t("action.cancel")}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
           {selectedIds.size > 0 && (
