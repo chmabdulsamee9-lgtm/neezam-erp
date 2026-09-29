@@ -1426,13 +1426,13 @@ export default function BookedOrders({ storeId, ordersStore }) {
   const copyShipperRemarksForWhatsApp = async (ordersToExport) => {
     const rows = await buildShipperRemarksRowData(ordersToExport);
     const lines = rows.map((r, idx) => {
-      let text = `${idx + 1}. Tracking: ${r.tracking_number || "-"} | Status: ${r.current_status || "-"}\n`;
-      text += `Current Seller Remarks: ${r.current_seller_remarks || "-"}`;
+      let text = `${idx + 1}. Tracking: ${r.tracking_number || "-"} | Status: ${r.current_status || "-"}`;
       if (r.courier_remarks_history) text += ` | Courier Remarks History: ${r.courier_remarks_history}`;
       if (r.previous_seller_remarks) text += ` | Previous Seller Remarks: ${r.previous_seller_remarks}`;
       if (r.current_reported_reason) text += ` | Current Reported Reason: ${r.current_reported_reason}`;
       if (r.previous_reported_reason) text += ` | Previous Reported Reason: ${r.previous_reported_reason}`;
       text += ` | Aging: ${r.aging_days} days | Attempts: ${r.delivery_attempts} | Order#: ${r.order_number}`;
+      text += `\nCurrent Seller Remarks: ${r.current_seller_remarks || "-"}`;
       return text;
     });
     navigator.clipboard.writeText(lines.join("\n\n"));
