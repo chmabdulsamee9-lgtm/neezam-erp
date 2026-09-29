@@ -1875,6 +1875,13 @@ function App() {
             )}
           </div>
 
+          <div onClick={handleClearCache} className="ne-navitem">
+            <span className="ne-ic">
+              <RefreshIcon style={{ width: 15, height: 15 }} />
+            </span>
+            {(sidebarOpen || mobileDrawerOpen) && <span>{t('action.clearCache')}</span>}
+          </div>
+
           {/* Sidebar hamesha dark hai (light mode mein bhi), isliye yahan theme-var ke bajaye
               dark-mode ke fixed colors use karte hain — warna light mode mein dark text
               dark sidebar ke upar illegible ho jata */}
@@ -1935,12 +1942,6 @@ function App() {
                 {theme === 'dark' ? <SunIcon style={{ width: 15, height: 15 }} /> : <MoonIcon style={{ width: 15, height: 15 }} />}
               </button>
             )}
-            <div onClick={handleClearCache} className="ne-navitem" style={{ color: 'var(--ne-text)' }}>
-              <span className="ne-ic">
-                <RefreshIcon style={{ width: 15, height: 15 }} />
-              </span>
-              {(sidebarOpen || mobileDrawerOpen) && <span>{t('action.clearCache')}</span>}
-            </div>
             <div onClick={() => supabase.auth.signOut()} className="ne-navitem" style={{ color: '#F26D6D' }}>
               <span className="ne-ic" style={{ background: 'rgba(242,109,109,.1)' }}>
                 <svg viewBox="0 0 20 20" stroke="#F26D6D"><path d="M7 17H4.5a1.5 1.5 0 0 1-1.5-1.5v-11A1.5 1.5 0 0 1 4.5 3H7"/><path d="M13 14l4-4-4-4"/><path d="M17 10H7"/></svg>
