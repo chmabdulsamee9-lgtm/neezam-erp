@@ -51,6 +51,7 @@ import GeminiUsageMonitor from './pages/GeminiUsageMonitor'
 import ShopifyCallback from './pages/ShopifyCallback'
 import Orders from './pages/Orders'
 import Dashboard from './pages/Dashboard'
+import AppHome from './pages/AppHome'
 import WhatsApp from './pages/WhatsApp'
 import Team from './pages/Team'
 import Settings from './pages/Settings'
@@ -131,6 +132,7 @@ export async function monitoredFetch(url, options = {}) {
 }
 
 const NAV_ICONS = {
+  home: <svg viewBox="0 0 20 20"><path d="M3 9.5L10 3l7 6.5"/><path d="M5 8.5V17h10V8.5"/><path d="M8.5 17v-5h3v5"/></svg>,
   dashboard: <svg viewBox="0 0 20 20"><rect x="2.5" y="2.5" width="6.5" height="6.5" rx="1.5"/><rect x="11" y="2.5" width="6.5" height="6.5" rx="1.5"/><rect x="2.5" y="11" width="6.5" height="6.5" rx="1.5"/><rect x="11" y="11" width="6.5" height="6.5" rx="1.5"/></svg>,
   orders: <svg viewBox="0 0 20 20"><path d="M10 2.5 17 6.5v7L10 17.5 3 13.5v-7Z"/><path d="M3 6.5 10 10.5 17 6.5"/><path d="M10 10.5v7"/></svg>,
   courier: <svg viewBox="0 0 20 20"><rect x="2" y="6" width="9" height="7" rx="1"/><path d="M11 9h3.5L17 11.5V13h-6"/><circle cx="6" cy="15.5" r="1.6"/><circle cx="14.5" cy="15.5" r="1.6"/></svg>,
@@ -941,7 +943,7 @@ function App() {
 
   // activeMenu ab URL se derive hota hai (React Router) — setActiveMenu shim navigate() ko
   // call karta hai taake sidebar clicks real per-page URLs banayein (back/forward + direct-URL support)
-  const activeMenu = (location.pathname === '/' || location.pathname.startsWith('/auth/')) ? 'dashboard' : location.pathname.slice(1)
+  const activeMenu = (location.pathname === '/' || location.pathname.startsWith('/auth/')) ? 'home' : location.pathname.slice(1)
   const setActiveMenu = (id) => navigate(`/${id}`)
 
   // Root-redirect ab auth-aware hai — pehle yeh session check kiye bina hi /dashboard
@@ -949,7 +951,7 @@ function App() {
   // Logged-out state mein "/" ab /login pe force-redirect NAHI hoti (Block C) — "/" khud
   // public Homepage (Pricing) hai, sirf logged-IN session ke liye "/" se /dashboard bounce hota hai.
   useEffect(() => {
-    if (location.pathname === '/' && session) navigate('/dashboard', { replace: true })
+    if (location.pathname === '/' && session) navigate('/home', { replace: true })
   }, [location.pathname, session])
 
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -1779,7 +1781,7 @@ function App() {
   if (!selectedStoreId) return <SplashScreen />
   const isAdminOnlyPage = activeMenu === 'master-dashboard/dev-monitor' ||
     activeMenu === 'master-dashboard/gemini-monitor'
-  if (!ordersLoaded && !isAdminOnlyPage) return <SplashScreen />
+  if (!ordersLoaded && !isAdminOnlyPage && activeMenu !== 'home') return <SplashScreen />
 
   const currentUserStoreEntry = userStoresList.find(us => us.store_id === selectedStoreId)
   const isStaff = profile.role === 'staff'
@@ -1795,6 +1797,7 @@ function App() {
   const hasAccess = (moduleId) => (!isStaff || staffPermissions.includes(moduleId)) && hasSubscriptionAccess(moduleId)
 
   const allMenuItems = [
+    { id: 'home', label: t('nav.home'), group: t('nav.group.overview') },
     { id: 'dashboard', label: t('nav.dashboard'), group: t('nav.group.overview') },
     { id: 'orders', label: t('nav.orders'), group: t('nav.group.overview') },
     { id: 'courier', label: t('nav.courier'), group: t('nav.group.operations') },
@@ -1825,7 +1828,7 @@ function App() {
         { id: 'settings', label: t('nav.settings'), group: t('nav.group.channels') }]
     : [...allMenuItems, { id: 'settings', label: t('nav.settings'), group: t('nav.group.channels') }]
 
-  const alwaysVisibleIds = ['team', 'activity-log', 'settings']
+  const alwaysVisibleIds = ['home', 'team', 'activity-log', 'settings']
   const menuItems = menuItemsWithExtras.filter(m => hasAccess(m.id) || alwaysVisibleIds.includes(m.id))
   const fullScreenModules = ['orders', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor']
   const currentStoreInfo = userStoresList.find(us => us.store_id === selectedStoreId)?.stores
@@ -1992,6 +1995,9 @@ function App() {
                 onPeriodChange={handlePeriodChange}
               />
             )}
+            {activeMenu === 'home' && (
+              <AppHome storeId={selectedStoreId} apiBase={CF_URL} fetcher={monitoredFetch} />
+            )}
             {activeMenu === 'dashboard' && hasAccess('dashboard') && (
               ordersData.length === 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '300px', color: 'var(--ne-muted)', fontSize: 14, gap: 8 }}>
@@ -2062,7 +2068,7 @@ function App() {
             {activeMenu === 'master-dashboard/gemini-monitor' && profile.role === 'creator' && (
               <GeminiUsageMonitor cfUrl={CF_URL} session={session} />
             )}
-            {!['dashboard', 'store-connect', 'products', 'inventory', 'product-costing', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor'].includes(activeMenu) && (
+            {!['home', 'dashboard', 'store-connect', 'products', 'inventory', 'product-costing', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor'].includes(activeMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{menuItems.find(m => m.id === activeMenu)?.label}</h2>
