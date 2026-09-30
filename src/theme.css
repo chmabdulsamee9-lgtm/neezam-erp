@@ -101,14 +101,13 @@ html, body {
   --ne-muted-soft:#F1F2F6;
 }
 
-/* ===== BRANDING (eNeezam) — wordmark + splash animation ===== */
+/* ===== BRANDING (eNeezam) — wordmark ===== */
 .ne-wordmark-e{ background:var(--ne-grad); -webkit-background-clip:text; background-clip:text; color:transparent; }
 
-.ne-monogram-path{ stroke-dasharray:100; stroke-dashoffset:100; animation:ne-draw-path .8s ease forwards; }
-@keyframes ne-draw-path{ to{ stroke-dashoffset:0; } }
-
-.ne-monogram-dot{ opacity:0; transform-origin:center; transform:scale(0); animation:ne-pop-dot .3s ease forwards; }
-@keyframes ne-pop-dot{ to{ opacity:1; transform:scale(1); } }
-
-.ne-splash-wordmark{ opacity:0; transform:translateY(10px); animation:ne-fade-slide-up .4s ease forwards; animation-delay:1.45s; display:inline-block; }
-@keyframes ne-fade-slide-up{ to{ opacity:1; transform:translateY(0); } }
+/* ===== LOADING SKELETON (SplashScreen) ===== */
+.ne-skel{ background:var(--ne-surface-2); border-radius:8px; animation:ne-skel-pulse 1.2s ease-in-out infinite; }
+@keyframes ne-skel-pulse{ 0%,100%{ opacity:.55; } 50%{ opacity:1; } }
+.ne-skel-shell{ display:flex; width:100%; height:100vh; }
+.ne-skel-side{ width:220px; flex-shrink:0; padding:16px; border-right:1px solid var(--ne-border); display:flex; flex-direction:column; gap:12px; }
+.ne-skel-main{ flex:1; min-width:0; padding:16px; display:flex; flex-direction:column; gap:16px; }
+@media (max-width:768px){ .ne-skel-side{ display:none; } }

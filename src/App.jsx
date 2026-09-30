@@ -156,11 +156,29 @@ const NAV_ICONS = {
   'finance-statement': <svg viewBox="0 0 20 20"><rect x="4" y="2" width="12" height="16" rx="2"/><rect x="6" y="4.3" width="8" height="3" rx="0.5"/><circle cx="6.8" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="10" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="13.2" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="6.8" cy="14.5" r=".9" fill="currentColor" stroke="none"/><circle cx="10" cy="14.5" r=".9" fill="currentColor" stroke="none"/><circle cx="13.2" cy="14.5" r=".9" fill="currentColor" stroke="none"/></svg>,
 }
 
+// Loading skeleton (Meta Ads app jaisa) — logo/animation nahi, sirf UI ka dhancha.
+// Function ka naam SplashScreen isliye wahi rakha gaya ke 6 call sites (auth/profile/store/orders gates) na badalne paren.
 function SplashScreen() {
   return (
-    <div className="ne-app-shell" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18, background: '#0A0E26' }}>
-      <Monogram size={90} animated />
-      <Wordmark size={44} animated dark />
+    <div className="ne-app-shell" style={{ display: 'block' }} aria-busy="true">
+      <div className="ne-skel-shell">
+        <div className="ne-skel-side">
+          <div className="ne-skel" style={{ height: 28, width: '70%' }} />
+          {[...Array(8)].map((_, i) => (
+            <div key={i} className="ne-skel" style={{ height: 18, width: '90%' }} />
+          ))}
+        </div>
+        <div className="ne-skel-main">
+          <div className="ne-skel" style={{ height: 36, width: '40%' }} />
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="ne-skel" style={{ height: 80, flex: '1 1 160px' }} />
+            ))}
+          </div>
+          <div className="ne-skel" style={{ height: 240 }} />
+          <div className="ne-skel" style={{ height: 160 }} />
+        </div>
+      </div>
     </div>
   )
 }
@@ -796,20 +814,10 @@ function App() {
   const [loading, setLoading] = useState(true)
   // TASK 18: default 'light' — localStorage mein pehle se koi choice ho to wahi respect hoti hai
   const [theme, setTheme] = useState(() => (typeof localStorage !== 'undefined' && localStorage.getItem('neezam_theme')) || 'light')
-  // Boot splash ko full ne-monogram-path/ne-monogram-dot animation dikhne ka mauka dene ke
-  // liye min ~1.8s display — sirf pehli baar (app boot) gate hota hai, baad ke SplashScreen
-  // renders (profile/orders load) is timer se dobara wait nahi karte.
-  const [minSplashDone, setMinSplashDone] = useState(false)
-
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
     localStorage.setItem('neezam_theme', theme)
   }, [theme])
-
-  useEffect(() => {
-    const timer = setTimeout(() => setMinSplashDone(true), 800)
-    return () => clearTimeout(timer)
-  }, [])
 
   const [releaseNotes, setReleaseNotes] = useState([])
   const [showReleasePopup, setShowReleasePopup] = useState(false)
@@ -1665,7 +1673,7 @@ function App() {
     return <MetaCallback />
   }
 
-  if (loading || !minSplashDone) return <SplashScreen />
+  if (loading) return <SplashScreen />
   if (!session) {
     const PublicPage = PUBLIC_ROUTES[location.pathname]
     // portal.eneezam.com serves the app (Login/Dashboard); eneezam.com (root) serves the

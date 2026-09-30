@@ -4,6 +4,8 @@ import { useId } from "react";
 // animated=true add karta hai path-draw + staggered dot pop-in (splash screen ke liye,
 // App.jsx ke SplashScreen mein wire hoga) — CSS keyframes theme.css mein hain
 // (.ne-monogram-path / .ne-monogram-dot).
+// NOTE: `animated` prop ab no-op hai (splash animation hata di gayi) — signature isliye rakhi
+// gayi ke purane call sites (App.jsx, Login.jsx) na tootein.
 export function Monogram({ size = 32, animated = false }) {
   const gradId = useId();
   return (
@@ -21,12 +23,11 @@ export function Monogram({ size = 32, animated = false }) {
         strokeLinecap="round"
         strokeLinejoin="round"
         pathLength="100"
-        className={animated ? "ne-monogram-path" : ""}
       />
-      <circle className={animated ? "ne-monogram-dot" : ""} style={animated ? { animationDelay: "0.8s" } : undefined} cx="6" cy="24" r="3.2" fill={`url(#${gradId})`} />
-      <circle className={animated ? "ne-monogram-dot" : ""} style={animated ? { animationDelay: "0.95s" } : undefined} cx="14" cy="13" r="3.2" fill={`url(#${gradId})`} />
-      <circle className={animated ? "ne-monogram-dot" : ""} style={animated ? { animationDelay: "1.1s" } : undefined} cx="20" cy="18" r="3.2" fill={`url(#${gradId})`} />
-      <circle className={animated ? "ne-monogram-dot" : ""} style={animated ? { animationDelay: "1.25s" } : undefined} cx="27" cy="7" r="3.2" fill={`url(#${gradId})`} />
+      <circle cx="6" cy="24" r="3.2" fill={`url(#${gradId})`} />
+      <circle cx="14" cy="13" r="3.2" fill={`url(#${gradId})`} />
+      <circle cx="20" cy="18" r="3.2" fill={`url(#${gradId})`} />
+      <circle cx="27" cy="7" r="3.2" fill={`url(#${gradId})`} />
     </svg>
   );
 }
@@ -39,7 +40,7 @@ export function Monogram({ size = 32, animated = false }) {
 export function Wordmark({ size = 22, animated = false, className = "", dark = false }) {
   return (
     <span
-      className={`${animated ? "ne-splash-wordmark" : ""} ${className}`.trim()}
+      className={className}
       style={{ fontSize: size, fontWeight: 700, letterSpacing: "-0.5px", color: dark ? "#fff" : undefined }}
     >
       <span className="ne-wordmark-e">e</span>Neezam
