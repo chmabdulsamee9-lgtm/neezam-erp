@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../supabase";
 import { useLanguage, useTranslation } from "../i18n";
-import { DATE_FILTERS, getDateRange, bucketFinalStatus } from "../bookedOrdersData";
+import { DATE_FILTERS, getDateRange } from "../bookedOrdersData";
 
 const DATE_FILTER_LABEL_KEYS = {
   today: "dashboard.dateFilter.today",
@@ -28,7 +28,7 @@ export default function AppHome({ storeId, apiBase, fetcher }) {
   const [dateFilter, setDateFilter] = useState("today");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
-  const [rows, setRows] = useState(null);
+  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const reqId = useRef(0);
@@ -50,8 +50,8 @@ export default function AppHome({ storeId, apiBase, fetcher }) {
       });
       const json = await res.json();
       if (myReq !== reqId.current) return; // purani request ka jawab ignore
-      if (!res.ok || !Array.isArray(json.rows)) throw new Error(json.error || "home-stats fail");
-      setRows(json.rows);
+      if (!res.ok || !json.stats) throw new Error(json.error || "home-stats fail");
+      setStats(json.stats);
     } catch (e) {
       if (myReq !== reqId.current) return;
       setError(true);
@@ -62,25 +62,14 @@ export default function AppHome({ storeId, apiBase, fetcher }) {
 
   useEffect(() => { load(); }, [load]);
 
-  let orders = 0, sales = 0, approved = 0, booked = 0, delivered = 0, returned = 0;
-  (rows || []).forEach((r) => {
-    const n = Number(r.order_count || 0);
-    orders += n;
-    sales += Number(r.revenue || 0);
-    if (r.agent_status === "Approved") approved += n;
-    if (r.has_tracking) booked += n;
-    const b = bucketFinalStatus(r.raw_courier_status);
-    if (b === "Delivered") delivered += n;
-    if (b === "Returned") returned += n;
-  });
-
+  const n = (v) => Number(v || 0);
   const cards = [
-    { key: "orders", label: t("home.stat.orders"), value: orders.toLocaleString() },
-    { key: "sales", label: t("home.stat.totalSales"), value: `Rs. ${Math.round(sales).toLocaleString()}` },
-    { key: "approved", label: t("home.stat.approved"), value: approved.toLocaleString() },
-    { key: "booked", label: t("home.stat.booked"), value: booked.toLocaleString() },
-    { key: "delivered", label: t("home.stat.delivered"), value: delivered.toLocaleString() },
-    { key: "returned", label: t("home.stat.returned"), value: returned.toLocaleString() },
+    { key: "orders", label: t("home.stat.orders"), value: n(stats?.orders).toLocaleString() },
+    { key: "sales", label: t("home.stat.totalSales"), value: `Rs. ${Math.round(n(stats?.total_sales)).toLocaleString()}` },
+    { key: "approved", label: t("home.stat.approved"), value: n(stats?.approved).toLocaleString() },
+    { key: "booked", label: t("home.stat.booked"), value: n(stats?.booked).toLocaleString() },
+    { key: "delivered", label: t("home.stat.delivered"), value: n(stats?.delivered).toLocaleString() },
+    { key: "returned", label: t("home.stat.returned"), value: n(stats?.returned).toLocaleString() },
   ];
 
   return (
@@ -109,7 +98,7 @@ export default function AppHome({ storeId, apiBase, fetcher }) {
           {cards.map((c) => (
             <div key={c.key} style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, padding: "14px 16px" }}>
               <div style={{ fontSize: 11.5, color: "var(--ne-muted)", marginBottom: 6 }}>{c.label}</div>
-              {loading || rows === null ? (
+              {loading || stats === null ? (
                 <div className="ne-skel" style={{ height: 26, width: "60%" }} />
               ) : (
                 <div style={{ fontSize: 22, fontWeight: 700 }}>{c.value}</div>
