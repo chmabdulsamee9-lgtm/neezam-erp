@@ -6,6 +6,7 @@ import { bucketFinalStatus } from "../bookedOrdersData";
 import { addressChipStyle, addressChipMutedStyle } from "../addressChipStyles";
 import Icon from "../components/Icon";
 import { Monogram } from "../components/Logo";
+import { OrdersSkeleton } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 
 const TAB_KEYS = {
@@ -2123,7 +2124,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       </div>
 
       {loading ? (
-        <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>{t("orders.loadingOrders")}</div>
+        <OrdersSkeleton />
       ) : isMobile ? (
         <div ref={tableRef} style={{ flex: 1, overflowY: "auto" }}>
           {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, isExpanded, statusBtn, syncRow, isDuplicateOrder, duplicateOtherNames, isRepeatCustomer, repeatCustomerOrderName }) => (

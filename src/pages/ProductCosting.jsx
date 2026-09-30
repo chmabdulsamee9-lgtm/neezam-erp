@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, Fragment } from "react";
 import Papa from "papaparse";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
+import { TableSkeleton } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 import { getCachedProducts, upsertProduct } from "../productsCache";
 
@@ -855,7 +856,7 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
       </div>
 
       {loading ? (
-        <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>{t("costing.loading")}</div>
+        <TableSkeleton cols={8} rows={8} actions={3} />
       ) : products.length === 0 ? (
         <div style={{ ...cardStyle, textAlign: "center", color: "var(--ne-muted-2)", fontSize: 12 }}>
           {t("costing.cacheEmpty")}

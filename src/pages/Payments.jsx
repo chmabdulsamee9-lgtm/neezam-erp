@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
+import { SkelCardList } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 
 const TX_PER_PAGE = 20;
@@ -103,7 +104,7 @@ export default function Payments({ storeId, cfUrl }) {
   const payoutRows = asRows(payoutData);
 
   const renderStatementOverview = () => {
-    if (loadingPayout) return <div style={{ textAlign: "center", padding: "3rem", color: "var(--ne-muted)" }}>{t("payments.loading")}</div>;
+    if (loadingPayout) return <SkelCardList n={4} />;
     if (payoutError) return <div style={{ ...cardStyle, color: "var(--ne-danger)", textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}><Icon name="error" size={13} /> {payoutError}</div>;
     if (payoutRows.length === 0) return <div style={{ ...cardStyle, textAlign: "center", color: "var(--ne-muted-2)", fontSize: 12 }}>{t("payments.noStatements")}</div>;
 
@@ -177,7 +178,7 @@ export default function Payments({ storeId, cfUrl }) {
   const pagedTxRows = filteredTxRows.slice((txPage - 1) * TX_PER_PAGE, txPage * TX_PER_PAGE);
 
   const renderPackageOverview = () => {
-    if (loadingTx) return <div style={{ textAlign: "center", padding: "3rem", color: "var(--ne-muted)" }}>{t("payments.loading")}</div>;
+    if (loadingTx) return <SkelCardList n={4} />;
     if (txError) return <div style={{ ...cardStyle, color: "var(--ne-danger)", textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}><Icon name="error" size={13} /> {txError}</div>;
 
     return (

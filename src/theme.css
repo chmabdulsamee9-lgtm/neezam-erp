@@ -106,7 +106,7 @@ html, body {
 
 /* ===== LOADING SKELETON (SplashScreen) ===== */
 .ne-skel{ background:#222A5C; border-radius:8px; animation:ne-skel-pulse 1.4s ease-in-out infinite; }
-:root[data-theme="light"] .ne-skel{ background:#DDE1F0; }
+:root[data-theme="light"] .ne-skel{ background:#D3D8EA; }
 @keyframes ne-skel-pulse{ 0%,100%{ opacity:.6; } 50%{ opacity:1; } }
 .ne-skel-shell{ display:flex; width:100%; height:100vh; }
 .ne-skel-side{ width:220px; flex-shrink:0; padding:16px; border-right:1px solid var(--ne-border); display:flex; flex-direction:column; gap:12px; }

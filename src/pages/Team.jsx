@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
+import { SkelCardList } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 
 // Labels App.jsx ke NAV_ICONS/menuItems ke sath consistent rakhne ke liye wahi 'nav.*'
@@ -286,7 +287,7 @@ export default function Team({ storeId, storeName, eneezamId, cfUrl }) {
       <h2 style={{ fontSize: 14, color: "var(--ne-muted)", marginBottom: 10, fontWeight: 600 }}>{t("team.teamMembersPrefix")} ({members.length})</h2>
 
       {loading ? (
-        <div style={{ color: "var(--ne-muted-2)", fontSize: 13, textAlign: "center", padding: "2rem" }}>{t("team.loading")}</div>
+        <SkelCardList n={4} />
       ) : members.length === 0 ? (
         <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "2rem", textAlign: "center", color: "var(--ne-muted)", fontSize: 13 }}>
           {t("team.noMembers")}

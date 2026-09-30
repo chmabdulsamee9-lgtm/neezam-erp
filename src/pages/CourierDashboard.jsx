@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { getCachedBookedOrders } from "../ordersCache";
 import { syncBookedOrdersCache, bucketCourierStatusGranular, DATE_FILTERS, getDateRange } from "../bookedOrdersData";
 import Icon from "../components/Icon";
+import { CourierDashSkeleton } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 
 // bucketCourierStatusGranular()/DATE_FILTERS bookedOrdersData.js (shared, out-of-scope helper
@@ -485,7 +486,7 @@ export default function CourierDashboard({ storeId, ordersStore }) {
   }, [dateFilteredOrders]);
 
   if (loading) {
-    return <div style={{ padding: "3rem", textAlign: "center", color: "var(--ne-muted)" }}>{t("courierDash.loading")}</div>;
+    return <CourierDashSkeleton />;
   }
   if (errorMsg) {
     return <div style={{ padding: "1.5rem", color: "var(--ne-danger)", fontSize: 13 }}>{errorMsg}</div>;

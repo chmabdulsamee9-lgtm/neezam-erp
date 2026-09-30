@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { getCachedBookedOrders } from "../ordersCache";
 import { syncBookedOrdersCache, bucketCourierStatusGranular } from "../bookedOrdersData";
 import Icon from "../components/Icon";
+import { CourierDetailSkeleton } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 
 const GRANULAR_KEYS = ["Delivered", "Returned", "Pickup Failed", "Cancelled", "Lost", "In Transit"];
@@ -262,7 +263,7 @@ export default function CourierDetailedView({ storeId, ordersStore }) {
 
   const maxProvinceTotal = Math.max(...provinceRows.map((p) => p.total), 1);
 
-  if (loading) return <div style={{ padding: "3rem", textAlign: "center", color: "var(--ne-muted)" }}>{t("courierDash.loading")}</div>;
+  if (loading) return <CourierDetailSkeleton />;
   if (errorMsg) return <div style={{ padding: "1.5rem", color: "var(--ne-danger)", fontSize: 13 }}>{errorMsg}</div>;
 
   return (

@@ -52,6 +52,7 @@ import ShopifyCallback from './pages/ShopifyCallback'
 import Orders from './pages/Orders'
 import Dashboard from './pages/Dashboard'
 import AppHome from './pages/AppHome'
+import { PageSkeletonFor } from './components/Skeletons'
 import WhatsApp from './pages/WhatsApp'
 import Team from './pages/Team'
 import Settings from './pages/Settings'
@@ -185,21 +186,7 @@ function SplashScreen() {
   )
 }
 
-// Content-area skeleton: orders load hone tak orders-dependent pages ki jagah dikhta hai (shell foran dikhta hai).
-function PageSkeleton() {
-  return (
-    <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: 16 }} aria-busy="true">
-      <div className="ne-skel" style={{ height: 32, width: '45%' }} />
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-        {[...Array(4)].map((_, i) => (
-          <div key={i} className="ne-skel" style={{ height: 80, flex: '1 1 160px' }} />
-        ))}
-      </div>
-      <div className="ne-skel" style={{ height: 240 }} />
-      <div className="ne-skel" style={{ height: 160 }} />
-    </div>
-  )
-}
+
 
 function PendingApprovalScreen({ onSignOut, t }) {
   return (
@@ -2004,7 +1991,7 @@ function App() {
 
           <div className="ne-content">
           <ErrorBoundary key={activeMenu}>
-            {ordersPending && ORDERS_DEPENDENT_PAGES.includes(activeMenu) && hasAccess(activeMenu) && <PageSkeleton />}
+            {ordersPending && ORDERS_DEPENDENT_PAGES.includes(activeMenu) && hasAccess(activeMenu) && <PageSkeletonFor menu={activeMenu} />}
             {activeMenu === 'orders' && hasAccess('orders') && !ordersPending && (
               <Orders
                 ordersData={ordersData} setOrdersData={setOrdersData}

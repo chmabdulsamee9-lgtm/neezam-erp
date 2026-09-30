@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
+import { SkelTable } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 
 const DATE_FILTER_LABEL_KEYS = { today: "dashboard.dateFilter.today", yesterday: "dashboard.dateFilter.yesterday", "7days": "dashboard.dateFilter.7days", "30days": "dashboard.dateFilter.30days", custom: "dashboard.dateFilter.custom" };
@@ -543,7 +544,7 @@ export default function ProfitLoss({ ordersData, storeId, activePeriod, onPeriod
         <h2 style={{ margin: "0 0 0.75rem", fontSize: 13, color: "var(--ne-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><Icon name="tag" size={13} /> {t("pnl.perSkuTitle")}</h2>
 
         {loading ? (
-          <div style={{ textAlign: "center", padding: "2rem", color: "var(--ne-muted)" }}>{t("pnl.loading")}</div>
+          <SkelTable cols={5} rows={6} />
         ) : perSkuStats.length === 0 ? (
           <div style={{ textAlign: "center", padding: "2rem", color: "var(--ne-muted-2)", fontSize: 12 }}>{t("pnl.noApprovedOrders")}</div>
         ) : isMobile ? (

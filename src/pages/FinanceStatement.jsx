@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
+import { SkelBar, SkelTable } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
@@ -123,7 +124,7 @@ function StatementRow({ period, t, cfUrl, storeId, ordersStore }) {
           upar, counts + approximation warning yahan, taake See More kholay bina bhi
           period ka pura summary dikhe. */}
       {loading ? (
-        <div style={{ padding: "0 18px 12px", fontSize: 10.5, color: "var(--ne-muted-2)" }}>{t("finance.loading")}</div>
+        <SkelBar h={60} />
       ) : error ? (
         <div style={{ padding: "0 18px 12px", color: "var(--ne-danger)", fontSize: 11 }}>{error}</div>
       ) : data ? (
@@ -314,7 +315,7 @@ function RateCardModal({ t, cfUrl, onClose }) {
         <div style={{ flex: 1, overflowY: "auto", padding: "10px 18px" }}>
           {error && <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 9, fontSize: 12, background: "var(--ne-danger-soft)", color: "var(--ne-danger)" }}>{error}</div>}
           {loading ? (
-            <div style={{ textAlign: "center", padding: "2rem", color: "var(--ne-muted)" }}>{t("finance.loading")}</div>
+            <SkelTable cols={4} rows={5} />
           ) : (
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5 }}>
               <thead>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
+import { TableSkeleton } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 
 const PAGE_SIZE = 500;
@@ -208,7 +209,7 @@ export default function InventoryManagement({ storeId }) {
       </div>
 
       {loading ? (
-        <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>{t("inventory.loading")}</div>
+        <TableSkeleton cols={6} rows={8} actions={1} />
       ) : products.length === 0 ? (
         <div style={{ ...cardStyle, textAlign: "center", color: "var(--ne-muted-2)", fontSize: 12 }}>{t("inventory.noProductsYet")}</div>
       ) : filtered.length === 0 ? (

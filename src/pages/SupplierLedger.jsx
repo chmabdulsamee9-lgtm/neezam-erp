@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
+import { SkelCardList, SkelTable } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
@@ -400,7 +401,7 @@ export default function SupplierLedger({ storeId, cfUrl = CF_URL }) {
 
         <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1rem" }}>
           {ledgerLoading ? (
-            <div style={{ textAlign: "center", padding: "2rem", color: "var(--ne-muted)", fontSize: 12 }}>{t("ledger.loading")}</div>
+            <SkelTable cols={6} rows={6} />
           ) : ledgerError ? (
             <div style={{ textAlign: "center", padding: "2rem", color: "var(--ne-danger)", fontSize: 12 }}>{ledgerError}</div>
           ) : displayedEntries.length === 0 ? (
@@ -560,7 +561,7 @@ export default function SupplierLedger({ storeId, cfUrl = CF_URL }) {
       </div>
 
       {loading ? (
-        <div style={{ textAlign: "center", padding: "3rem", color: "var(--ne-muted)" }}>{t("ledger.loading")}</div>
+        <SkelCardList n={4} />
       ) : suppliers.length === 0 ? (
         <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "2rem", textAlign: "center", color: "var(--ne-muted)", fontSize: 13 }}>
           {t("ledger.noSuppliers")}

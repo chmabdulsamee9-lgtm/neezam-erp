@@ -7,6 +7,7 @@ import { printEneezamLabel, printEneezamLabelsMerged } from "../components/Eneez
 import { addressChipStyle, addressChipMutedStyle } from "../addressChipStyles";
 import dexLogo from "../assets/couriers/dex.png";
 import Icon from "../components/Icon";
+import { BookedSkeleton } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 import { AUTO_REMARK_VARIATIONS } from "../shipperRemarksConstants";
 
@@ -1797,9 +1798,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
           )}
         </div>
       ) : loading ? (
-        <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>
-          {t("booked.loading")}{loadingCount > 0 ? ` (${loadingCount} ${t("booked.loaded")})` : "..."}
-        </div>
+        <div><BookedSkeleton /><div style={{ textAlign: "center", fontSize: 11.5, color: "var(--ne-muted)", marginTop: 8 }}>{t("booked.loading")}{loadingCount > 0 ? ` (${loadingCount} ${t("booked.loaded")})` : "..."}</div></div>
       ) : filtered.length === 0 ? (
         <div style={{ ...cardStyle, textAlign: "center", color: "var(--ne-muted-2)", fontSize: 12 }}>{t("booked.noBookedInFilter")}</div>
       ) : (

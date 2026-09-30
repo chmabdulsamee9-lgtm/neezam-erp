@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
+import { ProductsSkeleton } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 import { getCachedProducts, saveProductsBulk, upsertProduct, getProductsMeta, setProductsMeta } from "../productsCache";
 
@@ -665,7 +666,7 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
       </div>
 
       {loading ? (
-        <div style={{ textAlign: "center", padding: "4rem", color: "var(--ne-muted)" }}>{t("products.loading")}</div>
+        <ProductsSkeleton />
       ) : filtered.length === 0 ? (
         <div style={{ ...cardStyle, textAlign: "center", color: "var(--ne-muted-2)", fontSize: 12 }}>
           {products.length === 0 ? t("products.noProducts") : t("products.noProductsFiltered")}
