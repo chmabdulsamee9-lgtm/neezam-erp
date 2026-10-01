@@ -1787,7 +1787,10 @@ function App() {
   // Orders load hone tak poori app block nahi hoti: shell (sidebar/topbar) foran dikhta hai, aur sirf
   // orders-dependent pages ke content area mein PageSkeleton dikhta hai.
   const ordersPending = !ordersLoaded && !isAdminOnlyPage
-  const ORDERS_DEPENDENT_PAGES = ['orders', 'dashboard', 'products', 'product-costing', 'finance-statement', 'ads', 'courier', 'team', 'pnl', 'budget', 'courier-dashboard', 'courier-dashboard/detailed']
+  // Store-dependent pages sirf ordersStore (store row) chahte hain, jo orders se pehle set hota hai — orders load hone ka intezar nahi.
+  const storePending = !ordersStore && !isAdminOnlyPage
+  const ORDERS_DEPENDENT_PAGES = ['orders', 'dashboard', 'ads', 'pnl', 'budget']
+  const STORE_DEPENDENT_PAGES = ['products', 'product-costing', 'finance-statement', 'courier', 'courier-dashboard', 'courier-dashboard/detailed']
 
   const currentUserStoreEntry = userStoresList.find(us => us.store_id === selectedStoreId)
   const isStaff = profile.role === 'staff'
@@ -1991,7 +1994,7 @@ function App() {
 
           <div className="ne-content">
           <ErrorBoundary key={activeMenu}>
-            {ordersPending && ORDERS_DEPENDENT_PAGES.includes(activeMenu) && hasAccess(activeMenu) && <PageSkeletonFor menu={activeMenu} />}
+            {((ordersPending && ORDERS_DEPENDENT_PAGES.includes(activeMenu)) || (storePending && STORE_DEPENDENT_PAGES.includes(activeMenu))) && hasAccess(activeMenu) && <PageSkeletonFor menu={activeMenu} />}
             {activeMenu === 'orders' && hasAccess('orders') && !ordersPending && (
               <Orders
                 ordersData={ordersData} setOrdersData={setOrdersData}
@@ -2019,23 +2022,23 @@ function App() {
               )
             )}
             {activeMenu === 'store-connect' && hasAccess('store-connect') && <StoreConnect storeId={selectedStoreId} />}
-            {activeMenu === 'products' && hasAccess('products') && !ordersPending && (
+            {activeMenu === 'products' && hasAccess('products') && !storePending && (
               <ProductsManagement storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
             )}
             {activeMenu === 'inventory' && hasAccess('inventory') && (
               <InventoryManagement storeId={selectedStoreId} />
             )}
-            {activeMenu === 'product-costing' && hasAccess('product-costing') && !ordersPending && (
+            {activeMenu === 'product-costing' && hasAccess('product-costing') && !storePending && (
               <ProductCosting storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
             )}
-            {activeMenu === 'finance-statement' && hasAccess('finance-statement') && !ordersPending && (
+            {activeMenu === 'finance-statement' && hasAccess('finance-statement') && !storePending && (
               <FinanceStatement storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
             )}
             {activeMenu === 'meta-connect' && hasAccess('meta-connect') && <MetaConnect storeId={selectedStoreId} />}
             {activeMenu === 'ads' && hasAccess('ads') && !ordersPending && (
               <AdsAnalytics ordersData={ordersData} storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
             )}
-            {activeMenu === 'courier' && hasAccess('courier') && !ordersPending && (
+            {activeMenu === 'courier' && hasAccess('courier') && !storePending && (
               <BookedOrders storeId={selectedStoreId} ordersStore={ordersStore} />
             )}
             {activeMenu === 'courier-connect' && hasAccess('courier-connect') && (
@@ -2045,7 +2048,7 @@ function App() {
               <Payments storeId={selectedStoreId} cfUrl={CF_URL} />
             )}
             {activeMenu === 'whatsapp' && hasAccess('whatsapp') && <WhatsApp />}
-            {activeMenu === 'team' && (profile.role === 'admin' || profile.role === 'creator') && !ordersPending && (
+            {activeMenu === 'team' && (profile.role === 'admin' || profile.role === 'creator') && (
               <Team storeId={selectedStoreId} storeName={currentStoreInfo?.store_name || ordersStore?.store_name} eneezamId={currentStoreInfo?.eneezam_id || ordersStore?.eneezam_id} cfUrl={CF_URL} />
             )}
             {activeMenu === 'activity-log' && (profile.role === 'admin' || profile.role === 'creator') && (
@@ -2063,10 +2066,10 @@ function App() {
             {activeMenu === 'budget' && hasAccess('budget') && !ordersPending && (
               <BudgetCalculator ordersData={ordersData} />
             )}
-            {activeMenu === 'courier-dashboard' && hasAccess('courier-dashboard') && !ordersPending && (
+            {activeMenu === 'courier-dashboard' && hasAccess('courier-dashboard') && !storePending && (
               <CourierDashboard storeId={selectedStoreId} ordersStore={ordersStore} />
             )}
-            {activeMenu === 'courier-dashboard/detailed' && hasAccess('courier-dashboard') && !ordersPending && (
+            {activeMenu === 'courier-dashboard/detailed' && hasAccess('courier-dashboard') && !storePending && (
               <CourierDetailedView storeId={selectedStoreId} ordersStore={ordersStore} />
             )}
             {activeMenu === 'master-dashboard/dev-monitor' && (
