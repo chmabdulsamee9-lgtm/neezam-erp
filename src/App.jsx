@@ -30,7 +30,17 @@ const loadWithRetry = (loader) => () =>
       } catch (e) {}
       throw err
     })
+// Sidebar hover/touch par page ka chunk pehle se download (dynamic import cached rehta hai, baad mein click par foran khulta hai).
+// Slow/2G ya Data Saver mode mein prefetch band, taake zaroori downloads ke saath bandwidth na lade.
+const PAGE_PREFETCH = {}
+const prefetchPage = (id) => {
+  const c = typeof navigator !== 'undefined' ? navigator.connection : null
+  if (c && (c.saveData || /2g/.test(c.effectiveType || ''))) return
+  const f = PAGE_PREFETCH[id]
+  if (f) f()
+}
 function lazyPage(loader, menu) {
+  if (menu) PAGE_PREFETCH[menu] = () => { loader().catch(() => {}) }
   const Lazy = lazy(loadWithRetry(loader))
   return function LazyPage(props) {
     return (
@@ -1195,7 +1205,12 @@ function App() {
 
   const loadProfileAndStores = async () => {
     const userId = session.user.id
-    const { data: profileData } = await supabase.from('profiles').select('*').eq('id', userId).single()
+    // profiles aur user_stores dono sirf userId chahte hain — parallel (pehle ek ke baad ek the).
+    // Creator branch user_stores ka result use nahi karta.
+    const [{ data: profileData }, { data: usPrefetched }] = await Promise.all([
+      supabase.from('profiles').select('*').eq('id', userId).single(),
+      supabase.from('user_stores').select('store_id, permissions, stores(store_name, shopify_url, id, eneezam_id)').eq('user_id', userId),
+    ])
     setProfile(profileData || null)
 
     if (profileData?.role === 'creator') {
@@ -1264,10 +1279,7 @@ function App() {
         navigate('/master-dashboard', { replace: true })
       }
     } else if (profileData?.approved) {
-      const { data: us } = await supabase
-        .from('user_stores')
-        .select('store_id, permissions, stores(store_name, shopify_url, id, eneezam_id)')
-        .eq('user_id', userId)
+      const us = usPrefetched
       setUserStoresList(us || [])
       const persistedId = getPersistedStoreId()
       const accessibleIds = (us || []).map(u => u.store_id)
@@ -1552,16 +1564,19 @@ function App() {
     const isStale = () => session?.user?.id !== expectedUserId || selectedStoreIdRef.current !== storeId
 
     try {
+      // statuses fetch ko stores fetch ka intezar nahi karna — dono ek sath shuru (fetchAllOrderStatuses ko sirf storeId chahiye).
+      const __fetchStatusesStart = performance.now()
+      const statusesPromise = fetchAllOrderStatuses(storeId, fromDate)
+      statusesPromise.catch(() => {}) // stores fetch pehle fail/return ho to unhandled rejection na ho; asli error neeche await par throw hota hai
       const { data: storeData } = await supabase.from('stores').select('*').eq('id', storeId).single()
       if (isStale()) return
       if (!storeData) { setOrdersLoading(false); return }
       setOrdersStore(storeData)
       const cacheId = storeData.eneezam_id
 
-      const __fetchStatusesStart = performance.now()
       let statuses
       try {
-        statuses = await fetchAllOrderStatuses(storeId, fromDate)
+        statuses = await statusesPromise
         logDevMonitoring({ source: 'frontend', store_id: storeId, action: 'fetchOrderStatuses', status: 'success', duration_ms: Math.round(performance.now() - __fetchStatusesStart) })
       } catch (err) {
         logDevMonitoring({ source: 'frontend', store_id: storeId, action: 'fetchOrderStatuses', status: 'error', error_message: err.message, duration_ms: Math.round(performance.now() - __fetchStatusesStart) })
@@ -1880,6 +1895,8 @@ function App() {
 
   const renderNavItem = (item) => (
     <div key={item.id}
+      onMouseEnter={() => prefetchPage(item.id)}
+      onTouchStart={() => prefetchPage(item.id)}
       onClick={() => { setActiveMenu(item.id); closeDrawer() }}
       title={!sidebarOpen ? item.label : ''}
       className={`ne-navitem${activeMenu === item.id ? ' active' : ''}`}>
