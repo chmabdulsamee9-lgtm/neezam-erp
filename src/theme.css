@@ -109,6 +109,10 @@ html, body {
 :root[data-theme="light"] .ne-skel{ background:#D3D8EA; }
 @keyframes ne-skel-pulse{ 0%,100%{ opacity:.6; } 50%{ opacity:1; } }
 .ne-skel-shell{ display:flex; width:100%; height:100vh; }
-.ne-skel-side{ width:220px; flex-shrink:0; padding:16px; border-right:1px solid var(--ne-border); display:flex; flex-direction:column; gap:12px; }
+.ne-skel-side{ width:240px; flex-shrink:0; background:var(--ne-sidebar-bg); }
 .ne-skel-main{ flex:1; min-width:0; padding:16px; display:flex; flex-direction:column; gap:16px; }
 @media (max-width:768px){ .ne-skel-side{ display:none; } }
+
+/* Minimal fade: data aane par sirf halka opacity fade, koi slide/blur nahi, data pehle se DOM mein hota hai */
+.ne-fade-in{ animation:ne-fade-in .15s ease-out; }
+@keyframes ne-fade-in{ from{ opacity:0; } to{ opacity:1; } }

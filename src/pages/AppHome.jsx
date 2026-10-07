@@ -101,7 +101,7 @@ export default function AppHome({ storeId, apiBase, fetcher }) {
               {loading || stats === null ? (
                 <div className="ne-skel" style={{ height: 26, width: "60%" }} />
               ) : (
-                <div style={{ fontSize: 22, fontWeight: 700 }}>{c.value}</div>
+                <div className="ne-fade-in" style={{ fontSize: 22, fontWeight: 700 }}>{c.value}</div>
               )}
             </div>
           ))}

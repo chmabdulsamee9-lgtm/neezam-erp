@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import './theme.css'
 import { supabase } from './supabase'
@@ -10,18 +10,49 @@ import Icon from './components/Icon'
 import ErrorBoundary from './components/ErrorBoundary'
 import { useLanguage, useTranslation } from './i18n'
 import Login from './pages/Login'
-import Home from './pages/public/Home'
-import OrderManagementSolution from './pages/public/solutions/OrderManagement'
-import CourierIntegrationSolution from './pages/public/solutions/CourierIntegration'
-import CourierNetworkSolution from './pages/public/solutions/CourierNetwork'
-import AnalyticsSolution from './pages/public/solutions/Analytics'
-import ProductsInventorySolution from './pages/public/solutions/ProductsInventory'
-import AIAdsSolution from './pages/public/solutions/AIAds'
-import PublicPricing from './pages/public/Pricing'
-import PublicTracking from './pages/public/Tracking'
-import PublicAbout from './pages/public/About'
-import PublicContact from './pages/public/Contact'
-import PublicTerms from './pages/public/Terms'
+import AppHome from './pages/AppHome'
+import { PageSkeletonFor } from './components/Skeletons'
+
+// Page-level lazy loading: har page apna alag chunk, pehli baar khulne par download hota hai.
+// Suspense wrapper ke andar hi hai, isliye call sites (<Orders ... />) bilkul nahi badle.
+const CHUNK_RELOAD_KEY = 'neezam_chunk_reload'
+const loadWithRetry = (loader) => () =>
+  loader()
+    .then((m) => { try { sessionStorage.removeItem(CHUNK_RELOAD_KEY) } catch (e) {} return m })
+    .catch((err) => {
+      // Naya deploy hone par purana chunk server se gum ho sakta hai: ek baar khud reload (loop se bachne ke liye sirf ek baar).
+      try {
+        if (!sessionStorage.getItem(CHUNK_RELOAD_KEY)) {
+          sessionStorage.setItem(CHUNK_RELOAD_KEY, '1')
+          window.location.reload()
+          return new Promise(() => {})
+        }
+      } catch (e) {}
+      throw err
+    })
+function lazyPage(loader, menu) {
+  const Lazy = lazy(loadWithRetry(loader))
+  return function LazyPage(props) {
+    return (
+      <Suspense fallback={menu ? <PageSkeletonFor menu={menu} /> : null}>
+        <Lazy {...props} />
+      </Suspense>
+    )
+  }
+}
+
+const Home = lazyPage(() => import('./pages/public/Home'), null)
+const OrderManagementSolution = lazyPage(() => import('./pages/public/solutions/OrderManagement'), null)
+const CourierIntegrationSolution = lazyPage(() => import('./pages/public/solutions/CourierIntegration'), null)
+const CourierNetworkSolution = lazyPage(() => import('./pages/public/solutions/CourierNetwork'), null)
+const AnalyticsSolution = lazyPage(() => import('./pages/public/solutions/Analytics'), null)
+const ProductsInventorySolution = lazyPage(() => import('./pages/public/solutions/ProductsInventory'), null)
+const AIAdsSolution = lazyPage(() => import('./pages/public/solutions/AIAds'), null)
+const PublicPricing = lazyPage(() => import('./pages/public/Pricing'), null)
+const PublicTracking = lazyPage(() => import('./pages/public/Tracking'), null)
+const PublicAbout = lazyPage(() => import('./pages/public/About'), null)
+const PublicContact = lazyPage(() => import('./pages/public/Contact'), null)
+const PublicTerms = lazyPage(() => import('./pages/public/Terms'), null)
 
 // Public marketing-site routes — sirf logged-out visitors ke liye (jaisa
 // pehle sirf "/" ke liye Homepage tha, ab poori 12-page site isi pattern
@@ -41,33 +72,31 @@ const PUBLIC_ROUTES = {
   '/contact': PublicContact,
   '/terms': PublicTerms,
 }
-import StoreConnect from './pages/StoreConnect'
-import ProductsManagement from './pages/ProductsManagement'
-import InventoryManagement from './pages/InventoryManagement'
-import ProductCosting from './pages/ProductCosting'
-import FinanceStatement from './pages/FinanceStatement'
-import DevMonitorDetailed from './pages/DevMonitorDetailed'
-import GeminiUsageMonitor from './pages/GeminiUsageMonitor'
-import ShopifyCallback from './pages/ShopifyCallback'
-import Orders from './pages/Orders'
-import Dashboard from './pages/Dashboard'
-import AppHome from './pages/AppHome'
-import { PageSkeletonFor } from './components/Skeletons'
-import WhatsApp from './pages/WhatsApp'
-import Team from './pages/Team'
-import Settings from './pages/Settings'
-import ActivityLog from './pages/ActivityLog'
-import ProfitLoss from './pages/ProfitLoss'
-import SupplierLedger from './pages/SupplierLedger'
-import BudgetCalculator from './pages/BudgetCalculator'
-import CourierConnect from './pages/CourierConnect'
-import CourierDashboard from './pages/CourierDashboard'
-import CourierDetailedView from './pages/CourierDetailedView'
-import BookedOrders from './pages/BookedOrders'
-import Payments from './pages/Payments'
-import MetaConnect from './pages/MetaConnect'
-import MetaCallback from './pages/MetaCallback'
-import AdsAnalytics from './pages/AdsAnalytics'
+const StoreConnect = lazyPage(() => import('./pages/StoreConnect'), 'store-connect')
+const ProductsManagement = lazyPage(() => import('./pages/ProductsManagement'), 'products')
+const InventoryManagement = lazyPage(() => import('./pages/InventoryManagement'), 'inventory')
+const ProductCosting = lazyPage(() => import('./pages/ProductCosting'), 'product-costing')
+const FinanceStatement = lazyPage(() => import('./pages/FinanceStatement'), 'finance-statement')
+const DevMonitorDetailed = lazyPage(() => import('./pages/DevMonitorDetailed'), 'master-dashboard/dev-monitor')
+const GeminiUsageMonitor = lazyPage(() => import('./pages/GeminiUsageMonitor'), 'master-dashboard/gemini-monitor')
+const ShopifyCallback = lazyPage(() => import('./pages/ShopifyCallback'), null)
+const Orders = lazyPage(() => import('./pages/Orders'), 'orders')
+const Dashboard = lazyPage(() => import('./pages/Dashboard'), 'dashboard')
+const WhatsApp = lazyPage(() => import('./pages/WhatsApp'), 'whatsapp')
+const Team = lazyPage(() => import('./pages/Team'), 'team')
+const Settings = lazyPage(() => import('./pages/Settings'), 'settings')
+const ActivityLog = lazyPage(() => import('./pages/ActivityLog'), 'activity-log')
+const ProfitLoss = lazyPage(() => import('./pages/ProfitLoss'), 'pnl')
+const SupplierLedger = lazyPage(() => import('./pages/SupplierLedger'), 'ledger')
+const BudgetCalculator = lazyPage(() => import('./pages/BudgetCalculator'), 'budget')
+const CourierConnect = lazyPage(() => import('./pages/CourierConnect'), 'courier-connect')
+const CourierDashboard = lazyPage(() => import('./pages/CourierDashboard'), 'courier-dashboard')
+const CourierDetailedView = lazyPage(() => import('./pages/CourierDetailedView'), 'courier-dashboard/detailed')
+const BookedOrders = lazyPage(() => import('./pages/BookedOrders'), 'courier')
+const Payments = lazyPage(() => import('./pages/Payments'), 'payments')
+const MetaConnect = lazyPage(() => import('./pages/MetaConnect'), 'meta-connect')
+const MetaCallback = lazyPage(() => import('./pages/MetaCallback'), null)
+const AdsAnalytics = lazyPage(() => import('./pages/AdsAnalytics'), 'ads')
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev"
 const BATCH_SIZE = 1000
@@ -165,12 +194,7 @@ function SplashScreen() {
   return (
     <div className="ne-app-shell" style={{ display: 'block' }} aria-busy="true">
       <div className="ne-skel-shell">
-        <div className="ne-skel-side">
-          <div className="ne-skel" style={{ height: 28, width: '70%' }} />
-          {[...Array(8)].map((_, i) => (
-            <div key={i} className="ne-skel" style={{ height: 18, width: '90%' }} />
-          ))}
-        </div>
+        <div className="ne-skel-side" />
         <div className="ne-skel-main">
           <div className="ne-skel" style={{ height: 36, width: '40%' }} />
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
