@@ -1049,6 +1049,9 @@ function App() {
   const [pendingProfiles, setPendingProfiles] = useState([])
   const [selectedStoreId, setSelectedStoreId] = useState(null)
   const [activePeriod, setActivePeriod] = useState("30d")
+  // Realtime handler purani closure mein chalta hai, isliye current period ref se padhte hain (har render mein update).
+  const activePeriodRef = useRef(activePeriod)
+  activePeriodRef.current = activePeriod
   const selectedStoreIdRef = useRef(selectedStoreId)
   // isMasterView ab URL se derive hoti hai (koi alag state nahi) — pehle yeh independent
   // boolean thi jo har reload par creator ke liye hamesha true force ho jati thi, current
@@ -1479,6 +1482,10 @@ function App() {
               next = [...prev]
               next[idx] = merged
             } else {
+              // Period se purana order ki live update (naya order nahi): IndexedDB mein upar upsertOrder se save ho chuka,
+              // UI state / rawOrdersRef / beep / badge mein nahi. created_at na ho ya "All Time" ho to pehle jaisa (naya maana jata hai).
+              const __periodFrom = periodToFromDate(activePeriodRef.current)
+              if (__periodFrom && rawOrder.created_at && new Date(rawOrder.created_at) < new Date(__periodFrom)) return prev
               // Naya order — TASK 17: beep + (agar Orders page nahi dekh rahe to) badge counter
               playNotifSound()
               if (activeMenuRef.current !== 'orders') setNotifCount(c => c + 1)
