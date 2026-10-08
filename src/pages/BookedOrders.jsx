@@ -540,8 +540,18 @@ export default function BookedOrders({ storeId, ordersStore }) {
   const [orders, setOrders] = useState([]);
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
   const [search, setSearch] = useState("");
-  const [activeTab, setActiveTab] = useState("All");
-  const [activeSubTab, setActiveSubTab] = useState(null);
+  // Home ke to-do se aane par sahi tab/sub-tab par khulna: sessionStorage se padhte hain (mount effect mein hata diya jata hai).
+  const [__deepLink] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem("neezam_booked_open");
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+  });
+  useEffect(() => {
+    try { sessionStorage.removeItem("neezam_booked_open"); } catch (e) { /* ignore */ }
+  }, []);
+  const [activeTab, setActiveTab] = useState(__deepLink?.tab || "All");
+  const [activeSubTab, setActiveSubTab] = useState(__deepLink?.sub || null);
   const [courierFilter, setCourierFilter] = useState("All");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");

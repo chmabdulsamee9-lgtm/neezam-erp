@@ -2059,7 +2059,7 @@ function App() {
               />
             )}
             {activeMenu === 'home' && (
-              <AppHome storeId={selectedStoreId} apiBase={CF_URL} fetcher={monitoredFetch} />
+              <AppHome storeId={selectedStoreId} storeName={currentStoreInfo?.store_name} apiBase={CF_URL} fetcher={monitoredFetch} onNavigate={setActiveMenu} canOpen={hasAccess} />
             )}
             {activeMenu === 'dashboard' && hasAccess('dashboard') && !ordersPending && (
               ordersData.length === 0 ? (
