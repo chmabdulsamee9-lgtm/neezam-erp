@@ -1689,9 +1689,14 @@ function App() {
           const olderRaw = olderBatch.map(r => r.raw_data)
           await saveOrdersBulk(cacheId, olderRaw)
           if (isStale()) return
-          const merged = [...rawOrdersRef.current, ...olderRaw]
-          rawOrdersRef.current = merged
-          setOrdersData(rebuildOrdersData(merged, statusMap))
+          // Sirf "All Time" (fromDate null) mein purane orders UI state mein aate hain.
+          // 30d/90d/180d mein ye orders period se bahar hain: IndexedDB mein save ho chuke (upar saveOrdersBulk),
+          // lekin ordersData/rawOrdersRef mein merge nahi — memory aur render dono bachte hain.
+          if (!fromDate) {
+            const merged = [...rawOrdersRef.current, ...olderRaw]
+            rawOrdersRef.current = merged
+            setOrdersData(rebuildOrdersData(merged, statusMap))
+          }
           if (olderBatch.length < BATCH_SIZE) break
           from += BATCH_SIZE
         }
