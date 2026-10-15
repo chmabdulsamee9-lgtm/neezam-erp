@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo, useId } from "react";
+import { useState, useEffect, useMemo, useId, useRef } from "react";
 import { PDFDocument } from "pdf-lib";
 import { supabase } from "../supabase";
-import { getCachedBookedOrders } from "../ordersCache";
-import { syncBookedOrdersCache, bucketFinalStatus } from "../bookedOrdersData";
+import { bucketFinalStatus } from "../bookedOrdersData";
+import { getView, setView } from "../viewCache";
 import { printEneezamLabel, printEneezamLabelsMerged } from "../components/EneezamLabel";
 import { addressChipStyle, addressChipMutedStyle } from "../addressChipStyles";
 import dexLogo from "../assets/couriers/dex.png";
@@ -532,7 +532,7 @@ function CourierFeedbackHistory({ orderId }) {
   );
 }
 
-export default function BookedOrders({ storeId, ordersStore }) {
+export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersion }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const [loading, setLoading] = useState(true);
@@ -621,9 +621,77 @@ export default function BookedOrders({ storeId, ordersStore }) {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  // ---------- SERVER-SIDE PAGE FETCH (persistent cache + revalidate) ----------
+  const [serverTotal, setServerTotal] = useState(0);
+  const [serverCounts, setServerCounts] = useState({ tabs: {}, subs: {}, couriers: [] });
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [refreshTick, setRefreshTick] = useState(0);
+  const bookedLoadedRef = useRef(false);
+  const selectedRowsRef = useRef(new Map());
+
   useEffect(() => {
-    if (storeId) loadBooked();
-  }, [storeId]);
+    const h = setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => clearTimeout(h);
+  }, [search]);
+
+  const dateFromIso = dateFrom ? new Date(dateFrom + "T00:00:00").toISOString() : null;
+  const dateToIso = dateTo ? new Date(new Date(dateTo + "T00:00:00").getTime() + 86400000).toISOString() : null;
+
+  const callBookedApi = async (body) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetcher(`${CF_URL}/booked-page`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+      body: JSON.stringify(body),
+    });
+    const json = await res.json();
+    if (!res.ok || json.error) throw new Error(json.error || "Booked orders load nahi ho sakay");
+    return json;
+  };
+
+  const bookedBody = (pg, pp) => ({
+    storeId,
+    tab: activeTab === "Ready for Booking" ? "All" : activeTab,
+    sub: activeTab === "Ready for Booking" ? "" : (activeSubTab || ""),
+    search: debouncedSearch, courier: courierFilter,
+    from: dateFromIso, to: dateToIso, page: pg, perPage: pp,
+  });
+
+  const applyBooked = (json) => {
+    setOrders(json.rows || []);
+    setServerTotal(json.total || 0);
+    setServerCounts(json.counts || { tabs: {}, subs: {}, couriers: [] });
+    setError("");
+    bookedLoadedRef.current = true;
+  };
+
+  useEffect(() => {
+    if (!storeId) return;
+    let cancelled = false;
+    const body = bookedBody(page, perPage);
+    const cacheKey = `booked|${JSON.stringify(body)}`;
+    (async () => {
+      const netP = callBookedApi(body);
+      netP.catch(() => {});
+      let shown = null;
+      try {
+        const hit = await getView(cacheKey);
+        if (hit && !cancelled) { shown = hit.json; applyBooked(hit.json); setLoading(false); }
+      } catch (e) { /* ignore */ }
+      try {
+        const json = await netP;
+        if (cancelled) return;
+        setView(cacheKey, json).catch(() => {});
+        if (!shown || JSON.stringify(shown) !== JSON.stringify(json)) applyBooked(json);
+      } catch (err) {
+        if (cancelled) return;
+        if (bookedLoadedRef.current) console.log("Booked refetch error:", err.message);
+        else setError(err.message);
+      }
+      if (!cancelled) setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [storeId, activeTab, activeSubTab, debouncedSearch, courierFilter, dateFromIso, dateToIso, page, perPage, liveVersion, refreshTick]);
 
   // Realtime: order_statuses par live changes — orders[] items ka top-level identifying
   // field `.id` hai (`.order_id` nahi, mergeStatusesWithCache ka convention), aur order_statuses
@@ -681,6 +749,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
     };
   }, [storeId]);
 
+  const pickupLoadedRef = useRef(false);
   // "Ready for Booking" = order_statuses.status "Approved" hai (agent_status, Orders.jsx wala
   // exact value) lekin abhi tak dex_tracking_number set nahi hua (kabhi booked hi nahi hua).
   // shopify_orders_cache mein flat columns nahi hote — asal order raw_data JSONB mein hai
@@ -734,11 +803,14 @@ export default function BookedOrders({ storeId, ordersStore }) {
         });
         setReadyOrders(mapped);
       }
-      const { data: addrs } = await supabase.from("pickup_addresses").select("*").eq("store_id", storeId).order("created_at");
-      setPickupAddresses(addrs || []);
-      if (addrs && addrs.length > 0) setBookAddressId((addrs.find((a) => a.is_default) || addrs[0]).id);
+      if (!pickupLoadedRef.current) {
+        pickupLoadedRef.current = true;
+        const { data: addrs } = await supabase.from("pickup_addresses").select("*").eq("store_id", storeId).order("created_at");
+        setPickupAddresses(addrs || []);
+        if (addrs && addrs.length > 0) setBookAddressId((addrs.find((a) => a.is_default) || addrs[0]).id);
+      }
     })();
-  }, [storeId]);
+  }, [storeId, liveVersion, refreshTick]);
 
   // Live SKU lookup (Orders.jsx jaisa hi) — "raw_data->variants" sirf, poora raw_data(*)
   // nahi, taake page-load payload halka rahe (images/body_html/tags/options waghera
@@ -832,42 +904,8 @@ export default function BookedOrders({ storeId, ordersStore }) {
     }
   };
 
-  // App.jsx ka background preload agar pehle hi cache warm kar chuka ho, to yahan turant
-  // (spinner ke bina) dikhega — warna yehi function full-load karega. syncBookedOrdersCache()
-  // (src/bookedOrdersData.js) hi asal fetch/merge/cache-write karta hai, App.jsx ka
-  // fire-and-forget preload bhi isi function ko use karta hai — dono jagah same logic.
-  const loadBooked = async () => {
-    setError("");
-    try {
-      const cached = await getCachedBookedOrders(ordersStore?.eneezam_id);
-      const cachedForStore = cached.filter((o) => o.agent_data?.store_id === storeId);
-
-      if (cachedForStore.length > 0) {
-        setOrders(cachedForStore);
-        setLoading(false);
-        syncBookedOrdersCache(storeId, ordersStore?.eneezam_id)
-          .then(({ rows }) => {
-            if (rows.length === 0) return;
-            setOrders((prev) => {
-              const map = {};
-              prev.forEach((o) => { map[o.id] = o; });
-              rows.forEach((o) => { map[o.id] = o; });
-              return Object.values(map);
-            });
-          })
-          .catch((err) => console.log("Booked delta sync error:", err.message));
-        return;
-      }
-
-      setLoading(true);
-      setLoadingCount(0);
-      const { rows } = await syncBookedOrdersCache(storeId, ordersStore?.eneezam_id, (count) => setLoadingCount(count));
-      setOrders(rows);
-    } catch (err) {
-      setError(err.message);
-    }
-    setLoading(false);
-  };
+  // Server-side pagination: ab sirf refetch trigger hota hai (actions ke baad purane call sites chalte rahen)
+  const loadBooked = () => setRefreshTick((x) => x + 1);
 
   const toggleRemarks = (id) => {
     setExpandedRemarksIds((prev) => {
@@ -877,7 +915,42 @@ export default function BookedOrders({ storeId, ordersStore }) {
     });
   };
 
+  // Selected rows alag-alag pages se aa sakti hain — unhe yaad rakho
+  const findOrderById = (id) => selectedRowsRef.current.get(id) || orders.find((o) => o.id === id);
+  const getSelectedOrders = () => {
+    const m = new Map(selectedRowsRef.current);
+    orders.forEach((o) => m.set(o.id, o));
+    return [...selectedIds].map((id) => m.get(id)).filter(Boolean);
+  };
+  // Poore active tab/filters ke matching rows (max 500) server se laa kar select karo
+  const selectAllMatching = async () => {
+    try {
+      const json = await callBookedApi(bookedBody(1, 500));
+      const rows = json.rows || [];
+      rows.forEach((o) => selectedRowsRef.current.set(o.id, o));
+      setSelectedIds(new Set(rows.map((o) => o.id)));
+    } catch (err) {
+      console.log("Select all error:", err.message);
+    }
+  };
+  // Courier feedback Excel import: tracking number -> order_id lookup poore store ka (sirf 2 columns)
+  const fetchTrackingLookup = async () => {
+    let all = [];
+    let from = 0;
+    while (true) {
+      const { data, error } = await supabase.from("order_statuses").select("order_id, dex_tracking_number")
+        .eq("store_id", storeId).not("dex_tracking_number", "is", null).range(from, from + 999);
+      if (error || !data) break;
+      all = all.concat(data);
+      if (data.length < 1000) break;
+      from += 1000;
+    }
+    return all.map((r) => ({ id: r.order_id, agent_data: { dex_tracking_number: r.dex_tracking_number } }));
+  };
+
   const toggleSelect = (id) => {
+    const __row = orders.find((o) => o.id === id);
+    if (__row) selectedRowsRef.current.set(id, __row);
     setSelectedIds((prev) => {
       const n = new Set(prev);
       n.has(id) ? n.delete(id) : n.add(id);
@@ -1049,7 +1122,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
       const { data: { session } } = await supabase.auth.getSession();
       const results = [];
       for (const orderId of selectedIds) {
-        const order = orders.find((o) => o.id === orderId);
+        const order = findOrderById(orderId);
         const packageCode = order?.agent_data?.dex_package_code;
         const orderName = order?.name || orderId;
         if (!packageCode) {
@@ -1114,7 +1187,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
     const { data: { session } } = await supabase.auth.getSession();
     const results = [];
     for (const orderId of selectedIds) {
-      const order = orders.find((o) => o.id === orderId);
+      const order = findOrderById(orderId);
       const orderName = order?.name || orderId;
       try {
         const res = await fetch(`${CF_URL}/dex-cancel-order`, {
@@ -1145,7 +1218,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
   const handleBulkPrintEneezamLabel = async () => {
     setPrintingLabel(true);
     try {
-      const selectedOrders = orders.filter((o) => selectedIds.has(o.id));
+      const selectedOrders = getSelectedOrders();
       await printEneezamLabelsMerged({ orders: selectedOrders, storeId });
     } finally {
       setPrintingLabel(false);
@@ -1457,7 +1530,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
     if (!file) return;
     e.target.value = "";
     try {
-      const rows = await parseCourierFeedbackFile(file, orders);
+      const rows = await parseCourierFeedbackFile(file, await fetchTrackingLookup());
       if (rows.length === 0) {
         alert(t("booked.noCourierFeedbackRows"));
         return;
@@ -1481,7 +1554,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
     }
   };
 
-  const availableCouriers = ["All", ...new Set(orders.map((o) => o.agent_data.courier_name).filter(Boolean))].sort();
+  const availableCouriers = ["All", ...(serverCounts.couriers || [])];
 
   // package_created_at (booking date) order.agent_data ke andar hota hai (order_statuses row),
   // top-level nahi — mergeStatusesWithCache (bookedOrdersData.js) ka convention, poori file
@@ -1501,30 +1574,11 @@ export default function BookedOrders({ storeId, ordersStore }) {
     return true
   }
 
-  // classified/TAB_STRUCTURE/tabCounts/subTabCounts/filtered ek hi useMemo mein — TAB_STRUCTURE
-  // aur unmappedTabKeys yahan bhi shamil hain kyunki tabCounts/subTabCounts unhi par depend
-  // karte hain (agar TAB_STRUCTURE bahar plain const rehta to har render pe nayi array reference
-  // banti aur memoization ka fayda hi na hota). activeTabDef neeche ek chhota alag const hai,
-  // kyunki woh sirf activeTab badalne par hi dobara chahiye, poore orders array pe depend nahi karta.
-  const { classified, TAB_STRUCTURE, tabCounts, subTabCounts, filtered } = useMemo(() => {
-    const classifiedResult = orders.map((o) => {
-      const raw = (o.agent_data?.courier_order_status || "").trim().toLowerCase();
-      const agingDay = computeAgingDay(o);
-      const isAttemptFailed = raw === "delivery attempt failed";
-      const isAwaitingAdvice = !!o.agent_data?.awaiting_shipper_advice;
-      const needsShipperRemarks = isAwaitingAdvice || isAttemptFailed || (agingDay !== null && agingDay >= 5);
-      const shipperRemarksSub = isAwaitingAdvice ? "Shipper Advice" : isAttemptFailed ? "Delivery Attempt Failed" : "Aging Orders";
-      return {
-        o,
-        cls: needsShipperRemarks
-          ? { tab: "Shipper Remarks", sub: shipperRemarksSub }
-          : classifyTab(o),
-      };
-    });
-
-    const unmappedTabKeys = [...new Set(classifiedResult.map((c) => c.cls.tab).filter((key) => key.startsWith("Unmapped: ")))];
-
-    const tabStructureResult = [
+  // Tabs/counts/classification ab server (booked_page SQL) karta hai — yahan sirf labels jodte hain
+  const { TAB_STRUCTURE, tabCounts, subTabCounts } = useMemo(() => {
+    const tabsObj = serverCounts.tabs || {};
+    const unmappedTabKeys = Object.keys(tabsObj).filter((k) => k.startsWith("Unmapped: "));
+    const structure = [
       ...TAB_KEYS.map((td) => ({
         ...td,
         label: t(td.labelKey),
@@ -1532,69 +1586,31 @@ export default function BookedOrders({ storeId, ordersStore }) {
       })),
       ...unmappedTabKeys.map((key) => ({ key, label: key })),
     ];
-
     const counts = Object.fromEntries(
-      tabStructureResult.map((td) => [td.key, td.key === "All" ? orders.length : td.key === "Ready for Booking" ? readyOrders.length : classifiedResult.filter((c) => c.cls.tab === td.key).length])
+      structure.map((td) => [td.key, td.key === "All" ? (tabsObj.All || 0) : td.key === "Ready for Booking" ? readyOrders.length : (tabsObj[td.key] || 0)])
     );
-    const subCounts = Object.fromEntries(
-      tabStructureResult.filter((td) => td.subs).flatMap((td) =>
-        td.subs.map((s) => [`${td.key}::${s.key}`, classifiedResult.filter((c) => c.cls.tab === td.key && c.cls.sub === s.key).length])
+    const subs = Object.fromEntries(
+      structure.filter((td) => td.subs).flatMap((td) =>
+        td.subs.map((s) => [`${td.key}::${s.key}`, serverCounts.subs?.[`${td.key}::${s.key}`] || 0])
       )
     );
-
-    const filteredResult = classifiedResult.filter(({ o, cls }) => {
-      const ad = o.agent_data;
-      const fullName = `${o.customer?.first_name || ""} ${o.customer?.last_name || ""}`.toLowerCase();
-      const phone = o.customer?.phone || o.shipping_address?.phone || "";
-      const q = search.toLowerCase();
-      const matchSearch =
-        !search ||
-        (o.name || "").toLowerCase().includes(q) ||
-        fullName.includes(q) ||
-        phone.includes(search) ||
-        (ad.dex_tracking_number || "").toLowerCase().includes(q);
-      const matchTab = activeTab === "All" || (cls.tab === activeTab && (!activeSubTab || cls.sub === activeSubTab));
-      const matchCourier = courierFilter === "All" || ad.courier_name === courierFilter;
-      return matchSearch && matchTab && matchCourier && matchDate(o);
-    }).map(({ o }) => o).sort((a, b) => extractOrderNum(b) - extractOrderNum(a));
-
-    return {
-      classified: classifiedResult,
-      TAB_STRUCTURE: tabStructureResult,
-      tabCounts: counts,
-      subTabCounts: subCounts,
-      filtered: filteredResult,
-    };
-  }, [orders, readyOrders, search, activeTab, activeSubTab, courierFilter, dateFrom, dateTo, t]);
+    return { TAB_STRUCTURE: structure, tabCounts: counts, subTabCounts: subs };
+  }, [serverCounts, readyOrders, t]);
+  const filtered = orders; // current page rows
 
   const activeTabDef = TAB_STRUCTURE.find((td) => td.key === activeTab);
 
-  const totalPages = Math.ceil(filtered.length / perPage) || 1;
-  const pagedFiltered = filtered.slice((page - 1) * perPage, page * perPage);
+  const totalPages = Math.max(1, Math.ceil(serverTotal / perPage));
+  const pagedFiltered = orders;
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [totalPages]);
 
-  // "To Ship" tab (Booked + Pickup Failed sub-tabs) ke liye select-all — `filtered` already
-  // active tab/sub-tab/search/courier filters respect karta hai.
-  const allToShipSelected = filtered.length > 0 && filtered.every((o) => selectedIds.has(o.id));
-  const toggleSelectAllToShip = () => {
-    setSelectedIds((prev) => {
-      const n = new Set(prev);
-      if (allToShipSelected) filtered.forEach((o) => n.delete(o.id));
-      else filtered.forEach((o) => n.add(o.id));
-      return n;
-    });
-  };
-
-  // "Shipper Remarks" tab ke liye select-all — same pattern jaisa "To Ship" tab ke
-  // liye upar hai ("filtered" already activeTab === "Shipper Remarks" par scoped hai).
-  const allShipperRemarksSelected = filtered.length > 0 && filtered.every((o) => selectedIds.has(o.id));
-  const toggleSelectAllShipperRemarks = () => {
-    setSelectedIds((prev) => {
-      const n = new Set(prev);
-      if (allShipperRemarksSelected) filtered.forEach((o) => n.delete(o.id));
-      else filtered.forEach((o) => n.add(o.id));
-      return n;
-    });
-  };
+  const allMatchingSelected = serverTotal > 0 && orders.length > 0 && orders.every((o) => selectedIds.has(o.id)) && selectedIds.size >= Math.min(serverTotal, 500);
+  const allToShipSelected = allMatchingSelected;
+  const allShipperRemarksSelected = allMatchingSelected;
+  const toggleSelectAllToShip = () => { if (allMatchingSelected) setSelectedIds(new Set()); else selectAllMatching(); };
+  const toggleSelectAllShipperRemarks = toggleSelectAllToShip;
 
   // "Ready for Booking" tab ke liye select-all — same pattern jaisa "To Ship" tab ke liye
   // upar hai (koi search/filter is tab pe readyOrders par apply nahi hoti, isliye poora
@@ -1619,7 +1635,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: 8 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><Icon name="truck" size={17} /> {t("booked.title")}</h1>
-          <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{ordersStore?.store_name} — {filtered.length} {t("booked.shipments")}</p>
+          <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{ordersStore?.store_name} — {serverTotal} {t("booked.shipments")}</p>
         </div>
         <select value={perPage} onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); }}
           style={{ padding: "5px 8px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
@@ -1809,7 +1825,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
         </div>
       ) : loading ? (
         <div><BookedSkeleton /><div style={{ textAlign: "center", fontSize: 11.5, color: "var(--ne-muted)", marginTop: 8 }}>{t("booked.loading")}{loadingCount > 0 ? ` (${loadingCount} ${t("booked.loaded")})` : "..."}</div></div>
-      ) : filtered.length === 0 ? (
+      ) : serverTotal === 0 ? (
         <div style={{ ...cardStyle, textAlign: "center", color: "var(--ne-muted-2)", fontSize: 12 }}>{t("booked.noBookedInFilter")}</div>
       ) : (
         <div>
@@ -1825,7 +1841,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
                 <input type="checkbox" checked={allShipperRemarksSelected} onChange={toggleSelectAllShipperRemarks} />
                 {t("booked.selectAll")}
               </label>
-              <button onClick={() => exportShipperRemarksExcel(orders.filter((o) => selectedIds.has(o.id)))}
+              <button onClick={() => exportShipperRemarksExcel(getSelectedOrders())}
                 disabled={selectedIds.size === 0}
                 style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: selectedIds.size === 0 ? "not-allowed" : "pointer", opacity: selectedIds.size === 0 ? 0.5 : 1 }}>
                 <Icon name="download" size={13} /> {t("booked.exportShipperRemarks")}
@@ -1836,7 +1852,7 @@ export default function BookedOrders({ storeId, ordersStore }) {
                     {t("booked.copiedForWhatsapp")}
                   </div>
                 )}
-                <button onClick={() => copyShipperRemarksForWhatsApp(orders.filter((o) => selectedIds.has(o.id)))}
+                <button onClick={() => copyShipperRemarksForWhatsApp(getSelectedOrders())}
                   disabled={selectedIds.size === 0}
                   style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 16px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 12, fontWeight: 700, cursor: selectedIds.size === 0 ? "not-allowed" : "pointer", opacity: selectedIds.size === 0 ? 0.5 : 1 }}>
                   <Icon name="comment" size={13} /> {t("booked.copyForWhatsapp")}
@@ -2191,10 +2207,10 @@ export default function BookedOrders({ storeId, ordersStore }) {
       )}
 
       {/* Pagination — Orders.jsx wala exact pattern */}
-      {!loading && filtered.length > 0 && (
+      {!loading && serverTotal > 0 && (
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.6rem", flexWrap: "wrap", gap: 8 }}>
           <span style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>
-            {t("booked.showing")} {((page - 1) * perPage) + 1}–{Math.min(page * perPage, filtered.length)} {t("booked.of")} {filtered.length}
+            {t("booked.showing")} {((page - 1) * perPage) + 1}–{Math.min(page * perPage, serverTotal)} {t("booked.of")} {serverTotal}
           </span>
           <div style={{ display: "flex", gap: 4 }}>
             <button onClick={() => setPage(1)} disabled={page === 1} style={{ padding: "4px 9px", borderRadius: 7, border: "1px solid var(--ne-border)", background: page === 1 ? "transparent" : "var(--ne-surface-2)", color: page === 1 ? "var(--ne-muted-2)" : "var(--ne-muted)", fontSize: 11, cursor: page === 1 ? "default" : "pointer" }}>«</button>

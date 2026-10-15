@@ -4,6 +4,7 @@ import { useLanguage, useTranslation } from "../i18n";
 import { DATE_FILTERS } from "../bookedOrdersData";
 import Icon from "../components/Icon";
 import { Sparkline, TrendChart } from "../components/HomeCharts";
+import { getView, setView } from "../viewCache";
 
 const DATE_FILTER_LABEL_KEYS = {
   today: "dashboard.dateFilter.today",
@@ -66,7 +67,7 @@ function buildLabels(start, stepSecs, n) {
   });
 }
 
-export default function AppHome({ storeId, storeName, apiBase, fetcher, onNavigate, canOpen }) {
+export default function AppHome({ storeId, storeName, apiBase, fetcher, onNavigate, canOpen, liveVersion }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const [preset, setPreset] = useState("today");
@@ -77,16 +78,21 @@ export default function AppHome({ storeId, storeName, apiBase, fetcher, onNaviga
   const [error, setError] = useState(false);
   const [selected, setSelected] = useState("orders");
   const reqId = useRef(0);
+  const lastFetchAtRef = useRef(0);
+  const lastLiveRef = useRef(liveVersion);
 
   useEffect(() => { setData(null); }, [storeId]);
 
+  // Persistent cache + revalidate: pehle getView se foran dikhao, phir hamesha background
+  // fetch se confirm karo — sach hamesha server hai.
   const load = useCallback(async () => {
     if (!storeId) return;
     if (preset === "custom" && (!customFrom || !customTo)) return;
     const myReq = ++reqId.current;
+    const cacheKey = `home|${storeId}|${preset}|${customFrom || ""}|${customTo || ""}`;
     setLoading(true);
     setError(false);
-    try {
+    const netP = (async () => {
       const { data: sess } = await supabase.auth.getSession();
       const token = sess?.session?.access_token;
       const res = await fetcher(`${apiBase}/home-overview`, {
@@ -99,18 +105,37 @@ export default function AppHome({ storeId, storeName, apiBase, fetcher, onNaviga
         }),
       });
       const json = await res.json();
-      if (myReq !== reqId.current) return; // purani request ka jawab ignore
       if (!res.ok || !json.overview) throw new Error(json.error || "home-overview fail");
-      setData(json.overview);
+      return json.overview;
+    })();
+    netP.catch(() => {});
+    let shown = null;
+    try {
+      const hit = await getView(cacheKey);
+      if (hit && myReq === reqId.current) { shown = hit.json; setData(hit.json); setError(false); }
+    } catch (e) { /* ignore */ }
+    try {
+      const overview = await netP;
+      if (myReq !== reqId.current) return; // purani request ka jawab ignore
+      setView(cacheKey, overview).catch(() => {});
+      if (!shown || JSON.stringify(shown) !== JSON.stringify(overview)) setData(overview);
+      setError(false);
     } catch (e) {
       if (myReq !== reqId.current) return;
-      setError(true);
+      if (!shown) setError(true);
     } finally {
       if (myReq === reqId.current) setLoading(false);
     }
   }, [storeId, apiBase, fetcher, preset, customFrom, customTo]);
 
-  useEffect(() => { load(); }, [load]);
+  // liveVersion-triggered refetch kam az kam 4s ke gap se (Dashboard.jsx wala pattern)
+  useEffect(() => {
+    const isLive = liveVersion !== lastLiveRef.current;
+    lastLiveRef.current = liveVersion;
+    const delay = isLive ? Math.max(0, 4000 - (Date.now() - lastFetchAtRef.current)) : 0;
+    const timer = setTimeout(() => { lastFetchAtRef.current = Date.now(); load(); }, delay);
+    return () => clearTimeout(timer);
+  }, [load, liveVersion]);
 
   const hour = new Date().getHours();
   const greet = hour < 12 ? t("home.greet.morning") : hour < 17 ? t("home.greet.afternoon") : t("home.greet.evening");

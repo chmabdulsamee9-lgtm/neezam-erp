@@ -8,6 +8,7 @@ import Icon from "../components/Icon";
 import { Monogram } from "../components/Logo";
 import { OrdersSkeleton } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
+import { getView, setView } from "../viewCache";
 
 const TAB_KEYS = {
   All: "orders.tab.all",
@@ -616,27 +617,26 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
   );
 }
 
-export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrdersLoaded, ordersStore, setOrdersStore, cfUrl, activePeriod, onPeriodChange }) {
+export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, liveVersion }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
-  const orders = ordersData;
-  const setOrders = setOrdersData;
-  // Duplicate/Repeat-customer badges (Task 3b/3c) — ek dafa poore `orders` (is store ke
-  // saare loaded orders, sirf current page/tab nahi) se normalized-phone -> orders[]
-  // index banate hain, taake har row apna khud ka query na chalaye — dexServiceableCitySet
-  // jaisa hi caching pattern, bas useMemo se (yeh already-loaded data se derive hota hai,
-  // koi alag fetch nahi lagti). Early return (`if (error) return ...`) se PEHLE hona
-  // zaroori hai — Hooks kabhi conditionally call nahi ho sakte.
+  // Server-side pagination: `orders` ab sirf CURRENT PAGE ke rows hain (poora store nahi)
+  const [orders, setOrders] = useState([]);
+  const [serverTotal, setServerTotal] = useState(0);
+  const [tabCounts, setTabCounts] = useState(() => Object.fromEntries(TABS.map((tb) => [tb, 0])));
+  const [quickCounts, setQuickCounts] = useState({ today: 0, yesterday: 0, last7: 0 });
+  const [filterOptions, setFilterOptions] = useState({ cities: [], skus: [] });
+  // Duplicate/Repeat badges: server har row ke saath `phone_peers` (same phone ke orders) bhejta hai
   const phoneOrderIndex = useMemo(() => {
     const map = {};
     orders.forEach((o) => {
       const p = normalizePhone(o.agent_data?.phone || o.customer?.phone || o.shipping_address?.phone || o.billing_address?.phone || "");
       if (!p) return;
-      (map[p] ||= []).push(o);
+      map[p] = o.phone_peers || [];
     });
     return map;
   }, [orders]);
-  const [loading, setLoading] = useState(!ordersLoaded);
+  const [loading, setLoading] = useState(true);
   const [store, setStore] = useState(ordersStore);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -759,15 +759,6 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       return n;
     });
   };
-
-  useEffect(() => {
-    if (!ordersLoaded) {
-      console.warn(
-        'Orders.jsx mounted before ordersLoaded — ' +
-        'App.jsx should guarantee this never happens'
-      )
-    }
-  }, [ordersLoaded]);
 
   // Undo Sync feature ke liye order_sync_history — pehle sirf loadStore()'s dangerous
   // unscoped-platform-wide fallback path se load hota tha (jo hata diya gaya hai), ab
@@ -1706,66 +1697,102 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
     return () => clearTimeout(handle);
   }, [itemsSearch, productsForSearch]);
 
-  // Step 1: date range only — source of truth for tab counts
-  const { dateFilteredOrders, tabCounts, baseFilteredOrders, availableCities, availableSKUs, filteredOrders } = useMemo(() => {
-    const dateFiltered = orders.filter(order => {
-      const orderDate = new Date(order.created_at);
-      const matchFrom = !dateFrom || orderDate >= new Date(dateFrom + "T00:00:00");
-      const matchTo = !dateTo || orderDate <= new Date(dateTo + "T23:59:59");
-      return matchFrom && matchTo;
+  // ---------- SERVER-SIDE PAGE FETCH (persistent cache + revalidate) ----------
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const reqSeqRef = useRef(0);
+  const hasLoadedRef = useRef(false);
+  useEffect(() => {
+    const h = setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => clearTimeout(h);
+  }, [search]);
+
+  const storeIdForApi = ordersStore?.id;
+  const dateFromIso = dateFrom ? new Date(dateFrom + "T00:00:00").toISOString() : null;
+  const dateToIso = dateTo ? new Date(dateTo + "T23:59:59").toISOString() : null;
+
+  const callOrdersApi = async (path, body) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetcher(`${cfUrl}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+      body: JSON.stringify(body),
     });
+    const json = await res.json();
+    if (!res.ok || json.error) throw new Error(json.error || "Orders load nahi ho sakay");
+    return json;
+  };
 
-    const counts = Object.fromEntries(TABS.map(t => [t, t === "All" ? dateFiltered.length : dateFiltered.filter(o => tabFilter(t, o)).length]));
+  const applyPageJson = (json) => {
+    setOrders(json.rows || []);
+    setServerTotal(json.total || 0);
+    if (json.counts) setTabCounts(json.counts);
+    if (json.quick) setQuickCounts(json.quick);
+    setError("");
+    hasLoadedRef.current = true;
+  };
 
-    const baseFiltered = dateFiltered.filter(order => {
-      const name = `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.toLowerCase();
-      const phone = order.customer?.phone || order.shipping_address?.phone || "";
-      const orderNum = order.name || "";
-      const matchSearch = !search || name.includes(search.toLowerCase()) || phone.includes(search) || orderNum.includes(search);
-      const matchSource = sourceFilter === "All" || getSource(order) === sourceFilter;
-      const matchTab = activeTab === "All" || tabFilter(activeTab, order);
-      return matchSearch && matchSource && matchTab;
-    });
-
-    const cities = ["All", ...new Set(baseFiltered.map(o => o.agent_data?.city || o.shipping_address?.city).filter(Boolean))].sort();
-    const skus = [...new Set(baseFiltered.flatMap(o => getSKUs(o)))].filter(Boolean).sort();
-
-    const filtered = baseFiltered.filter(order => {
-      const orderCity = order.agent_data?.city || order.shipping_address?.city || "";
-      const matchStatus = statusFilters.length === 0 || statusFilters.includes(order.agent_status);
-      const matchCity = cityFilter === "All" || orderCity === cityFilter;
-      const matchSku = skuFilter === "All" || getSKUs(order).includes(skuFilter);
-      return matchStatus && matchCity && matchSku;
-    });
-
-    return {
-      dateFilteredOrders: dateFiltered,
-      tabCounts: counts,
-      baseFilteredOrders: baseFiltered,
-      availableCities: cities,
-      availableSKUs: skus,
-      filteredOrders: filtered,
+  const fetchOrdersPage = async () => {
+    if (!storeIdForApi) return;
+    const reqBody = {
+      storeId: storeIdForApi, tab: activeTab, search: debouncedSearch, source: sourceFilter,
+      statuses: statusFilters, city: cityFilter, sku: skuFilter,
+      from: dateFromIso, to: dateToIso, page, perPage,
     };
-  }, [orders, dateFrom, dateTo, search, sourceFilter, activeTab, statusFilters, cityFilter, skuFilter]);
+    const cacheKey = `orders|${JSON.stringify(reqBody)}`;
+    const seq = ++reqSeqRef.current;
+    const netP = callOrdersApi("/orders-page", reqBody);
+    netP.catch(() => {});
+    let shown = null;
+    try {
+      const hit = await getView(cacheKey);
+      if (hit && seq === reqSeqRef.current) { shown = hit.json; applyPageJson(hit.json); setLoading(false); }
+    } catch (e) { /* ignore */ }
+    try {
+      const json = await netP;
+      if (seq !== reqSeqRef.current) return;
+      setView(cacheKey, json).catch(() => {});
+      if (!shown || JSON.stringify(shown) !== JSON.stringify(json)) applyPageJson(json);
+    } catch (err) {
+      if (seq !== reqSeqRef.current) return;
+      if (hasLoadedRef.current) console.log("Orders refetch error:", err.message);
+      else setError(err.message);
+    }
+    if (seq === reqSeqRef.current) setLoading(false);
+  };
 
-  const tabFilteredOrders = filteredOrders;
-  const totalPages = Math.ceil(filteredOrders.length / perPage);
-  const pagedOrders = filteredOrders.slice((page - 1) * perPage, page * perPage);
+  useEffect(() => {
+    fetchOrdersPage();
+  }, [storeIdForApi, activeTab, debouncedSearch, sourceFilter, statusFilters, cityFilter, skuFilter, dateFromIso, dateToIso, page, perPage, liveVersion]);
 
-  const todayCount = orders.filter(o => {
-    const r = getDateRange("today");
-    return new Date(o.created_at) >= r.from && new Date(o.created_at) <= r.to;
-  }).length;
+  // City/SKU dropdown options: pehla page aane ke BAAD (date range badle to dobara); persistent cache ke sath
+  useEffect(() => {
+    if (!storeIdForApi || loading) return;
+    let cancelled = false;
+    const body = { storeId: storeIdForApi, from: dateFromIso, to: dateToIso };
+    const cacheKey = `orders-opts|${JSON.stringify(body)}`;
+    getView(cacheKey).then((hit) => { if (hit && !cancelled) setFilterOptions({ cities: hit.json.cities || [], skus: hit.json.skus || [] }); });
+    callOrdersApi("/orders-filter-options", body)
+      .then((j) => {
+        if (cancelled) return;
+        setView(cacheKey, j).catch(() => {});
+        setFilterOptions({ cities: j.cities || [], skus: j.skus || [] });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [storeIdForApi, loading, dateFromIso, dateToIso]);
 
-  const yesterdayCount = orders.filter(o => {
-    const r = getDateRange("yesterday");
-    return new Date(o.created_at) >= r.from && new Date(o.created_at) <= r.to;
-  }).length;
+  const availableCities = ["All", ...filterOptions.cities];
+  const availableSKUs = filterOptions.skus;
+  const totalPages = Math.max(1, Math.ceil(serverTotal / perPage));
+  const pagedOrders = orders;
+  const todayCount = quickCounts.today;
+  const yesterdayCount = quickCounts.yesterday;
+  const last7Count = quickCounts.last7;
 
-  const last7Count = orders.filter(o => {
-    const r = getDateRange("7days");
-    return new Date(o.created_at) >= r.from && new Date(o.created_at) <= r.to;
-  }).length;
+  // Agar live refresh ke baad page total se bahar nikal jaye (rows kam ho gaye)
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [totalPages]);
 
   const selectedHaveValidHistory = [...selectedIds].some(id => isHistoryValid(historyMap[String(id)]));
 
@@ -1950,7 +1977,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem", flexWrap: "wrap", gap: 8 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="package" size={15} /> {t("orders.title")}</h1>
-          <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{currentStore?.store_name} — {tabFilteredOrders.length} {t("orders.ordersSuffix")}</p>
+          <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{currentStore?.store_name} — {serverTotal} {t("orders.ordersSuffix")}</p>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <button onClick={toggleHeaderForced} title={headerForcedHidden ? t("orders.showHeader") : t("orders.hideHeader")}
@@ -1995,37 +2022,6 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
             style={{ padding: "5px 10px", borderRadius: 18, border: "1px solid var(--ne-danger)", background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontSize: 11, cursor: "pointer", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}><Icon name="close" size={9} /> {t("orders.clear")}</button>
         )}
       </div>
-
-      {/* Period Selector */}
-      {onPeriodChange && (
-        <div style={{
-          display: 'flex', gap: 4, alignItems: 'center',
-          flexWrap: 'wrap', marginBottom: "6px"
-        }}>
-          {PERIOD_OPTIONS.map(opt => (
-            <button
-              key={opt.value}
-              onClick={() => onPeriodChange(opt.value)}
-              style={{
-                padding: '4px 10px',
-                borderRadius: 6,
-                border: '1px solid var(--ne-border)',
-                background: activePeriod === opt.value
-                  ? 'var(--ne-grad)' : 'transparent',
-                color: activePeriod === opt.value
-                  ? '#fff' : 'var(--ne-muted)',
-                fontSize: 11,
-                fontWeight: activePeriod === opt.value
-                  ? 700 : 400,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {t(opt.labelKey)}
-            </button>
-          ))}
-        </div>
-      )}
 
       {/* Search + Date Range */}
       <div style={{ display: "flex", gap: 6, marginBottom: "6px", flexWrap: "wrap" }}>
@@ -2873,7 +2869,7 @@ export default function Orders({ ordersData, setOrdersData, ordersLoaded, setOrd
       {/* Pagination */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.6rem", flexWrap: "wrap", gap: 8 }}>
         <span style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>
-          {t("orders.showing")} {((page - 1) * perPage) + 1}–{Math.min(page * perPage, tabFilteredOrders.length)} {t("orders.of")} {tabFilteredOrders.length}
+          {t("orders.showing")} {((page - 1) * perPage) + 1}–{Math.min(page * perPage, serverTotal)} {t("orders.of")} {serverTotal}
         </span>
         <div style={{ display: "flex", gap: 4 }}>
           <button onClick={() => setPage(1)} disabled={page === 1} style={{ padding: "4px 9px", borderRadius: 7, border: "1px solid var(--ne-border)", background: page === 1 ? "transparent" : "var(--ne-surface-2)", color: page === 1 ? "var(--ne-muted-2)" : "var(--ne-muted)", fontSize: 11, cursor: page === 1 ? "default" : "pointer" }}>«</button>

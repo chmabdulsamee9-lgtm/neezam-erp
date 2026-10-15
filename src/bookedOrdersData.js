@@ -79,17 +79,22 @@ export async function fetchAllCachedOrdersLite(storeId) {
 // chunked .in() lookup yahan theek/cheap hai (full-load ke bhari case se bilkul alag)
 export async function fetchCachedOrdersByIds(storeId, ids) {
   if (ids.length === 0) return [];
-  let allRows = [];
   const CHUNK = 200;
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const chunk = ids.slice(i, i + CHUNK);
-    const { data, error } = await supabase
-      .from("shopify_orders_cache")
-      .select("id, raw_data")
-      .eq("store_id", storeId)
-      .in("id", chunk);
-    if (error) throw error;
-    allRows = allRows.concat(data || []);
+  const CONCURRENCY = 4;
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += CHUNK) chunks.push(ids.slice(i, i + CHUNK));
+  let allRows = [];
+  for (let i = 0; i < chunks.length; i += CONCURRENCY) {
+    const results = await Promise.all(chunks.slice(i, i + CONCURRENCY).map(async (chunk) => {
+      const { data, error } = await supabase
+        .from("shopify_orders_cache")
+        .select("id, raw_data")
+        .eq("store_id", storeId)
+        .in("id", chunk);
+      if (error) throw error;
+      return data || [];
+    }));
+    results.forEach((r) => { allRows = allRows.concat(r); });
   }
   return allRows;
 }
@@ -218,7 +223,9 @@ export async function syncBookedOrdersCache(storeId, eneezamId, onProgress) {
 
     const lastSyncedAt = (await getMeta(metaKey)) || "2000-01-01T00:00:00Z";
     const loadStartTime = new Date().toISOString();
-    const deltaStatuses = await fetchBookedStatusesDelta(storeId, lastSyncedAt);
+    // 10 min overlap: clock-skew ya in-flight transaction ki wajah se koi row delta se chhoot na jaye
+    const sinceWithOverlap = new Date(Math.max(0, new Date(lastSyncedAt).getTime() - 10 * 60 * 1000)).toISOString();
+    const deltaStatuses = await fetchBookedStatusesDelta(storeId, sinceWithOverlap);
     let deltaMerged = [];
     if (deltaStatuses.length > 0) {
       const orderIds = deltaStatuses.filter((s) => s.order_id).map((s) => s.order_id);
@@ -240,19 +247,8 @@ export async function syncBookedOrdersCache(storeId, eneezamId, onProgress) {
   // wajah thi "kabhi 140 pe atak, kabhi 3000 pe" wale slow-load ki — do bhari network fetches
   // ek sath chal rahi hoti thi. Sirf agar local cache bhi khali ho (bilkul first-ever
   // app-open, dono cache cold) tabhi purana network-fallback chalta hai.
-  const localOrders = await getCachedOrders(eneezamId);
-  const [statuses, cacheMap] = await (async () => {
-    if (localOrders.length > 0) {
-      const s = await fetchBookedStatuses(storeId, onProgress);
-      const map = {};
-      localOrders.forEach((o) => { map[String(o.id)] = o; });
-      return [s, map];
-    }
-    const [s, cachedRows] = await Promise.all([fetchBookedStatuses(storeId, onProgress), fetchAllCachedOrdersLite(storeId)]);
-    const map = {};
-    cachedRows.forEach((r) => { map[String(r.id)] = r.raw_data; });
-    return [s, map];
-  })();
+  const statuses = await fetchBookedStatuses(storeId, onProgress);
+  const cacheMap = {};
 
   // Local-cache-miss ko silently trust nahi karte — jitne order_ids map mein nahi milay
   // (matched hain lekin abhi tak local "orders" cache mein nahi aaye, jaisे purane orders

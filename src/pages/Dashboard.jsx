@@ -1,6 +1,9 @@
-import { useState, useMemo, useEffect, useId } from "react";
+import { useState, useMemo, useEffect, useId, useRef } from "react";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
+import { supabase } from "../supabase";
+import { PageSkeletonFor } from "../components/Skeletons";
+import { getView, setView } from "../viewCache";
 
 const CHART_LINE_LABEL_KEYS = { Orders: "dashboard.chart.orders", Revenue: "dashboard.chart.revenue", "Approved Orders": "dashboard.chart.approvedOrders" };
 const HOURLY_METRIC_LABEL_KEYS = { orders: "dashboard.hourly.orders", confirmed: "dashboard.hourly.confirmed", revenue: "dashboard.hourly.revenue" };
@@ -59,29 +62,23 @@ function smoothLinePath(points) {
   return d;
 }
 
-function TrendChart({ ordersData }) {
+function TrendChart({ trend }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const [activeLines, setActiveLines] = useState(["Orders", "Revenue", "Approved Orders"]);
   const [hoveredDay, setHoveredDay] = useState(null);
   const gradUid = useId();
 
-  const days = useMemo(() => {
-    const now = new Date();
-    return Array.from({ length: 30 }, (_, idx) => {
-      const i = 29 - idx;
-      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-      const dayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      const dayOrders = (ordersData || []).filter(o => (o.created_at || "").slice(0, 10) === dayStr);
-      return {
-        date: dayStr,
-        label: `${d.getMonth() + 1}/${d.getDate()}`,
-        Orders: dayOrders.length,
-        Revenue: Math.round(dayOrders.reduce((s, o) => s + Number(o.total_price || 0), 0)),
-        "Approved Orders": dayOrders.filter(o => o.agent_status === "Approved").length,
-      };
-    });
-  }, [ordersData]);
+  const days = useMemo(() => (trend || []).map((d) => {
+    const parts = String(d.date).split("-");
+    return {
+      date: d.date,
+      label: `${Number(parts[1])}/${Number(parts[2])}`,
+      Orders: d.orders,
+      Revenue: d.revenue,
+      "Approved Orders": d.approved,
+    };
+  }), [trend]);
 
   const W = 700, H = 200;
   const PAD = { top: 20, right: 20, bottom: 25, left: 10 };
@@ -236,33 +233,19 @@ const HOURLY_METRICS = [
 // Aaj vs Kal ka 24-ghante ka comparison — dateFilter se independent hai (hamesha
 // "aaj"/"kal" calendar din dikhata hai), taake Today/Yesterday ka apples-to-apples
 // hourly pattern dekha ja sake.
-function HourlyComparisonChart({ ordersData }) {
+function HourlyComparisonChart({ hourly }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const [metric, setMetric] = useState("orders");
   const gradUid = useId();
 
   const { todayHours, yestHours } = useMemo(() => {
-    const now = new Date();
-    const todayStr = ymd(now);
-    const yestStr = ymd(new Date(now.getTime() - 86400000));
-    const todayHours = Array(24).fill(0);
-    const yestHours = Array(24).fill(0);
-
-    (ordersData || []).forEach(o => {
-      const d = new Date(o.created_at);
-      const dateStr = ymd(d);
-      if (dateStr !== todayStr && dateStr !== yestStr) return;
-      const hour = d.getHours();
-      const value = metric === "revenue" ? Number(o.total_price || 0)
-        : metric === "confirmed" ? (o.agent_status === "Approved" ? 1 : 0)
-        : 1;
-      if (dateStr === todayStr) todayHours[hour] += value;
-      else yestHours[hour] += value;
-    });
-
-    return { todayHours, yestHours };
-  }, [ordersData, metric]);
+    const k = metric === "revenue" ? "revenue" : metric === "confirmed" ? "confirmed" : "orders";
+    return {
+      todayHours: hourly?.today?.[k] || Array(24).fill(0),
+      yestHours: hourly?.yest?.[k] || Array(24).fill(0),
+    };
+  }, [hourly, metric]);
 
   const W = 700, H = 190;
   const PAD = { top: 16, right: 8, bottom: 22, left: 8 };
@@ -276,7 +259,7 @@ function HourlyComparisonChart({ ordersData }) {
 
   // Fair comparison — Today abhi poora din nahi guzra, is liye Yesterday ke sath
   // sirf same time-window (0 se current hour tak) compare karte hain, poore 24h se nahi.
-  const currentHour = new Date().getHours();
+  const currentHour = hourly?.current_hour ?? new Date().getHours();
   const todayTotal = todayHours.slice(0, currentHour + 1).reduce((a, b) => a + b, 0);
   const yestTotal = yestHours.slice(0, currentHour + 1).reduce((a, b) => a + b, 0);
   const pctDiff = yestTotal > 0 ? ((todayTotal - yestTotal) / yestTotal) * 100 : (todayTotal > 0 ? 100 : 0);
@@ -378,13 +361,20 @@ const PERIOD_OPTIONS = [
   { value: "all", labelKey: "orders.periodAll" },
 ]
 
-export default function Dashboard({ ordersData, activePeriod, onPeriodChange }) {
+export default function Dashboard({ storeId, apiBase, fetcher, liveVersion }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const [dateFilter, setDateFilter] = useState("today");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
+  const [stats, setStats] = useState(null);
+  const [statsError, setStatsError] = useState("");
+  const [fetching, setFetching] = useState(false);
+  const [retryTick, setRetryTick] = useState(0);
+  const lastFetchAtRef = useRef(0);
+  const lastLiveRef = useRef(liveVersion);
+  const statsStoreRef = useRef(storeId);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
@@ -403,80 +393,70 @@ export default function Dashboard({ ordersData, activePeriod, onPeriodChange }) 
     if (dateFilter === "7days") return { from: new Date(today.getTime() - 7 * 86400000), to: new Date(today.getTime() + 86400000) };
     if (dateFilter === "30days") return { from: new Date(today.getTime() - 30 * 86400000), to: new Date(today.getTime() + 86400000) };
     if (dateFilter === "custom" && customFrom && customTo) {
-      return { from: new Date(customFrom), to: new Date(new Date(customTo).getTime() + 86400000) };
+      return { from: new Date(customFrom + "T00:00:00"), to: new Date(new Date(customTo + "T00:00:00").getTime() + 86400000) };
     }
     return { from: today, to: new Date(today.getTime() + 86400000) };
   };
 
-  // Orders.jsx ke getSource() jaisa hi (TikTok/Instagram in-app browsers referrer strip
-  // kar dete hain — landing_site/source_name ko bhi signal ke taur pe check karte hain).
-  const getSource = (order) => {
-    const ref = (order.referring_site || "").toLowerCase();
-    const landing = (order.landing_site || "").toLowerCase();
-    const sourceName = (order.source_name || "").toLowerCase();
-    const combined = `${ref} ${landing} ${sourceName}`;
-    if (combined.includes("tiktok")) return "TikTok";
-    if (combined.includes("facebook") || combined.includes("instagram") || combined.includes("fbclid") || combined.includes("meta") || combined.includes("fb")) return "Meta";
-    if (combined.includes("snapchat")) return "Snapchat";
-    if (combined.includes("google")) return "Google";
-    return "Direct";
-  };
+  // Server-side stats + persistent cache: filter change par foran, live event par kam az kam 4s ke gap se
+  useEffect(() => {
+    if (!storeId) return;
+    if (dateFilter === "custom" && !(customFrom && customTo)) return;
+    if (statsStoreRef.current !== storeId) { statsStoreRef.current = storeId; setStats(null); }
+    let cancelled = false;
+    const isLive = liveVersion !== lastLiveRef.current;
+    lastLiveRef.current = liveVersion;
+    const delay = isLive ? Math.max(0, 4000 - (Date.now() - lastFetchAtRef.current)) : 0;
+    const run = async () => {
+      lastFetchAtRef.current = Date.now();
+      setFetching(true);
+      const { from, to } = getDateRange();
+      const body = { storeId, from: from.toISOString(), to: to.toISOString() };
+      const cacheKey = `dash|${storeId}|${body.from}|${body.to}`;
+      const netP = (async () => {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetcher(`${apiBase}/dashboard-stats`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+          body: JSON.stringify(body),
+        });
+        const json = await res.json();
+        if (!res.ok || json.error) throw new Error(json.error || "Dashboard load nahi ho saka");
+        return json.stats;
+      })();
+      netP.catch(() => {});
+      let shown = null;
+      try {
+        const hit = await getView(cacheKey);
+        if (hit && !cancelled) { shown = hit.json; setStats(hit.json); setStatsError(""); }
+      } catch (e) { /* ignore */ }
+      try {
+        const fresh = await netP;
+        if (!cancelled) {
+          setView(cacheKey, fresh).catch(() => {});
+          if (!shown || JSON.stringify(shown) !== JSON.stringify(fresh)) setStats(fresh);
+          setStatsError("");
+        }
+      } catch (err) {
+        if (!cancelled && !shown) setStatsError(err.message);
+      }
+      if (!cancelled) setFetching(false);
+    };
+    const timer = setTimeout(run, delay);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [storeId, dateFilter, customFrom, customTo, liveVersion, retryTick]);
 
-  const getSKUs = (order) => {
-    return order.line_items?.flatMap(i => {
-      const sku = i.sku || "";
-      return sku.split(/[+,]/).map(s => s.replace(/^\d+/, "").trim()).filter(Boolean);
-    }) || [];
-  };
-
-  // ordersData khali ho (naya store, ya orders load na hui hon) to bhi crash na ho —
-  // saare downstream computations 0/khali array pe hi default ho jate hain (TASK 21)
-  const filtered = useMemo(() => {
-    if (!ordersData?.length) return [];
-    const { from, to } = getDateRange();
-    return ordersData.filter(o => {
-      const d = new Date(o.created_at);
-      return d >= from && d < to;
-    });
-  }, [ordersData, dateFilter, customFrom, customTo]);
-
-  const totalRevenue = filtered.reduce((sum, o) => sum + Number(o.total_price || 0), 0);
-  const totalOrders = filtered.length;
-
+  const s = stats || {};
+  const totalOrders = s.total_orders || 0;
+  const totalRevenue = Number(s.total_revenue || 0);
+  const approvedRevenue = Number(s.approved_revenue || 0);
+  const pendingCount = s.pending || 0;
+  const noStatusCount = s.no_status || 0;
   const statusCounts = {};
-  STATUSES.forEach(s => { statusCounts[s.label] = 0; });
-  filtered.forEach(o => {
-    const st = o.agent_status;
-    if (st && statusCounts[st] !== undefined) statusCounts[st]++;
-  });
-
-  const sourceCounts = {};
-  filtered.forEach(o => {
-    const src = getSource(o);
-    sourceCounts[src] = (sourceCounts[src] || 0) + 1;
-  });
-
-  const cityMap = {};
-  filtered.forEach(o => {
-    const city = o.agent_data?.city || o.shipping_address?.city;
-    if (city) cityMap[city] = (cityMap[city] || 0) + 1;
-  });
-  const topCities = Object.entries(cityMap).sort((a, b) => b[1] - a[1]).slice(0, 8);
-
-  const skuMap = {};
-  filtered.forEach(o => {
-    getSKUs(o).forEach(sku => {
-      if (sku) skuMap[sku] = (skuMap[sku] || 0) + 1;
-    });
-  });
-  const topSKUs = Object.entries(skuMap).sort((a, b) => b[1] - a[1]).slice(0, 8);
-
-  const approvedRevenue = filtered
-    .filter(o => o.agent_status === "Approved")
-    .reduce((sum, o) => sum + Number(o.total_price || 0), 0);
-
-  const pendingCount = filtered.filter(o => !o.agent_status || o.agent_status === "Under Verification").length;
-  const noStatusCount = filtered.filter(o => !o.agent_status).length;
+  STATUSES.forEach(st => { statusCounts[st.label] = Number(s.status_counts?.[st.label] || 0); });
+  const sourceCounts = s.sources || {};
+  const topCities = s.top_cities || [];
+  const topSKUs = s.top_skus || [];
 
   const pct = (count) => totalOrders ? Math.round((count / totalOrders) * 100) : 0;
 
@@ -490,8 +470,21 @@ export default function Dashboard({ ordersData, activePeriod, onPeriodChange }) 
     { label: t("dashboard.chip.noStatus"), value: noStatusCount },
   ];
 
+  if (!stats && statsError) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 300, color: "var(--ne-muted)", fontSize: 14, gap: 8 }}>
+        <Icon name="package" size={32} />
+        <div>{statsError}</div>
+        <button onClick={() => setRetryTick(x => x + 1)} style={{ padding: "6px 16px", borderRadius: 8, background: "var(--ne-grad)", color: "#fff", border: "none", cursor: "pointer", fontSize: 12, marginTop: 8, display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <Icon name="refresh" size={13} /> {t("dashboard.retryLoad")}
+        </button>
+      </div>
+    );
+  }
+  if (!stats) return <PageSkeletonFor menu="dashboard" />;
+
   return (
-    <div style={{ padding: "1rem", color: "var(--ne-text)" }}>
+    <div style={{ padding: "1rem", color: "var(--ne-text)", opacity: fetching ? 0.8 : 1, transition: "opacity .15s" }}>
 
       {/* Date Filter */}
       <div style={{ display: "flex", gap: 7, marginBottom: "1rem", flexWrap: "wrap", alignItems: "center" }}>
@@ -509,39 +502,8 @@ export default function Dashboard({ ordersData, activePeriod, onPeriodChange }) 
               style={{ padding: "6px 9px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
           </>
         )}
-        <span style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>{filtered.length} {t("dashboard.ordersSuffix")}</span>
+        <span style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>{totalOrders} {t("dashboard.ordersSuffix")}</span>
       </div>
-
-      {/* Period Selector */}
-      {onPeriodChange && (
-        <div style={{
-          display: 'flex', gap: 4, alignItems: 'center',
-          flexWrap: 'wrap', marginBottom: "1rem"
-        }}>
-          {PERIOD_OPTIONS.map(opt => (
-            <button
-              key={opt.value}
-              onClick={() => onPeriodChange(opt.value)}
-              style={{
-                padding: '4px 10px',
-                borderRadius: 6,
-                border: '1px solid var(--ne-border)',
-                background: activePeriod === opt.value
-                  ? 'var(--ne-grad)' : 'transparent',
-                color: activePeriod === opt.value
-                  ? '#fff' : 'var(--ne-muted)',
-                fontSize: 11,
-                fontWeight: activePeriod === opt.value
-                  ? 700 : 400,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {t(opt.labelKey)}
-            </button>
-          ))}
-        </div>
-      )}
 
       {/* Hero Revenue Card */}
       <div style={{ background: "var(--ne-grad)", borderRadius: 18, padding: "1.4rem", marginBottom: "0.75rem", display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "center", flexWrap: "wrap", gap: 16 }}>
@@ -578,10 +540,10 @@ export default function Dashboard({ ordersData, activePeriod, onPeriodChange }) 
       </div>
 
       {/* Trend Chart */}
-      <TrendChart ordersData={ordersData} />
+      <TrendChart trend={s.trend} />
 
       {/* Hourly Comparison */}
-      <HourlyComparisonChart ordersData={ordersData} />
+      <HourlyComparisonChart hourly={s.hourly} />
 
       {/* Status Breakdown + Source */}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" }}>

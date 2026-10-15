@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import './theme.css'
 import { supabase } from './supabase'
 import { getCachedOrders, saveOrdersBulk, upsertOrder, getMeta, setMeta, clearCache, getCachedPeriod, setCachedPeriod, clearStoreOrders } from './ordersCache'
+import { clearViewCache } from './viewCache'
 // import { syncBookedOrdersCache } from './bookedOrdersData' // DISABLED with the Fix 1F block below
 import { Monogram, Wordmark } from './components/Logo'
 import { SunIcon, MoonIcon, GlobeIcon, RefreshIcon } from './components/Icons'
@@ -1061,6 +1062,18 @@ function App() {
   const [adminStoreStats, setAdminStoreStats] = useState({})
   const [notifCount, setNotifCount] = useState(0)
 
+  const [liveVersion, setLiveVersion] = useState(0)
+  const liveTimerRef = useRef(null)
+  const hiddenAtRef = useRef(0)
+  const needCatchUpRef = useRef(false)
+  const ordersLoadedRef = useRef(false)
+  ordersLoadedRef.current = ordersLoaded
+  // Realtime events / reconnect / tab-visible par pages ko "dobara fetch karo" ka signal (debounced 1.2s)
+  const bumpLive = () => {
+    clearTimeout(liveTimerRef.current)
+    liveTimerRef.current = setTimeout(() => setLiveVersion(v => v + 1), 1200)
+  }
+
   const statusMapRef = useRef({})
   const realtimeChannelRef = useRef(null)
   // order_statuses listener apne alag channel mein hai (setupRealtime mein) — jaan-boojh
@@ -1123,6 +1136,7 @@ function App() {
     hasStartedLoadRef.current = false
     hasStartedBookedLoadRef.current = false
     clearCache()
+    clearViewCache()
   }
 
   useEffect(() => {
@@ -1165,9 +1179,41 @@ function App() {
   useEffect(() => {
     if (session && profile?.approved && selectedStoreId && !hasStartedLoadRef.current) {
       hasStartedLoadRef.current = true
-      autoLoadOrders(selectedStoreId, activePeriod)
+      loadStoreAndRealtime(selectedStoreId)
     }
   }, [session, profile, selectedStoreId])
+
+  // P&L / Ads / Budget ke liye ordersData sirf pehli visit par lazy load
+  useEffect(() => {
+    if (!session || !profile?.approved || !selectedStoreId) return
+    if (!['pnl', 'ads', 'budget'].includes(activeMenu)) return
+    if (ordersLoaded || ordersLoading) return
+    autoLoadOrders(selectedStoreId, activePeriod)
+  }, [activeMenu, selectedStoreId, ordersLoaded, ordersLoading, session, profile])
+
+  // Tab wapas visible (20s+ background ke baad) ya network wapas aaye to pages ko refetch signal
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === 'hidden') { hiddenAtRef.current = Date.now(); return }
+      if (hiddenAtRef.current && Date.now() - hiddenAtRef.current > 20000) bumpLive()
+    }
+    const onOnline = () => bumpLive()
+    document.addEventListener('visibilitychange', onVis)
+    window.addEventListener('online', onOnline)
+    return () => {
+      document.removeEventListener('visibilitychange', onVis)
+      window.removeEventListener('online', onOnline)
+    }
+  }, [])
+
+  // Ek-baar cache version bump: purani stale IndexedDB rows har browser par saaf
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('neezam_cache_v') !== '3') {
+        Promise.all([clearCache(), clearViewCache()]).finally(() => { try { localStorage.setItem('neezam_cache_v', '3') } catch (e) {} })
+      }
+    } catch (e) {}
+  }, [])
 
   // DISABLED (Phase 1 / Fix 1F, perf rewrite): yeh background preload BookedOrders.jsx aur
   // CourierDashboard.jsx ke apne mount-time syncBookedOrdersCache() calls ke sath redundant
@@ -1465,6 +1511,15 @@ function App() {
           const row = payload.new
           if (!row || !row.raw_data) return
           const rawOrder = row.raw_data
+          bumpLive()
+          // Beep/badge sirf asli naye order par: INSERT aur created_at 10 min ke andar.
+          const __ageMs = rawOrder.created_at ? Date.now() - new Date(rawOrder.created_at).getTime() : Infinity
+          if (payload.eventType === 'INSERT' && __ageMs < 10 * 60 * 1000) {
+            playNotifSound()
+            if (activeMenuRef.current !== 'orders') setNotifCount(c => c + 1)
+          }
+          // Neeche ka hissa sirf tab jab P&L/Ads/Budget ke liye ordersData load ho chuka ho
+          if (!ordersLoadedRef.current) return
           upsertOrder(cacheId, rawOrder)
 
           setOrdersData(prev => {
@@ -1482,13 +1537,8 @@ function App() {
               next = [...prev]
               next[idx] = merged
             } else {
-              // Period se purana order ki live update (naya order nahi): IndexedDB mein upar upsertOrder se save ho chuka,
-              // UI state / rawOrdersRef / beep / badge mein nahi. created_at na ho ya "All Time" ho to pehle jaisa (naya maana jata hai).
               const __periodFrom = periodToFromDate(activePeriodRef.current)
               if (__periodFrom && rawOrder.created_at && new Date(rawOrder.created_at) < new Date(__periodFrom)) return prev
-              // Naya order — TASK 17: beep + (agar Orders page nahi dekh rahe to) badge counter
-              playNotifSound()
-              if (activeMenuRef.current !== 'orders') setNotifCount(c => c + 1)
               const merged = mergeOrder(rawOrder, statusMapRef.current)
               next = [merged, ...prev]
             }
@@ -1506,9 +1556,13 @@ function App() {
       )
       .subscribe((status) => {
         if (status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          needCatchUpRef.current = true
           setTimeout(() => {
             setupRealtime(storeId, cacheId)
           }, 3000)
+        } else if (status === "SUBSCRIBED" && needCatchUpRef.current) {
+          needCatchUpRef.current = false
+          bumpLive()
         }
       })
     realtimeChannelRef.current = channel
@@ -1527,6 +1581,7 @@ function App() {
         (payload) => {
           const row = payload.new
           if (!row || !row.order_id) return
+          bumpLive()
           const mergedRow = { ...(statusMapRef.current[String(row.order_id)] || {}), ...row }
           statusMapRef.current = { ...statusMapRef.current, [String(row.order_id)]: mergedRow }
           setOrdersData(prev => {
@@ -1546,9 +1601,13 @@ function App() {
       )
       .subscribe((status) => {
         if (status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          needCatchUpRef.current = true
           setTimeout(() => {
             setupRealtime(storeId, cacheId)
           }, 3000)
+        } else if (status === "SUBSCRIBED" && needCatchUpRef.current) {
+          needCatchUpRef.current = false
+          bumpLive()
         }
       })
     realtimeStatusChannelRef.current = statusChannel
@@ -1562,6 +1621,16 @@ function App() {
     return new Date(
       Date.now() - days * 24 * 60 * 60 * 1000
     ).toISOString()
+  }
+
+  // Boot par sirf store row + realtime. Orders/Booked/Dashboard ab server-side hain; poora ordersData sirf P&L/Ads/Budget ke liye lazy load hota hai.
+  const loadStoreAndRealtime = async (storeId) => {
+    const expectedUserId = session?.user?.id
+    const { data: storeData } = await supabase.from('stores').select('*').eq('id', storeId).single()
+    if (session?.user?.id !== expectedUserId || selectedStoreIdRef.current !== storeId) return
+    if (!storeData) return
+    setOrdersStore(storeData)
+    setupRealtime(storeId, storeData.eneezam_id)
   }
 
   const autoLoadOrders = async (storeId, period = "30d") => {
@@ -1840,8 +1909,8 @@ function App() {
   const ordersPending = !ordersLoaded && !isAdminOnlyPage
   // Store-dependent pages sirf ordersStore (store row) chahte hain, jo orders se pehle set hota hai — orders load hone ka intezar nahi.
   const storePending = !ordersStore && !isAdminOnlyPage
-  const ORDERS_DEPENDENT_PAGES = ['orders', 'dashboard', 'ads', 'pnl', 'budget']
-  const STORE_DEPENDENT_PAGES = ['products', 'product-costing', 'finance-statement', 'courier', 'courier-dashboard', 'courier-dashboard/detailed']
+  const ORDERS_DEPENDENT_PAGES = ['ads', 'pnl', 'budget']
+  const STORE_DEPENDENT_PAGES = ['orders', 'products', 'product-costing', 'finance-statement', 'courier', 'courier-dashboard', 'courier-dashboard/detailed']
 
   const currentUserStoreEntry = userStoresList.find(us => us.store_id === selectedStoreId)
   const isStaff = profile.role === 'staff'
@@ -1902,6 +1971,7 @@ function App() {
   const handleClearCache = async () => {
     if (!window.confirm(t('action.clearCacheConfirm'))) return;
     await clearCache();
+    await clearViewCache();
     window.location.reload();
   };
 
@@ -2048,31 +2118,19 @@ function App() {
           <div className="ne-content">
           <ErrorBoundary key={activeMenu}>
             {((ordersPending && ORDERS_DEPENDENT_PAGES.includes(activeMenu)) || (storePending && STORE_DEPENDENT_PAGES.includes(activeMenu))) && hasAccess(activeMenu) && <PageSkeletonFor menu={activeMenu} />}
-            {activeMenu === 'orders' && hasAccess('orders') && !ordersPending && (
+            {activeMenu === 'orders' && hasAccess('orders') && !storePending && (
               <Orders
-                ordersData={ordersData} setOrdersData={setOrdersData}
-                ordersLoaded={ordersLoaded} setOrdersLoaded={setOrdersLoaded}
                 ordersStore={ordersStore} setOrdersStore={setOrdersStore}
                 cfUrl={CF_URL}
-                activePeriod={activePeriod}
-                onPeriodChange={handlePeriodChange}
+                fetcher={monitoredFetch}
+                liveVersion={liveVersion}
               />
             )}
             {activeMenu === 'home' && (
-              <AppHome storeId={selectedStoreId} storeName={currentStoreInfo?.store_name} apiBase={CF_URL} fetcher={monitoredFetch} onNavigate={setActiveMenu} canOpen={hasAccess} />
+              <AppHome storeId={selectedStoreId} storeName={currentStoreInfo?.store_name} apiBase={CF_URL} fetcher={monitoredFetch} onNavigate={setActiveMenu} canOpen={hasAccess} liveVersion={liveVersion} />
             )}
-            {activeMenu === 'dashboard' && hasAccess('dashboard') && !ordersPending && (
-              ordersData.length === 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '300px', color: 'var(--ne-muted)', fontSize: 14, gap: 8 }}>
-                  <Icon name="package" size={32} />
-                  <div>{t('dashboard.noOrders')}</div>
-                  <button onClick={() => autoLoadOrders(selectedStoreId, activePeriod)} style={{ padding: '6px 16px', borderRadius: 8, background: 'var(--ne-grad)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <Icon name="refresh" size={13} /> {t('dashboard.retryLoad')}
-                  </button>
-                </div>
-              ) : (
-                <Dashboard ordersData={ordersData} activePeriod={activePeriod} onPeriodChange={handlePeriodChange} />
-              )
+            {activeMenu === 'dashboard' && hasAccess('dashboard') && selectedStoreId && (
+              <Dashboard storeId={selectedStoreId} apiBase={CF_URL} fetcher={monitoredFetch} liveVersion={liveVersion} />
             )}
             {activeMenu === 'store-connect' && hasAccess('store-connect') && <StoreConnect storeId={selectedStoreId} />}
             {activeMenu === 'products' && hasAccess('products') && !storePending && (
@@ -2092,7 +2150,7 @@ function App() {
               <AdsAnalytics ordersData={ordersData} storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
             )}
             {activeMenu === 'courier' && hasAccess('courier') && !storePending && (
-              <BookedOrders storeId={selectedStoreId} ordersStore={ordersStore} />
+              <BookedOrders storeId={selectedStoreId} ordersStore={ordersStore} fetcher={monitoredFetch} liveVersion={liveVersion} />
             )}
             {activeMenu === 'courier-connect' && hasAccess('courier-connect') && (
               <CourierConnect storeId={selectedStoreId} />
