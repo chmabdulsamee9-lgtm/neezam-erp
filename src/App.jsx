@@ -1324,8 +1324,15 @@ function App() {
       const persistedStoreValid = persistedId && storesWithStats.some(s => s.id === persistedId)
       if (persistedStoreValid) {
         setSelectedStoreId(persistedId)
-      } else if (location.pathname !== '/master-dashboard') {
-        navigate('/master-dashboard', { replace: true })
+      } else {
+        const isProductionDomain = window.location.hostname.includes('portal.eneezam.com')
+        if (isProductionDomain) {
+          if (location.pathname !== '/home') {
+            navigate('/home', { replace: true })
+          }
+        } else if (location.pathname !== '/master-dashboard') {
+          navigate('/master-dashboard', { replace: true })
+        }
       }
     } else if (profileData?.approved) {
       const us = usPrefetched
