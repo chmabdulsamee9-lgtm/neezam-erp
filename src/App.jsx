@@ -987,7 +987,7 @@ function App() {
   // Root-redirect ab auth-aware hai — pehle yeh session check kiye bina hi /dashboard
   // navigate kar deta tha, isliye Login form khule hone par bhi URL "/dashboard" dikhta tha.
   // Logged-out state mein "/" ab /login pe force-redirect NAHI hoti (Block C) — "/" khud
-  // public Homepage (Pricing) hai, sirf logged-IN session ke liye "/" se /dashboard bounce hota hai.
+  // public Homepage (Pricing) hai, sirf logged-IN session ke liye "/" se /home bounce hota hai.
   useEffect(() => {
     if (location.pathname === '/' && session) navigate('/home', { replace: true })
   }, [location.pathname, session])
@@ -1420,7 +1420,7 @@ function App() {
   const handleEnterStore = (store) => {
     setSelectedStoreId(store.id)
     persistStoreId(store.id)
-    navigate('/dashboard')
+    navigate('/home')
   }
 
   // TASK 14: sidebar brand switcher — order loading state reset karo taake naye store ke liye reload ho
