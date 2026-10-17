@@ -66,9 +66,6 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
   const [perPage, setPerPage] = useState(20);
   const [selectedIds, setSelectedIds] = useState(new Set());
 
-  const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState(null);
-
   const [showNewProductModal, setShowNewProductModal] = useState(false);
   const [newProductForm, setNewProductForm] = useState({ title: "", vendor: "", product_type: "", tags: "", price: "", compare_at_price: "", sku: "" });
   const [creating, setCreating] = useState(false);
@@ -214,28 +211,6 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}`, ...(opts.headers || {}) },
     });
     return res.json();
-  };
-
-  const handleSyncToShopify = async () => {
-    setSyncing(true);
-    setSyncResult(null);
-    setError("");
-    try {
-      const data = await authedFetch("/shopify-products-sync", { method: "POST", body: JSON.stringify({ store_id: storeId }) });
-      if (data.error) {
-        setSyncResult({ success: false, error: data.error });
-        setSyncing(false);
-        return;
-      }
-      setSyncResult({ success: true, synced: data.synced, total: data.total });
-      const all = await fetchAllProductsFromSupabase(storeId);
-      setProducts(all);
-      await saveProductsBulk(eneezamId, all);
-      await setProductsMeta(`productsLastSyncedAt-${eneezamId}`, new Date().toISOString());
-    } catch (err) {
-      setSyncResult({ success: false, error: err.message });
-    }
-    setSyncing(false);
   };
 
   // ---------- Generic per-product Shopify save (used by every inline cell, the
@@ -612,24 +587,12 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
           <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{ordersStore?.store_name} — {filtered.length}</p>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-          <button onClick={handleSyncToShopify} disabled={syncing}
-            style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5, fontWeight: 700, cursor: syncing ? "default" : "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <Icon name={syncing ? "pending" : "refresh"} size={12} /> {syncing ? t("products.syncing") : t("products.syncToShopify")}
-          </button>
           <button onClick={() => { resetNewProductForm(); setCreateError(""); setShowNewProductModal(true); }}
             style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>
             {t("products.newProduct")}
           </button>
         </div>
       </div>
-
-      {syncResult && (
-        <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 9, fontSize: 12, display: "flex", alignItems: "center", gap: 6,
-          background: syncResult.success ? "var(--ne-success-soft)" : "var(--ne-danger-soft)", color: syncResult.success ? "var(--ne-success)" : "var(--ne-danger)" }}>
-          <Icon name={syncResult.success ? "check" : "error"} size={12} />
-          {syncResult.success ? `${syncResult.synced}/${syncResult.total} ${t("products.syncedSuffix")}` : syncResult.error}
-        </div>
-      )}
 
       {error && (
         <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 9, fontSize: 12, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", display: "flex", alignItems: "center", gap: 6 }}>

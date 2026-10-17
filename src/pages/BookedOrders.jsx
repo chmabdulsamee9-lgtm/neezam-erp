@@ -819,7 +819,7 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
     if (!storeId) return;
     supabase.from("products_cache").select("shopify_product_id, raw_data->variants").eq("store_id", storeId)
       .then(({ data, error }) => { if (!error) setVariantSkuRows(data || []); });
-  }, [storeId]);
+  }, [storeId, liveVersion]);
 
   const variantSkuMap = useMemo(() => {
     const map = new Map();

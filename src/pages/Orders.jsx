@@ -723,6 +723,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
   const [itemsModal, setItemsModal] = useState(null); // order being edited, or null
   const [itemsList, setItemsList] = useState([]); // working array of { shopify_product_id, variant_id, title, variant_title, sku, price, quantity, discount }
   const [itemsListInitial, setItemsListInitial] = useState([]); // snapshot of itemsList as it was when the modal opened, for change-detection on save
+  const [itemsShippingFee, setItemsShippingFee] = useState("0");
   const [itemsSearch, setItemsSearch] = useState("");
   const [itemsSearchResults, setItemsSearchResults] = useState([]); // [{ product, variant }]
   const [itemsSaving, setItemsSaving] = useState(false);
@@ -730,6 +731,12 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
   const [itemsSyncError, setItemsSyncError] = useState("");
   const [productsForSearch, setProductsForSearch] = useState([]); // products_cache rows for this store, fetched when modal opens
   const [variantSkuRows, setVariantSkuRows] = useState([]); // lightweight products_cache projection (raw_data->variants only) for the live-SKU lookup, fetched eagerly
+
+  // --- SKU edit popup (replaces old click-to-inline-edit on the SKU cell) ---
+  const [skuPopup, setSkuPopup] = useState(null); // { orderId, items: [{ productId, variantId, title, variantTitle, sku, image }] }
+  const [skuPopupDrafts, setSkuPopupDrafts] = useState({}); // variantId -> draft sku string
+  const [skuPopupSavingId, setSkuPopupSavingId] = useState(null);
+  const [skuPopupError, setSkuPopupError] = useState("");
 
   const registerMiddleRef = (key) => (el) => {
     if (el) middleRefs.current[key] = el;
@@ -1485,6 +1492,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
     setItemsModal(order);
     setItemsList(initial);
     setItemsListInitial(initial.map(it => ({ ...it })));
+    setItemsShippingFee(order.agent_data?.shipping || "0");
     setItemsSearch("");
     setItemsSearchResults([]);
     setItemsSyncState(null);
@@ -1495,6 +1503,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
     setItemsModal(null);
     setItemsList([]);
     setItemsListInitial([]);
+    setItemsShippingFee("0");
     setItemsSearch("");
     setItemsSearchResults([]);
     setItemsSyncState(null);
@@ -1552,6 +1561,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
     const { error } = await supabase.from("order_statuses").upsert({
       order_id: String(itemsModal.id),
       line_items_override: itemsList,
+      shipping: itemsShippingFee,
       updated_at: now,
     }, { onConflict: "order_id" });
     if (error) {
@@ -1560,7 +1570,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
       setItemsSyncError(error.message);
       return;
     }
-    setOrders(prev => prev.map(o => (o.id === itemsModal.id ? { ...o, agent_data: { ...(o.agent_data || {}), line_items_override: itemsList }, last_edited_at: now } : o)));
+    setOrders(prev => prev.map(o => (o.id === itemsModal.id ? { ...o, agent_data: { ...(o.agent_data || {}), line_items_override: itemsList, shipping: itemsShippingFee }, last_edited_at: now } : o)));
 
     // Kuch bhi actually badla nahi (same items/quantities/discounts jitne modal open
     // hote waqt the) to Shopify sync ki koi zaroorat nahi — local save ho chuka, bas
@@ -1617,7 +1627,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
     if (!currentStore?.id) return;
     supabase.from("products_cache").select("shopify_product_id, raw_data->variants").eq("store_id", currentStore.id)
       .then(({ data, error }) => { if (!error) setVariantSkuRows(data || []); });
-  }, [currentStore?.id]);
+  }, [currentStore?.id, liveVersion]);
 
   // variant_id -> current SKU. Map() taake "variant map mein maujood hai lekin sku
   // ab khaali hai" (asal current state) aur "variant map mein hai hi nahi" (fallback
@@ -1680,6 +1690,73 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
     return [li?.title || "", variantTitle].filter(Boolean).join(" - ");
   };
 
+  // ---------- SKU edit popup (per-variant, writes the real Shopify SKU — not a free-text override) ----------
+  const openSkuPopup = async (order) => {
+    setSkuPopupError("");
+    const itemsOverride = order.agent_data?.line_items_override;
+    const rawItems = (itemsOverride?.length > 0 ? itemsOverride : order.line_items || []).filter((li) => li?.variant_id != null);
+    if (rawItems.length === 0) return;
+    const productIds = [...new Set(rawItems.map((li) => String(li.product_id ?? li.shopify_product_id)).filter(Boolean))];
+    let imageByProduct = {};
+    if (currentStore?.id && productIds.length > 0) {
+      const { data } = await supabase.from("products_cache").select("shopify_product_id, raw_data")
+        .eq("store_id", currentStore.id).in("shopify_product_id", productIds);
+      (data || []).forEach((row) => { imageByProduct[row.shopify_product_id] = row.raw_data?.image?.src || row.raw_data?.images?.[0]?.src || null; });
+    }
+    const items = rawItems.map((li) => {
+      const productId = String(li.product_id ?? li.shopify_product_id);
+      return {
+        productId,
+        variantId: String(li.variant_id),
+        title: li.title || "",
+        variantTitle: li.variant_title && li.variant_title !== "Default Title" ? li.variant_title : "",
+        sku: displaySkuForLineItem(li),
+        image: imageByProduct[productId] || null,
+      };
+    });
+    const drafts = {};
+    items.forEach((it) => { drafts[it.variantId] = it.sku; });
+    setSkuPopupDrafts(drafts);
+    setSkuPopup({ orderId: order.id, items });
+  };
+
+  const closeSkuPopup = () => {
+    setSkuPopup(null);
+    setSkuPopupDrafts({});
+    setSkuPopupSavingId(null);
+    setSkuPopupError("");
+  };
+
+  const saveSkuPopupItem = async (item) => {
+    if (!currentStore?.id) return;
+    setSkuPopupSavingId(item.variantId);
+    setSkuPopupError("");
+    const newSku = skuPopupDrafts[item.variantId] ?? "";
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${cfUrl}/shopify-product-update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ store_id: currentStore.id, product_id: item.productId, updates: { variants: [{ id: item.variantId, sku: newSku }] } }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setSkuPopupError(data.error);
+      } else {
+        // Is page ka apna live-SKU lookup (variantSkuRows) turant patch karo — agle
+        // liveVersion-triggered refetch ka wait kiye bina orders list mein naya SKU dikhe.
+        setVariantSkuRows((prev) => prev.map((row) => {
+          if (row.shopify_product_id !== item.productId) return row;
+          return { ...row, variants: (row.variants || []).map((v) => (String(v.id) === item.variantId ? { ...v, sku: newSku } : v)) };
+        }));
+        setSkuPopup((prev) => (prev ? { ...prev, items: prev.items.map((it) => (it.variantId === item.variantId ? { ...it, sku: newSku } : it)) } : prev));
+      }
+    } catch (err) {
+      setSkuPopupError(err.message);
+    }
+    setSkuPopupSavingId(null);
+  };
+
   useEffect(() => {
     const q = itemsSearch.trim().toLowerCase();
     const handle = setTimeout(() => {
@@ -1689,7 +1766,8 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
         const title = (p.raw_data?.title || "").toLowerCase();
         (p.raw_data?.variants || []).forEach((v) => {
           const sku = (v.sku || "").toLowerCase();
-          if (title.includes(q) || sku.includes(q)) results.push({ product: p, variant: v });
+          const variantTitle = (v.title || "").toLowerCase();
+          if (title.includes(q) || sku.includes(q) || variantTitle.includes(q)) results.push({ product: p, variant: v });
         });
       });
       setItemsSearchResults(results.slice(0, 20));
@@ -1831,18 +1909,17 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
     );
   };
 
-  // Itemized product display with a "+N more items" collapse — falls back to the
-  // plain EditableCell (freeform text) whenever there's a manual override, while
-  // editing, or when there just aren't more than 2 items to collapse.
+  // Itemized product display with a "+N more items" collapse — static/read-only
+  // (product edits now happen only via the "Edit Items" modal, not inline).
   const ProductsCell = ({ orderId, value, items, variantNote, hasManualOverride, width, multiline, clampLines }) => {
-    const cellKey = `${orderId}-product`;
-    const isEditing = editingCell === cellKey;
     const [expanded, setExpanded] = useState(false);
 
-    if (isEditing || hasManualOverride || items.length <= 2) {
+    if (hasManualOverride || items.length <= 2) {
       return (
         <div>
-          <EditableCell orderId={orderId} field="product" value={value} width={width} multiline={multiline} clampLines={clampLines} />
+          <span style={{ fontSize: 11, color: value ? "var(--ne-text)" : "var(--ne-muted-2)", display: "-webkit-box", WebkitLineClamp: clampLines, WebkitBoxOrient: "vertical", overflow: "hidden", textOverflow: "ellipsis", wordBreak: "break-word", lineHeight: 1.35, maxWidth: width }}>
+            {value || "—"}
+          </span>
           {variantNote && <div style={{ fontSize: 10, color: "var(--ne-muted-2)", marginTop: 2 }}>{variantNote}</div>}
         </div>
       );
@@ -1852,7 +1929,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
     const remaining = items.length - 2;
 
     return (
-      <div onClick={() => setEditingCell(cellKey)} style={{ display: "flex", flexDirection: "column", gap: 1, maxWidth: width, cursor: "pointer" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 1, maxWidth: width }}>
         {shown.map((it, idx) => (
           <div key={idx} style={{ fontSize: 11, color: "var(--ne-text)", wordBreak: "break-word", lineHeight: 1.35 }}>
             {it.quantity > 1 ? `${it.quantity}x ` : ""}{it.title}
@@ -1861,7 +1938,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
             )}
           </div>
         ))}
-        <span onClick={(e) => { e.stopPropagation(); setExpanded(v => !v); }}
+        <span onClick={() => setExpanded(v => !v)}
           style={{ fontSize: 10, color: "var(--ne-accent)", cursor: "pointer", fontWeight: 700, alignSelf: "flex-start" }}>
           {expanded ? t("orders.itemsShowLess") : `+${remaining} ${t("orders.itemsMoreSuffix")}`}
         </span>
@@ -2197,8 +2274,8 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
 </div></div>
                   <div style={{ display: "flex", gap: 14 }}>
                     <div style={{ fontSize: 10.5, color: "var(--ne-muted)" }}>{t("orders.unit")}: {unitPrices}</div>
-                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 3 }}>{t("orders.ship")}: <EditableCell orderId={order.id} field="shipping" value={String(shipping)} width={50} /></div>
-                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 3 }}>{t("orders.disc")}: <EditableCell orderId={order.id} field="discount" value={String(discount)} width={50} /></div>
+                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 3 }}>{t("orders.ship")}: <span style={{ fontSize: 11, color: "var(--ne-text)" }}>{shipping}</span></div>
+                    <div style={{ fontSize: 10.5, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 3 }}>{t("orders.disc")}: <span style={{ fontSize: 11, color: "var(--ne-text)" }}>{discount}</span></div>
                   </div>
                   {isCancelled && cancellationReason && (
                     <span style={{ padding: "2px 7px", borderRadius: 6, fontSize: 10, background: "var(--ne-danger-soft)", color: "var(--ne-danger)", fontWeight: 600, width: "fit-content" }}>{cancellationReason}</span>
@@ -2307,7 +2384,10 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
                     </div>
 
                     <div style={{ width: 160, minWidth: 160, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 2 }}>
-                      <EditableCell orderId={order.id} field="sku" value={skus} width={150} clampLines={1} />
+                      <span onClick={() => openSkuPopup(order)} title={skus || ""}
+                        style={{ cursor: "pointer", color: skus && skus !== "—" ? "var(--ne-text)" : "var(--ne-muted-2)", fontSize: 11, display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden", textOverflow: "ellipsis", wordBreak: "break-word", lineHeight: 1.35, maxWidth: 150 }}>
+                        {skus || "—"}
+                      </span>
                       <div>
                         <ProductsCell orderId={order.id} value={productsEditable} items={items} variantNote={productVariantNote} hasManualOverride={hasManualOverride} width={150} multiline clampLines={2} />
                       </div>
@@ -2320,11 +2400,11 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
                         <span style={{ color: "var(--ne-muted-2)" }}>{t("orders.ship")}</span>
-                        <EditableCell orderId={order.id} field="shipping" value={String(shipping)} width={55} clampLines={1} />
+                        <span style={{ fontSize: 11, color: "var(--ne-text)" }}>{shipping}</span>
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
                         <span style={{ color: "var(--ne-muted-2)" }}>{t("orders.disc")}</span>
-                        <EditableCell orderId={order.id} field="discount" value={String(discount)} width={55} clampLines={1} />
+                        <span style={{ fontSize: 11, color: "var(--ne-text)" }}>{discount}</span>
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 1 }}>
                         <span style={{ color: "var(--ne-muted-2)", fontSize: 10 }}>{t("orders.total")}</span>
@@ -2689,6 +2769,12 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
               </div>
             </div>
 
+            <div style={{ padding: "0 18px 12px" }}>
+              <label style={{ fontSize: 10, color: "var(--ne-muted-2)", display: "block", marginBottom: 3 }}>{t("orders.shippingFeeLabel")}</label>
+              <input type="number" value={itemsShippingFee} onChange={e => setItemsShippingFee(e.target.value)}
+                style={{ width: 120, padding: "6px 9px", borderRadius: 7, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 12, boxSizing: "border-box" }} />
+            </div>
+
             {itemsSyncState && (
               <div style={{ padding: "8px 18px", borderTop: "1px solid var(--ne-border)", fontSize: 11.5, display: "flex", alignItems: "center", gap: 6,
                 color: itemsSyncState === "synced" ? "var(--ne-success)" : itemsSyncState === "error" ? "var(--ne-danger)" : itemsSyncState === "skipped-fulfilled" ? "var(--ne-warning)" : "var(--ne-muted)" }}>
@@ -2718,6 +2804,49 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
                   </button>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------- SKU EDIT POPUP ---------- */}
+      {skuPopup && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
+          <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 420, maxWidth: "92vw", maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
+            <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)" }}>
+              <h3 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="edit" size={14} /> {t("orders.skuPopupTitle")}</h3>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: "12px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
+              {skuPopup.items.map((item) => (
+                <div key={item.variantId} style={{ display: "flex", gap: 10, alignItems: "flex-start", background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "10px" }}>
+                  {item.image ? (
+                    <img src={item.image} alt="" style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover", flexShrink: 0, background: "var(--ne-bg)" }} />
+                  ) : (
+                    <div style={{ width: 44, height: 44, borderRadius: 8, background: "var(--ne-bg)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--ne-muted-2)" }}>
+                      <Icon name="products" size={16} />
+                    </div>
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ne-text)", wordBreak: "break-word" }}>{item.title}</div>
+                    {item.variantTitle && <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)" }}>{item.variantTitle}</div>}
+                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                      <input type="text" value={skuPopupDrafts[item.variantId] ?? ""} onChange={(e) => setSkuPopupDrafts((prev) => ({ ...prev, [item.variantId]: e.target.value }))}
+                        style={{ flex: 1, padding: "6px 9px", borderRadius: 7, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 12, boxSizing: "border-box" }} />
+                      <button onClick={() => saveSkuPopupItem(item)} disabled={skuPopupSavingId === item.variantId}
+                        style={{ padding: "6px 12px", borderRadius: 7, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11.5, fontWeight: 700, cursor: skuPopupSavingId === item.variantId ? "default" : "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+                        <Icon name={skuPopupSavingId === item.variantId ? "pending" : "check"} size={11} /> {t("orders.save")}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {skuPopupError && <p style={{ color: "var(--ne-danger)", fontSize: 11, whiteSpace: "pre-wrap", margin: 0 }}>{skuPopupError}</p>}
+            </div>
+            <div style={{ padding: "12px 18px", borderTop: "1px solid var(--ne-border)", display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={closeSkuPopup}
+                style={{ padding: "8px 14px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-muted)", fontSize: 12, cursor: "pointer" }}>
+                {t("orders.cancel")}
+              </button>
             </div>
           </div>
         </div>
