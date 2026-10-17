@@ -2131,6 +2131,7 @@ function App() {
                 cfUrl={CF_URL}
                 fetcher={monitoredFetch}
                 liveVersion={liveVersion}
+                bumpLive={bumpLive}
               />
             )}
             {activeMenu === 'home' && (

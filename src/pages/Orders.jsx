@@ -617,7 +617,7 @@ function AddressMatchBlock({ order, storeId, cfUrl, t, onUpdateAgentData, onAddr
   );
 }
 
-export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, liveVersion }) {
+export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, liveVersion, bumpLive }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   // Server-side pagination: `orders` ab sirf CURRENT PAGE ke rows hain (poora store nahi)
@@ -1750,6 +1750,10 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
           return { ...row, variants: (row.variants || []).map((v) => (String(v.id) === item.variantId ? { ...v, sku: newSku } : v)) };
         }));
         setSkuPopup((prev) => (prev ? { ...prev, items: prev.items.map((it) => (it.variantId === item.variantId ? { ...it, sku: newSku } : it)) } : prev));
+        // products_cache ki apni koi realtime subscription nahi hai (sirf shopify_orders_cache
+        // aur order_statuses hain) — is liye yahan khud liveVersion bump karo, taake baaki
+        // open pages/tabs (BookedOrders, etc.) ko bhi pata chale ke SKU badla hai.
+        bumpLive?.();
       }
     } catch (err) {
       setSkuPopupError(err.message);
