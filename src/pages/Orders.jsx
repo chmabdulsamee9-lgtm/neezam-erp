@@ -1805,7 +1805,10 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
   };
 
   const applyPageJson = (json) => {
-    setOrders(json.rows || []);
+    // Quota-hidden orders (monthly limit tak, bina reveal hue) staff/owner view se chhup jaayen —
+    // ideal fix /orders-page RPC mein hona chahiye, yahan client-side defensive filter hai kyunke
+    // RPC source edit nahi kar sakte is session mein.
+    setOrders((json.rows || []).filter((o) => !o.quota_hidden));
     setServerTotal(json.total || 0);
     if (json.counts) setTabCounts(json.counts);
     if (json.quick) setQuickCounts(json.quick);

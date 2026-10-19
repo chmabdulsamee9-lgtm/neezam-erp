@@ -658,7 +658,9 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
   });
 
   const applyBooked = (json) => {
-    setOrders(json.rows || []);
+    // Quota-hidden orders staff/owner view se chhup jaayen — defensive client-side filter,
+    // ideal fix /booked-page RPC mein hona chahiye (yahan edit nahi ho sakta is session mein).
+    setOrders((json.rows || []).filter((o) => !(o.agent_data?.quota_hidden || o.quota_hidden)));
     setServerTotal(json.total || 0);
     setServerCounts(json.counts || { tabs: {}, subs: {}, couriers: [] });
     setError("");

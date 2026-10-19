@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense } from 'react'
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import './theme.css'
 import { supabase } from './supabase'
@@ -110,6 +110,31 @@ const MetaCallback = lazyPage(() => import('./pages/MetaCallback'), null)
 const AdsAnalytics = lazyPage(() => import('./pages/AdsAnalytics'), 'ads')
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev"
+
+// Manage Access modal ki module-checklist aur sidebar ka allMenuItems — same set, 'home'/'settings'
+// dono jagah excluded (sidebar apne hisaab se alag se add karta hai, checklist unhe disable-able nahi rakhti).
+const GATABLE_MODULES = [
+  { id: 'dashboard', labelKey: 'nav.dashboard' },
+  { id: 'orders', labelKey: 'nav.orders' },
+  { id: 'courier', labelKey: 'nav.courier' },
+  { id: 'returns', labelKey: 'nav.returns' },
+  { id: 'products', labelKey: 'nav.products' },
+  { id: 'inventory', labelKey: 'nav.inventory' },
+  { id: 'product-costing', labelKey: 'nav.product-costing' },
+  { id: 'finance-statement', labelKey: 'nav.finance-statement' },
+  { id: 'ads', labelKey: 'nav.ads' },
+  { id: 'pnl', labelKey: 'nav.pnl' },
+  { id: 'ledger', labelKey: 'nav.ledger' },
+  { id: 'cities', labelKey: 'nav.cities' },
+  { id: 'budget', labelKey: 'nav.budget' },
+  { id: 'suggestions', labelKey: 'nav.suggestions' },
+  { id: 'courier-dashboard', labelKey: 'nav.courier-dashboard' },
+  { id: 'whatsapp', labelKey: 'nav.whatsapp' },
+  { id: 'store-connect', labelKey: 'nav.store-connect' },
+  { id: 'meta-connect', labelKey: 'nav.meta-connect' },
+  { id: 'courier-connect', labelKey: 'nav.courier-connect' },
+  { id: 'payments', labelKey: 'nav.payments' },
+]
 const BATCH_SIZE = 1000
 const isValidPhone = (p) => /^\d{11}$/.test(String(p || "").trim())
 
@@ -257,15 +282,35 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
   const [addonOverrides, setAddonOverrides] = useState({})
   const [planOverrides, setPlanOverrides] = useState({})
   const [deleteConfirmId, setDeleteConfirmId] = useState(null)
+  // Har store ka latest approved store_subscriptions row — eneezam_id se keyed (store_subscriptions.store_id
+  // eneezam_id TEXT hai, stores.id uuid nahi) — quota indicator ke liye.
+  const [subsByEneezamId, setSubsByEneezamId] = useState({})
+  const refreshSubsMap = async () => {
+    const eneezamIds = allStores.map((s) => s.eneezam_id).filter(Boolean)
+    if (eneezamIds.length === 0) { setSubsByEneezamId({}); return }
+    const { data } = await supabase
+      .from('store_subscriptions')
+      .select('store_id, monthly_order_limit, quota_consumed_count, approved_at')
+      .in('store_id', eneezamIds)
+      .eq('status', 'approved')
+      .order('approved_at', { ascending: false })
+    const map = {}
+    ;(data || []).forEach((row) => { if (!map[row.store_id]) map[row.store_id] = row })
+    setSubsByEneezamId(map)
+  }
+  useEffect(() => { refreshSubsMap() }, [allStores])
   const [accessModalStore, setAccessModalStore] = useState(null)
-  const [accessPlanId, setAccessPlanId] = useState('')
-  const [accessAddonIds, setAccessAddonIds] = useState([])
+  const [accessDisabledIds, setAccessDisabledIds] = useState([])
+  const [accessMonthlyLimit, setAccessMonthlyLimit] = useState('')
+  const [accessReminderEnabled, setAccessReminderEnabled] = useState(false)
+  const [accessReminderMessage, setAccessReminderMessage] = useState('')
   const [accessExistingSubId, setAccessExistingSubId] = useState(null)
+  const [accessPrevMonthlyLimit, setAccessPrevMonthlyLimit] = useState('')
   const [accessSaving, setAccessSaving] = useState(false)
   const [accessError, setAccessError] = useState('')
   const [showActivityLog, setShowActivityLog] = useState(false)
   const [showManualAddForm, setShowManualAddForm] = useState(false)
-  const [manualStore, setManualStore] = useState({ store_name: '', shopify_url: '', owner_email: '', owner_password: '', owner_full_name: '', owner_phone: '', plan_id: '' })
+  const [manualStore, setManualStore] = useState({ store_name: '', shopify_url: '', owner_email: '', owner_password: '', owner_full_name: '', owner_phone: '' })
   const [manualStoreSaving, setManualStoreSaving] = useState(false)
   const [manualStoreError, setManualStoreError] = useState('')
   const [manualStoreSuccess, setManualStoreSuccess] = useState(false)
@@ -389,8 +434,8 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
 
   const handleCreateManualStore = async () => {
     setManualStoreError(''); setManualStoreSuccess(false)
-    if (!manualStore.store_name || !manualStore.owner_email || !manualStore.owner_password || !manualStore.plan_id) {
-      setManualStoreError('Store name, owner email, password, aur plan required hain'); return
+    if (!manualStore.store_name || !manualStore.owner_email || !manualStore.owner_password) {
+      setManualStoreError('Store name, owner email, aur password required hain'); return
     }
     setManualStoreSaving(true)
     try {
@@ -403,7 +448,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
       const data = await res.json()
       if (data.error) { setManualStoreError(data.error); setManualStoreSaving(false); return }
       setManualStoreSuccess(true)
-      setManualStore({ store_name: '', shopify_url: '', owner_email: '', owner_password: '', owner_full_name: '', owner_phone: '', plan_id: '' })
+      setManualStore({ store_name: '', shopify_url: '', owner_email: '', owner_password: '', owner_full_name: '', owner_phone: '' })
       onDataChanged()
     } catch (err) {
       setManualStoreError(err.message)
@@ -422,38 +467,48 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
     setEditError('')
     setEditPasswordSuccess(false)
   }
+  const DEFAULT_REMINDER_MESSAGE = 'Aapki subscription payment pending hai — meherbani karke jald payment complete karein taake service bila rukawat jari rahe.'
+
   const openManageAccess = async (store) => {
     setAccessModalStore(store)
-    setAccessPlanId('')
-    setAccessAddonIds([])
+    setAccessDisabledIds([])
+    setAccessMonthlyLimit('')
+    setAccessPrevMonthlyLimit('')
+    setAccessReminderEnabled(false)
+    setAccessReminderMessage('')
     setAccessExistingSubId(null)
     setAccessError('')
     const { data: sub } = await supabase
       .from('store_subscriptions')
-      .select('id, plan_id, selected_addon_ids')
+      .select('*')
       .eq('store_id', store.eneezam_id)
+      .eq('status', 'approved')
       .order('approved_at', { ascending: false })
       .limit(1)
       .maybeSingle()
     if (sub) {
       setAccessExistingSubId(sub.id)
-      setAccessPlanId(sub.plan_id || '')
-      setAccessAddonIds(
-        Array.isArray(sub.selected_addon_ids) ? sub.selected_addon_ids : JSON.parse(sub.selected_addon_ids || '[]')
-      )
+      setAccessDisabledIds(Array.isArray(sub.disabled_modules) ? sub.disabled_modules : [])
+      setAccessMonthlyLimit(sub.monthly_order_limit == null ? '' : String(sub.monthly_order_limit))
+      setAccessPrevMonthlyLimit(sub.monthly_order_limit == null ? '' : String(sub.monthly_order_limit))
+      setAccessReminderEnabled(!!sub.reminder_enabled)
+      setAccessReminderMessage(sub.reminder_message || '')
     }
   }
 
-  const toggleAccessAddon = (addonId) => {
-    setAccessAddonIds((prev) => prev.includes(addonId) ? prev.filter((id) => id !== addonId) : [...prev, addonId])
+  const toggleAccessModule = (moduleId) => {
+    setAccessDisabledIds((prev) => prev.includes(moduleId) ? prev.filter((id) => id !== moduleId) : [...prev, moduleId])
   }
 
   const handleSaveAccess = async () => {
     setAccessSaving(true)
     setAccessError('')
+    const newLimitValue = accessMonthlyLimit === '' ? null : Number(accessMonthlyLimit)
     const payload = {
-      plan_id: accessPlanId,
-      selected_addon_ids: JSON.stringify(accessAddonIds),
+      disabled_modules: accessDisabledIds,
+      monthly_order_limit: newLimitValue,
+      reminder_enabled: accessReminderEnabled,
+      reminder_message: accessReminderMessage.trim() || DEFAULT_REMINDER_MESSAGE,
       status: 'approved',
       approved_at: new Date().toISOString(),
       approved_by: session.user.id,
@@ -469,8 +524,21 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
       setAccessError(error.message)
       return
     }
+    // Limit badha/Unlimited kiya ho to pehle se quota_hidden pade hue orders ko reveal karo
+    const prevNum = accessPrevMonthlyLimit === '' ? null : Number(accessPrevMonthlyLimit)
+    const limitIncreased = newLimitValue === null && prevNum !== null
+      ? true
+      : (newLimitValue !== null && prevNum !== null && newLimitValue > prevNum)
+    if (limitIncreased) {
+      fetch(`${cfUrl}/apply-quota-reveal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ eneezam_id: accessModalStore.eneezam_id }),
+      }).catch(() => {})
+    }
+    refreshSubsMap()
     setAccessModalStore(null)
-    logActivity(accessModalStore.id, 'access_modified', { plan_id: accessPlanId, addon_ids: accessAddonIds })
+    logActivity(accessModalStore.id, 'access_modified', { disabled_modules: accessDisabledIds, monthly_order_limit: newLimitValue, reminder_enabled: accessReminderEnabled })
   }
 
   const closeEditAdmin = () => { setEditingAdmin(null); setEditingStore(null); setEditError(''); setEditPasswordSuccess(false) }
@@ -678,10 +746,6 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
             <input placeholder="Owner Password" type="password" value={manualStore.owner_password} onChange={e => setManualStore(s => ({ ...s, owner_password: e.target.value }))} style={inputStyle} />
             <input placeholder="Owner Full Name" value={manualStore.owner_full_name} onChange={e => setManualStore(s => ({ ...s, owner_full_name: e.target.value }))} style={inputStyle} />
             <input placeholder="Owner Phone" value={manualStore.owner_phone} onChange={e => setManualStore(s => ({ ...s, owner_phone: e.target.value }))} style={inputStyle} />
-            <select value={manualStore.plan_id} onChange={e => setManualStore(s => ({ ...s, plan_id: e.target.value }))} style={inputStyle}>
-              <option value="">Select Plan</option>
-              {allPlansList.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
             <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 10, alignItems: 'center' }}>
               <button onClick={handleCreateManualStore} disabled={manualStoreSaving}
                 style={{ padding: '10px 20px', background: manualStoreSaving ? 'var(--ne-border)' : 'var(--ne-accent)', color: '#fff', border: 'none', borderRadius: 9, fontWeight: 700, cursor: manualStoreSaving ? 'default' : 'pointer' }}>
@@ -720,6 +784,11 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
                 {statCard(s.approved_count ?? '—', t('master.approvedStat'), 'var(--ne-warning)', 'var(--ne-warning-soft)')}
                 {statCard(s.lifetime_count ?? '—', t('master.lifetime'), '#A855F7', 'rgba(168,85,247,.15)')}
               </div>
+              {s.eneezam_id && subsByEneezamId[s.eneezam_id] && (
+                <div style={{ fontSize: 11, color: 'var(--ne-muted)' }}>
+                  {Number(subsByEneezamId[s.eneezam_id].quota_consumed_count) || 0} / {subsByEneezamId[s.eneezam_id].monthly_order_limit ?? t('master.unlimited')} {t('master.quotaUsedLabel')}
+                </div>
+              )}
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={() => onEnterStore(s)}
                   style={{ flex: 1, padding: '9px', borderRadius: 10, border: 'none', background: 'var(--ne-grad)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
@@ -765,25 +834,35 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
 
       {accessModalStore && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000000 }}>
-          <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 16, width: 380, maxWidth: '92vw', padding: '20px', maxHeight: '85vh', overflowY: 'auto' }}>
+          <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 16, width: 420, maxWidth: '92vw', padding: '20px', maxHeight: '85vh', overflowY: 'auto' }}>
             <h3 style={{ margin: '0 0 14px', fontSize: 15, color: 'var(--ne-text)' }}>{t('master.manageAccessFor')} — {accessModalStore.store_name}</h3>
 
-            <label style={{ fontSize: 12, color: 'var(--ne-muted)', display: 'block', marginBottom: 4 }}>{t('master.plan')}</label>
-            <select value={accessPlanId} onChange={(e) => setAccessPlanId(e.target.value)}
-              style={{ width: '100%', padding: '9px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'var(--ne-bg)', color: 'var(--ne-text)', fontSize: 13, marginBottom: 14 }}>
-              <option value="">— {t('master.selectPlan')} —</option>
-              {allPlansList.map((pl) => <option key={pl.id} value={pl.id}>{pl.name}</option>)}
-            </select>
-
-            <label style={{ fontSize: 12, color: 'var(--ne-muted)', display: 'block', marginBottom: 6 }}>{t('master.addons')}</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-              {allAddonsList.map((a) => (
-                <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={accessAddonIds.includes(a.id)} onChange={() => toggleAccessAddon(a.id)} style={{ accentColor: '#5C7CFA' }} />
-                  {a.name}
+            <label style={{ fontSize: 12, color: 'var(--ne-muted)', display: 'block', marginBottom: 6 }}>{t('master.modulesLabel')}</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16, maxHeight: 200, overflowY: 'auto', padding: '2px 4px' }}>
+              {GATABLE_MODULES.map((m) => (
+                <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={!accessDisabledIds.includes(m.id)} onChange={() => toggleAccessModule(m.id)} style={{ accentColor: '#5C7CFA' }} />
+                  {t(m.labelKey)}
                 </label>
               ))}
             </div>
+
+            <label style={{ fontSize: 12, color: 'var(--ne-muted)', display: 'block', marginBottom: 4 }}>{t('master.monthlyOrderLimitLabel')}</label>
+            <select value={accessMonthlyLimit} onChange={(e) => setAccessMonthlyLimit(e.target.value)}
+              style={{ width: '100%', padding: '9px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'var(--ne-bg)', color: 'var(--ne-text)', fontSize: 13, marginBottom: 14 }}>
+              <option value="">{t('master.unlimited')}</option>
+              {[100, 200, 500, 1000, 1500, 2000].map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer', marginBottom: 8 }}>
+              <input type="checkbox" checked={accessReminderEnabled} onChange={(e) => setAccessReminderEnabled(e.target.checked)} style={{ accentColor: '#5C7CFA' }} />
+              {t('master.reminderEnabledLabel')}
+            </label>
+            {accessReminderEnabled && (
+              <textarea value={accessReminderMessage} onChange={(e) => setAccessReminderMessage(e.target.value)}
+                placeholder={DEFAULT_REMINDER_MESSAGE} rows={3}
+                style={{ width: '100%', padding: '9px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'var(--ne-bg)', color: 'var(--ne-text)', fontSize: 13, marginBottom: 14, resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+            )}
 
             {accessError && <p style={{ color: 'var(--ne-danger)', fontSize: 12, margin: '0 0 12px' }}>{accessError}</p>}
 
@@ -792,7 +871,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
                 style={{ flex: 1, padding: '10px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 13, cursor: 'pointer' }}>
                 {t('action.cancel')}
               </button>
-              <button onClick={handleSaveAccess} disabled={accessSaving || !accessPlanId}
+              <button onClick={handleSaveAccess} disabled={accessSaving}
                 style={{ flex: 1, padding: '10px', borderRadius: 9, border: 'none', background: 'var(--ne-grad)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
                 {accessSaving ? '...' : t('action.save')}
               </button>
@@ -999,45 +1078,75 @@ function App() {
   const [ordersStore, setOrdersStore] = useState(null)
   const [ordersLoading, setOrdersLoading] = useState(false)
   const [syncStatusText, setSyncStatusText] = useState("")
-  // Module-Visibility (Block C) — store ki APPROVED subscription ke plan.included_modules +
-  // uske selected addons ke module_key ka union. Koi approved subscription na mile to empty
-  // Set (fail-closed) — sirf Finance/Ads/WhatsApp jaise gated modules hide hote hain, baaki
-  // (orders/dashboard/courier waghera) har plan mein hote hain isliye gate hi nahi hote (neeche dekho).
-  const [accessibleModuleKeys, setAccessibleModuleKeys] = useState(new Set())
+  // Module-Visibility — store ki latest APPROVED store_subscriptions row ka disabled_modules
+  // array seedha access-control source hai (plans/addons sirf billing-display ke liye reh
+  // gaye hain, access-gating ke liye ab nahi use hote). Koi approved subscription na mile to
+  // disabledModuleKeys khaali rehta hai (fail-open — naye stores by default sab modules dekh
+  // sakte hain, jab tak admin explicitly kuch disable na kare).
+  const [storeSubscription, setStoreSubscription] = useState(null)
+  const disabledModuleKeys = useMemo(() => new Set(storeSubscription?.disabled_modules || []), [storeSubscription])
+
+  const refreshStoreSubscription = async (eneezamId) => {
+    if (!eneezamId) { setStoreSubscription(null); return }
+    const { data: sub } = await supabase
+      .from('store_subscriptions')
+      .select('*')
+      .eq('store_id', eneezamId)
+      .eq('status', 'approved')
+      .order('approved_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    setStoreSubscription(sub || null)
+  }
 
   useEffect(() => {
-    if (!ordersStore?.eneezam_id) { setAccessibleModuleKeys(new Set()); return }
-    (async () => {
-      const { data: sub } = await supabase
-        .from('store_subscriptions')
-        .select('plan_id, selected_addon_ids')
-        .eq('store_id', ordersStore.eneezam_id)
-        .eq('status', 'approved')
-        .order('approved_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      if (!sub) { setAccessibleModuleKeys(new Set()); return }
-      let rawAddonIds = sub.selected_addon_ids
-      if (typeof rawAddonIds === 'string') {
-        try {
-          rawAddonIds = JSON.parse(rawAddonIds)
-        } catch {
-          rawAddonIds = []
-        }
-      }
-      const validAddonIds = (Array.isArray(rawAddonIds)
-        ? rawAddonIds : [])
-        .filter(id => typeof id === 'string' &&
-          /^[0-9a-f-]{36}$/i.test(id))
-      const [{ data: plan }, { data: addonRows }] = await Promise.all([
-        supabase.from('plans').select('included_modules').eq('id', sub.plan_id).single(),
-        validAddonIds.length > 0
-          ? supabase.from('addons').select('module_key').in('id', validAddonIds)
-          : Promise.resolve({ data: [] }),
-      ])
-      setAccessibleModuleKeys(new Set([...(plan?.included_modules || []), ...(addonRows || []).map((a) => a.module_key)]))
-    })()
+    refreshStoreSubscription(ordersStore?.eneezam_id)
   }, [ordersStore?.eneezam_id])
+
+  // Periodic re-check (1-2 min) — reminder_enabled/quota admin kahin aur se (Manage Access modal)
+  // badal sakta hai, is live session ko bhi uska pata turant chalna chahiye bina reload ke.
+  useEffect(() => {
+    if (!ordersStore?.eneezam_id) return
+    const iv = setInterval(() => refreshStoreSubscription(ordersStore.eneezam_id), 90000)
+    return () => clearInterval(iv)
+  }, [ordersStore?.eneezam_id])
+
+  // --- Quota warning banner (80%+ usage, dismissible once per calendar day) ---
+  const [quotaBannerDismissed, setQuotaBannerDismissed] = useState(false)
+  useEffect(() => {
+    if (!ordersStore?.id) { setQuotaBannerDismissed(false); return }
+    const todayKey = new Date().toISOString().slice(0, 10)
+    try {
+      setQuotaBannerDismissed(localStorage.getItem(`ne_quota_banner_dismissed_${ordersStore.id}_${todayKey}`) === '1')
+    } catch (e) { setQuotaBannerDismissed(false) }
+  }, [ordersStore?.id, storeSubscription])
+  const dismissQuotaBanner = () => {
+    if (!ordersStore?.id) return
+    const todayKey = new Date().toISOString().slice(0, 10)
+    try { localStorage.setItem(`ne_quota_banner_dismissed_${ordersStore.id}_${todayKey}`, '1') } catch (e) {}
+    setQuotaBannerDismissed(true)
+  }
+  const quotaLimit = storeSubscription?.monthly_order_limit
+  const quotaConsumed = Number(storeSubscription?.quota_consumed_count) || 0
+  const quotaRemaining = quotaLimit != null ? Math.max(0, quotaLimit - quotaConsumed) : null
+  const showQuotaBanner = quotaLimit != null && quotaLimit > 0 && !quotaBannerDismissed && (quotaConsumed / quotaLimit) >= 0.8
+
+  // --- Subscription reminder popup (every 15 min while reminder_enabled true) ---
+  const [reminderPopupOpen, setReminderPopupOpen] = useState(false)
+  const reminderTimerRef = useRef(null)
+  useEffect(() => {
+    clearTimeout(reminderTimerRef.current)
+    if (!storeSubscription?.reminder_enabled) { setReminderPopupOpen(false); return }
+    const schedule = () => {
+      reminderTimerRef.current = setTimeout(() => {
+        setReminderPopupOpen(true)
+        schedule()
+      }, 15 * 60 * 1000)
+    }
+    setReminderPopupOpen(true)
+    schedule()
+    return () => clearTimeout(reminderTimerRef.current)
+  }, [storeSubscription?.reminder_enabled])
 
   const [profile, setProfile] = useState(null)
   const [lang, setLang] = useLanguage(profile?.id)
@@ -1922,15 +2031,7 @@ function App() {
   const currentUserStoreEntry = userStoresList.find(us => us.store_id === selectedStoreId)
   const isStaff = profile.role === 'staff'
   const staffPermissions = currentUserStoreEntry?.permissions || []
-  // Sirf explicitly listed modules subscription-gated hain (jaisa Block C mein ask kiya gaya
-  // tha — "Finance/Ads/WhatsApp") — baaki menu items (orders/dashboard/courier waghera) har
-  // plan mein already included hote hain, unhe gate karne ki zaroorat nahi.
-  const SUBSCRIPTION_GATED_MODULES = { ledger: ['finance'], 'finance-statement': ['finance'], ads: ['ads'], whatsapp: ['whatsapp_linked', 'whatsapp_meta'] }
-  const hasSubscriptionAccess = (moduleId) => {
-    const requiredKeys = SUBSCRIPTION_GATED_MODULES[moduleId]
-    return !requiredKeys || requiredKeys.some((k) => accessibleModuleKeys.has(k))
-  }
-  const hasAccess = (moduleId) => (!isStaff || staffPermissions.includes(moduleId)) && hasSubscriptionAccess(moduleId)
+  const hasAccess = (moduleId) => (!isStaff || staffPermissions.includes(moduleId)) && !disabledModuleKeys.has(moduleId)
 
   const allMenuItems = [
     { id: 'home', label: t('nav.home'), group: t('nav.group.overview') },
@@ -2002,6 +2103,30 @@ function App() {
   return (
     <div className="ne-app-shell">
       <div className="ne-app">
+
+        {showQuotaBanner && (
+          <div style={{ position: 'fixed', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 2000000, maxWidth: '92vw', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, background: 'var(--ne-warning-soft)', border: '1px solid var(--ne-warning)', color: 'var(--ne-warning)', fontSize: 12.5, boxShadow: '0 8px 24px rgba(0,0,0,.3)' }}>
+            <Icon name="warning" size={14} />
+            <span>{t('quota.warningTemplate').replace('{remaining}', quotaRemaining)}</span>
+            <button onClick={dismissQuotaBanner} style={{ background: 'transparent', border: 'none', color: 'var(--ne-warning)', cursor: 'pointer', fontWeight: 700, fontSize: 12, flexShrink: 0 }}>
+              {t('common.dismiss')}
+            </button>
+          </div>
+        )}
+
+        {reminderPopupOpen && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000001 }}>
+            <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 16, width: 380, maxWidth: '92vw', padding: '20px' }}>
+              <p style={{ fontSize: 13.5, color: 'var(--ne-text)', margin: '0 0 16px', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                {storeSubscription?.reminder_message || 'Aapki subscription payment pending hai — meherbani karke jald payment complete karein taake service bila rukawat jari rahe.'}
+              </p>
+              <button onClick={() => setReminderPopupOpen(false)}
+                style={{ width: '100%', padding: '10px', borderRadius: 9, border: 'none', background: 'var(--ne-grad)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                {t('common.dismiss')}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Dev Monitor (aur ab Gemini Usage Monitor) apna standalone full-page layout rakhte
             hain (jaisa Master Dashboard) — isliye yahan bhi sidebar/drawer-backdrop hide karte
