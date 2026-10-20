@@ -683,6 +683,14 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
       || Object.values(pending.supabase || {}).some((e) => Object.keys(e).length > 0);
   };
 
+  // Local-only reset — drops the card's pending state (Shopify-bound fields/variants
+  // including any staged Generate-SKU result, plus staged stock/cost/supplier/return-value
+  // edits) back to last-saved, without calling any save/API endpoint.
+  const discardCardChanges = (productId) => {
+    setPendingChanges((prev) => { const n = { ...prev }; delete n[productId]; return n; });
+    setCardSaveErrors((prev) => { const n = { ...prev }; delete n[productId]; return n; });
+  };
+
   // Catches a dirty variant's new SKU colliding with any other SKU in the store — including
   // another variant on the SAME card that's also being renamed in this save, which the plain
   // store-wide map wouldn't know about yet.
@@ -737,6 +745,10 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
     setCardSaving((prev) => { const n = { ...prev }; delete n[productId]; return n; });
   };
 
+  // Flips ONLY between Shopify's "active"/"draft" status via the existing generic
+  // product-update endpoint — must never touch "archived" or call the separate
+  // archive/restore variant endpoints (archiveVariant/restoreVariant), which are a
+  // distinct, deliberate action triggered only from the footer trash/undo icons.
   const toggleStatus = (product) => {
     const current = product.raw_data?.status || "active";
     const next = current === "active" ? "draft" : "active";
@@ -1072,9 +1084,10 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
   const numCellInputStyle = { ...cellInputStyle, width: 68 };
   const SUPPLIER_CELL_WIDTH = 110;
   const COST_CELL_WIDTH = 80;
-  const variantFieldColumns = (hasSku) => (hasSku
-    ? `${cellInputStyle.width}px ${numCellInputStyle.width}px ${numCellInputStyle.width}px ${numCellInputStyle.width}px ${COST_CELL_WIDTH}px ${SUPPLIER_CELL_WIDTH}px ${numCellInputStyle.width}px`
-    : `${cellInputStyle.width}px ${numCellInputStyle.width}px ${numCellInputStyle.width}px`);
+  // One shared column template for EVERY variant row on the page, SKU-present or not —
+  // defined once here so the SKU/Price/Compare-At columns sit at identical x-positions
+  // across every card regardless of which layout a given row renders.
+  const VARIANT_GRID_COLUMNS = `${cellInputStyle.width}px ${numCellInputStyle.width}px ${numCellInputStyle.width}px ${numCellInputStyle.width}px ${COST_CELL_WIDTH}px ${SUPPLIER_CELL_WIDTH}px ${numCellInputStyle.width}px`;
   const badgeStyle = { display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 10, fontSize: 9.5, fontWeight: 700, whiteSpace: "nowrap" };
   const fieldLabelStyle = { fontSize: 9.5, color: "var(--ne-muted-2)", textTransform: "uppercase", letterSpacing: "0.03em", fontWeight: 700, display: "block", marginBottom: 2 };
   const iconBtnStyle = (color) => ({ background: "transparent", border: "none", color, cursor: "pointer", padding: 4, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 6 });
@@ -1176,6 +1189,13 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                       {saving ? t("products.saving") : t("products.save")}
                     </button>
                   )}
+                  {dirty && (
+                    <button onClick={() => discardCardChanges(productId)} disabled={saving} title={t("products.discardChanges")}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "transparent", color: "var(--ne-muted)", border: "1px solid var(--ne-border)", borderRadius: 7, padding: "4px 10px", fontSize: 11, fontWeight: 700, cursor: saving ? "default" : "pointer", opacity: saving ? 0.7 : 1 }}>
+                      <Icon name="close" size={11} />
+                      {t("products.discardChanges")}
+                    </button>
+                  )}
                   <button onClick={() => toggleStatus(p)} disabled={status2 === "pending"} title={t(`products.status.${status}`) || status}
                     style={{ width: 34, height: 18, borderRadius: 10, border: "none", cursor: status2 === "pending" ? "default" : "pointer", position: "relative", background: status === "active" ? "var(--ne-success)" : "var(--ne-border)", flexShrink: 0 }}>
                     <span style={{ position: "absolute", top: 2, left: status === "active" ? 17 : 2, width: 14, height: 14, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
@@ -1275,7 +1295,7 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
 
                           <div style={isMobile
                             ? { display: "flex", flexDirection: "column", gap: 8, width: "100%" }
-                            : { display: "grid", gridTemplateColumns: variantFieldColumns(!!sku), gap: 8 }}>
+                            : { display: "grid", gridTemplateColumns: VARIANT_GRID_COLUMNS, gap: 8 }}>
                             <div>
                               <span style={fieldLabelStyle}>{t("products.skuLabel")}</span>
                               <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={productId} fieldKey={`sku-${variant.id}`} initialValue={pendingChanges[productId]?.variants?.[variant.id]?.sku ?? variant.sku}
@@ -1295,7 +1315,7 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                                 onCommit={(val) => commitVariantField(p, variant, "compare_at_price", val)} style={{ ...numCellInputStyle, width: isMobile ? "100%" : numCellInputStyle.width }} />
                             </div>
 
-                            {sku && (
+                            {sku ? (
                               <>
                                 <div>
                                   <span style={fieldLabelStyle}>{t("products.stockLabel")}</span>
@@ -1331,24 +1351,23 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                                     onCommit={(val) => stageSupabaseField(p, sku, "return_value", null, val, rate?.return_value != null ? String(rate.return_value) : "")} style={{ ...numCellInputStyle, width: isMobile ? "100%" : numCellInputStyle.width }} />
                                 </div>
                               </>
+                            ) : (
+                              <div style={{ gridColumn: isMobile ? undefined : "4 / span 4", width: isMobile ? "100%" : undefined, display: "flex", alignItems: "center", gap: 6, background: "var(--ne-warning-soft)", color: "var(--ne-warning)", borderRadius: 7, padding: "5px 9px", fontSize: 10.5, alignSelf: "stretch" }}>
+                                <Icon name="warning" size={11} style={{ flexShrink: 0 }} />
+                                <span>{t("products.setSkuPrompt")}</span>
+                                <button type="button" title={t("products.generateSkuTooltip")}
+                                  onClick={() => {
+                                    const base = productBaseCodeFromSiblings(variants, variant.id);
+                                    const newSku = generateSku({ productTitle: p.raw_data?.title, variantTitle: variant.title, existingProductBaseCode: base, existingStoreSkuSet: storeWideSkuMap });
+                                    commitVariantField(p, variant, "sku", newSku);
+                                  }}
+                                  style={{ ...iconBtnStyle("var(--ne-warning)"), marginLeft: "auto", padding: "3px 8px", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap" }}>
+                                  <Icon name="refresh" size={12} />
+                                  {t("products.autoGenerateSku")}
+                                </button>
+                              </div>
                             )}
                           </div>
-
-                          {!sku && (
-                            <div style={{ width: "100%", display: "flex", alignItems: "center", gap: 6, background: "var(--ne-warning-soft)", color: "var(--ne-warning)", borderRadius: 7, padding: "5px 9px", fontSize: 10.5 }}>
-                              <Icon name="warning" size={11} />
-                              {t("products.setSkuPrompt")}
-                              <button type="button" title={t("products.generateSkuTooltip")}
-                                onClick={() => {
-                                  const base = productBaseCodeFromSiblings(variants, variant.id);
-                                  const newSku = generateSku({ productTitle: p.raw_data?.title, variantTitle: variant.title, existingProductBaseCode: base, existingStoreSkuSet: storeWideSkuMap });
-                                  commitVariantField(p, variant, "sku", newSku);
-                                }}
-                                style={{ ...iconBtnStyle("var(--ne-warning)"), marginLeft: "auto", padding: 3 }}>
-                                <Icon name="refresh" size={12} />
-                              </button>
-                            </div>
-                          )}
 
                           <button onClick={() => archiveVariant(p, variant)} disabled={status2 === "pending"} title={t("products.archiveVariantTooltip")}
                             style={{ ...iconBtnStyle("var(--ne-muted)"), marginLeft: isMobile ? 0 : "auto", alignSelf: isMobile ? "flex-end" : "center", cursor: status2 === "pending" ? "default" : "pointer" }}>
@@ -1753,40 +1772,56 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                   </button>
                 </div>
               </div>
-            ) : (
-              <>
-                <div style={{ flex: 1, overflowY: "auto", padding: "10px 18px" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5 }}>
-                    <thead>
-                      <tr style={{ textAlign: "left", color: "var(--ne-muted-2)", fontSize: 10 }}>
-                        <th style={{ padding: "4px 6px" }}>{t("products.generateMissingSkusColProduct")}</th>
-                        <th style={{ padding: "4px 6px" }}>{t("products.generateMissingSkusColVariant")}</th>
-                        <th style={{ padding: "4px 6px" }}>{t("products.generateMissingSkusColSku")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {generateSkusPreview.map((entry, i) => (
-                        <tr key={i} style={{ borderTop: "1px solid var(--ne-border)" }}>
-                          <td style={{ padding: "4px 6px", color: "var(--ne-text)" }}>{entry.productTitle}</td>
-                          <td style={{ padding: "4px 6px", color: "var(--ne-muted)" }}>{entry.variantTitle}</td>
-                          <td style={{ padding: "4px 6px", color: "var(--ne-text)", fontFamily: "monospace" }}>{entry.sku}</td>
+            ) : (() => {
+              const previewIssues = generateSkusPreview.map((entry, i) => {
+                const sku = entry.sku.trim();
+                if (!sku) return "empty";
+                if (isDuplicateSku(sku, storeWideSkuMap)) return "duplicate";
+                const dupInList = generateSkusPreview.some((other, j) => j !== i && other.sku.trim().toLowerCase() === sku.toLowerCase());
+                return dupInList ? "duplicate" : null;
+              });
+              const hasAnyIssue = previewIssues.some(Boolean);
+              return (
+                <>
+                  <div style={{ flex: 1, overflowY: "auto", padding: "10px 18px" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5 }}>
+                      <thead>
+                        <tr style={{ textAlign: "left", color: "var(--ne-muted-2)", fontSize: 10 }}>
+                          <th style={{ padding: "4px 6px" }}>{t("products.generateMissingSkusColProduct")}</th>
+                          <th style={{ padding: "4px 6px" }}>{t("products.generateMissingSkusColVariant")}</th>
+                          <th style={{ padding: "4px 6px" }}>{t("products.generateMissingSkusColSku")}</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div style={{ padding: "12px 18px", borderTop: "1px solid var(--ne-border)", display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                  <button type="button" onClick={() => setShowGenerateSkusModal(false)} disabled={generateSkusApplying}
-                    style={{ padding: "8px 16px", background: "transparent", color: "var(--ne-muted)", border: "1px solid var(--ne-border)", borderRadius: 9, fontSize: 12, cursor: "pointer" }}>
-                    {t("products.generateMissingSkusCancel")}
-                  </button>
-                  <button onClick={applyGenerateMissingSkus} disabled={generateSkusApplying}
-                    style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: generateSkusApplying ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-                    {generateSkusApplying ? t("products.generateMissingSkusSaving") : (<><Icon name="check" size={12} /> {t("products.generateMissingSkusConfirm")}</>)}
-                  </button>
-                </div>
-              </>
-            )}
+                      </thead>
+                      <tbody>
+                        {generateSkusPreview.map((entry, i) => (
+                          <tr key={i} style={{ borderTop: "1px solid var(--ne-border)" }}>
+                            <td style={{ padding: "4px 6px", color: "var(--ne-text)" }}>{entry.productTitle}</td>
+                            <td style={{ padding: "4px 6px", color: "var(--ne-muted)" }}>{entry.variantTitle}</td>
+                            <td style={{ padding: "4px 6px" }}>
+                              <input type="text" value={entry.sku}
+                                onChange={(e) => setGenerateSkusPreview((prev) => prev.map((row, j) => (j === i ? { ...row, sku: e.target.value } : row)))}
+                                style={{ ...cellInputStyle, width: "100%", fontFamily: "monospace", borderColor: previewIssues[i] ? "var(--ne-danger)" : cellInputStyle.border }} />
+                              {previewIssues[i] === "duplicate" && <div style={{ fontSize: 10, color: "var(--ne-danger)", marginTop: 2 }}>{t("products.duplicateSkuError")}</div>}
+                              {previewIssues[i] === "empty" && <div style={{ fontSize: 10, color: "var(--ne-danger)", marginTop: 2 }}>{t("products.skuEnterPlaceholder")}</div>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{ padding: "12px 18px", borderTop: "1px solid var(--ne-border)", display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                    <button type="button" onClick={() => setShowGenerateSkusModal(false)} disabled={generateSkusApplying}
+                      style={{ padding: "8px 16px", background: "transparent", color: "var(--ne-muted)", border: "1px solid var(--ne-border)", borderRadius: 9, fontSize: 12, cursor: "pointer" }}>
+                      {t("products.generateMissingSkusCancel")}
+                    </button>
+                    <button onClick={applyGenerateMissingSkus} disabled={generateSkusApplying || hasAnyIssue}
+                      style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: (generateSkusApplying || hasAnyIssue) ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: (generateSkusApplying || hasAnyIssue) ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                      {generateSkusApplying ? t("products.generateMissingSkusSaving") : (<><Icon name="check" size={12} /> {t("products.generateMissingSkusConfirm")}</>)}
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
