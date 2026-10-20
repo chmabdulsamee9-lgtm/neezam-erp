@@ -84,9 +84,10 @@ const PUBLIC_ROUTES = {
   '/terms': PublicTerms,
 }
 const StoreConnect = lazyPage(() => import('./pages/StoreConnect'), 'store-connect')
+// Inventory aur Product Costing ab standalone pages nahi hain — unki logic Products page
+// (ProductsManagement.jsx) ke unified card mein merge ho gayi hai. Component files disk pe
+// reused-logic source ke taur par maujood hain, lekin yahan se route/lazy-import nahi hote.
 const ProductsManagement = lazyPage(() => import('./pages/ProductsManagement'), 'products')
-const InventoryManagement = lazyPage(() => import('./pages/InventoryManagement'), 'inventory')
-const ProductCosting = lazyPage(() => import('./pages/ProductCosting'), 'product-costing')
 const FinanceStatement = lazyPage(() => import('./pages/FinanceStatement'), 'finance-statement')
 const DevMonitorDetailed = lazyPage(() => import('./pages/DevMonitorDetailed'), 'master-dashboard/dev-monitor')
 const GeminiUsageMonitor = lazyPage(() => import('./pages/GeminiUsageMonitor'), 'master-dashboard/gemini-monitor')
@@ -119,8 +120,6 @@ const GATABLE_MODULES = [
   { id: 'courier', labelKey: 'nav.courier' },
   { id: 'returns', labelKey: 'nav.returns' },
   { id: 'products', labelKey: 'nav.products' },
-  { id: 'inventory', labelKey: 'nav.inventory' },
-  { id: 'product-costing', labelKey: 'nav.product-costing' },
   { id: 'finance-statement', labelKey: 'nav.finance-statement' },
   { id: 'ads', labelKey: 'nav.ads' },
   { id: 'pnl', labelKey: 'nav.pnl' },
@@ -2026,7 +2025,7 @@ function App() {
   // Store-dependent pages sirf ordersStore (store row) chahte hain, jo orders se pehle set hota hai — orders load hone ka intezar nahi.
   const storePending = !ordersStore && !isAdminOnlyPage
   const ORDERS_DEPENDENT_PAGES = ['ads', 'pnl', 'budget']
-  const STORE_DEPENDENT_PAGES = ['orders', 'products', 'product-costing', 'finance-statement', 'courier', 'courier-dashboard', 'courier-dashboard/detailed']
+  const STORE_DEPENDENT_PAGES = ['orders', 'products', 'finance-statement', 'courier', 'courier-dashboard', 'courier-dashboard/detailed']
 
   const currentUserStoreEntry = userStoresList.find(us => us.store_id === selectedStoreId)
   const isStaff = profile.role === 'staff'
@@ -2040,8 +2039,6 @@ function App() {
     { id: 'courier', label: t('nav.courier'), group: t('nav.group.operations') },
     { id: 'returns', label: t('nav.returns'), group: t('nav.group.operations') },
     { id: 'products', label: t('nav.products'), group: t('nav.group.operations') },
-    { id: 'inventory', label: t('nav.inventory'), group: t('nav.group.operations') },
-    { id: 'product-costing', label: t('nav.product-costing'), group: t('nav.group.operations') },
     { id: 'finance-statement', label: t('nav.finance-statement'), group: t('nav.group.finance') },
     { id: 'ads', label: t('nav.ads'), group: t('nav.group.insights') },
     { id: 'pnl', label: t('nav.pnl'), group: t('nav.group.insights') },
@@ -2269,12 +2266,6 @@ function App() {
             {activeMenu === 'products' && hasAccess('products') && !storePending && (
               <ProductsManagement storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
             )}
-            {activeMenu === 'inventory' && hasAccess('inventory') && (
-              <InventoryManagement storeId={selectedStoreId} />
-            )}
-            {activeMenu === 'product-costing' && hasAccess('product-costing') && !storePending && (
-              <ProductCosting storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
-            )}
             {activeMenu === 'finance-statement' && hasAccess('finance-statement') && !storePending && (
               <FinanceStatement storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
             )}
@@ -2322,7 +2313,7 @@ function App() {
             {activeMenu === 'master-dashboard/gemini-monitor' && profile.role === 'creator' && (
               <GeminiUsageMonitor cfUrl={CF_URL} session={session} />
             )}
-            {!['home', 'dashboard', 'store-connect', 'products', 'inventory', 'product-costing', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor'].includes(activeMenu) && (
+            {!['home', 'dashboard', 'store-connect', 'products', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor'].includes(activeMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{menuItems.find(m => m.id === activeMenu)?.label}</h2>

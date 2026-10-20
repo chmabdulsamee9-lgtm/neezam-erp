@@ -11,6 +11,22 @@ const PER_PAGE_OPTIONS = [20, 50, 100];
 const BULK_FIELDS = ["vendor", "product_type", "tags", "status", "collection"];
 const CREATE_NEW_COLLECTION = "__create_new__";
 
+// Costing — ported from ProductCosting.jsx (merged into the unified card)
+const DEFAULT_COMPONENT_KEYS = ["component_1", "component_2", "component_3"];
+const DEFAULT_COMPONENT_LABELS = { component_1: "Raw Material", component_2: "Packaging", component_3: "Other" };
+const toDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const extraKeysForSku = (componentsForSku) => {
+  const keys = Object.keys(componentsForSku || {}).filter((k) => !DEFAULT_COMPONENT_KEYS.includes(k));
+  const numbered = keys.filter((k) => /^extra_\d+$/.test(k)).sort((a, b) => Number(a.split("_")[1]) - Number(b.split("_")[1]));
+  const named = keys.filter((k) => !/^extra_\d+$/.test(k)).sort();
+  return [...numbered, ...named];
+};
+const humanizeKey = (key, extraLabel) => {
+  const m = /^extra_(\d+)$/.exec(key);
+  if (m) return `${extraLabel} ${m[1]}`;
+  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+};
+
 const firstVariant = (row) => row?.raw_data?.variants?.[0] || {};
 
 async function fetchAllProductsFromSupabase(storeId) {
@@ -98,6 +114,19 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
   const [pendingChanges, setPendingChanges] = useState({}); // { [shopify_product_id]: { fields: {title?, vendor?, product_type?}, variants: { [variantId]: {sku?, price?, compare_at_price?} } } }
   const [archivedVariants, setArchivedVariants] = useState({}); // { [shopify_product_id]: [{id, variant_data, archived_at}, ...] }
 
+  // ---- Inventory (merged from InventoryManagement.jsx) ----
+  const [inventoryLevels, setInventoryLevels] = useState([]); // [{id, product_id (products_cache.id), variant_sku, quantity, location_name}]
+  const [stockDrafts, setStockDrafts] = useState({}); // sku -> draft qty string
+  const [savingStockSku, setSavingStockSku] = useState(null);
+
+  // ---- Costing (merged from ProductCosting.jsx) ----
+  const [costComponents, setCostComponents] = useState({}); // { [sku]: { [component_name]: number } }
+  const [costRates, setCostRates] = useState({}); // { [sku]: { id, cost_price, return_value, supplier_id, effective_from } } — current effective row
+  const [costLabels, setCostLabels] = useState(DEFAULT_COMPONENT_LABELS);
+  const [suppliers, setSuppliers] = useState([]);
+  const [expandedCostSku, setExpandedCostSku] = useState(null); // which variant's cost breakdown is expanded
+  const [costExtraCounts, setCostExtraCounts] = useState({}); // { [sku]: n } — min visible numbered extra-slots
+
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
     window.addEventListener("resize", onResize);
@@ -114,6 +143,10 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
 
   useEffect(() => {
     if (storeId) loadArchivedVariants();
+  }, [storeId]);
+
+  useEffect(() => {
+    if (storeId) loadInventoryAndCosting();
   }, [storeId]);
 
   useEffect(() => {
@@ -197,6 +230,189 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
     } catch (err) {
       console.log("Archived variants load error:", err.message);
     }
+  };
+
+  // Inventory + Costing — merged in from InventoryManagement.jsx / ProductCosting.jsx.
+  // Both join to products purely by SKU text (inventory_levels.variant_sku, product_costs.sku) —
+  // there's no real foreign key to a Shopify variant_id, so matching happens at render time.
+  const loadInventoryAndCosting = async () => {
+    try {
+      const [
+        { data: invRows, error: invErr },
+        { data: costRows, error: costErr },
+        { data: compRows, error: compErr },
+        { data: labelRows, error: labelErr },
+        { data: supplierRows, error: supplierErr },
+      ] = await Promise.all([
+        supabase.from("inventory_levels").select("*").eq("store_id", storeId),
+        supabase.from("product_costs").select("*").eq("store_id", storeId),
+        supabase.from("product_cost_components").select("*").eq("store_id", storeId),
+        supabase.from("cost_component_labels").select("*").eq("store_id", storeId),
+        supabase.from("suppliers").select("id, name").eq("store_id", storeId).order("name"),
+      ]);
+      if (invErr) throw invErr;
+      if (costErr) throw costErr;
+      if (compErr) throw compErr;
+      if (labelErr) throw labelErr;
+      if (supplierErr) throw supplierErr;
+
+      setInventoryLevels(invRows || []);
+
+      // product_costs is versioned (multiple rows per SKU, one per effective_from) — pick each
+      // SKU's most recent row whose effective_from <= today, same rule as ProductCosting.jsx.
+      const todayStr = toDateStr(new Date());
+      const sorted = [...(costRows || [])].sort((a, b) => (b.effective_from || "0000-01-01").localeCompare(a.effective_from || "0000-01-01"));
+      const rateMap = {};
+      sorted.forEach((r) => {
+        const ef = r.effective_from || "0000-01-01";
+        if (ef > todayStr) return;
+        if (rateMap[r.sku]) return;
+        rateMap[r.sku] = { id: r.id, cost_price: Number(r.cost_price) || 0, return_value: r.return_value != null ? Number(r.return_value) : null, supplier_id: r.supplier_id || null, effective_from: ef };
+      });
+      setCostRates(rateMap);
+
+      const compMap = {};
+      (compRows || []).forEach((r) => {
+        if (!compMap[r.sku]) compMap[r.sku] = {};
+        compMap[r.sku][r.component_name] = Number(r.cost_price);
+      });
+      setCostComponents(compMap);
+
+      const labelMap = { ...DEFAULT_COMPONENT_LABELS };
+      (labelRows || []).forEach((r) => { labelMap[r.component_key] = r.label; });
+      setCostLabels(labelMap);
+
+      setSuppliers(supplierRows || []);
+    } catch (err) {
+      console.log("Inventory/costing load error:", err.message);
+    }
+  };
+
+  // sku -> [{id, quantity, location_name}] — a SKU can have rows at multiple locations
+  const inventoryRowsForSku = (sku) => (sku ? inventoryLevels.filter((r) => r.variant_sku === sku) : []);
+  const stockTotalForSku = (sku) => inventoryRowsForSku(sku).reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
+
+  // sku -> total cost: sum of components if any exist, else fall back to the legacy single cost_price
+  const costTotalForSku = (sku) => {
+    if (!sku) return 0;
+    const compMap = costComponents[sku];
+    if (compMap && Object.keys(compMap).length > 0) {
+      return Object.values(compMap).reduce((sum, v) => sum + (Number(v) || 0), 0);
+    }
+    return costRates[sku]?.cost_price ?? 0;
+  };
+
+  const getCostInputValue = (sku, key) => {
+    const dk = draftKey(sku, `cost-${key}`);
+    if (Object.prototype.hasOwnProperty.call(drafts, dk)) return drafts[dk];
+    return costComponents[sku]?.[key] != null ? String(costComponents[sku][key]) : "";
+  };
+
+  // Writes one component's value, recomputes the total, and upserts today's product_costs row
+  // (preserving return_value/supplier_id) — same pattern as ProductCosting.jsx's applyCostVersion,
+  // simplified to always apply immediately (no "apply from a future date" scheduling here).
+  const saveCostComponent = async (sku, key, rawValue) => {
+    if (!sku) return;
+    const trimmed = String(rawValue ?? "").trim();
+    const value = trimmed === "" ? 0 : Number(trimmed);
+    const currentMap = costComponents[sku] || {};
+    const nextMap = { ...currentMap };
+    try {
+      if (!trimmed || value === 0) {
+        delete nextMap[key];
+        await supabase.from("product_cost_components").delete().eq("store_id", storeId).eq("sku", sku).eq("component_name", key);
+      } else {
+        nextMap[key] = value;
+        await supabase.from("product_cost_components").upsert(
+          { store_id: storeId, sku, component_name: key, cost_price: value, updated_at: new Date().toISOString() },
+          { onConflict: "store_id,sku,component_name" }
+        );
+      }
+      const total = Object.values(nextMap).reduce((sum, v) => sum + (Number(v) || 0), 0);
+      await upsertCostRate(sku, { cost_price: total });
+      setCostComponents((prev) => ({ ...prev, [sku]: nextMap }));
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  // Shared helper — updates (or creates) today's product_costs row for a SKU, carrying forward
+  // whichever fields aren't explicitly overridden.
+  const upsertCostRate = async (sku, overrides) => {
+    const existing = costRates[sku];
+    const todayStr = toDateStr(new Date());
+    const payload = {
+      cost_price: overrides.cost_price ?? existing?.cost_price ?? 0,
+      return_value: overrides.return_value !== undefined ? overrides.return_value : (existing?.return_value ?? null),
+      supplier_id: overrides.supplier_id !== undefined ? overrides.supplier_id : (existing?.supplier_id ?? null),
+      updated_at: new Date().toISOString(),
+    };
+    let saved;
+    if (existing && existing.effective_from === todayStr) {
+      const { data, error } = await supabase.from("product_costs").update(payload).eq("id", existing.id).select().single();
+      if (error) throw error;
+      saved = data;
+    } else {
+      const { data, error } = await supabase.from("product_costs")
+        .upsert({ store_id: storeId, sku, effective_from: todayStr, ...payload }, { onConflict: "store_id,sku,effective_from" })
+        .select().single();
+      if (error) throw error;
+      saved = data;
+    }
+    setCostRates((prev) => ({ ...prev, [sku]: { id: saved.id, cost_price: Number(saved.cost_price) || 0, return_value: saved.return_value != null ? Number(saved.return_value) : null, supplier_id: saved.supplier_id || null, effective_from: saved.effective_from } }));
+  };
+
+  const saveReturnValue = async (sku, rawValue) => {
+    if (!sku) return;
+    const trimmed = String(rawValue ?? "").trim();
+    const value = trimmed === "" ? null : Number(trimmed);
+    try {
+      await upsertCostRate(sku, { return_value: value });
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const saveSupplierForSku = async (sku, supplierId) => {
+    if (!sku) return;
+    try {
+      await upsertCostRate(sku, { supplier_id: supplierId || null });
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const addAnotherCostExtra = (sku) => {
+    setCostExtraCounts((prev) => ({ ...prev, [sku]: (prev[sku] || 0) + 1 }));
+  };
+
+  // Stock — if a SKU has exactly 0 or 1 inventory_levels row, inline-edit writes straight to it
+  // (creating one if none exists, product_id = this product's products_cache.id — the products_cache
+  // table's OWN primary key, not shopify_product_id, matching InventoryManagement.jsx's convention).
+  // If a SKU has rows at 2+ locations, the total isn't directly editable here (ambiguous which
+  // location to adjust) — it's shown as a read-only total with a per-location breakdown tooltip.
+  const saveStock = async (product, sku, rawValue) => {
+    if (!sku) return;
+    const trimmed = String(rawValue ?? "").trim();
+    const value = trimmed === "" ? 0 : Number(trimmed) || 0;
+    setSavingStockSku(sku);
+    try {
+      const rows = inventoryRowsForSku(sku);
+      if (rows.length === 1) {
+        const { error } = await supabase.from("inventory_levels").update({ quantity: value, updated_at: new Date().toISOString() }).eq("id", rows[0].id);
+        if (error) throw error;
+        setInventoryLevels((prev) => prev.map((r) => (r.id === rows[0].id ? { ...r, quantity: value } : r)));
+      } else {
+        const { data, error } = await supabase.from("inventory_levels").insert({
+          store_id: storeId, product_id: product.id, variant_sku: sku, quantity: value, location_name: null,
+        }).select().single();
+        if (error) throw error;
+        setInventoryLevels((prev) => [...prev, data]);
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+    setSavingStockSku(null);
   };
 
   const collectionTitlesForProduct = (productId) => {
@@ -359,11 +575,11 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
   // Reusable inline-editable cell — every plain text/number cell (vendor, product_type,
   // sku, price, compare_at_price, and each expanded variant's own copies) goes through
   // this so drafts/commit-on-blur/Enter-to-save stay consistent everywhere.
-  const EditableCell = ({ productId, fieldKey, initialValue, onCommit, type = "text", disabled, style }) => {
+  const EditableCell = ({ productId, fieldKey, initialValue, onCommit, type = "text", disabled, style, placeholder }) => {
     const dk = draftKey(productId, fieldKey);
     const value = Object.prototype.hasOwnProperty.call(drafts, dk) ? drafts[dk] : (initialValue != null ? String(initialValue) : "");
     return (
-      <input type={type} step={type === "number" ? "0.01" : undefined} disabled={disabled} value={value}
+      <input type={type} step={type === "number" ? "0.01" : undefined} disabled={disabled} value={value} placeholder={placeholder}
         onChange={(e) => setFieldDraft(productId, fieldKey, e.target.value)}
         onBlur={() => {
           const dv = drafts[dk];
@@ -561,12 +777,19 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
     width: "100%", padding: "9px 12px", borderRadius: 9, border: "1px solid var(--ne-border)",
     background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, boxSizing: "border-box", marginBottom: 10,
   };
-  const cardStyle = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "18px 20px" };
+  // Single shared card padding — previously `cardStyle` declared "18px 20px" but the real product
+  // cards hardcoded a different "14px 16px", so the two never actually agreed. One value now, used
+  // by both the empty-state card and the real product cards.
+  const CARD_PADDING = "16px 18px";
+  const cardStyle = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: CARD_PADDING };
   const cellInputStyle = {
     width: 90, padding: "5px 7px", borderRadius: 7, border: "1px solid var(--ne-border)",
     background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11.5, boxSizing: "border-box",
   };
+  const numCellInputStyle = { ...cellInputStyle, width: 68 };
   const badgeStyle = { display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 10, fontSize: 9.5, fontWeight: 700, whiteSpace: "nowrap" };
+  const fieldLabelStyle = { fontSize: 9.5, color: "var(--ne-muted-2)", textTransform: "uppercase", letterSpacing: "0.03em", fontWeight: 700, display: "block", marginBottom: 2 };
+  const iconBtnStyle = (color) => ({ background: "transparent", border: "none", color, cursor: "pointer", padding: 4, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 6 });
 
   if (!ordersStore?.shopify_url) {
     return (
@@ -647,8 +870,28 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
             const status2 = syncStatus[productId];
             const archived = archivedVariants[productId] || [];
 
+            const statusZone = (
+              <div style={{ display: "flex", flexDirection: isMobile ? "row" : "column", alignItems: isMobile ? "center" : "flex-end", gap: 6, flexShrink: 0 }}>
+                <button onClick={() => toggleStatus(p)} disabled={status2 === "pending"} title={t(`products.status.${status}`) || status}
+                  style={{ width: 34, height: 18, borderRadius: 10, border: "none", cursor: status2 === "pending" ? "default" : "pointer", position: "relative", background: status === "active" ? "var(--ne-success)" : "var(--ne-border)", flexShrink: 0 }}>
+                  <span style={{ position: "absolute", top: 2, left: status === "active" ? 17 : 2, width: 14, height: 14, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+                </button>
+                {status2 === "pending" && (
+                  <span style={{ ...badgeStyle, background: "var(--ne-warning-soft)", color: "var(--ne-warning)" }}>
+                    <Icon name="refresh" size={9} /> {t("products.syncPending")}
+                  </span>
+                )}
+                {status2 === "synced" && (
+                  <span style={{ ...badgeStyle, background: "var(--ne-success-soft)", color: "var(--ne-success)" }}>
+                    <Icon name="check" size={9} /> {t("products.synced")}
+                  </span>
+                )}
+              </div>
+            );
+
             return (
-              <div key={productId} style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "14px 16px" }}>
+              <div key={productId} style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: CARD_PADDING }}>
+                {/* ===== ZONE 1 — Header: identity + status ===== */}
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
                   <input type="checkbox" checked={selectedIds.has(productId)} onChange={() => toggleSelect(productId)} style={{ cursor: "pointer", marginTop: 4, flexShrink: 0 }} />
                   {image ? (
@@ -660,9 +903,13 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                   )}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     {editingTitleId === productId ? (
-                      <EditableCell productId={productId} fieldKey="title" initialValue={pendingChanges[productId]?.fields?.title ?? p.raw_data?.title}
-                        onCommit={(val) => { commitProductField(p, "title", val); setEditingTitleId(null); }}
-                        style={{ ...cellInputStyle, width: "100%", fontSize: 13 }} />
+                      <div>
+                        <span style={fieldLabelStyle}>{t("products.titleLabel")}</span>
+                        <EditableCell productId={productId} fieldKey="title" initialValue={pendingChanges[productId]?.fields?.title ?? p.raw_data?.title}
+                          placeholder={t("products.titlePlaceholder")}
+                          onCommit={(val) => { commitProductField(p, "title", val); setEditingTitleId(null); }}
+                          style={{ ...cellInputStyle, width: "100%", fontSize: 13 }} />
+                      </div>
                     ) : (
                       <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
                         {shopifyStorefrontUrl ? (
@@ -677,53 +924,160 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                           onClick={() => setEditingTitleId(productId)} />
                       </div>
                     )}
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
-                      <EditableCell productId={productId} fieldKey="vendor" initialValue={pendingChanges[productId]?.fields?.vendor ?? p.raw_data?.vendor}
-                        onCommit={(val) => commitProductField(p, "vendor", val)} style={cellInputStyle} />
-                      <EditableCell productId={productId} fieldKey="product_type" initialValue={pendingChanges[productId]?.fields?.product_type ?? p.raw_data?.product_type}
-                        onCommit={(val) => commitProductField(p, "product_type", val)} style={cellInputStyle} />
+                    <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 8, flexWrap: "wrap", marginTop: 6, alignItems: isMobile ? "stretch" : "flex-end" }}>
+                      <div style={{ width: isMobile ? "100%" : "auto" }}>
+                        <span style={fieldLabelStyle}>{t("products.vendorLabel")}</span>
+                        <EditableCell productId={productId} fieldKey="vendor" initialValue={pendingChanges[productId]?.fields?.vendor ?? p.raw_data?.vendor}
+                          placeholder={t("products.vendorPlaceholder")}
+                          onCommit={(val) => commitProductField(p, "vendor", val)} style={{ ...cellInputStyle, width: isMobile ? "100%" : 90 }} />
+                      </div>
+                      <div style={{ width: isMobile ? "100%" : "auto" }}>
+                        <span style={fieldLabelStyle}>{t("products.typeLabel")}</span>
+                        <EditableCell productId={productId} fieldKey="product_type" initialValue={pendingChanges[productId]?.fields?.product_type ?? p.raw_data?.product_type}
+                          placeholder={t("products.typePlaceholder")}
+                          onCommit={(val) => commitProductField(p, "product_type", val)} style={{ ...cellInputStyle, width: isMobile ? "100%" : 90 }} />
+                      </div>
+                      {isMobile && statusZone}
                     </div>
                     {collectionTitles.length > 0 && (
                       <div style={{ fontSize: 10, color: "var(--ne-muted-2)", marginTop: 4 }}>{collectionTitles.join(", ")}</div>
                     )}
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
-                    <button onClick={() => toggleStatus(p)} disabled={status2 === "pending"} title={t(`products.status.${status}`) || status}
-                      style={{ width: 34, height: 18, borderRadius: 10, border: "none", cursor: status2 === "pending" ? "default" : "pointer", position: "relative", background: status === "active" ? "var(--ne-success)" : "var(--ne-border)", flexShrink: 0 }}>
-                      <span style={{ position: "absolute", top: 2, left: status === "active" ? 17 : 2, width: 14, height: 14, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
-                    </button>
-                    {status2 === "pending" && (
-                      <span style={{ ...badgeStyle, background: "var(--ne-warning-soft)", color: "var(--ne-warning)" }}>
-                        <Icon name="refresh" size={9} /> {t("products.syncPending")}
-                      </span>
-                    )}
-                    {status2 === "synced" && (
-                      <span style={{ ...badgeStyle, background: "var(--ne-success-soft)", color: "var(--ne-success)" }}>
-                        <Icon name="check" size={9} /> {t("products.synced")}
-                      </span>
-                    )}
-                  </div>
+                  {!isMobile && statusZone}
                 </div>
 
-                <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--ne-border)", display: "flex", flexDirection: "column", gap: 6 }}>
-                  {variants.map((variant) => (
-                    <div key={variant.id} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 10.5, color: "var(--ne-muted-2)", minWidth: 90, flexShrink: 0 }}>{variant.title && variant.title !== "Default Title" ? variant.title : t("products.defaultVariant")}</span>
-                      <EditableCell productId={productId} fieldKey={`sku-${variant.id}`} initialValue={pendingChanges[productId]?.variants?.[variant.id]?.sku ?? variant.sku}
-                        onCommit={(val) => commitVariantField(p, variant, "sku", val)} style={{ ...cellInputStyle, fontFamily: "monospace" }} />
-                      <EditableCell productId={productId} fieldKey={`cap-${variant.id}`} type="number" initialValue={pendingChanges[productId]?.variants?.[variant.id]?.compare_at_price ?? variant.compare_at_price}
-                        onCommit={(val) => commitVariantField(p, variant, "compare_at_price", val)} style={cellInputStyle} />
-                      <EditableCell productId={productId} fieldKey={`price-${variant.id}`} type="number" initialValue={pendingChanges[productId]?.variants?.[variant.id]?.price ?? variant.price}
-                        onCommit={(val) => commitVariantField(p, variant, "price", val)} style={cellInputStyle} />
-                      <button onClick={() => archiveVariant(p, variant)} disabled={status2 === "pending"}
-                        style={{ marginLeft: "auto", background: "transparent", border: "1px solid var(--ne-border)", borderRadius: 7, color: "var(--ne-muted)", cursor: status2 === "pending" ? "default" : "pointer", fontSize: 10, fontWeight: 700, padding: "3px 9px" }}>
-                        {t("products.variantOff")}
-                      </button>
-                    </div>
-                  ))}
+                {/* ===== ZONE 2 — Variants: SKU/price + inventory + costing, per variant ===== */}
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--ne-border)", display: "flex", flexDirection: "column", gap: 8 }}>
+                  {variants.map((variant) => {
+                    const sku = variant.sku || "";
+                    const variantTitle = variant.title && variant.title !== "Default Title" ? variant.title : null;
+                    const invRows = inventoryRowsForSku(sku);
+                    const stockTotal = stockTotalForSku(sku);
+                    const stockTooltip = invRows.length > 1 ? invRows.map((r) => `${r.location_name || t("products.noLocationLabel")}: ${r.quantity ?? 0}`).join(", ") : undefined;
+                    const costTotal = costTotalForSku(sku);
+                    const rate = costRates[sku];
+                    const compMap = costComponents[sku] || {};
+                    const extraKeys = extraKeysForSku(compMap);
+                    const numberedExtraKeys = extraKeys.filter((k) => /^extra_\d+$/.test(k));
+                    const namedExtraKeys = extraKeys.filter((k) => !/^extra_\d+$/.test(k));
+                    const slotCount = Math.max(costExtraCounts[sku] || 0, numberedExtraKeys.length);
+                    const isExpanded = expandedCostSku === sku;
+
+                    return (
+                      <div key={variant.id} style={{ background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "8px 10px" }}>
+                        <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", flexWrap: "wrap", gap: 8, alignItems: isMobile ? "stretch" : "flex-end" }}>
+                          {variantTitle && (
+                            <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)", fontWeight: 600, width: isMobile ? "100%" : "auto", alignSelf: isMobile ? "flex-start" : "center" }}>{variantTitle}</div>
+                          )}
+                          <div style={{ width: isMobile ? "100%" : "auto" }}>
+                            <span style={fieldLabelStyle}>{t("products.skuLabel")}</span>
+                            <EditableCell productId={productId} fieldKey={`sku-${variant.id}`} initialValue={pendingChanges[productId]?.variants?.[variant.id]?.sku ?? variant.sku}
+                              placeholder={t("products.skuEnterPlaceholder")}
+                              onCommit={(val) => commitVariantField(p, variant, "sku", val)} style={{ ...cellInputStyle, width: isMobile ? "100%" : 90, fontFamily: "monospace" }} />
+                          </div>
+                          <div style={{ width: isMobile ? "100%" : "auto" }}>
+                            <span style={fieldLabelStyle}>{t("products.priceLabel")}</span>
+                            <EditableCell productId={productId} fieldKey={`price-${variant.id}`} type="number" initialValue={pendingChanges[productId]?.variants?.[variant.id]?.price ?? variant.price}
+                              placeholder="0.00"
+                              onCommit={(val) => commitVariantField(p, variant, "price", val)} style={{ ...numCellInputStyle, width: isMobile ? "100%" : 68 }} />
+                          </div>
+                          <div style={{ width: isMobile ? "100%" : "auto" }}>
+                            <span style={fieldLabelStyle}>{t("products.compareAtLabel")}</span>
+                            <EditableCell productId={productId} fieldKey={`cap-${variant.id}`} type="number" initialValue={pendingChanges[productId]?.variants?.[variant.id]?.compare_at_price ?? variant.compare_at_price}
+                              placeholder="0.00"
+                              onCommit={(val) => commitVariantField(p, variant, "compare_at_price", val)} style={{ ...numCellInputStyle, width: isMobile ? "100%" : 68 }} />
+                          </div>
+
+                          {sku ? (
+                            <>
+                              <div style={{ width: isMobile ? "100%" : "auto" }}>
+                                <span style={fieldLabelStyle}>{t("products.stockLabel")}</span>
+                                {invRows.length > 1 ? (
+                                  <span title={stockTooltip} style={{ ...numCellInputStyle, width: isMobile ? "100%" : 68, display: "inline-block", textAlign: "center", cursor: "help" }}>{stockTotal}</span>
+                                ) : (
+                                  <EditableCell productId={`stock-${sku}`} fieldKey="qty" type="number" initialValue={stockTotal}
+                                    placeholder="0" disabled={savingStockSku === sku}
+                                    onCommit={(val) => saveStock(p, sku, val)} style={{ ...numCellInputStyle, width: isMobile ? "100%" : 68 }} />
+                                )}
+                              </div>
+                              <div style={{ width: isMobile ? "100%" : "auto" }}>
+                                <span style={fieldLabelStyle}>{t("products.costLabel")}</span>
+                                <div onClick={() => setExpandedCostSku(isExpanded ? null : sku)} title={t("products.costExpandTooltip")}
+                                  style={{ ...numCellInputStyle, width: isMobile ? "100%" : 80, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4 }}>
+                                  <span>Rs. {costTotal.toLocaleString()}</span>
+                                  <Icon name={isExpanded ? "chevronDown" : "chevronRight"} size={9} />
+                                </div>
+                              </div>
+                              <div style={{ width: isMobile ? "100%" : "auto" }}>
+                                <span style={fieldLabelStyle}>{t("products.supplierLabel")}</span>
+                                <select value={rate?.supplier_id || ""} onChange={(e) => saveSupplierForSku(sku, e.target.value)}
+                                  style={{ ...cellInputStyle, width: isMobile ? "100%" : 110 }}>
+                                  <option value="">{t("products.noSupplierOption")}</option>
+                                  {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                </select>
+                              </div>
+                              <div style={{ width: isMobile ? "100%" : "auto" }}>
+                                <span style={fieldLabelStyle}>{t("products.returnValueLabel")}</span>
+                                <EditableCell productId={`return-${sku}`} fieldKey="rv" type="number" initialValue={rate?.return_value}
+                                  placeholder="0.00"
+                                  onCommit={(val) => saveReturnValue(sku, val)} style={{ ...numCellInputStyle, width: isMobile ? "100%" : 68 }} />
+                              </div>
+                            </>
+                          ) : (
+                            <div style={{ flex: 1, minWidth: 200, display: "flex", alignItems: "center", gap: 6, background: "var(--ne-warning-soft)", color: "var(--ne-warning)", borderRadius: 7, padding: "5px 9px", fontSize: 10.5 }}>
+                              <Icon name="warning" size={11} />
+                              {t("products.setSkuPrompt")}
+                            </div>
+                          )}
+
+                          <button onClick={() => archiveVariant(p, variant)} disabled={status2 === "pending"} title={t("products.archiveVariantTooltip")}
+                            style={{ ...iconBtnStyle("var(--ne-muted)"), marginLeft: isMobile ? 0 : "auto", alignSelf: isMobile ? "flex-end" : "center", cursor: status2 === "pending" ? "default" : "pointer" }}>
+                            <Icon name="trash" size={12} />
+                          </button>
+                        </div>
+
+                        {sku && isExpanded && (
+                          <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed var(--ne-border)", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+                            {DEFAULT_COMPONENT_KEYS.map((key) => (
+                              <div key={key} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                <span style={fieldLabelStyle}>{costLabels[key]}</span>
+                                <EditableCell productId={`cost-${sku}`} fieldKey={key} type="number" initialValue={getCostInputValue(sku, key)}
+                                  placeholder={t("products.costComponentPlaceholder")}
+                                  onCommit={(val) => saveCostComponent(sku, key, val)} style={numCellInputStyle} />
+                              </div>
+                            ))}
+                            {[...Array(slotCount)].map((_, idx) => {
+                              const n = idx + 1;
+                              const key = `extra_${n}`;
+                              return (
+                                <div key={key} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                  <span style={fieldLabelStyle}>{t("products.extraPrefix")} {n}</span>
+                                  <EditableCell productId={`cost-${sku}`} fieldKey={key} type="number" initialValue={getCostInputValue(sku, key)}
+                                    placeholder={t("products.costComponentPlaceholder")}
+                                    onCommit={(val) => saveCostComponent(sku, key, val)} style={numCellInputStyle} />
+                                </div>
+                              );
+                            })}
+                            {namedExtraKeys.map((key) => (
+                              <div key={key} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                <span style={fieldLabelStyle}>{humanizeKey(key, t("products.extraPrefix"))}</span>
+                                <EditableCell productId={`cost-${sku}`} fieldKey={key} type="number" initialValue={getCostInputValue(sku, key)}
+                                  placeholder={t("products.costComponentPlaceholder")}
+                                  onCommit={(val) => saveCostComponent(sku, key, val)} style={numCellInputStyle} />
+                              </div>
+                            ))}
+                            <button onClick={() => addAnotherCostExtra(sku)}
+                              style={{ background: "transparent", border: "1px dashed var(--ne-border)", borderRadius: 7, color: "var(--ne-accent)", cursor: "pointer", fontSize: 10.5, padding: "5px 8px" }}>
+                              {t("products.addAnotherComponent")}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
 
                   {archived.length > 0 && (
-                    <div style={{ marginTop: 4, paddingTop: 8, borderTop: "1px dashed var(--ne-border)" }}>
+                    <div style={{ marginTop: 2, paddingTop: 8, borderTop: "1px dashed var(--ne-border)" }}>
                       <div style={{ fontSize: 10, color: "var(--ne-muted-2)", fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>{t("products.archivedVariants")}</div>
                       {archived.map((row) => (
                         <div key={row.id} style={{ display: "flex", alignItems: "center", gap: 8, opacity: 0.55, marginTop: 4 }}>
@@ -732,9 +1086,9 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                           </span>
                           <span style={{ fontSize: 10.5, color: "var(--ne-muted-2)", fontFamily: "monospace" }}>{row.variant_data?.sku || "—"}</span>
                           <span style={{ fontSize: 10.5, color: "var(--ne-muted-2)" }}>{row.variant_data?.price ?? "—"}</span>
-                          <button onClick={() => restoreVariant(p, row)} disabled={status2 === "pending"}
-                            style={{ marginLeft: "auto", background: "transparent", border: "1px solid var(--ne-success)", borderRadius: 7, color: "var(--ne-success)", cursor: status2 === "pending" ? "default" : "pointer", fontSize: 10, fontWeight: 700, padding: "3px 9px" }}>
-                            {t("products.variantOn")}
+                          <button onClick={() => restoreVariant(p, row)} disabled={status2 === "pending"} title={t("products.restoreVariantTooltip")}
+                            style={{ ...iconBtnStyle("var(--ne-success)"), marginLeft: "auto", cursor: status2 === "pending" ? "default" : "pointer" }}>
+                            <Icon name="undo" size={12} />
                           </button>
                         </div>
                       ))}
@@ -742,24 +1096,29 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                   )}
                 </div>
 
+                {/* ===== ZONE 3 — Footer: actions ===== */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--ne-border)", flexWrap: "wrap", gap: 8 }}>
                   <span style={{ fontSize: 10.5, color: "var(--ne-muted-2)" }}>
                     {t("products.table.syncedAt")}: {p.synced_at ? new Date(p.synced_at).toLocaleString("en-PK", { dateStyle: "short", timeStyle: "short" }) : "—"}
                   </span>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <button onClick={() => openEditProduct(p)}
-                      style={{ background: "transparent", border: "none", color: "var(--ne-accent)", cursor: "pointer", fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
-                      <Icon name="edit" size={11} /> {t("products.edit")}
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <button onClick={() => openEditProduct(p)} title={t("products.edit")} style={iconBtnStyle("var(--ne-accent)")}>
+                      <Icon name="edit" size={13} />
                     </button>
                     {pendingChanges[productId] && (
-                      <button onClick={() => pushProductChanges(p)} disabled={status2 === "pending"}
-                        style={{ background: "transparent", border: "none", color: "var(--ne-warning)", cursor: status2 === "pending" ? "default" : "pointer", fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
-                        <Icon name="refresh" size={11} /> {t("products.pushToShopify")}
+                      <button onClick={() => pushProductChanges(p)} disabled={status2 === "pending"} title={t("products.pushToShopify")}
+                        style={{ ...iconBtnStyle("var(--ne-warning)"), cursor: status2 === "pending" ? "default" : "pointer" }}>
+                        <Icon name="refresh" size={13} />
                       </button>
                     )}
-                    <a href={shopifyAdminUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-muted)", fontSize: 11, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                      <Icon name="link" size={11} /> {t("products.viewInShopify")}
+                    <a href={shopifyAdminUrl} target="_blank" rel="noreferrer" title={t("products.viewInShopify")} style={iconBtnStyle("var(--ne-muted)")}>
+                      <Icon name="link" size={13} />
                     </a>
+                    {shopifyStorefrontUrl && (
+                      <a href={shopifyStorefrontUrl} target="_blank" rel="noreferrer" title={t("products.viewOnStorefront")} style={iconBtnStyle("var(--ne-muted)")}>
+                        <Icon name="shop" size={13} />
+                      </a>
+                    )}
                   </div>
                 </div>
               </div>
