@@ -1088,6 +1088,11 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
   // defined once here so the SKU/Price/Compare-At columns sit at identical x-positions
   // across every card regardless of which layout a given row renders.
   const VARIANT_GRID_COLUMNS = `${cellInputStyle.width}px ${numCellInputStyle.width}px ${numCellInputStyle.width}px ${numCellInputStyle.width}px ${COST_CELL_WIDTH}px ${SUPPLIER_CELL_WIDTH}px ${numCellInputStyle.width}px`;
+  // The variant-title/option label is itself a fixed-width FIRST column of that same
+  // template (not a separate flex item before it), so a long title never shifts the
+  // SKU/Price/etc. columns that follow it — it wraps onto extra lines instead.
+  const VARIANT_LABEL_WIDTH = 170;
+  const VARIANT_ROW_GRID_COLUMNS = `${VARIANT_LABEL_WIDTH}px ${VARIANT_GRID_COLUMNS}`;
   const badgeStyle = { display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 10, fontSize: 9.5, fontWeight: 700, whiteSpace: "nowrap" };
   const fieldLabelStyle = { fontSize: 9.5, color: "var(--ne-muted-2)", textTransform: "uppercase", letterSpacing: "0.03em", fontWeight: 700, display: "block", marginBottom: 2 };
   const iconBtnStyle = (color) => ({ background: "transparent", border: "none", color, cursor: "pointer", padding: 4, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 6 });
@@ -1288,14 +1293,18 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
 
                     return (
                       <div key={variant.id} style={{ background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "8px 10px" }}>
-                        <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", flexWrap: "wrap", gap: 8, alignItems: isMobile ? "stretch" : "flex-end" }}>
-                          {variantTitle && (
-                            <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)", fontWeight: 600, width: isMobile ? "100%" : "auto", alignSelf: isMobile ? "flex-start" : "center" }}>{variantTitle}</div>
-                          )}
-
+                        <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 8, alignItems: isMobile ? "stretch" : "flex-start" }}>
                           <div style={isMobile
                             ? { display: "flex", flexDirection: "column", gap: 8, width: "100%" }
-                            : { display: "grid", gridTemplateColumns: VARIANT_GRID_COLUMNS, gap: 8 }}>
+                            : { display: "grid", gridTemplateColumns: VARIANT_ROW_GRID_COLUMNS, gap: 8, alignItems: "end", flex: 1 }}>
+                            {!isMobile && (
+                              <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)", fontWeight: 600, whiteSpace: "normal", overflowWrap: "break-word", alignSelf: "center" }}>
+                                {variantTitle || ""}
+                              </div>
+                            )}
+                            {isMobile && variantTitle && (
+                              <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)", fontWeight: 600, width: "100%" }}>{variantTitle}</div>
+                            )}
                             <div>
                               <span style={fieldLabelStyle}>{t("products.skuLabel")}</span>
                               <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={productId} fieldKey={`sku-${variant.id}`} initialValue={pendingChanges[productId]?.variants?.[variant.id]?.sku ?? variant.sku}
@@ -1352,8 +1361,8 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                                 </div>
                               </>
                             ) : (
-                              <div style={{ gridColumn: isMobile ? undefined : "4 / span 4", width: isMobile ? "100%" : undefined, display: "flex", alignItems: "center", gap: 6, background: "var(--ne-warning-soft)", color: "var(--ne-warning)", borderRadius: 7, padding: "5px 9px", fontSize: 10.5, alignSelf: "stretch" }}>
-                                <Icon name="warning" size={11} style={{ flexShrink: 0 }} />
+                              <div style={{ gridColumn: isMobile ? undefined : "5 / span 4", width: isMobile ? "100%" : undefined, display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "1px solid var(--ne-border)", color: "var(--ne-muted)", borderRadius: 7, padding: "5px 9px", fontSize: 10.5, alignSelf: "stretch" }}>
+                                <Icon name="warning" size={11} style={{ flexShrink: 0, color: "var(--ne-warning)" }} />
                                 <span>{t("products.setSkuPrompt")}</span>
                                 <button type="button" title={t("products.generateSkuTooltip")}
                                   onClick={() => {
@@ -1361,7 +1370,7 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                                     const newSku = generateSku({ productTitle: p.raw_data?.title, variantTitle: variant.title, existingProductBaseCode: base, existingStoreSkuSet: storeWideSkuMap });
                                     commitVariantField(p, variant, "sku", newSku);
                                   }}
-                                  style={{ ...iconBtnStyle("var(--ne-warning)"), marginLeft: "auto", padding: "3px 8px", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap" }}>
+                                  style={{ ...iconBtnStyle("var(--ne-warning)"), marginLeft: "auto", padding: "3px 8px", border: "1px solid var(--ne-border)", borderRadius: 7, display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap" }}>
                                   <Icon name="refresh" size={12} />
                                   {t("products.autoGenerateSku")}
                                 </button>
