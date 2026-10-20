@@ -4,6 +4,7 @@ import Icon from "../components/Icon";
 import { ProductsSkeleton } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 import { getCachedProducts, saveProductsBulk, upsertProduct, getProductsMeta, setProductsMeta } from "../productsCache";
+import { generateSku, isDuplicateSku } from "../utils/skuGenerator";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 const PAGE_SIZE = 500;
@@ -15,12 +16,6 @@ const CREATE_NEW_COLLECTION = "__create_new__";
 const DEFAULT_COMPONENT_KEYS = ["component_1", "component_2", "component_3"];
 const DEFAULT_COMPONENT_LABELS = { component_1: "Raw Material", component_2: "Packaging", component_3: "Other" };
 const toDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-const extraKeysForSku = (componentsForSku) => {
-  const keys = Object.keys(componentsForSku || {}).filter((k) => !DEFAULT_COMPONENT_KEYS.includes(k));
-  const numbered = keys.filter((k) => /^extra_\d+$/.test(k)).sort((a, b) => Number(a.split("_")[1]) - Number(b.split("_")[1]));
-  const named = keys.filter((k) => !/^extra_\d+$/.test(k)).sort();
-  return [...numbered, ...named];
-};
 const humanizeKey = (key, extraLabel) => {
   const m = /^extra_(\d+)$/.exec(key);
   if (m) return `${extraLabel} ${m[1]}`;
@@ -52,6 +47,61 @@ function EditableCell({ drafts, setFieldDraft, clearFieldDraft, productId, field
       }}
       onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
       style={style} />
+  );
+}
+
+const COST_INPUT_STYLE = { width: 68, padding: "5px 7px", borderRadius: 7, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11.5, boxSizing: "border-box" };
+const COST_FIELD_LABEL_STYLE = { fontSize: 9.5, color: "var(--ne-muted-2)", textTransform: "uppercase", letterSpacing: "0.03em", fontWeight: 700, display: "block", marginBottom: 2 };
+
+// One cost-component number input with its own local typing buffer, committed on blur/Enter.
+// Self-contained (no shared drafts dict needed) since it's a module-scope component with a
+// stable identity — safe to re-render without losing focus.
+function CostComponentInput({ label, placeholder, value, onCommit }) {
+  const [local, setLocal] = useState(value ?? "");
+  useEffect(() => { setLocal(value ?? ""); }, [value]);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <span style={COST_FIELD_LABEL_STYLE}>{label}</span>
+      <input type="number" step="0.01" placeholder={placeholder} value={local}
+        onChange={(e) => setLocal(e.target.value)}
+        onBlur={() => onCommit(local)}
+        onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
+        style={COST_INPUT_STYLE} />
+    </div>
+  );
+}
+
+// Cost breakdown editor (fixed component keys + numbered "Extra N" slots + any named extras +
+// "Add Another") — shared between the unified product card and the New Product modal's
+// per-variant-row cost section, so the breakdown UI lives in exactly one place.
+function CostComponentsEditor({ componentKeys, componentLabels, values, extraCount, onChangeValue, onAddExtra, t }) {
+  const extraKeys = Object.keys(values || {}).filter((k) => !componentKeys.includes(k));
+  const numberedExtraKeys = extraKeys.filter((k) => /^extra_\d+$/.test(k)).sort((a, b) => Number(a.split("_")[1]) - Number(b.split("_")[1]));
+  const namedExtraKeys = extraKeys.filter((k) => !/^extra_\d+$/.test(k)).sort();
+  const slotCount = Math.max(extraCount || 0, numberedExtraKeys.length);
+  return (
+    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+      {componentKeys.map((key) => (
+        <CostComponentInput key={key} label={componentLabels[key] || key} placeholder={t("products.costComponentPlaceholder")}
+          value={values?.[key] != null ? String(values[key]) : ""} onCommit={(v) => onChangeValue(key, v)} />
+      ))}
+      {[...Array(slotCount)].map((_, idx) => {
+        const n = idx + 1;
+        const key = `extra_${n}`;
+        return (
+          <CostComponentInput key={key} label={`${t("products.extraPrefix")} ${n}`} placeholder={t("products.costComponentPlaceholder")}
+            value={values?.[key] != null ? String(values[key]) : ""} onCommit={(v) => onChangeValue(key, v)} />
+        );
+      })}
+      {namedExtraKeys.map((key) => (
+        <CostComponentInput key={key} label={humanizeKey(key, t("products.extraPrefix"))} placeholder={t("products.costComponentPlaceholder")}
+          value={values?.[key] != null ? String(values[key]) : ""} onCommit={(v) => onChangeValue(key, v)} />
+      ))}
+      <button type="button" onClick={onAddExtra}
+        style={{ background: "transparent", border: "1px dashed var(--ne-border)", borderRadius: 7, color: "var(--ne-accent)", cursor: "pointer", fontSize: 10.5, padding: "5px 8px" }}>
+        {t("products.addAnotherComponent")}
+      </button>
+    </div>
   );
 }
 
@@ -109,7 +159,8 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
   const [selectedIds, setSelectedIds] = useState(new Set());
 
   const [showNewProductModal, setShowNewProductModal] = useState(false);
-  const [newProductForm, setNewProductForm] = useState({ title: "", vendor: "", product_type: "", tags: "", price: "", compare_at_price: "", sku: "" });
+  const emptyNewProductRow = () => ({ option1: "", option2: "", option3: "", price: "", compare_at_price: "", sku: "", stock: "", supplierId: "", returnValue: "", cost: {}, costExtraCount: 0 });
+  const [newProductForm, setNewProductForm] = useState({ title: "", vendor: "", product_type: "", tags: "", optionNames: ["", "", ""], rows: [emptyNewProductRow()] });
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
 
@@ -128,6 +179,11 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
   const [newBulkCollectionTitle, setNewBulkCollectionTitle] = useState("");
   const [bulkCollectionCreating, setBulkCollectionCreating] = useState(false);
 
+  const [showGenerateSkusModal, setShowGenerateSkusModal] = useState(false);
+  const [generateSkusPreview, setGenerateSkusPreview] = useState([]); // [{product, variant, productTitle, variantTitle, sku}]
+  const [generateSkusApplying, setGenerateSkusApplying] = useState(false);
+  const [generateSkusResult, setGenerateSkusResult] = useState(null); // { successCount, failures: [{productTitle, variantTitle, error}] }
+
   // ---- Collections (Phase 1 endpoints) ----
   const [storeCollections, setStoreCollections] = useState([]); // [{shopify_collection_id, title, ...}]
   const [productCollections, setProductCollections] = useState({}); // { [shopify_product_id]: [shopify_collection_id,...] }
@@ -137,7 +193,9 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
   const [syncStatus, setSyncStatus] = useState({}); // { [productId]: 'pending' | 'synced' }
   const syncTimeoutsRef = useRef({});
   const [editingTitleId, setEditingTitleId] = useState(null);
-  const [pendingChanges, setPendingChanges] = useState({}); // { [shopify_product_id]: { fields: {title?, vendor?, product_type?}, variants: { [variantId]: {sku?, price?, compare_at_price?} } } }
+  const [pendingChanges, setPendingChanges] = useState({}); // { [shopify_product_id]: { fields: {title?, vendor?, product_type?}, variants: { [variantId]: {sku?, price?, compare_at_price?} }, supabase: { [sku]: {stock?, cost?: {key: val}, supplier_id?, return_value?} } } }
+  const [cardSaving, setCardSaving] = useState({}); // { [shopify_product_id]: true }
+  const [cardSaveErrors, setCardSaveErrors] = useState({}); // { [shopify_product_id]: { variantId?, message } }
   const [archivedVariants, setArchivedVariants] = useState({}); // { [shopify_product_id]: [{id, variant_data, archived_at}, ...] }
 
   // ---- Inventory (merged from InventoryManagement.jsx) ----
@@ -343,23 +401,21 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
     const value = trimmed === "" ? 0 : Number(trimmed);
     const currentMap = costComponents[sku] || {};
     const nextMap = { ...currentMap };
-    try {
-      if (!trimmed || value === 0) {
-        delete nextMap[key];
-        await supabase.from("product_cost_components").delete().eq("store_id", storeId).eq("sku", sku).eq("component_name", key);
-      } else {
-        nextMap[key] = value;
-        await supabase.from("product_cost_components").upsert(
-          { store_id: storeId, sku, component_name: key, cost_price: value, updated_at: new Date().toISOString() },
-          { onConflict: "store_id,sku,component_name" }
-        );
-      }
-      const total = Object.values(nextMap).reduce((sum, v) => sum + (Number(v) || 0), 0);
-      await upsertCostRate(sku, { cost_price: total });
-      setCostComponents((prev) => ({ ...prev, [sku]: nextMap }));
-    } catch (err) {
-      setError(err.message);
+    if (!trimmed || value === 0) {
+      delete nextMap[key];
+      const { error } = await supabase.from("product_cost_components").delete().eq("store_id", storeId).eq("sku", sku).eq("component_name", key);
+      if (error) throw error;
+    } else {
+      nextMap[key] = value;
+      const { error } = await supabase.from("product_cost_components").upsert(
+        { store_id: storeId, sku, component_name: key, cost_price: value, updated_at: new Date().toISOString() },
+        { onConflict: "store_id,sku,component_name" }
+      );
+      if (error) throw error;
     }
+    const total = Object.values(nextMap).reduce((sum, v) => sum + (Number(v) || 0), 0);
+    await upsertCostRate(sku, { cost_price: total });
+    setCostComponents((prev) => ({ ...prev, [sku]: nextMap }));
   };
 
   // Shared helper — updates (or creates) today's product_costs row for a SKU, carrying forward
@@ -392,20 +448,12 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
     if (!sku) return;
     const trimmed = String(rawValue ?? "").trim();
     const value = trimmed === "" ? null : Number(trimmed);
-    try {
-      await upsertCostRate(sku, { return_value: value });
-    } catch (err) {
-      setError(err.message);
-    }
+    await upsertCostRate(sku, { return_value: value });
   };
 
   const saveSupplierForSku = async (sku, supplierId) => {
     if (!sku) return;
-    try {
-      await upsertCostRate(sku, { supplier_id: supplierId || null });
-    } catch (err) {
-      setError(err.message);
-    }
+    await upsertCostRate(sku, { supplier_id: supplierId || null });
   };
 
   const addAnotherCostExtra = (sku) => {
@@ -435,15 +483,83 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
         if (error) throw error;
         setInventoryLevels((prev) => [...prev, data]);
       }
-    } catch (err) {
-      setError(err.message);
+    } finally {
+      setSavingStockSku(null);
     }
-    setSavingStockSku(null);
   };
 
   const collectionTitlesForProduct = (productId) => {
     const ids = productCollections[productId] || [];
     return ids.map((id) => storeCollections.find((c) => c.shopify_collection_id === id)?.title).filter(Boolean);
+  };
+
+  // Reuses a sibling variant's own SKU prefix (up to its first "-") as the base code for a
+  // new SKU, so every variant of the same product shares one product-code prefix.
+  const productBaseCodeFromSiblings = (variants, excludeVariantId) => {
+    const sibling = variants.find((v) => v.id !== excludeVariantId && v.sku);
+    return sibling ? String(sibling.sku).split("-")[0] : null;
+  };
+
+  const openGenerateMissingSkusModal = () => {
+    const batchSet = new Map(storeWideSkuMap);
+    const preview = [];
+    products.forEach((p) => {
+      const variants = p.raw_data?.variants || [];
+      variants.forEach((v) => {
+        if (v.sku) return;
+        const base = productBaseCodeFromSiblings(variants, v.id);
+        const sku = generateSku({ productTitle: p.raw_data?.title, variantTitle: v.title, existingProductBaseCode: base, existingStoreSkuSet: batchSet });
+        batchSet.set(sku.toLowerCase(), v.id);
+        preview.push({
+          product: p, variant: v,
+          productTitle: p.raw_data?.title || "—",
+          variantTitle: v.title && v.title !== "Default Title" ? v.title : t("products.defaultVariant"),
+          sku,
+        });
+      });
+    });
+    setGenerateSkusPreview(preview);
+    setGenerateSkusResult(null);
+    setShowGenerateSkusModal(true);
+  };
+
+  const applyGenerateMissingSkus = async () => {
+    setGenerateSkusApplying(true);
+    const failures = [];
+    const byProduct = new Map();
+    generateSkusPreview.forEach((entry) => {
+      const pid = entry.product.shopify_product_id;
+      if (!byProduct.has(pid)) byProduct.set(pid, { product: entry.product, entries: [] });
+      byProduct.get(pid).entries.push(entry);
+    });
+    for (const { product, entries } of byProduct.values()) {
+      try {
+        const updates = { variants: entries.map((e) => ({ id: e.variant.id, sku: e.sku })) };
+        const result = await saveProductUpdate(product, updates);
+        if (!result.success) throw new Error(t("products.saveFailed"));
+      } catch (err) {
+        entries.forEach((e) => failures.push({ productTitle: e.productTitle, variantTitle: e.variantTitle, error: err.message }));
+      }
+    }
+    setGenerateSkusApplying(false);
+    setGenerateSkusResult({ successCount: generateSkusPreview.length - failures.length, failures });
+    if (failures.length === 0) {
+      logActivity("bulk_sku_generation", { count: generateSkusPreview.length });
+      setShowGenerateSkusModal(false);
+    }
+  };
+
+  const logActivity = async (actionType, details) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      await supabase.from("activity_log").insert({
+        store_id: storeId, user_id: user.id, user_name: user.email,
+        action_type: actionType, order_id: null, details: details || null,
+      });
+    } catch {
+      // best-effort — never block the actual action on an activity-log failure
+    }
   };
 
   const authedFetch = async (path, opts = {}) => {
@@ -531,18 +647,94 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
     });
   };
 
-  const pushProductChanges = async (product) => {
+  // Stages a Supabase-only field (stock / cost component / supplier / return value) into
+  // pendingChanges without saving — the unified per-card Save button is what actually
+  // persists it (via saveCardChanges below), batched together with any Shopify-bound edits.
+  const stageSupabaseField = (product, sku, group, key, rawValue, currentValue) => {
+    const productId = product.shopify_product_id;
+    const isReverted = String(rawValue ?? "") === String(currentValue ?? "");
+    setPendingChanges((prev) => {
+      const existing = prev[productId] || { fields: {}, variants: {}, supabase: {} };
+      const supabaseEntry = { ...(existing.supabase || {}) };
+      const skuEntry = { ...(supabaseEntry[sku] || {}) };
+      if (group === "cost") {
+        const costMap = { ...(skuEntry.cost || {}) };
+        if (isReverted) delete costMap[key]; else costMap[key] = rawValue;
+        if (Object.keys(costMap).length > 0) skuEntry.cost = costMap; else delete skuEntry.cost;
+      } else if (isReverted) {
+        delete skuEntry[group];
+      } else {
+        skuEntry[group] = rawValue;
+      }
+      if (Object.keys(skuEntry).length > 0) supabaseEntry[sku] = skuEntry; else delete supabaseEntry[sku];
+      const stillHasOther = Object.keys(existing.fields).length > 0 || Object.keys(existing.variants).length > 0;
+      if (Object.keys(supabaseEntry).length === 0 && !stillHasOther) {
+        const n = { ...prev }; delete n[productId]; return n;
+      }
+      return { ...prev, [productId]: { ...existing, supabase: supabaseEntry } };
+    });
+  };
+
+  const isCardDirty = (productId) => {
+    const pending = pendingChanges[productId];
+    if (!pending) return false;
+    return Object.keys(pending.fields || {}).length > 0
+      || Object.keys(pending.variants || {}).length > 0
+      || Object.values(pending.supabase || {}).some((e) => Object.keys(e).length > 0);
+  };
+
+  // Catches a dirty variant's new SKU colliding with any other SKU in the store — including
+  // another variant on the SAME card that's also being renamed in this save, which the plain
+  // store-wide map wouldn't know about yet.
+  const checkCardSkuDuplicates = (pending) => {
+    const augmented = new Map(storeWideSkuMap);
+    Object.entries(pending.variants || {}).forEach(([vId, f]) => {
+      if (f.sku != null) augmented.set(String(f.sku).trim().toLowerCase(), vId);
+    });
+    for (const [vId, f] of Object.entries(pending.variants || {})) {
+      if (f.sku == null) continue;
+      if (isDuplicateSku(f.sku, augmented, vId)) return { variantId: vId, sku: f.sku };
+    }
+    return null;
+  };
+
+  const saveCardChanges = async (product) => {
     const productId = product.shopify_product_id;
     const pending = pendingChanges[productId];
     if (!pending) return;
-    const updates = { ...pending.fields };
-    if (Object.keys(pending.variants).length > 0) {
-      updates.variants = Object.entries(pending.variants).map(([variantId, fields]) => ({ id: variantId, ...fields }));
+
+    const dup = checkCardSkuDuplicates(pending);
+    if (dup) {
+      setCardSaveErrors((prev) => ({ ...prev, [productId]: { variantId: dup.variantId, message: t("products.duplicateSkuError") } }));
+      return;
     }
-    const result = await saveProductUpdate(product, updates);
-    if (result.success) {
+    setCardSaveErrors((prev) => { const n = { ...prev }; delete n[productId]; return n; });
+    setCardSaving((prev) => ({ ...prev, [productId]: true }));
+
+    try {
+      if (Object.keys(pending.fields || {}).length > 0 || Object.keys(pending.variants || {}).length > 0) {
+        const updates = { ...pending.fields };
+        if (Object.keys(pending.variants || {}).length > 0) {
+          updates.variants = Object.entries(pending.variants).map(([variantId, fields]) => ({ id: variantId, ...fields }));
+        }
+        const result = await saveProductUpdate(product, updates);
+        if (!result.success) throw new Error(t("products.saveFailed"));
+      }
+
+      for (const [sku, entry] of Object.entries(pending.supabase || {})) {
+        if (entry.stock !== undefined) await saveStock(product, sku, entry.stock);
+        if (entry.cost) {
+          for (const [key, val] of Object.entries(entry.cost)) await saveCostComponent(sku, key, val);
+        }
+        if (entry.supplier_id !== undefined) await saveSupplierForSku(sku, entry.supplier_id);
+        if (entry.return_value !== undefined) await saveReturnValue(sku, entry.return_value);
+      }
+
       setPendingChanges((prev) => { const n = { ...prev }; delete n[productId]; return n; });
+    } catch (err) {
+      setCardSaveErrors((prev) => ({ ...prev, [productId]: { message: err.message || t("products.saveFailed") } }));
     }
+    setCardSaving((prev) => { const n = { ...prev }; delete n[productId]; return n; });
   };
 
   const toggleStatus = (product) => {
@@ -597,26 +789,99 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
     setSyncStatus((prev) => { const n = { ...prev }; delete n[productId]; return n; });
   };
 
-  const resetNewProductForm = () => setNewProductForm({ title: "", vendor: "", product_type: "", tags: "", price: "", compare_at_price: "", sku: "" });
+  const resetNewProductForm = () => setNewProductForm({ title: "", vendor: "", product_type: "", tags: "", optionNames: ["", "", ""], rows: [emptyNewProductRow()] });
+
+  const updateNewProductRow = (idx, patch) => setNewProductForm((f) => ({ ...f, rows: f.rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)) }));
+  const addNewProductRow = () => setNewProductForm((f) => (f.rows.length >= 100 ? f : { ...f, rows: [...f.rows, emptyNewProductRow()] }));
+  const removeNewProductRow = (idx) => setNewProductForm((f) => (f.rows.length <= 1 ? f : { ...f, rows: f.rows.filter((_, i) => i !== idx) }));
+
+  const generateSkuForNewProductRow = (idx) => {
+    const row = newProductForm.rows[idx];
+    const variantTitle = [row.option1, row.option2, row.option3].filter(Boolean).join(" / ");
+    const batchSet = new Map(storeWideSkuMap);
+    newProductForm.rows.forEach((r, i) => { if (i !== idx && r.sku.trim()) batchSet.set(r.sku.trim().toLowerCase(), `row-${i}`); });
+    const existingBase = newProductForm.rows.find((r, i) => i !== idx && r.sku.trim())?.sku.split("-")[0] || null;
+    const sku = generateSku({ productTitle: newProductForm.title, variantTitle, existingProductBaseCode: existingBase, existingStoreSkuSet: batchSet });
+    updateNewProductRow(idx, { sku });
+  };
 
   const createNewProduct = async (e) => {
     e.preventDefault();
     setCreateError("");
     if (!newProductForm.title.trim()) { setCreateError(t("products.titleRequired")); return; }
+
+    const rows = newProductForm.rows;
+    const optionNames = newProductForm.optionNames.map((n) => n.trim()).filter(Boolean);
+    if (rows.length > 1 && optionNames.length === 0) { setCreateError(t("products.option1NameRequired")); return; }
+
+    const seenSkus = new Map();
+    for (const row of rows) {
+      const sku = row.sku.trim();
+      if (!sku) continue;
+      const lower = sku.toLowerCase();
+      if (seenSkus.has(lower) || isDuplicateSku(sku, storeWideSkuMap)) {
+        setCreateError(t("products.duplicateSkuError"));
+        return;
+      }
+      seenSkus.set(lower, true);
+    }
+
     setCreating(true);
     try {
+      const useOptions = rows.length > 1 && optionNames.length > 0;
       const productPayload = {
         title: newProductForm.title.trim(),
         vendor: newProductForm.vendor.trim() || undefined,
         product_type: newProductForm.product_type.trim() || undefined,
         tags: newProductForm.tags.trim() || undefined,
-        variants: [{ price: newProductForm.price || "0", compare_at_price: newProductForm.compare_at_price || undefined, sku: newProductForm.sku.trim() || undefined }],
       };
+      if (useOptions) {
+        productPayload.options = optionNames.map((name) => ({ name }));
+        productPayload.variants = rows.map((row) => {
+          const v = { price: row.price || "0", compare_at_price: row.compare_at_price || undefined, sku: row.sku.trim() || undefined };
+          if (newProductForm.optionNames[0].trim()) v.option1 = row.option1 || undefined;
+          if (newProductForm.optionNames[1].trim()) v.option2 = row.option2 || undefined;
+          if (newProductForm.optionNames[2].trim()) v.option3 = row.option3 || undefined;
+          return v;
+        });
+      } else {
+        const row = rows[0];
+        productPayload.variants = [{ price: row.price || "0", compare_at_price: row.compare_at_price || undefined, sku: row.sku.trim() || undefined }];
+      }
+
       const data = await authedFetch("/shopify-product-create", { method: "POST", body: JSON.stringify({ store_id: storeId, product: productPayload }) });
       if (data.error) { setCreateError(data.error); setCreating(false); return; }
       const row = { store_id: storeId, shopify_product_id: String(data.product.id), raw_data: data.product, synced_at: new Date().toISOString() };
       setProducts((prev) => [row, ...prev]);
       await upsertProduct(eneezamId, row);
+
+      // Follow-up Supabase-only records (stock/cost/supplier/return value) per row with a SKU,
+      // matched to the Shopify-returned variants in the same order they were submitted — reuses
+      // the exact same save functions Part D's unified card uses.
+      const { data: cacheRow } = await supabase.from("products_cache").select("id").eq("store_id", storeId).eq("shopify_product_id", row.shopify_product_id).single();
+      const productForFollowUp = { ...row, id: cacheRow?.id };
+      const returnedVariants = data.product.variants || [];
+      const followUpFailures = [];
+      for (let i = 0; i < rows.length; i++) {
+        const formRow = rows[i];
+        const sku = formRow.sku.trim();
+        if (!sku || !returnedVariants[i]) continue;
+        try {
+          if (formRow.stock.trim() !== "") await saveStock(productForFollowUp, sku, formRow.stock);
+          if (formRow.supplierId) await saveSupplierForSku(sku, formRow.supplierId);
+          if (formRow.returnValue.trim() !== "") await saveReturnValue(sku, formRow.returnValue);
+          for (const [key, val] of Object.entries(formRow.cost || {})) {
+            if (String(val ?? "").trim() !== "") await saveCostComponent(sku, key, val);
+          }
+        } catch (err) {
+          followUpFailures.push({ sku, error: err.message });
+        }
+      }
+      if (followUpFailures.length > 0) {
+        setError(`${t("products.newProductFollowUpError")}: ${followUpFailures.map((f) => `${f.sku} (${f.error})`).join(", ")}`);
+      }
+      logActivity("product_create", { shopify_product_id: row.shopify_product_id, variant_count: rows.length });
+
       setShowNewProductModal(false);
       resetNewProductForm();
     } catch (err) {
@@ -763,6 +1028,19 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
     setNewBulkCollectionTitle("");
   };
 
+  // Store-wide SKU -> variant_id map, rebuilt whenever products changes (including right
+  // after a successful save), used for collision checks in Part D's save gate and Part E's
+  // SKU generator.
+  const storeWideSkuMap = useMemo(() => {
+    const m = new Map();
+    products.forEach((p) => {
+      (p.raw_data?.variants || []).forEach((v) => {
+        if (v.sku) m.set(String(v.sku).trim().toLowerCase(), v.id);
+      });
+    });
+    return m;
+  }, [products]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return products.filter((p) => {
@@ -792,6 +1070,11 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
     background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11.5, boxSizing: "border-box",
   };
   const numCellInputStyle = { ...cellInputStyle, width: 68 };
+  const SUPPLIER_CELL_WIDTH = 110;
+  const COST_CELL_WIDTH = 80;
+  const variantFieldColumns = (hasSku) => (hasSku
+    ? `${cellInputStyle.width}px ${numCellInputStyle.width}px ${numCellInputStyle.width}px ${numCellInputStyle.width}px ${COST_CELL_WIDTH}px ${SUPPLIER_CELL_WIDTH}px ${numCellInputStyle.width}px`
+    : `${cellInputStyle.width}px ${numCellInputStyle.width}px ${numCellInputStyle.width}px`);
   const badgeStyle = { display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 10, fontSize: 9.5, fontWeight: 700, whiteSpace: "nowrap" };
   const fieldLabelStyle = { fontSize: 9.5, color: "var(--ne-muted-2)", textTransform: "uppercase", letterSpacing: "0.03em", fontWeight: 700, display: "block", marginBottom: 2 };
   const iconBtnStyle = (color) => ({ background: "transparent", border: "none", color, cursor: "pointer", padding: 4, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 6 });
@@ -815,6 +1098,10 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
           <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{ordersStore?.store_name} — {filtered.length}</p>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <button onClick={openGenerateMissingSkusModal}
+            style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>
+            {t("products.generateMissingSkus")}
+          </button>
           <button onClick={() => { resetNewProductForm(); setCreateError(""); setShowNewProductModal(true); }}
             style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>
             {t("products.newProduct")}
@@ -875,12 +1162,25 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
             const status2 = syncStatus[productId];
             const archived = archivedVariants[productId] || [];
 
+            const dirty = isCardDirty(productId);
+            const saving = !!cardSaving[productId];
+            const saveError = cardSaveErrors[productId];
+
             const statusZone = (
               <div style={{ display: "flex", flexDirection: isMobile ? "row" : "column", alignItems: isMobile ? "center" : "flex-end", gap: 6, flexShrink: 0 }}>
-                <button onClick={() => toggleStatus(p)} disabled={status2 === "pending"} title={t(`products.status.${status}`) || status}
-                  style={{ width: 34, height: 18, borderRadius: 10, border: "none", cursor: status2 === "pending" ? "default" : "pointer", position: "relative", background: status === "active" ? "var(--ne-success)" : "var(--ne-border)", flexShrink: 0 }}>
-                  <span style={{ position: "absolute", top: 2, left: status === "active" ? 17 : 2, width: 14, height: 14, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
-                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  {dirty && (
+                    <button onClick={() => saveCardChanges(p)} disabled={saving}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "var(--ne-accent)", color: "#fff", border: "none", borderRadius: 7, padding: "4px 10px", fontSize: 11, fontWeight: 700, cursor: saving ? "default" : "pointer", opacity: saving ? 0.7 : 1 }}>
+                      <Icon name={saving ? "refresh" : "check"} size={11} />
+                      {saving ? t("products.saving") : t("products.save")}
+                    </button>
+                  )}
+                  <button onClick={() => toggleStatus(p)} disabled={status2 === "pending"} title={t(`products.status.${status}`) || status}
+                    style={{ width: 34, height: 18, borderRadius: 10, border: "none", cursor: status2 === "pending" ? "default" : "pointer", position: "relative", background: status === "active" ? "var(--ne-success)" : "var(--ne-border)", flexShrink: 0 }}>
+                    <span style={{ position: "absolute", top: 2, left: status === "active" ? 17 : 2, width: 14, height: 14, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+                  </button>
+                </div>
                 {status2 === "pending" && (
                   <span style={{ ...badgeStyle, background: "var(--ne-warning-soft)", color: "var(--ne-warning)" }}>
                     <Icon name="refresh" size={9} /> {t("products.syncPending")}
@@ -890,6 +1190,9 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                   <span style={{ ...badgeStyle, background: "var(--ne-success-soft)", color: "var(--ne-success)" }}>
                     <Icon name="check" size={9} /> {t("products.synced")}
                   </span>
+                )}
+                {saveError && (
+                  <span style={{ fontSize: 10, color: "var(--ne-danger)", maxWidth: 160, textAlign: isMobile ? "left" : "right" }}>{saveError.message}</span>
                 )}
               </div>
             );
@@ -961,11 +1264,6 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                     const stockTooltip = invRows.length > 1 ? invRows.map((r) => `${r.location_name || t("products.noLocationLabel")}: ${r.quantity ?? 0}`).join(", ") : undefined;
                     const costTotal = costTotalForSku(sku);
                     const rate = costRates[sku];
-                    const compMap = costComponents[sku] || {};
-                    const extraKeys = extraKeysForSku(compMap);
-                    const numberedExtraKeys = extraKeys.filter((k) => /^extra_\d+$/.test(k));
-                    const namedExtraKeys = extraKeys.filter((k) => !/^extra_\d+$/.test(k));
-                    const slotCount = Math.max(costExtraCounts[sku] || 0, numberedExtraKeys.length);
                     const isExpanded = expandedCostSku === sku;
 
                     return (
@@ -974,64 +1272,81 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                           {variantTitle && (
                             <div style={{ fontSize: 10.5, color: "var(--ne-muted-2)", fontWeight: 600, width: isMobile ? "100%" : "auto", alignSelf: isMobile ? "flex-start" : "center" }}>{variantTitle}</div>
                           )}
-                          <div style={{ width: isMobile ? "100%" : "auto" }}>
-                            <span style={fieldLabelStyle}>{t("products.skuLabel")}</span>
-                            <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={productId} fieldKey={`sku-${variant.id}`} initialValue={pendingChanges[productId]?.variants?.[variant.id]?.sku ?? variant.sku}
-                              placeholder={t("products.skuEnterPlaceholder")}
-                              onCommit={(val) => commitVariantField(p, variant, "sku", val)} style={{ ...cellInputStyle, width: isMobile ? "100%" : 90, fontFamily: "monospace" }} />
-                          </div>
-                          <div style={{ width: isMobile ? "100%" : "auto" }}>
-                            <span style={fieldLabelStyle}>{t("products.priceLabel")}</span>
-                            <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={productId} fieldKey={`price-${variant.id}`} type="number" initialValue={pendingChanges[productId]?.variants?.[variant.id]?.price ?? variant.price}
-                              placeholder="0.00"
-                              onCommit={(val) => commitVariantField(p, variant, "price", val)} style={{ ...numCellInputStyle, width: isMobile ? "100%" : 68 }} />
-                          </div>
-                          <div style={{ width: isMobile ? "100%" : "auto" }}>
-                            <span style={fieldLabelStyle}>{t("products.compareAtLabel")}</span>
-                            <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={productId} fieldKey={`cap-${variant.id}`} type="number" initialValue={pendingChanges[productId]?.variants?.[variant.id]?.compare_at_price ?? variant.compare_at_price}
-                              placeholder="0.00"
-                              onCommit={(val) => commitVariantField(p, variant, "compare_at_price", val)} style={{ ...numCellInputStyle, width: isMobile ? "100%" : 68 }} />
+
+                          <div style={isMobile
+                            ? { display: "flex", flexDirection: "column", gap: 8, width: "100%" }
+                            : { display: "grid", gridTemplateColumns: variantFieldColumns(!!sku), gap: 8 }}>
+                            <div>
+                              <span style={fieldLabelStyle}>{t("products.skuLabel")}</span>
+                              <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={productId} fieldKey={`sku-${variant.id}`} initialValue={pendingChanges[productId]?.variants?.[variant.id]?.sku ?? variant.sku}
+                                placeholder={t("products.skuEnterPlaceholder")}
+                                onCommit={(val) => commitVariantField(p, variant, "sku", val)} style={{ ...cellInputStyle, width: isMobile ? "100%" : cellInputStyle.width, fontFamily: "monospace" }} />
+                            </div>
+                            <div>
+                              <span style={fieldLabelStyle}>{t("products.priceLabel")}</span>
+                              <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={productId} fieldKey={`price-${variant.id}`} type="number" initialValue={pendingChanges[productId]?.variants?.[variant.id]?.price ?? variant.price}
+                                placeholder="0.00"
+                                onCommit={(val) => commitVariantField(p, variant, "price", val)} style={{ ...numCellInputStyle, width: isMobile ? "100%" : numCellInputStyle.width }} />
+                            </div>
+                            <div>
+                              <span style={fieldLabelStyle}>{t("products.compareAtLabel")}</span>
+                              <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={productId} fieldKey={`cap-${variant.id}`} type="number" initialValue={pendingChanges[productId]?.variants?.[variant.id]?.compare_at_price ?? variant.compare_at_price}
+                                placeholder="0.00"
+                                onCommit={(val) => commitVariantField(p, variant, "compare_at_price", val)} style={{ ...numCellInputStyle, width: isMobile ? "100%" : numCellInputStyle.width }} />
+                            </div>
+
+                            {sku && (
+                              <>
+                                <div>
+                                  <span style={fieldLabelStyle}>{t("products.stockLabel")}</span>
+                                  {invRows.length > 1 ? (
+                                    <span title={stockTooltip} style={{ ...numCellInputStyle, width: isMobile ? "100%" : numCellInputStyle.width, display: "inline-block", textAlign: "center", cursor: "help" }}>{stockTotal}</span>
+                                  ) : (
+                                    <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={`stock-${sku}`} fieldKey="qty" type="number" initialValue={pendingChanges[productId]?.supabase?.[sku]?.stock ?? stockTotal}
+                                      placeholder="0" disabled={savingStockSku === sku}
+                                      onCommit={(val) => stageSupabaseField(p, sku, "stock", null, val, stockTotal)} style={{ ...numCellInputStyle, width: isMobile ? "100%" : numCellInputStyle.width }} />
+                                  )}
+                                </div>
+                                <div>
+                                  <span style={fieldLabelStyle}>{t("products.costLabel")}</span>
+                                  <div onClick={() => setExpandedCostSku(isExpanded ? null : sku)} title={t("products.costExpandTooltip")}
+                                    style={{ ...numCellInputStyle, width: isMobile ? "100%" : COST_CELL_WIDTH, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4 }}>
+                                    <span>Rs. {costTotal.toLocaleString()}</span>
+                                    <Icon name={isExpanded ? "chevronDown" : "chevronRight"} size={9} />
+                                  </div>
+                                </div>
+                                <div>
+                                  <span style={fieldLabelStyle}>{t("products.supplierLabel")}</span>
+                                  <select value={pendingChanges[productId]?.supabase?.[sku]?.supplier_id ?? (rate?.supplier_id || "")}
+                                    onChange={(e) => stageSupabaseField(p, sku, "supplier_id", null, e.target.value, rate?.supplier_id || "")}
+                                    style={{ ...cellInputStyle, width: isMobile ? "100%" : SUPPLIER_CELL_WIDTH }}>
+                                    <option value="">{t("products.noSupplierOption")}</option>
+                                    {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                  </select>
+                                </div>
+                                <div>
+                                  <span style={fieldLabelStyle}>{t("products.returnValueLabel")}</span>
+                                  <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={`return-${sku}`} fieldKey="rv" type="number" initialValue={pendingChanges[productId]?.supabase?.[sku]?.return_value ?? rate?.return_value}
+                                    placeholder="0.00"
+                                    onCommit={(val) => stageSupabaseField(p, sku, "return_value", null, val, rate?.return_value != null ? String(rate.return_value) : "")} style={{ ...numCellInputStyle, width: isMobile ? "100%" : numCellInputStyle.width }} />
+                                </div>
+                              </>
+                            )}
                           </div>
 
-                          {sku ? (
-                            <>
-                              <div style={{ width: isMobile ? "100%" : "auto" }}>
-                                <span style={fieldLabelStyle}>{t("products.stockLabel")}</span>
-                                {invRows.length > 1 ? (
-                                  <span title={stockTooltip} style={{ ...numCellInputStyle, width: isMobile ? "100%" : 68, display: "inline-block", textAlign: "center", cursor: "help" }}>{stockTotal}</span>
-                                ) : (
-                                  <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={`stock-${sku}`} fieldKey="qty" type="number" initialValue={stockTotal}
-                                    placeholder="0" disabled={savingStockSku === sku}
-                                    onCommit={(val) => saveStock(p, sku, val)} style={{ ...numCellInputStyle, width: isMobile ? "100%" : 68 }} />
-                                )}
-                              </div>
-                              <div style={{ width: isMobile ? "100%" : "auto" }}>
-                                <span style={fieldLabelStyle}>{t("products.costLabel")}</span>
-                                <div onClick={() => setExpandedCostSku(isExpanded ? null : sku)} title={t("products.costExpandTooltip")}
-                                  style={{ ...numCellInputStyle, width: isMobile ? "100%" : 80, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4 }}>
-                                  <span>Rs. {costTotal.toLocaleString()}</span>
-                                  <Icon name={isExpanded ? "chevronDown" : "chevronRight"} size={9} />
-                                </div>
-                              </div>
-                              <div style={{ width: isMobile ? "100%" : "auto" }}>
-                                <span style={fieldLabelStyle}>{t("products.supplierLabel")}</span>
-                                <select value={rate?.supplier_id || ""} onChange={(e) => saveSupplierForSku(sku, e.target.value)}
-                                  style={{ ...cellInputStyle, width: isMobile ? "100%" : 110 }}>
-                                  <option value="">{t("products.noSupplierOption")}</option>
-                                  {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                </select>
-                              </div>
-                              <div style={{ width: isMobile ? "100%" : "auto" }}>
-                                <span style={fieldLabelStyle}>{t("products.returnValueLabel")}</span>
-                                <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={`return-${sku}`} fieldKey="rv" type="number" initialValue={rate?.return_value}
-                                  placeholder="0.00"
-                                  onCommit={(val) => saveReturnValue(sku, val)} style={{ ...numCellInputStyle, width: isMobile ? "100%" : 68 }} />
-                              </div>
-                            </>
-                          ) : (
-                            <div style={{ flex: 1, minWidth: 200, display: "flex", alignItems: "center", gap: 6, background: "var(--ne-warning-soft)", color: "var(--ne-warning)", borderRadius: 7, padding: "5px 9px", fontSize: 10.5 }}>
+                          {!sku && (
+                            <div style={{ width: "100%", display: "flex", alignItems: "center", gap: 6, background: "var(--ne-warning-soft)", color: "var(--ne-warning)", borderRadius: 7, padding: "5px 9px", fontSize: 10.5 }}>
                               <Icon name="warning" size={11} />
                               {t("products.setSkuPrompt")}
+                              <button type="button" title={t("products.generateSkuTooltip")}
+                                onClick={() => {
+                                  const base = productBaseCodeFromSiblings(variants, variant.id);
+                                  const newSku = generateSku({ productTitle: p.raw_data?.title, variantTitle: variant.title, existingProductBaseCode: base, existingStoreSkuSet: storeWideSkuMap });
+                                  commitVariantField(p, variant, "sku", newSku);
+                                }}
+                                style={{ ...iconBtnStyle("var(--ne-warning)"), marginLeft: "auto", padding: 3 }}>
+                                <Icon name="refresh" size={12} />
+                              </button>
                             </div>
                           )}
 
@@ -1042,39 +1357,12 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                         </div>
 
                         {sku && isExpanded && (
-                          <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed var(--ne-border)", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-                            {DEFAULT_COMPONENT_KEYS.map((key) => (
-                              <div key={key} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                                <span style={fieldLabelStyle}>{costLabels[key]}</span>
-                                <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={`cost-${sku}`} fieldKey={key} type="number" initialValue={getCostInputValue(sku, key)}
-                                  placeholder={t("products.costComponentPlaceholder")}
-                                  onCommit={(val) => saveCostComponent(sku, key, val)} style={numCellInputStyle} />
-                              </div>
-                            ))}
-                            {[...Array(slotCount)].map((_, idx) => {
-                              const n = idx + 1;
-                              const key = `extra_${n}`;
-                              return (
-                                <div key={key} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                                  <span style={fieldLabelStyle}>{t("products.extraPrefix")} {n}</span>
-                                  <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={`cost-${sku}`} fieldKey={key} type="number" initialValue={getCostInputValue(sku, key)}
-                                    placeholder={t("products.costComponentPlaceholder")}
-                                    onCommit={(val) => saveCostComponent(sku, key, val)} style={numCellInputStyle} />
-                                </div>
-                              );
-                            })}
-                            {namedExtraKeys.map((key) => (
-                              <div key={key} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                                <span style={fieldLabelStyle}>{humanizeKey(key, t("products.extraPrefix"))}</span>
-                                <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={`cost-${sku}`} fieldKey={key} type="number" initialValue={getCostInputValue(sku, key)}
-                                  placeholder={t("products.costComponentPlaceholder")}
-                                  onCommit={(val) => saveCostComponent(sku, key, val)} style={numCellInputStyle} />
-                              </div>
-                            ))}
-                            <button onClick={() => addAnotherCostExtra(sku)}
-                              style={{ background: "transparent", border: "1px dashed var(--ne-border)", borderRadius: 7, color: "var(--ne-accent)", cursor: "pointer", fontSize: 10.5, padding: "5px 8px" }}>
-                              {t("products.addAnotherComponent")}
-                            </button>
+                          <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed var(--ne-border)" }}>
+                            <CostComponentsEditor componentKeys={DEFAULT_COMPONENT_KEYS} componentLabels={costLabels}
+                              values={{ ...costComponents[sku], ...(pendingChanges[productId]?.supabase?.[sku]?.cost || {}) }}
+                              extraCount={costExtraCounts[sku] || 0}
+                              onChangeValue={(key, val) => stageSupabaseField(p, sku, "cost", key, val, getCostInputValue(sku, key))}
+                              onAddExtra={() => addAnotherCostExtra(sku)} t={t} />
                           </div>
                         )}
                       </div>
@@ -1110,12 +1398,6 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                     <button onClick={() => openEditProduct(p)} title={t("products.edit")} style={iconBtnStyle("var(--ne-accent)")}>
                       <Icon name="edit" size={13} />
                     </button>
-                    {pendingChanges[productId] && (
-                      <button onClick={() => pushProductChanges(p)} disabled={status2 === "pending"} title={t("products.pushToShopify")}
-                        style={{ ...iconBtnStyle("var(--ne-warning)"), cursor: status2 === "pending" ? "default" : "pointer" }}>
-                        <Icon name="refresh" size={13} />
-                      </button>
-                    )}
                     <a href={shopifyAdminUrl} target="_blank" rel="noreferrer" title={t("products.viewInShopify")} style={iconBtnStyle("var(--ne-muted)")}>
                       <Icon name="link" size={13} />
                     </a>
@@ -1154,7 +1436,7 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
       {/* New Product Modal */}
       {showNewProductModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
-          <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 420, maxWidth: "94vw", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
+          <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 620, maxWidth: "94vw", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
             <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)" }}>
               <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)" }}>{t("products.newProductTitle")}</h2>
             </div>
@@ -1167,12 +1449,90 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                 onChange={(e) => setNewProductForm((f) => ({ ...f, product_type: e.target.value }))} style={inputStyle} />
               <input type="text" placeholder={t("products.tagsPlaceholder")} value={newProductForm.tags}
                 onChange={(e) => setNewProductForm((f) => ({ ...f, tags: e.target.value }))} style={inputStyle} />
-              <input type="number" step="0.01" placeholder={t("products.compareAtPricePlaceholder")} value={newProductForm.compare_at_price}
-                onChange={(e) => setNewProductForm((f) => ({ ...f, compare_at_price: e.target.value }))} style={inputStyle} />
-              <input type="number" step="0.01" placeholder={t("products.pricePlaceholder")} value={newProductForm.price}
-                onChange={(e) => setNewProductForm((f) => ({ ...f, price: e.target.value }))} style={inputStyle} />
-              <input type="text" placeholder={t("products.skuPlaceholder")} value={newProductForm.sku}
-                onChange={(e) => setNewProductForm((f) => ({ ...f, sku: e.target.value }))} style={inputStyle} />
+
+              <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                {[0, 1, 2].map((i) => (
+                  <input key={i} type="text" placeholder={`${t("products.optionNameLabel")} ${i + 1}`} value={newProductForm.optionNames[i]}
+                    onChange={(e) => setNewProductForm((f) => { const n = [...f.optionNames]; n[i] = e.target.value; return { ...f, optionNames: n }; })}
+                    disabled={i > 0 && !newProductForm.optionNames[i - 1].trim()}
+                    style={{ ...inputStyle, marginBottom: 0, flex: 1 }} />
+                ))}
+              </div>
+
+              <label style={{ color: "var(--ne-muted)", fontSize: 12, display: "block", marginBottom: 6, fontWeight: 600 }}>{t("products.newProductVariantsHeading")}</label>
+              {newProductForm.rows.map((row, idx) => (
+                <div key={idx} style={{ border: "1px solid var(--ne-border)", borderRadius: 10, padding: 10, marginBottom: 8 }}>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+                    {newProductForm.optionNames[0].trim() && (
+                      <input type="text" placeholder={newProductForm.optionNames[0]} value={row.option1}
+                        onChange={(e) => updateNewProductRow(idx, { option1: e.target.value })} style={{ ...cellInputStyle, marginBottom: 0 }} />
+                    )}
+                    {newProductForm.optionNames[1].trim() && (
+                      <input type="text" placeholder={newProductForm.optionNames[1]} value={row.option2}
+                        onChange={(e) => updateNewProductRow(idx, { option2: e.target.value })} style={{ ...cellInputStyle, marginBottom: 0 }} />
+                    )}
+                    {newProductForm.optionNames[2].trim() && (
+                      <input type="text" placeholder={newProductForm.optionNames[2]} value={row.option3}
+                        onChange={(e) => updateNewProductRow(idx, { option3: e.target.value })} style={{ ...cellInputStyle, marginBottom: 0 }} />
+                    )}
+                    <input type="number" step="0.01" placeholder={t("products.pricePlaceholder")} value={row.price}
+                      onChange={(e) => updateNewProductRow(idx, { price: e.target.value })} style={{ ...numCellInputStyle, marginBottom: 0 }} />
+                    <input type="number" step="0.01" placeholder={t("products.compareAtPricePlaceholder")} value={row.compare_at_price}
+                      onChange={(e) => updateNewProductRow(idx, { compare_at_price: e.target.value })} style={{ ...numCellInputStyle, marginBottom: 0 }} />
+                    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                      <input type="text" placeholder={t("products.skuPlaceholder")} value={row.sku}
+                        onChange={(e) => updateNewProductRow(idx, { sku: e.target.value })} style={{ ...cellInputStyle, marginBottom: 0, fontFamily: "monospace" }} />
+                      <button type="button" title={t("products.generateSkuTooltip")} onClick={() => generateSkuForNewProductRow(idx)}
+                        style={{ ...iconBtnStyle("var(--ne-warning)"), padding: 3 }}>
+                        <Icon name="refresh" size={12} />
+                      </button>
+                    </div>
+                    {newProductForm.rows.length > 1 && (
+                      <button type="button" title={t("products.removeVariantRowTooltip")} onClick={() => removeNewProductRow(idx)}
+                        style={{ ...iconBtnStyle("var(--ne-muted)"), marginLeft: "auto" }}>
+                        <Icon name="trash" size={12} />
+                      </button>
+                    )}
+                  </div>
+
+                  {row.sku.trim() && (
+                    <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+                      <div>
+                        <span style={fieldLabelStyle}>{t("products.openingStockLabel")}</span>
+                        <input type="number" placeholder="0" value={row.stock}
+                          onChange={(e) => updateNewProductRow(idx, { stock: e.target.value })} style={numCellInputStyle} />
+                      </div>
+                      <div>
+                        <span style={fieldLabelStyle}>{t("products.supplierLabel")}</span>
+                        <select value={row.supplierId} onChange={(e) => updateNewProductRow(idx, { supplierId: e.target.value })}
+                          style={{ ...cellInputStyle, width: SUPPLIER_CELL_WIDTH }}>
+                          <option value="">{t("products.noSupplierOption")}</option>
+                          {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <span style={fieldLabelStyle}>{t("products.returnValueLabel")}</span>
+                        <input type="number" step="0.01" placeholder="0.00" value={row.returnValue}
+                          onChange={(e) => updateNewProductRow(idx, { returnValue: e.target.value })} style={numCellInputStyle} />
+                      </div>
+                    </div>
+                  )}
+
+                  {row.sku.trim() && (
+                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed var(--ne-border)" }}>
+                      <CostComponentsEditor componentKeys={DEFAULT_COMPONENT_KEYS} componentLabels={costLabels}
+                        values={row.cost} extraCount={row.costExtraCount}
+                        onChangeValue={(key, val) => updateNewProductRow(idx, { cost: { ...row.cost, [key]: val } })}
+                        onAddExtra={() => updateNewProductRow(idx, { costExtraCount: (row.costExtraCount || 0) + 1 })} t={t} />
+                    </div>
+                  )}
+                </div>
+              ))}
+              <button type="button" onClick={addNewProductRow} disabled={newProductForm.rows.length >= 100}
+                style={{ background: "transparent", border: "1px dashed var(--ne-border)", borderRadius: 9, color: "var(--ne-accent)", cursor: newProductForm.rows.length >= 100 ? "default" : "pointer", fontSize: 12, padding: "7px 12px", marginBottom: 4 }}>
+                {t("products.addVariantRow")}
+              </button>
+              <p style={{ margin: "0 0 12px", fontSize: 10.5, color: "var(--ne-muted-2)" }}>{t("products.variantLimitNote")}</p>
 
               {createError && <p style={{ color: "var(--ne-danger)", fontSize: 12, marginBottom: 10 }}>{createError}</p>}
 
@@ -1347,6 +1707,86 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                 {t("products.close")}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Generate Missing SKUs Modal */}
+      {showGenerateSkusModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
+          <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 520, maxWidth: "94vw", maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
+            <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)" }}>
+              <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="refresh" size={13} /> {t("products.generateMissingSkusModalTitle")}</h2>
+              {!generateSkusResult && (
+                <p style={{ margin: "3px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{generateSkusPreview.length}</p>
+              )}
+            </div>
+
+            {generateSkusResult ? (
+              <>
+                <div style={{ flex: 1, overflowY: "auto", padding: "10px 18px" }}>
+                  <p style={{ margin: "0 0 10px", fontSize: 12, color: generateSkusResult.failures.length ? "var(--ne-danger)" : "var(--ne-success)" }}>
+                    {generateSkusResult.failures.length ? t("products.generateMissingSkusPartialFailure") : t("products.generateMissingSkusSuccess")}
+                    {" "}({generateSkusResult.successCount}/{generateSkusResult.successCount + generateSkusResult.failures.length})
+                  </p>
+                  {generateSkusResult.failures.map((f, i) => (
+                    <div key={i} style={{ fontSize: 11, marginBottom: 6 }}>
+                      <div style={{ color: "var(--ne-text)", fontWeight: 600 }}>{f.productTitle} — {f.variantTitle}</div>
+                      <div style={{ color: "var(--ne-danger)" }}>{f.error}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ padding: "12px 18px", borderTop: "1px solid var(--ne-border)", display: "flex", justifyContent: "flex-end" }}>
+                  <button onClick={() => setShowGenerateSkusModal(false)}
+                    style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                    {t("products.close")}
+                  </button>
+                </div>
+              </>
+            ) : generateSkusPreview.length === 0 ? (
+              <div style={{ padding: "16px 18px" }}>
+                <p style={{ margin: 0, fontSize: 12.5, color: "var(--ne-muted)" }}>{t("products.generateMissingSkusEmpty")}</p>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+                  <button onClick={() => setShowGenerateSkusModal(false)}
+                    style={{ padding: "8px 16px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-muted)", fontSize: 12, cursor: "pointer" }}>
+                    {t("products.close")}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div style={{ flex: 1, overflowY: "auto", padding: "10px 18px" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5 }}>
+                    <thead>
+                      <tr style={{ textAlign: "left", color: "var(--ne-muted-2)", fontSize: 10 }}>
+                        <th style={{ padding: "4px 6px" }}>{t("products.generateMissingSkusColProduct")}</th>
+                        <th style={{ padding: "4px 6px" }}>{t("products.generateMissingSkusColVariant")}</th>
+                        <th style={{ padding: "4px 6px" }}>{t("products.generateMissingSkusColSku")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {generateSkusPreview.map((entry, i) => (
+                        <tr key={i} style={{ borderTop: "1px solid var(--ne-border)" }}>
+                          <td style={{ padding: "4px 6px", color: "var(--ne-text)" }}>{entry.productTitle}</td>
+                          <td style={{ padding: "4px 6px", color: "var(--ne-muted)" }}>{entry.variantTitle}</td>
+                          <td style={{ padding: "4px 6px", color: "var(--ne-text)", fontFamily: "monospace" }}>{entry.sku}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ padding: "12px 18px", borderTop: "1px solid var(--ne-border)", display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button type="button" onClick={() => setShowGenerateSkusModal(false)} disabled={generateSkusApplying}
+                    style={{ padding: "8px 16px", background: "transparent", color: "var(--ne-muted)", border: "1px solid var(--ne-border)", borderRadius: 9, fontSize: 12, cursor: "pointer" }}>
+                    {t("products.generateMissingSkusCancel")}
+                  </button>
+                  <button onClick={applyGenerateMissingSkus} disabled={generateSkusApplying}
+                    style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: generateSkusApplying ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                    {generateSkusApplying ? t("products.generateMissingSkusSaving") : (<><Icon name="check" size={12} /> {t("products.generateMissingSkusConfirm")}</>)}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
