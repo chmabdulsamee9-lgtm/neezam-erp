@@ -29,6 +29,32 @@ const humanizeKey = (key, extraLabel) => {
 
 const firstVariant = (row) => row?.raw_data?.variants?.[0] || {};
 
+const draftKey = (productId, fieldKey) => `${productId}::${fieldKey}`;
+
+// Reusable inline-editable cell — every plain text/number cell (vendor, product_type,
+// sku, price, compare_at_price, and each expanded variant's own copies) goes through
+// this so drafts/commit-on-blur/Enter-to-save stay consistent everywhere.
+// Defined at module scope (NOT inside ProductsManagement's body) so its component
+// identity is stable across re-renders — defining it inside the parent's render body
+// would give React a brand-new component type every keystroke, forcing it to unmount
+// and remount the underlying <input> (and its focus) on every single character typed.
+function EditableCell({ drafts, setFieldDraft, clearFieldDraft, productId, fieldKey, initialValue, onCommit, type = "text", disabled, style, placeholder }) {
+  const dk = draftKey(productId, fieldKey);
+  const value = Object.prototype.hasOwnProperty.call(drafts, dk) ? drafts[dk] : (initialValue != null ? String(initialValue) : "");
+  return (
+    <input type={type} step={type === "number" ? "0.01" : undefined} disabled={disabled} value={value} placeholder={placeholder}
+      onChange={(e) => setFieldDraft(productId, fieldKey, e.target.value)}
+      onBlur={() => {
+        const dv = drafts[dk];
+        clearFieldDraft(productId, fieldKey);
+        if (dv === undefined) return;
+        onCommit(dv);
+      }}
+      onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
+      style={style} />
+  );
+}
+
 async function fetchAllProductsFromSupabase(storeId) {
   let allRows = [];
   let from = 0;
@@ -464,7 +490,6 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
     }
   };
 
-  const draftKey = (productId, fieldKey) => `${productId}::${fieldKey}`;
   const setFieldDraft = (productId, fieldKey, val) => setDrafts((prev) => ({ ...prev, [draftKey(productId, fieldKey)]: val }));
   const clearFieldDraft = (productId, fieldKey) => setDrafts((prev) => {
     const dk = draftKey(productId, fieldKey);
@@ -570,26 +595,6 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
       setError(err.message);
     }
     setSyncStatus((prev) => { const n = { ...prev }; delete n[productId]; return n; });
-  };
-
-  // Reusable inline-editable cell — every plain text/number cell (vendor, product_type,
-  // sku, price, compare_at_price, and each expanded variant's own copies) goes through
-  // this so drafts/commit-on-blur/Enter-to-save stay consistent everywhere.
-  const EditableCell = ({ productId, fieldKey, initialValue, onCommit, type = "text", disabled, style, placeholder }) => {
-    const dk = draftKey(productId, fieldKey);
-    const value = Object.prototype.hasOwnProperty.call(drafts, dk) ? drafts[dk] : (initialValue != null ? String(initialValue) : "");
-    return (
-      <input type={type} step={type === "number" ? "0.01" : undefined} disabled={disabled} value={value} placeholder={placeholder}
-        onChange={(e) => setFieldDraft(productId, fieldKey, e.target.value)}
-        onBlur={() => {
-          const dv = drafts[dk];
-          clearFieldDraft(productId, fieldKey);
-          if (dv === undefined) return;
-          onCommit(dv);
-        }}
-        onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
-        style={style} />
-    );
   };
 
   const resetNewProductForm = () => setNewProductForm({ title: "", vendor: "", product_type: "", tags: "", price: "", compare_at_price: "", sku: "" });
@@ -905,7 +910,7 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                     {editingTitleId === productId ? (
                       <div>
                         <span style={fieldLabelStyle}>{t("products.titleLabel")}</span>
-                        <EditableCell productId={productId} fieldKey="title" initialValue={pendingChanges[productId]?.fields?.title ?? p.raw_data?.title}
+                        <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={productId} fieldKey="title" initialValue={pendingChanges[productId]?.fields?.title ?? p.raw_data?.title}
                           placeholder={t("products.titlePlaceholder")}
                           onCommit={(val) => { commitProductField(p, "title", val); setEditingTitleId(null); }}
                           style={{ ...cellInputStyle, width: "100%", fontSize: 13 }} />
@@ -927,13 +932,13 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                     <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 8, flexWrap: "wrap", marginTop: 6, alignItems: isMobile ? "stretch" : "flex-end" }}>
                       <div style={{ width: isMobile ? "100%" : "auto" }}>
                         <span style={fieldLabelStyle}>{t("products.vendorLabel")}</span>
-                        <EditableCell productId={productId} fieldKey="vendor" initialValue={pendingChanges[productId]?.fields?.vendor ?? p.raw_data?.vendor}
+                        <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={productId} fieldKey="vendor" initialValue={pendingChanges[productId]?.fields?.vendor ?? p.raw_data?.vendor}
                           placeholder={t("products.vendorPlaceholder")}
                           onCommit={(val) => commitProductField(p, "vendor", val)} style={{ ...cellInputStyle, width: isMobile ? "100%" : 90 }} />
                       </div>
                       <div style={{ width: isMobile ? "100%" : "auto" }}>
                         <span style={fieldLabelStyle}>{t("products.typeLabel")}</span>
-                        <EditableCell productId={productId} fieldKey="product_type" initialValue={pendingChanges[productId]?.fields?.product_type ?? p.raw_data?.product_type}
+                        <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={productId} fieldKey="product_type" initialValue={pendingChanges[productId]?.fields?.product_type ?? p.raw_data?.product_type}
                           placeholder={t("products.typePlaceholder")}
                           onCommit={(val) => commitProductField(p, "product_type", val)} style={{ ...cellInputStyle, width: isMobile ? "100%" : 90 }} />
                       </div>
@@ -971,19 +976,19 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                           )}
                           <div style={{ width: isMobile ? "100%" : "auto" }}>
                             <span style={fieldLabelStyle}>{t("products.skuLabel")}</span>
-                            <EditableCell productId={productId} fieldKey={`sku-${variant.id}`} initialValue={pendingChanges[productId]?.variants?.[variant.id]?.sku ?? variant.sku}
+                            <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={productId} fieldKey={`sku-${variant.id}`} initialValue={pendingChanges[productId]?.variants?.[variant.id]?.sku ?? variant.sku}
                               placeholder={t("products.skuEnterPlaceholder")}
                               onCommit={(val) => commitVariantField(p, variant, "sku", val)} style={{ ...cellInputStyle, width: isMobile ? "100%" : 90, fontFamily: "monospace" }} />
                           </div>
                           <div style={{ width: isMobile ? "100%" : "auto" }}>
                             <span style={fieldLabelStyle}>{t("products.priceLabel")}</span>
-                            <EditableCell productId={productId} fieldKey={`price-${variant.id}`} type="number" initialValue={pendingChanges[productId]?.variants?.[variant.id]?.price ?? variant.price}
+                            <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={productId} fieldKey={`price-${variant.id}`} type="number" initialValue={pendingChanges[productId]?.variants?.[variant.id]?.price ?? variant.price}
                               placeholder="0.00"
                               onCommit={(val) => commitVariantField(p, variant, "price", val)} style={{ ...numCellInputStyle, width: isMobile ? "100%" : 68 }} />
                           </div>
                           <div style={{ width: isMobile ? "100%" : "auto" }}>
                             <span style={fieldLabelStyle}>{t("products.compareAtLabel")}</span>
-                            <EditableCell productId={productId} fieldKey={`cap-${variant.id}`} type="number" initialValue={pendingChanges[productId]?.variants?.[variant.id]?.compare_at_price ?? variant.compare_at_price}
+                            <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={productId} fieldKey={`cap-${variant.id}`} type="number" initialValue={pendingChanges[productId]?.variants?.[variant.id]?.compare_at_price ?? variant.compare_at_price}
                               placeholder="0.00"
                               onCommit={(val) => commitVariantField(p, variant, "compare_at_price", val)} style={{ ...numCellInputStyle, width: isMobile ? "100%" : 68 }} />
                           </div>
@@ -995,7 +1000,7 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                                 {invRows.length > 1 ? (
                                   <span title={stockTooltip} style={{ ...numCellInputStyle, width: isMobile ? "100%" : 68, display: "inline-block", textAlign: "center", cursor: "help" }}>{stockTotal}</span>
                                 ) : (
-                                  <EditableCell productId={`stock-${sku}`} fieldKey="qty" type="number" initialValue={stockTotal}
+                                  <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={`stock-${sku}`} fieldKey="qty" type="number" initialValue={stockTotal}
                                     placeholder="0" disabled={savingStockSku === sku}
                                     onCommit={(val) => saveStock(p, sku, val)} style={{ ...numCellInputStyle, width: isMobile ? "100%" : 68 }} />
                                 )}
@@ -1018,7 +1023,7 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                               </div>
                               <div style={{ width: isMobile ? "100%" : "auto" }}>
                                 <span style={fieldLabelStyle}>{t("products.returnValueLabel")}</span>
-                                <EditableCell productId={`return-${sku}`} fieldKey="rv" type="number" initialValue={rate?.return_value}
+                                <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={`return-${sku}`} fieldKey="rv" type="number" initialValue={rate?.return_value}
                                   placeholder="0.00"
                                   onCommit={(val) => saveReturnValue(sku, val)} style={{ ...numCellInputStyle, width: isMobile ? "100%" : 68 }} />
                               </div>
@@ -1041,7 +1046,7 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                             {DEFAULT_COMPONENT_KEYS.map((key) => (
                               <div key={key} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                                 <span style={fieldLabelStyle}>{costLabels[key]}</span>
-                                <EditableCell productId={`cost-${sku}`} fieldKey={key} type="number" initialValue={getCostInputValue(sku, key)}
+                                <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={`cost-${sku}`} fieldKey={key} type="number" initialValue={getCostInputValue(sku, key)}
                                   placeholder={t("products.costComponentPlaceholder")}
                                   onCommit={(val) => saveCostComponent(sku, key, val)} style={numCellInputStyle} />
                               </div>
@@ -1052,7 +1057,7 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                               return (
                                 <div key={key} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                                   <span style={fieldLabelStyle}>{t("products.extraPrefix")} {n}</span>
-                                  <EditableCell productId={`cost-${sku}`} fieldKey={key} type="number" initialValue={getCostInputValue(sku, key)}
+                                  <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={`cost-${sku}`} fieldKey={key} type="number" initialValue={getCostInputValue(sku, key)}
                                     placeholder={t("products.costComponentPlaceholder")}
                                     onCommit={(val) => saveCostComponent(sku, key, val)} style={numCellInputStyle} />
                                 </div>
@@ -1061,7 +1066,7 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
                             {namedExtraKeys.map((key) => (
                               <div key={key} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                                 <span style={fieldLabelStyle}>{humanizeKey(key, t("products.extraPrefix"))}</span>
-                                <EditableCell productId={`cost-${sku}`} fieldKey={key} type="number" initialValue={getCostInputValue(sku, key)}
+                                <EditableCell drafts={drafts} setFieldDraft={setFieldDraft} clearFieldDraft={clearFieldDraft} productId={`cost-${sku}`} fieldKey={key} type="number" initialValue={getCostInputValue(sku, key)}
                                   placeholder={t("products.costComponentPlaceholder")}
                                   onCommit={(val) => saveCostComponent(sku, key, val)} style={numCellInputStyle} />
                               </div>
