@@ -5,7 +5,7 @@ import { SkelBar, SkelTable } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
-const RECENT_PERIODS_COUNT = 10;
+const PERIODS_PER_PAGE = 10;
 
 // Worker ke getDexStatementPeriod() ka EXACT wahi PKT (UTC+5, no DST) logic — dono taraf
 // same boundaries banain zaroori hai, warna frontend jo period_start/period_end bhejega
@@ -24,16 +24,23 @@ function getDexStatementPeriod(date) {
   return { start, end };
 }
 
-// Current period se peeche N periods walk karta hai — har dafa pichle period ke start
-// se 1ms pehle jump karke wapas getDexStatementPeriod() call karta hai, taake guaranteed
-// theek pichla period mile (koi date-arithmetic assumption nahi).
-function getRecentPeriods(count) {
+// Current period se peeche walk karta hai — har dafa pichle period ke start se 1ms
+// pehle jump karke wapas getDexStatementPeriod() call karta hai, taake guaranteed theek
+// pichla period mile (koi date-arithmetic assumption nahi). Walks back until it reaches
+// (or passes) sinceDate — i.e. ALL periods that could have real order data, not a fixed
+// count — so pagination below pages through the full list rather than truncating it.
+// sinceDate null/undefined (still loading, or store genuinely has no dated orders yet)
+// -> just the current period, nothing to page through yet.
+function getPeriodsSince(sinceDate) {
+  if (!sinceDate) return [getDexStatementPeriod(new Date())];
   const periods = [];
   let cursor = new Date();
-  for (let i = 0; i < count; i++) {
+  while (true) {
     const p = getDexStatementPeriod(cursor);
     periods.push(p);
+    if (p.start <= sinceDate) break;
     cursor = new Date(p.start.getTime() - 1);
+    if (periods.length > 520) break; // safety cap (~10 years of periods) against a runaway loop
   }
   return periods;
 }
@@ -354,6 +361,8 @@ export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL 
   const t = useTranslation(lang);
   const [showRateCard, setShowRateCard] = useState(false);
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 900);
+  const [earliestDate, setEarliestDate] = useState(undefined); // undefined = still loading, null = no dated orders yet
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 900);
@@ -361,10 +370,26 @@ export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL 
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  // Ek dafa compute karte hain (page ke life mein periods badalte nahi, sirf naya
-  // page-load/refresh pe hi "current period" shift hoga — useMemo yahan zaroori nahi
-  // (component mount pe ek hi baar chalta hai), lekin re-render safe rehne ke liye rakha.
-  const periods = useMemo(() => getRecentPeriods(RECENT_PERIODS_COUNT), []);
+  // Earliest real order activity for this store — bounds how far back getPeriodsSince()
+  // walks, so pagination below pages through every period that could have real data
+  // instead of an arbitrary fixed count.
+  useEffect(() => {
+    if (!storeId) return;
+    setEarliestDate(undefined);
+    setPage(1);
+    (async () => {
+      const [{ data: delivered }, { data: returned }] = await Promise.all([
+        supabase.from("order_statuses").select("delivered_at").eq("store_id", storeId).not("delivered_at", "is", null).order("delivered_at", { ascending: true }).limit(1),
+        supabase.from("order_statuses").select("return_success_at").eq("store_id", storeId).not("return_success_at", "is", null).order("return_success_at", { ascending: true }).limit(1),
+      ]);
+      const candidates = [delivered?.[0]?.delivered_at, returned?.[0]?.return_success_at].filter(Boolean).map((d) => new Date(d));
+      setEarliestDate(candidates.length > 0 ? new Date(Math.min(...candidates.map((d) => d.getTime()))) : null);
+    })();
+  }, [storeId]);
+
+  const periods = useMemo(() => getPeriodsSince(earliestDate), [earliestDate]);
+  const totalPages = Math.max(1, Math.ceil(periods.length / PERIODS_PER_PAGE));
+  const pagedPeriods = periods.slice((page - 1) * PERIODS_PER_PAGE, page * PERIODS_PER_PAGE);
 
   if (!ordersStore?.shopify_url) {
     return (
@@ -390,10 +415,29 @@ export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL 
       </div>
 
       <div>
-        {periods.map((p) => (
+        {pagedPeriods.map((p) => (
           <StatementRow key={periodKey(p)} period={p} t={t} cfUrl={cfUrl} storeId={storeId} ordersStore={ordersStore} />
         ))}
       </div>
+
+      {/* Pagination — BookedOrders.jsx/Orders.jsx wala exact pattern */}
+      {periods.length > PERIODS_PER_PAGE && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.6rem", flexWrap: "wrap", gap: 8 }}>
+          <span style={{ fontSize: 11, color: "var(--ne-muted-2)" }}>
+            {t("finance.showing")} {((page - 1) * PERIODS_PER_PAGE) + 1}–{Math.min(page * PERIODS_PER_PAGE, periods.length)} {t("finance.of")} {periods.length}
+          </span>
+          <div style={{ display: "flex", gap: 4 }}>
+            <button onClick={() => setPage(1)} disabled={page === 1} style={{ padding: "4px 9px", borderRadius: 7, border: "1px solid var(--ne-border)", background: page === 1 ? "transparent" : "var(--ne-surface-2)", color: page === 1 ? "var(--ne-muted-2)" : "var(--ne-muted)", fontSize: 11, cursor: page === 1 ? "default" : "pointer" }}>«</button>
+            <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} style={{ padding: "4px 9px", borderRadius: 7, border: "1px solid var(--ne-border)", background: page === 1 ? "transparent" : "var(--ne-surface-2)", color: page === 1 ? "var(--ne-muted-2)" : "var(--ne-muted)", fontSize: 11, cursor: page === 1 ? "default" : "pointer" }}>‹</button>
+            {[...Array(Math.min(5, totalPages))].map((_, idx) => {
+              const p = Math.max(1, Math.min(page - 2, totalPages - 4)) + idx;
+              return <button key={p} onClick={() => setPage(p)} style={{ padding: "4px 9px", borderRadius: 7, border: "1px solid var(--ne-border)", background: page === p ? "var(--ne-grad)" : "var(--ne-surface-2)", color: page === p ? "#fff" : "var(--ne-muted)", fontSize: 11, cursor: "pointer", fontWeight: page === p ? 700 : 400 }}>{p}</button>;
+            })}
+            <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={{ padding: "4px 9px", borderRadius: 7, border: "1px solid var(--ne-border)", background: page === totalPages ? "transparent" : "var(--ne-surface-2)", color: page === totalPages ? "var(--ne-muted-2)" : "var(--ne-muted)", fontSize: 11, cursor: page === totalPages ? "default" : "pointer" }}>›</button>
+            <button onClick={() => setPage(totalPages)} disabled={page === totalPages} style={{ padding: "4px 9px", borderRadius: 7, border: "1px solid var(--ne-border)", background: page === totalPages ? "transparent" : "var(--ne-surface-2)", color: page === totalPages ? "var(--ne-muted-2)" : "var(--ne-muted)", fontSize: 11, cursor: page === totalPages ? "default" : "pointer" }}>»</button>
+          </div>
+        </div>
+      )}
 
       {showRateCard && <RateCardModal t={t} cfUrl={cfUrl} onClose={() => setShowRateCard(false)} />}
     </div>
