@@ -48,6 +48,15 @@ export default function SupplierLedger({ storeId, cfUrl = CF_URL }) {
   const [entryError, setEntryError] = useState("");
   const [deletingId, setDeletingId] = useState(null);
 
+  const [showBulkRate, setShowBulkRate] = useState(false);
+  const [bulkRateRows, setBulkRateRows] = useState([]); // [{sku, product_title, current_rate, newRate}]
+  const [bulkRateLoading, setBulkRateLoading] = useState(false);
+  const [bulkRateError, setBulkRateError] = useState("");
+  const [bulkRateMode, setBulkRateMode] = useState("flat"); // 'flat' | 'percent' | 'manual'
+  const [bulkRateValue, setBulkRateValue] = useState("");
+  const [bulkRateApplying, setBulkRateApplying] = useState(false);
+  const [bulkRateResult, setBulkRateResult] = useState(null); // { updatedCount, skipped }
+
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
     window.addEventListener("resize", onResize);
@@ -143,6 +152,76 @@ export default function SupplierLedger({ storeId, cfUrl = CF_URL }) {
       setSyncMessage(err.message);
     }
     setSyncing(false);
+  };
+
+  const authedFetch = async (path, opts = {}) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch(`${cfUrl}${path}`, {
+      ...opts,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}`, ...(opts.headers || {}) },
+    });
+    return res.json();
+  };
+
+  const openBulkRate = async (supplier) => {
+    setShowBulkRate(true);
+    setBulkRateError("");
+    setBulkRateResult(null);
+    setBulkRateMode("flat");
+    setBulkRateValue("");
+    setBulkRateLoading(true);
+    try {
+      const data = await authedFetch(`/supplier-skus/${encodeURIComponent(supplier.id)}?store_id=${encodeURIComponent(storeId)}`);
+      if (data.error) { setBulkRateError(data.error); setBulkRateRows([]); }
+      else setBulkRateRows((data.skus || []).map((r) => ({ ...r, newRate: String(r.current_rate) })));
+    } catch (err) {
+      setBulkRateError(err.message);
+    }
+    setBulkRateLoading(false);
+  };
+
+  // Mode "flat"/"percent" live-recompute every row's New Rate as the shared value is
+  // typed; "manual" leaves each row's own newRate alone (independent per-row edits).
+  const applyBulkRateMode = (mode, value) => {
+    setBulkRateMode(mode);
+    setBulkRateValue(value);
+    if (mode === "manual") return;
+    setBulkRateRows((prev) => prev.map((row) => {
+      if (value === "") return { ...row, newRate: "" };
+      const num = Number(value);
+      if (!Number.isFinite(num)) return row;
+      const computed = mode === "flat" ? num : row.current_rate * (1 + num / 100);
+      return { ...row, newRate: String(Math.round(computed * 100) / 100) };
+    }));
+  };
+
+  const setManualRowRate = (sku, value) => {
+    setBulkRateRows((prev) => prev.map((row) => (row.sku === sku ? { ...row, newRate: value } : row)));
+  };
+
+  const bulkRateHasInvalidRow = bulkRateRows.some((row) => {
+    const n = Number(row.newRate);
+    return row.newRate.trim() === "" || !Number.isFinite(n) || n < 0;
+  });
+
+  const confirmBulkRate = async (supplier) => {
+    setBulkRateApplying(true);
+    setBulkRateError("");
+    try {
+      const skuOverrides = {};
+      bulkRateRows.forEach((row) => { skuOverrides[row.sku] = row.newRate; });
+      const data = await authedFetch("/supplier-bulk-rate-update", {
+        method: "POST",
+        body: JSON.stringify({ supplierId: supplier.id, storeId, mode: "manual", skuOverrides }),
+      });
+      if (data.error) { setBulkRateError(data.error); setBulkRateApplying(false); return; }
+      setBulkRateResult({ updatedCount: data.updatedCount, skipped: (data.skipped || []).length });
+      await fetchAll();
+      if (viewingSupplier) await loadLedgerEntries(viewingSupplier.id);
+    } catch (err) {
+      setBulkRateError(err.message);
+    }
+    setBulkRateApplying(false);
   };
 
   const balanceOf = (supplierId) => {
@@ -350,6 +429,10 @@ export default function SupplierLedger({ storeId, cfUrl = CF_URL }) {
               style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: syncing ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: syncing ? "default" : "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
               <Icon name="refresh" size={13} /> {syncing ? t("ledger.syncing") : t("ledger.syncButton")}
             </button>
+            <button onClick={() => openBulkRate(viewingSupplier)}
+              style={{ padding: "8px 16px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <Icon name="card" size={13} /> {t("ledger.bulkUpdateRate")}
+            </button>
             <button onClick={openAddEntry}
               style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
               {t("ledger.addEntry")}
@@ -532,6 +615,97 @@ export default function SupplierLedger({ storeId, cfUrl = CF_URL }) {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {showBulkRate && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
+            <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 560, maxWidth: "94vw", maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
+              <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)" }}>
+                <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="card" size={14} /> {t("ledger.bulkRateModalTitle")} — {viewingSupplier.name}</h2>
+              </div>
+
+              {bulkRateResult ? (
+                <>
+                  <div style={{ padding: "16px 18px" }}>
+                    <p style={{ margin: 0, fontSize: 13, color: "var(--ne-success)" }}>
+                      {bulkRateResult.updatedCount} {t("ledger.bulkRateUpdatedSuffix")}
+                      {bulkRateResult.skipped > 0 && <> — {bulkRateResult.skipped} {t("ledger.bulkRateSkippedSuffix")}</>}
+                    </p>
+                  </div>
+                  <div style={{ padding: "12px 18px", borderTop: "1px solid var(--ne-border)", display: "flex", justifyContent: "flex-end" }}>
+                    <button onClick={() => setShowBulkRate(false)}
+                      style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                      {t("ledger.cancel")}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                    <select value={bulkRateMode} onChange={(e) => applyBulkRateMode(e.target.value, bulkRateValue)}
+                      style={{ padding: "7px 10px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 12 }}>
+                      <option value="flat">{t("ledger.bulkRateModeFlat")}</option>
+                      <option value="percent">{t("ledger.bulkRateModePercent")}</option>
+                      <option value="manual">{t("ledger.bulkRateModeManual")}</option>
+                    </select>
+                    {bulkRateMode !== "manual" && (
+                      <input type="number" step="0.01"
+                        placeholder={bulkRateMode === "flat" ? t("ledger.bulkRateFlatPlaceholder") : t("ledger.bulkRatePercentPlaceholder")}
+                        value={bulkRateValue} onChange={(e) => applyBulkRateMode(bulkRateMode, e.target.value)}
+                        style={{ padding: "7px 10px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 12, width: 180 }} />
+                    )}
+                  </div>
+
+                  <div style={{ flex: 1, overflowY: "auto", padding: "10px 18px" }}>
+                    {bulkRateError && <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 9, fontSize: 12, background: "var(--ne-danger-soft)", color: "var(--ne-danger)" }}>{bulkRateError}</div>}
+                    {bulkRateLoading ? (
+                      <SkelTable cols={4} rows={5} />
+                    ) : bulkRateRows.length === 0 ? (
+                      <p style={{ textAlign: "center", padding: "1.5rem", color: "var(--ne-muted-2)", fontSize: 12 }}>{t("ledger.bulkRateNoSkus")}</p>
+                    ) : (
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5 }}>
+                        <thead>
+                          <tr>
+                            {[t("ledger.bulkRateColSku"), t("ledger.bulkRateColProduct"), t("ledger.bulkRateColCurrent"), t("ledger.bulkRateColNew")].map((h) => (
+                              <th key={h} style={{ textAlign: "left", padding: "6px 8px", color: "var(--ne-muted)", borderBottom: "1px solid var(--ne-border)", fontWeight: 600, fontSize: 10, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {bulkRateRows.map((row) => {
+                            const n = Number(row.newRate);
+                            const invalid = row.newRate.trim() === "" || !Number.isFinite(n) || n < 0;
+                            return (
+                              <tr key={row.sku} style={{ borderBottom: "1px solid var(--ne-border)" }}>
+                                <td style={{ padding: "6px 8px", color: "var(--ne-text)", fontFamily: "monospace", fontWeight: 600, whiteSpace: "nowrap" }}>{row.sku}</td>
+                                <td style={{ padding: "6px 8px", color: "var(--ne-muted)" }}>{row.product_title || "—"}</td>
+                                <td style={{ padding: "6px 8px", color: "var(--ne-muted)", whiteSpace: "nowrap" }}>{rupees(row.current_rate)}</td>
+                                <td style={{ padding: "6px 8px" }}>
+                                  <input type="number" step="0.01" value={row.newRate} onChange={(e) => setManualRowRate(row.sku, e.target.value)}
+                                    style={{ width: 90, padding: "5px 7px", borderRadius: 7, border: `1px solid ${invalid ? "var(--ne-danger)" : "var(--ne-border)"}`, background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11.5, boxSizing: "border-box" }} />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+
+                  <div style={{ padding: "12px 18px", borderTop: "1px solid var(--ne-border)", display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                    <button type="button" onClick={() => setShowBulkRate(false)} disabled={bulkRateApplying}
+                      style={{ padding: "8px 16px", background: "transparent", color: "var(--ne-muted)", border: "1px solid var(--ne-border)", borderRadius: 9, fontSize: 12, cursor: "pointer" }}>
+                      {t("ledger.cancel")}
+                    </button>
+                    <button onClick={() => confirmBulkRate(viewingSupplier)} disabled={bulkRateApplying || bulkRateHasInvalidRow || bulkRateRows.length === 0}
+                      style={{ padding: "8px 16px", borderRadius: 9, border: "none", background: (bulkRateApplying || bulkRateHasInvalidRow || bulkRateRows.length === 0) ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: (bulkRateApplying || bulkRateHasInvalidRow) ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                      {bulkRateApplying ? t("ledger.bulkRateUpdating") : (<><Icon name="check" size={12} /> {t("ledger.bulkRateConfirm")}</>)}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}

@@ -109,6 +109,7 @@ const Payments = lazyPage(() => import('./pages/Payments'), 'payments')
 const MetaConnect = lazyPage(() => import('./pages/MetaConnect'), 'meta-connect')
 const MetaCallback = lazyPage(() => import('./pages/MetaCallback'), null)
 const AdsAnalytics = lazyPage(() => import('./pages/AdsAnalytics'), 'ads')
+const Returns = lazyPage(() => import('./pages/Returns'), 'returns')
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev"
 
@@ -2025,7 +2026,7 @@ function App() {
   // Store-dependent pages sirf ordersStore (store row) chahte hain, jo orders se pehle set hota hai — orders load hone ka intezar nahi.
   const storePending = !ordersStore && !isAdminOnlyPage
   const ORDERS_DEPENDENT_PAGES = ['ads', 'pnl', 'budget']
-  const STORE_DEPENDENT_PAGES = ['orders', 'products', 'finance-statement', 'courier', 'courier-dashboard', 'courier-dashboard/detailed']
+  const STORE_DEPENDENT_PAGES = ['orders', 'products', 'finance-statement', 'courier', 'courier-dashboard', 'courier-dashboard/detailed', 'returns']
 
   const currentUserStoreEntry = userStoresList.find(us => us.store_id === selectedStoreId)
   const isStaff = profile.role === 'staff'
@@ -2293,10 +2294,13 @@ function App() {
               <Settings profile={profile} onProfileUpdated={(updated) => setProfile(updated)} />
             )}
             {activeMenu === 'pnl' && hasAccess('pnl') && !ordersPending && (
-              <ProfitLoss ordersData={ordersData} storeId={selectedStoreId} activePeriod={activePeriod} onPeriodChange={handlePeriodChange} />
+              <ProfitLoss ordersData={ordersData} storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} activePeriod={activePeriod} onPeriodChange={handlePeriodChange} />
             )}
             {activeMenu === 'ledger' && hasAccess('ledger') && (
               <SupplierLedger storeId={selectedStoreId} cfUrl={CF_URL} />
+            )}
+            {activeMenu === 'returns' && hasAccess('returns') && !storePending && (
+              <Returns storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
             )}
             {activeMenu === 'budget' && hasAccess('budget') && !ordersPending && (
               <BudgetCalculator ordersData={ordersData} />
@@ -2313,7 +2317,7 @@ function App() {
             {activeMenu === 'master-dashboard/gemini-monitor' && profile.role === 'creator' && (
               <GeminiUsageMonitor cfUrl={CF_URL} session={session} />
             )}
-            {!['home', 'dashboard', 'store-connect', 'products', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor'].includes(activeMenu) && (
+            {!['home', 'dashboard', 'store-connect', 'products', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'returns', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor'].includes(activeMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{menuItems.find(m => m.id === activeMenu)?.label}</h2>

@@ -35,7 +35,10 @@ const PERIOD_OPTIONS = [
   { value: "all", labelKey: "orders.periodAll" },
 ]
 
-export default function ProfitLoss({ ordersData, storeId, activePeriod, onPeriodChange }) {
+const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
+const META_DATE_PRESETS = { today: "today", yesterday: "yesterday", "7days": "last_7d", "30days": "last_30d" };
+
+export default function ProfitLoss({ ordersData, storeId, ordersStore, cfUrl = CF_URL, activePeriod, onPeriodChange }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const [dateFilter, setDateFilter] = useState("today");
@@ -48,8 +51,20 @@ export default function ProfitLoss({ ordersData, storeId, activePeriod, onPeriod
   // NOT collapsed to "latest per SKU", since COGS now needs to resolve the rate that was
   // effective as of each individual order's booked date, not just today's rate.
   const [productCostRows, setProductCostRows] = useState([]);
+  const [damagedReturns, setDamagedReturns] = useState([]); // returns rows, status='received_damaged'
+  const [deductionLogRows, setDeductionLogRows] = useState([]); // inventory_deduction_log, for damaged-return SKU/qty breakdown
   const [loading, setLoading] = useState(true);
   const [variantSkuRows, setVariantSkuRows] = useState([]); // lightweight products_cache projection (raw_data->variants only) for the live-SKU lookup, Orders.jsx/BookedOrders.jsx jaisa hi
+
+  // Meta Ad Spend sync — a live comparison number only, never written anywhere. Chosen
+  // over upserting a synced expenses row because de-duplicating repeated syncs against
+  // overlapping/adjustable date ranges (today vs 7days vs a custom range covering the
+  // same days) would risk double-counting spend in the trusted expenses ledger; showing
+  // it side-by-side can't corrupt anything, and manual entry stays the actual source of
+  // truth for adSpend/netProfit below.
+  const [metaAdSpend, setMetaAdSpend] = useState(null);
+  const [metaAdSpendLoading, setMetaAdSpendLoading] = useState(false);
+  const [metaAdSpendError, setMetaAdSpendError] = useState("");
 
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [expenseForm, setExpenseForm] = useState({ category: "ad_spend", amount: "", expense_date: new Date().toISOString().slice(0, 10), notes: "" });
@@ -60,6 +75,11 @@ export default function ProfitLoss({ ordersData, storeId, activePeriod, onPeriod
   const [editingCostValue, setEditingCostValue] = useState("");
   const [costDateMode, setCostDateMode] = useState("immediate"); // 'immediate' | 'scheduled'
   const [costDateValue, setCostDateValue] = useState("");
+
+  useEffect(() => {
+    setMetaAdSpend(null);
+    setMetaAdSpendError("");
+  }, [dateFilter, customFrom, customTo]);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
@@ -162,12 +182,16 @@ export default function ProfitLoss({ ordersData, storeId, activePeriod, onPeriod
 
   const fetchAll = async () => {
     setLoading(true);
-    const [{ data: expenseRows }, { data: costRows }] = await Promise.all([
+    const [{ data: expenseRows }, { data: costRows }, { data: returnRows }, { data: deductionRows }] = await Promise.all([
       supabase.from("expenses").select("*").eq("store_id", storeId).order("expense_date", { ascending: false }),
       supabase.from("product_costs").select("*").eq("store_id", storeId),
+      supabase.from("returns").select("*").eq("store_id", storeId).eq("status", "received_damaged"),
+      supabase.from("inventory_deduction_log").select("*").eq("store_id", storeId),
     ]);
     setExpenses(expenseRows || []);
     setProductCostRows(costRows || []);
+    setDamagedReturns(returnRows || []);
+    setDeductionLogRows(deductionRows || []);
     setLoading(false);
   };
 
@@ -221,7 +245,13 @@ export default function ProfitLoss({ ordersData, storeId, activePeriod, onPeriod
     return { from: today, to: new Date(today.getTime() + 86400000) };
   };
 
-  // Revenue/COGS sirf Approved orders se — warna P&L number galat lagega
+  // Revenue/COGS sirf Approved orders se — warna P&L number galat lagega.
+  // OPEN DESIGN QUESTION (not changed in this pass): revenue is recognized at
+  // agent_status==="Approved" regardless of what happens to the order afterwards — an
+  // order that later ships, gets returned, or gets refunded is NOT walked back out of
+  // revenue anywhere. The new damagedReturnsCost line above is an expense-side addition
+  // only; it does not touch this recognition point. Revisit when returns/refunds need
+  // to actually reverse recognized revenue, not just add an offsetting cost line.
   const approvedOrders = useMemo(() => {
     if (!ordersData?.length) return [];
     const { from, to } = getDateRange();
@@ -278,6 +308,54 @@ export default function ProfitLoss({ ordersData, storeId, activePeriod, onPeriod
   }, [approvedOrders, resolveCostAsOf, displaySkuForLineItem]);
 
   const totalCOGS = perSkuStats.reduce((s, row) => s + (row.cost || 0), 0);
+
+  // Real damaged-return cost — SUM of cost_price (as of each order's own booked date,
+  // via the SAME resolveCostAsOf used for COGS above) for every SKU inventory_deduction_log
+  // recorded against an order whose return was later marked 'received_damaged'. Shown
+  // alongside (never merged into) the existing manual return_damage expense category below.
+  const damagedReturnsInRange = useMemo(() => {
+    const { from, to } = getDateRange();
+    return damagedReturns.filter((r) => {
+      if (!r.received_at) return false;
+      const d = new Date(r.received_at);
+      return d >= from && d < to;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [damagedReturns, dateFilter, customFrom, customTo]);
+
+  const damagedReturnsCost = useMemo(() => {
+    const ordersById = new Map((ordersData || []).map((o) => [String(o.id), o]));
+    let total = 0;
+    damagedReturnsInRange.forEach((r) => {
+      const order = ordersById.get(String(r.order_id));
+      const bookedDate = order ? orderDateStr(order) : null;
+      if (!bookedDate) return;
+      deductionLogRows.filter((d) => String(d.order_id) === String(r.order_id)).forEach((d) => {
+        const rate = resolveCostAsOf(d.sku, bookedDate);
+        if (rate != null) total += rate * Number(d.quantity_deducted || 0);
+      });
+    });
+    return total;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [damagedReturnsInRange, deductionLogRows, ordersData, resolveCostAsOf]);
+
+  const fetchMetaAdSpend = async () => {
+    setMetaAdSpendLoading(true);
+    setMetaAdSpendError("");
+    try {
+      const preset = META_DATE_PRESETS[dateFilter];
+      if (!preset) { setMetaAdSpendError(t("pnl.metaSyncNoCustomRange")); setMetaAdSpendLoading(false); return; }
+      const { data: { session } } = await supabase.auth.getSession();
+      const qs = new URLSearchParams({ store_id: storeId, date_preset: preset }).toString();
+      const res = await fetch(`${cfUrl}/meta-insights?${qs}`, { headers: { Authorization: `Bearer ${session?.access_token}` } });
+      const data = await res.json();
+      if (data.error) { setMetaAdSpendError(data.error); setMetaAdSpendLoading(false); return; }
+      setMetaAdSpend(Number((data.data && data.data[0]?.spend) || 0));
+    } catch (err) {
+      setMetaAdSpendError(err.message);
+    }
+    setMetaAdSpendLoading(false);
+  };
 
   const filteredExpenses = useMemo(() => {
     const { from, to } = getDateRange();
@@ -537,6 +615,33 @@ export default function ProfitLoss({ ordersData, storeId, activePeriod, onPeriod
             <div style={{ fontSize: 10, color: c.color, fontWeight: 600 }}>{c.label}</div>
           </div>
         ))}
+      </div>
+
+      {/* Comparison lines — never merged into the breakdown cards above or netProfit;
+          purely additional context next to the existing manual expense categories. */}
+      <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: "0.6rem", marginBottom: "1rem" }}>
+        {!!ordersStore?.meta_access_token && !!ordersStore?.meta_ad_account_id && (
+          <div style={{ flex: 1, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, padding: "0.8rem 1rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: 10, color: "var(--ne-muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 3 }}>{t("pnl.metaAdSpendLabel")}</div>
+              {metaAdSpend != null ? (
+                <div style={{ fontSize: 16, fontWeight: 700, color: "var(--ne-accent)" }}>{rupees(metaAdSpend)}</div>
+              ) : (
+                <div style={{ fontSize: 11.5, color: "var(--ne-muted-2)" }}>{dateFilter === "custom" ? t("pnl.metaSyncNoCustomRange") : t("pnl.metaSyncPrompt")}</div>
+              )}
+              {metaAdSpendError && <div style={{ fontSize: 10.5, color: "var(--ne-danger)", marginTop: 2 }}>{metaAdSpendError}</div>}
+            </div>
+            <button onClick={fetchMetaAdSpend} disabled={metaAdSpendLoading || dateFilter === "custom"}
+              style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 11, fontWeight: 700, cursor: (metaAdSpendLoading || dateFilter === "custom") ? "default" : "pointer", display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap" }}>
+              <Icon name="refresh" size={11} /> {metaAdSpendLoading ? t("pnl.metaSyncing") : t("pnl.metaSyncButton")}
+            </button>
+          </div>
+        )}
+        <div style={{ flex: 1, background: "var(--ne-danger-soft)", borderRadius: 12, padding: "0.8rem 1rem" }}>
+          <div style={{ fontSize: 10, color: "var(--ne-danger)", fontWeight: 700, textTransform: "uppercase", marginBottom: 3 }}>{t("pnl.damagedReturnsActualLabel")}</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "var(--ne-danger)" }}>{rupees(damagedReturnsCost)}</div>
+          <div style={{ fontSize: 10, color: "var(--ne-danger)", opacity: 0.8, marginTop: 2 }}>{damagedReturnsInRange.length} {t("pnl.damagedReturnsCountSuffix")}</div>
+        </div>
       </div>
 
       {/* Per-SKU Profitability */}
