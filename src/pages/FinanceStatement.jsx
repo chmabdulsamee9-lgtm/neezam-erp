@@ -3,6 +3,7 @@ import { supabase } from "../supabase";
 import Icon from "../components/Icon";
 import { SkelBar, SkelTable } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
+import { csvEscapeCell, downloadCsv, sanitizeFilenamePart } from "../utils/csvExport";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 const PERIODS_PER_PAGE = 10;
@@ -57,10 +58,8 @@ const toDateStrPKT = (date) => {
 };
 
 // ---------- CSV export (client-side Blob + anchor download, no backend storage) ----------
-const csvEscapeCell = (value) => {
-  const s = value == null ? "" : String(value);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-};
+// csvEscapeCell/downloadCsv/sanitizeFilenamePart relocated to ../utils/csvExport (imported
+// above) so other pages can reuse them — identical implementations, zero functional change here.
 const ORDER_EXPORT_HEADERS = ["Statement Period", "Order No.", "External Order No.", "Tracking No.", "Province", "City", "Courier Status", "COD Amount", "Shipping Fee", "VAT", "Income Tax", "Sales Tax", "Net Payable"];
 const ORDER_EXPORT_KEYS = ["statement_period", "order_id", "external_order_no", "tracking_no", "province", "city", "courier_status", "cod_amount", "shipping_fee", "vat", "income_tax", "sales_tax", "net_payable"];
 const buildOrdersCsv = (rows) => {
@@ -69,18 +68,6 @@ const buildOrdersCsv = (rows) => {
     lines.push(ORDER_EXPORT_KEYS.map((k) => csvEscapeCell(row[k])).join(","));
   });
   return lines.join("\r\n");
-};
-const sanitizeFilenamePart = (s) => String(s || "").trim().replace(/[^a-zA-Z0-9_-]+/g, "_") || "store";
-const downloadCsv = (filename, csvContent) => {
-  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
 };
 
 const cardStyle = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "18px 20px" };

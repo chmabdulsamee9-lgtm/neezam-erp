@@ -10,10 +10,26 @@ import Icon from "../components/Icon";
 import { BookedSkeleton } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 import { AUTO_REMARK_VARIATIONS } from "../shipperRemarksConstants";
+import { csvEscapeCell, downloadCsv, sanitizeFilenamePart, buildCsvFromRows } from "../utils/csvExport";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 
 const PER_PAGE_OPTIONS = [20, 50, 100];
+
+// Booked Orders CSV export — fixed column order (mirrors Dex's own logistics-export header
+// vocabulary so the file is directly comparable to Dex's statements).
+const BOOKED_EXPORT_HEADERS = [
+  "externalOrderId", "omsOrderId", "trackingNo", "Original Tracking No", "Package type", "Delivery Option",
+  "platform", "omsOrderStatus", "totalPrice", "paymentMethod", "orderCreatedTime", "productList", "quantity",
+  "estimatedShippingFee", "dimWeight", "receiver", "receiverPhone", "receiverAddress", "receiverLevel4Address",
+  "receiverLevel3Address", "receiverLevel2Address", "Receiver Original Address", "warehouseName", "warehouseAddress",
+  "Warehouse Original Address", "deliveryNote", "firstMileShippingProvider", "lastMileShippingProvider",
+  "packageCreatedTime", "logisticsCurrentStatus", "logisticsCurrentStatusTime", "failedPickupReason",
+  "pickupSuccessTime", "firstFailDeliveryAttemptTime", "First failed delivery attempt reason",
+  "Second failed delivery attempt reason", "Third failed delivery attempt reason", "Fourth failed delivery attempt reason",
+  "deliveryAttemptCount", "deliveredTime", "failedReturnTime", "returnSuccessTime",
+];
+const BOOKED_TERMINAL_STATUSES = new Set(["Delivered", "Returned", "Canceled", "Cancelled"]);
 
 const FAIL_REASON_LABELS = {
   "customer reject at doorstep": "Customer ne delivery lene se inkar kiya",
@@ -665,6 +681,102 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
     setServerCounts(json.counts || { tabs: {}, subs: {}, couriers: [] });
     setError("");
     bookedLoadedRef.current = true;
+  };
+
+  // ---------- CSV Export ("Export All" / "Export Current Filter") ----------
+  const [bookingExporting, setBookingExporting] = useState(false);
+  const bookingFilterActive = activeTab !== "All" || !!activeSubTab || !!debouncedSearch || courierFilter !== "All" || !!dateFrom || !!dateTo;
+
+  const exportBookedOrders = async () => {
+    setBookingExporting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const qs = new URLSearchParams({
+        store: storeId,
+        tab: activeTab === "Ready for Booking" ? "All" : activeTab,
+        sub: activeTab === "Ready for Booking" ? "" : (activeSubTab || ""),
+        search: debouncedSearch,
+        courier: courierFilter,
+        from: dateFromIso || "",
+        to: dateToIso || "",
+      });
+      const res = await fetcher(`${CF_URL}/booked-page-export?${qs.toString()}`, {
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error || "Export fail hui");
+
+      const rows = Array.isArray(json.rows) ? json.rows : [];
+      const warehouse = json.warehouse || {};
+      const dimDefaults = json.dimDefaults || {};
+      const dimWeightStr = `${dimDefaults.length}x${dimDefaults.width}x${dimDefaults.height} - ${dimDefaults.weight}`;
+
+      let totalReceived = 0;
+      let totalExpected = 0;
+      let totalShippingFee = 0;
+
+      const csvRows = rows.map((o) => {
+        const ad = o.agent_data || {};
+        const status = ad.courier_order_status || "";
+        const totalPrice = Number(o.total_price) || 0;
+        const shippingFee = Number(o.estimated_shipping_fee) || 0;
+        totalShippingFee += shippingFee;
+        if (status === "Delivered") totalReceived += totalPrice;
+        else if (!BOOKED_TERMINAL_STATUSES.has(status)) totalExpected += totalPrice;
+
+        const lineItems = o.line_items || [];
+        const productList = lineItems.map((li) => `${li.quantity || 1} x ${li.title || li.name || "Item"}`).join("; ");
+        const quantity = lineItems.reduce((sum, li) => sum + (Number(li.quantity) || 0), 0);
+
+        const address1 = o.shipping_address?.address1 || "";
+        const address2 = o.shipping_address?.address2 || "";
+        const receiverAddress = [address1, address2].filter(Boolean).join(", ");
+        const receiverOriginalAddress = [address1, address2, o.shipping_address?.city, o.shipping_address?.province].filter(Boolean).join(", ");
+
+        const attemptCount = Number(ad.delivery_attempt_count) || 0;
+        const attemptReasons = ["", "", "", ""];
+        if (attemptCount >= 1 && ad.latest_fail_reason) {
+          attemptReasons[Math.min(attemptCount, 4) - 1] = ad.latest_fail_reason;
+        }
+
+        return [
+          o.id, o.name || ad.manual_order_number || "", ad.dex_tracking_number || "", "", "Sales order", "Standard",
+          "eNeezam", status, totalPrice, "COD", o.created_at || "", productList, quantity,
+          shippingFee, dimWeightStr,
+          `${o.customer?.first_name || ""} ${o.customer?.last_name || ""}`.trim(),
+          o.customer?.phone || o.shipping_address?.phone || "",
+          receiverAddress, ad.matched_subarea || "", ad.matched_area || "", ad.matched_city || "", receiverOriginalAddress,
+          warehouse.name || "", warehouse.address || "", warehouse.address || "",
+          "", "", ad.courier_name || "",
+          ad.package_created_at || "", ad.dex_status || "", ad.logistics_status_at || "",
+          "", ad.pickup_success_at || "", "",
+          attemptReasons[0], attemptReasons[1], attemptReasons[2], attemptReasons[3],
+          ad.delivery_attempt_count || 0, ad.delivered_at || "", "", ad.return_success_at || "",
+        ];
+      });
+
+      const summaryRows = [
+        ["Total Amount Received", totalReceived],
+        ["Total Amount Expected (Pending Orders)", totalExpected],
+        ["Total Estimated Shipping Fee", totalShippingFee],
+      ];
+      const csv = [
+        summaryRows.map((row) => row.map(csvEscapeCell).join(",")).join("\r\n"),
+        "",
+        buildCsvFromRows(BOOKED_EXPORT_HEADERS, csvRows),
+      ].join("\r\n");
+
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const storeName = sanitizeFilenamePart(ordersStore?.store_name);
+      const filename = bookingFilterActive
+        ? `BookedOrders_${storeName}_Filtered_${dateStr}.csv`
+        : `BookedOrders_${storeName}_${dateStr}.csv`;
+      downloadCsv(filename, csv);
+    } catch (err) {
+      alert(`${t("booked.exportFailed")}: ${err.message}`);
+    } finally {
+      setBookingExporting(false);
+    }
   };
 
   useEffect(() => {
@@ -1692,6 +1804,15 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
             </button>
           )}
         </div>
+        <button onClick={exportBookedOrders} disabled={bookingExporting}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 9,
+            border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)",
+            fontSize: 11.5, fontWeight: 700, cursor: bookingExporting ? "default" : "pointer", opacity: bookingExporting ? 0.6 : 1,
+          }}>
+          <Icon name="download" size={13} />
+          {bookingExporting ? t("booked.exporting") : (bookingFilterActive ? t("booked.exportFiltered") : t("booked.exportAll"))}
+        </button>
       </div>
 
       {/* Top-level Tabs — "To Ship"/"Shipped" ke apne nested sub-buckets hain, baaki
