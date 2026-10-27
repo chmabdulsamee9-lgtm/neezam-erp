@@ -98,7 +98,10 @@ async function parseDexExcelFile(file) {
       order_number_match: orderNumberMatch,
       courier_name: cellToText(raw.lastMileShippingProvider) || null,
       dex_tracking_number: cellToText(raw.trackingNo) || null,
-      courier_order_status: cellToText(raw.omsOrderStatus) || null,
+      // Renamed from courier_order_status to avoid colliding with the worker's own
+      // COMPUTED courier_order_status field name — this is raw Excel text (human-readable,
+      // e.g. "Last Mile Inbound"), used only as a fallback when dex_status is blank.
+      oms_order_status_raw: cellToText(raw.omsOrderStatus) || null,
       dex_status: cellToText(raw.logisticsCurrentStatus) || null,
       logistics_status_at: cellToTimestamp(raw.logisticsCurrentStatusTime),
       delivery_attempt_count: cellToInt(raw.deliveryAttemptCount),
@@ -132,6 +135,8 @@ export default function CourierConnect({ storeId }) {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [uploadResult, setUploadResult] = useState(null);
+  const [importResultModalOpen, setImportResultModalOpen] = useState(false);
+  const [importProgress, setImportProgress] = useState(null);
 
   const [pickupAddresses, setPickupAddresses] = useState([]);
   const [pickupAddrError, setPickupAddrError] = useState("");
@@ -327,6 +332,13 @@ export default function CourierConnect({ storeId }) {
     setDisconnecting(false);
   };
 
+  // Rows are sent in sequential chunks, not one giant request — each chunk is its own
+  // Worker invocation with its own fresh Cloudflare subrequest budget, since
+  // afterCourierStatusChange() (fired once per matched order inside /dex-import-shipments)
+  // scales 1:1 with matched-row count and would otherwise risk exceeding the per-invocation
+  // subrequest limit on a large file.
+  const IMPORT_CHUNK_SIZE = 15;
+
   const handleExcelUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -334,6 +346,7 @@ export default function CourierConnect({ storeId }) {
     setUploading(true);
     setUploadError("");
     setUploadResult(null);
+    setImportProgress(null);
     try {
       const rows = await parseDexExcelFile(file);
       if (rows.length === 0) {
@@ -341,22 +354,52 @@ export default function CourierConnect({ storeId }) {
         setUploading(false);
         return;
       }
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`${CF_URL}/dex-import-shipments`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ storeId, rows }),
-      });
-      const data = await res.json();
-      if (data.error) {
-        setUploadError(data.error);
-        setUploading(false);
-        return;
+      const chunks = [];
+      for (let i = 0; i < rows.length; i += IMPORT_CHUNK_SIZE) {
+        chunks.push(rows.slice(i, i + IMPORT_CHUNK_SIZE));
       }
-      setUploadResult({ updated: data.updated, inserted: data.inserted });
+
+      const aggregated = { updated: 0, inserted: 0, skippedSameStatus: 0, skippedStale: 0, statusBreakdown: {}, partial: false };
+
+      for (let i = 0; i < chunks.length; i++) {
+        setImportProgress({ current: i + 1, total: chunks.length });
+        try {
+          // Fetched fresh for EACH chunk (not once before the loop) — a long-running
+          // multi-minute import could otherwise keep reusing a token that's gone stale by
+          // the time later chunks fire. getSession() itself refreshes an expiring session
+          // before returning it, so this picks up a valid token every time.
+          const { data: { session } } = await supabase.auth.getSession();
+          const res = await fetch(`${CF_URL}/dex-import-shipments`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+            body: JSON.stringify({ storeId, rows: chunks[i] }),
+          });
+          const data = await res.json();
+          if (!res.ok || data.error) {
+            aggregated.partial = true;
+            setUploadError(data.error || t("courier.importChunkFailed"));
+            break;
+          }
+          aggregated.updated += data.updated || 0;
+          aggregated.inserted += data.inserted || 0;
+          aggregated.skippedSameStatus += data.skipped_same_status || 0;
+          aggregated.skippedStale += data.skipped_stale || 0;
+          Object.entries(data.status_breakdown || {}).forEach(([status, count]) => {
+            aggregated.statusBreakdown[status] = (aggregated.statusBreakdown[status] || 0) + count;
+          });
+        } catch (err) {
+          aggregated.partial = true;
+          setUploadError(err.message);
+          break;
+        }
+      }
+
+      setUploadResult(aggregated);
+      setImportResultModalOpen(true);
     } catch (err) {
       setUploadError(err.message);
     }
+    setImportProgress(null);
     setUploading(false);
   };
 
@@ -447,7 +490,9 @@ export default function CourierConnect({ storeId }) {
             background: "var(--ne-surface)", cursor: uploading ? "default" : "pointer",
             fontSize: 13, fontWeight: 600, color: "var(--ne-muted)",
           }}>
-            {uploading ? (<><Icon name="pending" size={13} /> {t("courier.uploading")}</>) : (<><Icon name="folder" size={13} /> {t("courier.chooseExcel")}</>)}
+            {uploading ? (
+              <><Icon name="pending" size={13} /> {importProgress ? `${t("courier.processingBatch")} ${importProgress.current}/${importProgress.total}...` : t("courier.uploading")}</>
+            ) : (<><Icon name="folder" size={13} /> {t("courier.chooseExcel")}</>)}
             <input type="file" accept=".xlsx" onChange={handleExcelUpload} disabled={uploading} style={{ display: "none" }} />
           </label>
 
@@ -464,6 +509,62 @@ export default function CourierConnect({ storeId }) {
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {importResultModalOpen && uploadResult && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>
+          <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 480, maxWidth: "92vw", maxHeight: "80vh", overflowY: "auto", padding: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <h3 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)" }}>{t("courier.importResultTitle")}</h3>
+              <button onClick={() => setImportResultModalOpen(false)} style={{ background: "transparent", border: "none", color: "var(--ne-muted)", cursor: "pointer", fontSize: 18 }}>×</button>
+            </div>
+
+            {uploadResult.partial && (
+              <p style={{ margin: "0 0 14px", fontSize: 12, color: "var(--ne-warning)", display: "flex", alignItems: "center", gap: 6 }}>
+                <Icon name="warning" size={12} /> {t("courier.importPartialNote")}
+              </p>
+            )}
+
+            <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
+              <p style={{ margin: 0, fontSize: 13, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 6 }}>
+                <Icon name="check" size={12} /> {uploadResult.updated} {t("courier.importResultUpdated")}
+              </p>
+              <p style={{ margin: 0, fontSize: 13, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 6 }}>
+                <Icon name="pending" size={12} /> {uploadResult.skippedSameStatus} {t("courier.importResultSkippedSame")}
+              </p>
+              <p style={{ margin: 0, fontSize: 13, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 6 }}>
+                <Icon name="pending" size={12} /> {uploadResult.skippedStale} {t("courier.importResultSkippedStale")}
+              </p>
+              <p style={{ margin: 0, fontSize: 13, color: "var(--ne-accent)", display: "flex", alignItems: "center", gap: 6 }}>
+                <Icon name="chart" size={12} /> {uploadResult.inserted} {t("courier.importResultManualAdded")}
+              </p>
+            </div>
+
+            {Object.keys(uploadResult.statusBreakdown).length > 0 && (
+              <div style={{ borderTop: "1px solid var(--ne-border)", paddingTop: 12 }}>
+                <p style={{ margin: "0 0 8px", fontSize: 12, fontWeight: 700, color: "var(--ne-muted)" }}>{t("courier.importResultBreakdown")}</p>
+                <div style={{ display: "grid", gap: 4 }}>
+                  {Object.entries(uploadResult.statusBreakdown).map(([status, count]) => (
+                    <div key={status} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "var(--ne-text)" }}>
+                      <span>{status}</span>
+                      <span style={{ fontWeight: 700 }}>{count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={() => setImportResultModalOpen(false)}
+              style={{
+                marginTop: 18, width: "100%", padding: "9px 0", borderRadius: 9, border: "none",
+                background: "var(--ne-grad)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer",
+              }}
+            >
+              {t("courier.importResultClose")}
+            </button>
+          </div>
         </div>
       )}
 
