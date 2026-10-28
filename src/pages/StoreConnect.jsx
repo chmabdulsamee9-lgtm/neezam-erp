@@ -68,6 +68,12 @@ export default function StoreConnect({ storeId }) {
   const [error, setError] = useState("");
   const [showInput, setShowInput] = useState(false);
   const [cacheCounts, setCacheCounts] = useState({});
+  const [showNativeInput, setShowNativeInput] = useState(false);
+  const [nativeSubdomain, setNativeSubdomain] = useState("");
+  const [nativeStoreName, setNativeStoreName] = useState("");
+  const [nativeAvailability, setNativeAvailability] = useState(null); // {checking, available, reason} | null
+  const [nativeError, setNativeError] = useState("");
+  const [nativeCreating, setNativeCreating] = useState(false);
   const { syncMap, startSync } = useSyncContext();
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
 
@@ -119,7 +125,7 @@ export default function StoreConnect({ storeId }) {
     }
     const { data } = await supabase
       .from("stores")
-      .select("id, store_name, eneezam_id, shopify_url")
+      .select("id, store_name, eneezam_id, shopify_url, platform, subdomain")
       .eq("id", storeId);
     setStores(data || []);
     setLoading(false);
@@ -180,6 +186,72 @@ export default function StoreConnect({ storeId }) {
     // par hi log karte hain (yehi ek pakka signal hai jo is file ke scope mein milta hai)
     logActivity(storeId, "shopify_connected", { shopUrl: cleanUrl });
     window.location.href = authUrl;
+  };
+
+  // 500ms-debounced availability check as the user types the subdomain — mirrors the
+  // worker's own validateSubdomain() reason codes, so the message shown here always matches
+  // what the server would say.
+  useEffect(() => {
+    const value = nativeSubdomain.trim();
+    if (!value) {
+      setNativeAvailability(null);
+      return;
+    }
+    setNativeAvailability({ checking: true });
+    const timer = setTimeout(async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch(`${CF_URL}/check-subdomain-availability?subdomain=${encodeURIComponent(value)}`, {
+          headers: { Authorization: `Bearer ${session?.access_token}` },
+        });
+        const data = await res.json();
+        setNativeAvailability({ checking: false, available: !!data.available, reason: data.reason || null });
+      } catch (err) {
+        setNativeAvailability({ checking: false, available: false, reason: null, error: err.message });
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [nativeSubdomain]);
+
+  const subdomainReasonKey = {
+    taken: "store.subdomainTaken",
+    invalid_format: "store.subdomainInvalid",
+    reserved: "store.subdomainReserved",
+    too_short: "store.subdomainTooShort",
+    too_long: "store.subdomainTooLong",
+  };
+
+  const handleCreateNativeStore = async () => {
+    setNativeError("");
+    if (!nativeAvailability?.available || !nativeStoreName.trim()) return;
+    setNativeCreating(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${CF_URL}/create-native-store`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ subdomain: nativeSubdomain.trim(), store_name: nativeStoreName.trim() }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setNativeError(data.error || t("store.subdomainInvalid"));
+        setNativeCreating(false);
+        return;
+      }
+      setStores((prev) => [...prev, data.store]);
+      logActivity(data.store.id, "native_store_created", { subdomain: data.store.subdomain });
+      setShowNativeInput(false);
+      setNativeSubdomain("");
+      setNativeStoreName("");
+      setNativeAvailability(null);
+    } catch (err) {
+      setNativeError(err.message);
+    } finally {
+      setNativeCreating(false);
+    }
   };
 
   const handleDelete = async (id) => {
@@ -320,6 +392,148 @@ export default function StoreConnect({ storeId }) {
         )
       )}
 
+      {/* Create Native Store — additive alongside Connect Shopify, never replacing it */}
+      {!loading && !showNativeInput && (
+        <button
+          onClick={() => setShowNativeInput(true)}
+          style={{
+            width: "100%",
+            padding: "14px",
+            background: "var(--ne-surface-2)",
+            color: "var(--ne-text)",
+            border: "1px dashed var(--ne-border)",
+            borderRadius: 14,
+            fontSize: 15,
+            fontWeight: 700,
+            cursor: "pointer",
+            marginBottom: "1.5rem",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 10,
+          }}
+        >
+          <Icon name="shop" size={18} />
+          {t("store.createNativeStoreButton")}
+        </button>
+      )}
+
+      {showNativeInput && (
+        <div style={{
+          background: "var(--ne-surface-2)",
+          border: "1px solid var(--ne-border)",
+          borderRadius: 14,
+          padding: "1.5rem",
+          marginBottom: "1.5rem",
+        }}>
+          <h2 style={{ margin: "0 0 1rem", fontSize: 16, color: "var(--ne-text)", fontWeight: 700 }}>
+            {t("store.createNativeStoreTitle")}
+          </h2>
+
+          <div style={{ marginBottom: 10 }}>
+            <input
+              type="text"
+              placeholder={t("store.storeNamePlaceholder")}
+              value={nativeStoreName}
+              onChange={(e) => setNativeStoreName(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "10px 14px",
+                borderRadius: 9,
+                border: "1px solid var(--ne-border)",
+                background: "var(--ne-bg)",
+                color: "var(--ne-text)",
+                fontSize: 14,
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+
+          <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10, alignItems: isMobile ? "stretch" : "center" }}>
+            <input
+              type="text"
+              placeholder={t("store.subdomainPlaceholder")}
+              value={nativeSubdomain}
+              onChange={(e) => setNativeSubdomain(e.target.value.toLowerCase())}
+              style={{
+                flex: 1,
+                padding: "10px 14px",
+                borderRadius: 9,
+                border: "1px solid var(--ne-border)",
+                background: "var(--ne-bg)",
+                color: "var(--ne-text)",
+                fontSize: 14,
+              }}
+            />
+            <span style={{ fontSize: 13, color: "var(--ne-muted)", whiteSpace: "nowrap" }}>
+              .eneezam.com
+            </span>
+          </div>
+
+          {nativeSubdomain.trim() && (
+            <p style={{
+              fontSize: 12.5, marginTop: 8, display: "flex", alignItems: "center", gap: 6,
+              color: nativeAvailability?.checking
+                ? "var(--ne-muted)"
+                : nativeAvailability?.available
+                  ? "var(--ne-success)"
+                  : "var(--ne-danger)",
+            }}>
+              {nativeAvailability?.checking ? (
+                <>{t("store.subdomainChecking")}</>
+              ) : nativeAvailability?.available ? (
+                <><Icon name="check" size={11} /> {t("store.subdomainAvailable")}</>
+              ) : (
+                <><Icon name="error" size={11} /> {t(subdomainReasonKey[nativeAvailability?.reason] || "store.subdomainInvalid")}</>
+              )}
+            </p>
+          )}
+
+          <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+            <button
+              onClick={handleCreateNativeStore}
+              disabled={!nativeAvailability?.available || !nativeStoreName.trim() || nativeCreating}
+              style={{
+                background: (!nativeAvailability?.available || !nativeStoreName.trim() || nativeCreating) ? "var(--ne-border)" : "var(--ne-grad)",
+                color: "#fff",
+                border: "none",
+                borderRadius: 9,
+                padding: "10px 20px",
+                fontSize: 14,
+                fontWeight: 700,
+                cursor: (!nativeAvailability?.available || !nativeStoreName.trim() || nativeCreating) ? "not-allowed" : "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <Icon name="shop" size={13} /> {nativeCreating ? t("store.creatingNativeStore") : t("store.createNativeStore")}
+            </button>
+            <button
+              onClick={() => { setShowNativeInput(false); setNativeError(""); setNativeSubdomain(""); setNativeStoreName(""); setNativeAvailability(null); }}
+              style={{
+                background: "var(--ne-surface)",
+                border: "1px solid var(--ne-border)",
+                color: "var(--ne-text)",
+                borderRadius: 9,
+                padding: "10px 14px",
+                fontSize: 14,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Icon name="close" size={13} />
+            </button>
+          </div>
+
+          {nativeError && (
+            <p style={{ color: "var(--ne-danger)", fontSize: 13, marginTop: 8 }}>{nativeError}</p>
+          )}
+        </div>
+      )}
+
       {/* Connected Store */}
       <h2 style={{ fontSize: 15, color: "var(--ne-muted)", marginBottom: 12, fontWeight: 600 }}>
         {t("store.yourStore")}
@@ -372,12 +586,22 @@ export default function StoreConnect({ storeId }) {
                       {store.eneezam_id || "—"}
                     </p>
                     <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--ne-muted-2)" }}>
-                      {store.shopify_url || t("store.notConnectedYet")}
+                      {store.platform === "native"
+                        ? `${store.subdomain}.eneezam.com`
+                        : (store.shopify_url || t("store.notConnectedYet"))}
                     </p>
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  {store.shopify_url ? (
+                  {store.platform === "native" ? (
+                    <span style={{
+                      fontSize: 11, padding: "4px 12px",
+                      background: "var(--ne-success-soft)", color: "var(--ne-success)",
+                      borderRadius: 20, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 5,
+                    }}>
+                      <Icon name="shop" size={10} /> {t("store.platformNative")}
+                    </span>
+                  ) : store.shopify_url ? (
                     <>
                       <span style={{
                         fontSize: 11, padding: "4px 12px",
