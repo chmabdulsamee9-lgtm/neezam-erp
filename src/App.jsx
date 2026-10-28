@@ -1325,6 +1325,15 @@ function App() {
       if (persistedStoreValid) {
         setSelectedStoreId(persistedId)
       } else {
+        // Nothing valid persisted — fall back to the first store so AppHome (and any other
+        // storeId-dependent page reachable from here) doesn't get stuck with storeId=undefined
+        // forever. Persisted too (not just set in state), so the NEXT login treats this store
+        // as the valid persisted one instead of re-hitting this fallback every time.
+        const fallbackStoreId = storesWithStats[0]?.id || null
+        if (fallbackStoreId) {
+          setSelectedStoreId(fallbackStoreId)
+          persistStoreId(fallbackStoreId)
+        }
         const isProductionDomain = window.location.hostname.includes('portal.eneezam.com')
         if (isProductionDomain) {
           if (location.pathname !== '/home') {
