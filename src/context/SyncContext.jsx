@@ -55,6 +55,12 @@ export function SyncProvider({ children }) {
           // Not a retry-exhausting failure — the next call hits a fresh start server-side
           // (status was set to "failed_expired"), so just surface a transient message and
           // keep going.
+          //
+          // This check is deliberately narrow (the specific cursorExpired flag, not a
+          // generic "something went wrong") so that genuine failures — the circuit-breaker
+          // trip and upsert-write failures the worker now also returns — never set this flag
+          // and always fall through to the real error-handling branch below instead of being
+          // treated as a soft continue.
           localRetryCount = 0;
           updateEntry(storeId, {
             syncedCount: data.synced_count ?? 0,
