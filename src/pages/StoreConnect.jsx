@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
+import { useSyncContext } from "../context/SyncContext";
 
 const REDIRECT_URI = "https://neezam-erp.pages.dev/auth/callback";
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
@@ -67,9 +68,7 @@ export default function StoreConnect({ storeId }) {
   const [error, setError] = useState("");
   const [showInput, setShowInput] = useState(false);
   const [cacheCounts, setCacheCounts] = useState({});
-  const [syncingStoreId, setSyncingStoreId] = useState(null);
-  const [syncProgress, setSyncProgress] = useState(0);
-  const [syncError, setSyncError] = useState("");
+  const { syncMap, startSync } = useSyncContext();
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
 
   useEffect(() => {
@@ -191,45 +190,19 @@ export default function StoreConnect({ storeId }) {
     fetchStores();
   };
 
-  const handleSync = async (store) => {
-    setSyncingStoreId(store.id);
-    setSyncProgress(0);
-    setSyncError("");
-
-    let sinceId = 0;
-    let total = 0;
-    let safety = 0;
-
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      while (safety < 200) {
-        safety++;
-        const qs = sinceId
-          ? `?store_id=${store.id}&since_id=${sinceId}`
-          : `?store_id=${store.id}`;
-        const res = await fetch(`${CF_URL}/sync-orders-chunk${qs}`, {
-          headers: { Authorization: `Bearer ${session?.access_token}` },
-        });
-        const data = await res.json();
-
-        if (data.error) {
-          setSyncError(data.error);
-          break;
-        }
-
-        total += data.count || 0;
-        setSyncProgress(total);
-
-        if (data.done) break;
-        sinceId = data.nextSinceId;
-      }
-    } catch (err) {
-      setSyncError(err.message);
-    }
-
-    setSyncingStoreId(null);
-    fetchCacheCount(store.id);
-  };
+  // Refreshes the "X orders cached" chip once a store's sync transitions from syncing to
+  // not-syncing (completed or failed) — the sync loop itself now lives in SyncContext, which
+  // doesn't know about this UI-only cache-count display, so this watches syncMap reactively
+  // instead of being called directly at the end of a sync function.
+  const prevSyncingRef = useRef({});
+  useEffect(() => {
+    stores.forEach((store) => {
+      const wasSyncing = prevSyncingRef.current[store.id];
+      const isSyncing = !!syncMap[store.id]?.syncing;
+      if (wasSyncing && !isSyncing) fetchCacheCount(store.id);
+      prevSyncingRef.current[store.id] = isSyncing;
+    });
+  }, [syncMap, stores]);
 
   return (
     <div style={{ padding: isMobile ? "1rem" : "2rem", maxWidth: 800, margin: "0 auto" }}>
@@ -365,7 +338,10 @@ export default function StoreConnect({ storeId }) {
         </div>
       ) : (
         <div style={{ display: "grid", gap: 12 }}>
-          {stores.map((store) => (
+          {stores.map((store) => {
+          const syncEntry = syncMap[store.id] || {};
+          const syncPct = syncEntry.totalCount ? Math.round((syncEntry.syncedCount / syncEntry.totalCount) * 100) : null;
+          return (
             <div key={store.id} style={{
               background: "var(--ne-surface-2)",
               border: "1px solid var(--ne-border)",
@@ -460,41 +436,42 @@ export default function StoreConnect({ storeId }) {
                 }}>
                   <div style={{ fontSize: 13, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                     <Icon name="database" size={13} /> <strong style={{ color: "var(--ne-text)" }}>{cacheCounts[store.id] ?? "..."}</strong> {t("store.ordersCached")}
-                    {syncingStoreId === store.id && (
+                    {syncEntry.syncing && (
                       <span style={{ color: "var(--ne-accent)", marginLeft: 10, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 5 }}>
-                        <Icon name="pending" size={11} /> {t("store.syncing")} {syncProgress} {t("store.syncingSuffix")}
+                        <Icon name="pending" size={11} /> {t("store.syncing")} {syncEntry.syncedCount?.toLocaleString() ?? 0}
+                        {syncEntry.totalCount ? ` / ${syncEntry.totalCount.toLocaleString()} (${syncPct}%)` : ""}
                       </span>
                     )}
                   </div>
                   <button
-                    onClick={() => handleSync(store)}
-                    disabled={syncingStoreId === store.id}
+                    onClick={() => startSync(store)}
+                    disabled={syncEntry.syncing}
                     style={{
-                      background: syncingStoreId === store.id ? "var(--ne-border)" : "var(--ne-grad)",
+                      background: syncEntry.syncing ? "var(--ne-border)" : "var(--ne-grad)",
                       color: "#fff",
                       border: "none",
                       borderRadius: 9,
                       padding: "8px 16px",
                       fontSize: 13,
                       fontWeight: 700,
-                      cursor: syncingStoreId === store.id ? "not-allowed" : "pointer",
+                      cursor: syncEntry.syncing ? "not-allowed" : "pointer",
                       whiteSpace: "nowrap",
                       display: "flex",
                       alignItems: "center",
                       gap: 6,
                     }}
                   >
-                    {syncingStoreId === store.id ? t("store.syncing") : (<><Icon name="refresh" size={13} /> {t("store.syncOrders")}</>)}
+                    {syncEntry.syncing ? t("store.syncing") : (<><Icon name="refresh" size={13} /> {t("store.syncOrders")}</>)}
                   </button>
                 </div>
               )}
-              {syncError && syncingStoreId === null && (
+              {syncEntry.error && !syncEntry.syncing && (
                 <p style={{ color: "var(--ne-danger)", fontSize: 12, marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                  <Icon name="error" size={12} /> {syncError}
+                  <Icon name="error" size={12} /> {syncEntry.error}
                 </p>
               )}
             </div>
-          ))}
+          );})}
         </div>
       )}
     </div>

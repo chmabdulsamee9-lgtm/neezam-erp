@@ -13,6 +13,7 @@ import { useLanguage, useTranslation } from './i18n'
 import Login from './pages/Login'
 import AppHome from './pages/AppHome'
 import { PageSkeletonFor } from './components/Skeletons'
+import SyncStatusBadge from './components/SyncStatusBadge'
 
 // Page-level lazy loading: har page apna alag chunk, pehli baar khulne par download hota hai.
 // Suspense wrapper ke andar hi hai, isliye call sites (<Orders ... />) bilkul nahi badle.
@@ -1434,6 +1435,15 @@ function App() {
       if (persistedStoreValid) {
         setSelectedStoreId(persistedId)
       } else {
+        // Nothing valid persisted — fall back to the first store so AppHome (and any other
+        // storeId-dependent page reachable from here) doesn't get stuck with storeId=undefined
+        // forever. Persisted too (not just set in state), so the NEXT login treats this store
+        // as the valid persisted one instead of re-hitting this fallback every time.
+        const fallbackStoreId = storesWithStats[0]?.id || null
+        if (fallbackStoreId) {
+          setSelectedStoreId(fallbackStoreId)
+          persistStoreId(fallbackStoreId)
+        }
         const isProductionDomain = window.location.hostname.includes('portal.eneezam.com')
         if (isProductionDomain) {
           if (location.pathname !== '/home') {
@@ -2234,6 +2244,7 @@ function App() {
                 {menuItems.find(m => m.id === activeMenu)?.label}
                 {syncStatusText && <span className="ne-sync-status" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="pending" size={11} /> {syncStatusText}</span>}
               </h1>
+              <SyncStatusBadge />
               <div className="ne-userchip">
                 <div className="ne-avatar">{session.user.email[0].toUpperCase()}</div>
                 <span>{session.user.email}</span>
