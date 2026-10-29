@@ -80,6 +80,14 @@ export default function StoreConnect({ storeId }) {
   const [domainError, setDomainError] = useState({}); // {[storeId]: string}
   const [domainCname, setDomainCname] = useState({}); // {[storeId]: {type, name, target} | null}
   const [copiedKey, setCopiedKey] = useState(""); // which copy button last showed "copied"
+  const [showEnableNativeInput, setShowEnableNativeInput] = useState({}); // {[storeId]: bool}
+  const [enableNativeInputs, setEnableNativeInputs] = useState({}); // {[storeId]: string}
+  const [enableNativeAvailability, setEnableNativeAvailability] = useState({}); // {[storeId]: {checking, available, reason} | null}
+  const [enableNativeBusy, setEnableNativeBusy] = useState({}); // {[storeId]: bool}
+  const [enableNativeError, setEnableNativeError] = useState({}); // {[storeId]: string}
+  const enableNativeTimers = useRef({}); // {[storeId]: timeoutId} — per-store debounce, since multiple cards can type at once
+  const [toggleBusy, setToggleBusy] = useState({}); // {[storeId]: bool}
+  const [toggleError, setToggleError] = useState({}); // {[storeId]: string}
   const { syncMap, startSync } = useSyncContext();
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
 
@@ -350,6 +358,100 @@ export default function StoreConnect({ storeId }) {
       setDomainError((prev) => ({ ...prev, [store.id]: err.message }));
     } finally {
       setDomainBusy((prev) => ({ ...prev, [store.id]: false }));
+    }
+  };
+
+  // Per-store debounced availability check for the "Enable Native Storefront" flow —
+  // same reason-code mapping/UX as the top-level Create Native Store flow, just keyed
+  // by store id since this can run on multiple store cards at once.
+  const handleEnableNativeSubdomainChange = (storeId, rawValue) => {
+    const value = rawValue.toLowerCase();
+    setEnableNativeInputs((prev) => ({ ...prev, [storeId]: value }));
+    if (enableNativeTimers.current[storeId]) clearTimeout(enableNativeTimers.current[storeId]);
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+      setEnableNativeAvailability((prev) => ({ ...prev, [storeId]: null }));
+      return;
+    }
+    setEnableNativeAvailability((prev) => ({ ...prev, [storeId]: { checking: true } }));
+    enableNativeTimers.current[storeId] = setTimeout(async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch(`${CF_URL}/check-subdomain-availability?subdomain=${encodeURIComponent(trimmed)}`, {
+          headers: { Authorization: `Bearer ${session?.access_token}` },
+        });
+        const data = await res.json();
+        setEnableNativeAvailability((prev) => ({ ...prev, [storeId]: { checking: false, available: !!data.available, reason: data.reason || null } }));
+      } catch (err) {
+        setEnableNativeAvailability((prev) => ({ ...prev, [storeId]: { checking: false, available: false, reason: null, error: err.message } }));
+      }
+    }, 500);
+  };
+
+  const handleEnableNativeStorefront = async (store) => {
+    const availability = enableNativeAvailability[store.id];
+    const subdomain = (enableNativeInputs[store.id] || "").trim();
+    if (!availability?.available || !subdomain) return;
+    setEnableNativeError((prev) => ({ ...prev, [store.id]: "" }));
+    setEnableNativeBusy((prev) => ({ ...prev, [store.id]: true }));
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${CF_URL}/enable-native-storefront`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ store_id: store.id, subdomain }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setEnableNativeError((prev) => ({ ...prev, [store.id]: data.error || t("store.subdomainInvalid") }));
+        return;
+      }
+      setStores((prev) => prev.map((s) => (
+        s.id === store.id ? { ...s, subdomain: data.subdomain } : s
+      )));
+      logActivity(store.id, "native_storefront_enabled", { subdomain: data.subdomain });
+      setShowEnableNativeInput((prev) => ({ ...prev, [store.id]: false }));
+      setEnableNativeInputs((prev) => ({ ...prev, [store.id]: "" }));
+      setEnableNativeAvailability((prev) => ({ ...prev, [store.id]: null }));
+    } catch (err) {
+      setEnableNativeError((prev) => ({ ...prev, [store.id]: err.message }));
+    } finally {
+      setEnableNativeBusy((prev) => ({ ...prev, [store.id]: false }));
+    }
+  };
+
+  const handleTogglePlatform = async (store, newPlatform) => {
+    const confirmKey = newPlatform === "shopify" ? "store.toggleConfirmToShopify" : "store.toggleConfirmToNative";
+    if (!window.confirm(t(confirmKey))) return;
+    setToggleError((prev) => ({ ...prev, [store.id]: "" }));
+    setToggleBusy((prev) => ({ ...prev, [store.id]: true }));
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${CF_URL}/toggle-store-platform`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ store_id: store.id, platform: newPlatform }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setToggleError((prev) => ({ ...prev, [store.id]: data.error || t("store.toggleFailed") }));
+        return;
+      }
+      setStores((prev) => prev.map((s) => (
+        s.id === store.id ? { ...s, platform: data.platform } : s
+      )));
+      logActivity(store.id, "store_platform_toggled", { platform: data.platform });
+    } catch (err) {
+      setToggleError((prev) => ({ ...prev, [store.id]: err.message }));
+    } finally {
+      setToggleBusy((prev) => ({ ...prev, [store.id]: false }));
     }
   };
 
@@ -692,7 +794,34 @@ export default function StoreConnect({ storeId }) {
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  {store.platform === "native" ? (
+                  {store.shopify_url && store.subdomain ? (
+                    <div style={{ display: "inline-flex", border: "1px solid var(--ne-border)", borderRadius: 20, overflow: "hidden" }}>
+                      <button
+                        onClick={() => store.platform !== "shopify" && handleTogglePlatform(store, "shopify")}
+                        disabled={toggleBusy[store.id]}
+                        style={{
+                          border: "none", padding: "5px 12px", fontSize: 11, fontWeight: 700,
+                          cursor: toggleBusy[store.id] ? "not-allowed" : "pointer",
+                          background: store.platform === "shopify" ? "var(--ne-grad)" : "transparent",
+                          color: store.platform === "shopify" ? "#fff" : "var(--ne-muted)",
+                        }}
+                      >
+                        {t("store.toggleToShopify")}
+                      </button>
+                      <button
+                        onClick={() => store.platform !== "native" && handleTogglePlatform(store, "native")}
+                        disabled={toggleBusy[store.id]}
+                        style={{
+                          border: "none", padding: "5px 12px", fontSize: 11, fontWeight: 700,
+                          cursor: toggleBusy[store.id] ? "not-allowed" : "pointer",
+                          background: store.platform === "native" ? "var(--ne-grad)" : "transparent",
+                          color: store.platform === "native" ? "#fff" : "var(--ne-muted)",
+                        }}
+                      >
+                        {t("store.toggleToNative")}
+                      </button>
+                    </div>
+                  ) : store.platform === "native" ? (
                     <span style={{
                       fontSize: 11, padding: "4px 12px",
                       background: "var(--ne-success-soft)", color: "var(--ne-success)",
@@ -744,15 +873,114 @@ export default function StoreConnect({ storeId }) {
                 </div>
               </div>
 
-              {/* Custom domain connect — native stores only, additive next to the subdomain display */}
-              {store.platform === "native" && (
+              {toggleError[store.id] && (
+                <p style={{ color: "var(--ne-danger)", fontSize: 12, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                  <Icon name="error" size={12} /> {toggleError[store.id]}
+                </p>
+              )}
+
+              {/* Enable Native Storefront — additive, for an existing Shopify store that
+                  doesn't have a subdomain yet (never creates a new store, just reserves a
+                  subdomain on this one) */}
+              {store.platform === "shopify" && !store.subdomain && (
+                <div style={{ marginBottom: 12 }}>
+                  {!showEnableNativeInput[store.id] ? (
+                    <button
+                      onClick={() => setShowEnableNativeInput((prev) => ({ ...prev, [store.id]: true }))}
+                      style={{
+                        background: "var(--ne-surface)", color: "var(--ne-text)", border: "1px dashed var(--ne-border)",
+                        borderRadius: 10, padding: "10px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer",
+                        width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                      }}
+                    >
+                      <Icon name="shop" size={14} /> {t("store.enableNativeStorefront")}
+                    </button>
+                  ) : (
+                    <div style={{
+                      background: "var(--ne-surface)", border: "1px solid var(--ne-border)",
+                      borderRadius: 10, padding: "12px 14px",
+                    }}>
+                      <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10, alignItems: isMobile ? "stretch" : "center" }}>
+                        <input
+                          type="text"
+                          placeholder={t("store.subdomainPlaceholder")}
+                          value={enableNativeInputs[store.id] || ""}
+                          onChange={(e) => handleEnableNativeSubdomainChange(store.id, e.target.value)}
+                          style={{
+                            flex: 1, padding: "10px 14px", borderRadius: 9,
+                            border: "1px solid var(--ne-border)", background: "var(--ne-bg)",
+                            color: "var(--ne-text)", fontSize: 14,
+                          }}
+                        />
+                        <span style={{ fontSize: 13, color: "var(--ne-muted)", whiteSpace: "nowrap" }}>.eneezam.com</span>
+                        <button
+                          onClick={() => handleEnableNativeStorefront(store)}
+                          disabled={!enableNativeAvailability[store.id]?.available || enableNativeBusy[store.id]}
+                          style={{
+                            background: (!enableNativeAvailability[store.id]?.available || enableNativeBusy[store.id]) ? "var(--ne-border)" : "var(--ne-grad)",
+                            color: "#fff", border: "none", borderRadius: 9, padding: "10px 16px",
+                            fontSize: 13, fontWeight: 700, whiteSpace: "nowrap",
+                            cursor: (!enableNativeAvailability[store.id]?.available || enableNativeBusy[store.id]) ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          {enableNativeBusy[store.id] ? t("store.creatingNativeStore") : t("store.createNativeStore")}
+                        </button>
+                        <button
+                          onClick={() => setShowEnableNativeInput((prev) => ({ ...prev, [store.id]: false }))}
+                          style={{
+                            background: "transparent", border: "1px solid var(--ne-border)", color: "var(--ne-text)",
+                            borderRadius: 9, padding: "10px 14px", fontSize: 14, cursor: "pointer",
+                          }}
+                        >
+                          <Icon name="close" size={13} />
+                        </button>
+                      </div>
+                      {(enableNativeInputs[store.id] || "").trim() && (
+                        <p style={{
+                          fontSize: 12.5, marginTop: 8, display: "flex", alignItems: "center", gap: 6,
+                          color: enableNativeAvailability[store.id]?.checking
+                            ? "var(--ne-muted)"
+                            : enableNativeAvailability[store.id]?.available
+                              ? "var(--ne-success)"
+                              : "var(--ne-danger)",
+                        }}>
+                          {enableNativeAvailability[store.id]?.checking ? (
+                            <>{t("store.subdomainChecking")}</>
+                          ) : enableNativeAvailability[store.id]?.available ? (
+                            <><Icon name="check" size={11} /> {t("store.subdomainAvailable")}</>
+                          ) : (
+                            <><Icon name="error" size={11} /> {t(subdomainReasonKey[enableNativeAvailability[store.id]?.reason] || "store.subdomainInvalid")}</>
+                          )}
+                        </p>
+                      )}
+                      {enableNativeError[store.id] && (
+                        <p style={{ color: "var(--ne-danger)", fontSize: 13, marginTop: 8 }}>{enableNativeError[store.id]}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Custom domain / native storefront section — shown whenever the store HAS a
+                  subdomain (regardless of whether it's the currently active platform), muted
+                  with a paused note when platform !== 'native' */}
+              {!!store.subdomain && (
                 <div style={{
                   background: "var(--ne-surface)",
                   border: "1px solid var(--ne-border)",
                   borderRadius: 10,
                   padding: "12px 14px",
                   marginBottom: 12,
+                  opacity: store.platform === "native" ? 1 : 0.6,
                 }}>
+                  <p style={{ margin: "0 0 4px", fontSize: 13, fontWeight: 700, color: "var(--ne-text)" }}>
+                    {store.subdomain}.eneezam.com
+                  </p>
+                  {store.platform !== "native" && (
+                    <p style={{ margin: "0 0 10px", fontSize: 12, color: "var(--ne-muted)" }}>
+                      {t("store.nativePausedNote")}
+                    </p>
+                  )}
                   <p style={{ margin: "0 0 10px", fontSize: 13, fontWeight: 700, color: "var(--ne-text)" }}>
                     {t("store.customDomainTitle")}
                   </p>
@@ -923,26 +1151,32 @@ export default function StoreConnect({ storeId }) {
                       </span>
                     )}
                   </div>
-                  <button
-                    onClick={() => startSync(store)}
-                    disabled={syncEntry.syncing}
-                    style={{
-                      background: syncEntry.syncing ? "var(--ne-border)" : "var(--ne-grad)",
-                      color: "#fff",
-                      border: "none",
-                      borderRadius: 9,
-                      padding: "8px 16px",
-                      fontSize: 13,
-                      fontWeight: 700,
-                      cursor: syncEntry.syncing ? "not-allowed" : "pointer",
-                      whiteSpace: "nowrap",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                    }}
-                  >
-                    {syncEntry.syncing ? t("store.syncing") : (<><Icon name="refresh" size={13} /> {t("store.syncOrders")}</>)}
-                  </button>
+                  {store.platform === "native" ? (
+                    <span style={{ fontSize: 12, color: "var(--ne-muted)", fontStyle: "italic", whiteSpace: "nowrap" }}>
+                      {t("store.shopifyPausedNote")}
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => startSync(store)}
+                      disabled={syncEntry.syncing}
+                      style={{
+                        background: syncEntry.syncing ? "var(--ne-border)" : "var(--ne-grad)",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: 9,
+                        padding: "8px 16px",
+                        fontSize: 13,
+                        fontWeight: 700,
+                        cursor: syncEntry.syncing ? "not-allowed" : "pointer",
+                        whiteSpace: "nowrap",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                      }}
+                    >
+                      {syncEntry.syncing ? t("store.syncing") : (<><Icon name="refresh" size={13} /> {t("store.syncOrders")}</>)}
+                    </button>
+                  )}
                 </div>
               )}
               {syncEntry.error && !syncEntry.syncing && (

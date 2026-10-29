@@ -440,6 +440,15 @@ export const translations = {
     'store.copiedLabel': 'Copied',
     'store.propagationNote': 'DNS propagate honay mein kuch minutes se kuch hours lag sakte hain.',
 
+    'store.enableNativeStorefront': 'Native Storefront Enable Karo',
+    'store.toggleToShopify': 'Shopify Mode',
+    'store.toggleToNative': 'Native Mode',
+    'store.toggleConfirmToShopify': 'Shopify mode par switch karne se native storefront pause ho jayega (subdomain reserved rahega, kabhi bhi wapis switch kar sakte ho). Continue karein?',
+    'store.toggleConfirmToNative': 'Native mode par switch karne se Shopify sync pause ho jayega (connection saved rahega, kabhi bhi wapis switch kar sakte ho). Continue karein?',
+    'store.nativePausedNote': 'Native storefront OFF hai — Native mode par switch karo isay activate karne ke liye.',
+    'store.shopifyPausedNote': 'Shopify sync paused hai — Shopify mode par switch karo resume karne ke liye.',
+    'store.toggleFailed': 'Toggle nahi hua',
+
     'activityLog.title': 'Activity Log',
     'activityLog.entries': 'entries',
     'activityLog.orderSearchPlaceholder': 'Order# search...',
@@ -1992,6 +2001,15 @@ export const translations = {
     'store.copyButton': 'Copy',
     'store.copiedLabel': 'Copied',
     'store.propagationNote': 'DNS propagation can take a few minutes to a few hours.',
+
+    'store.enableNativeStorefront': 'Enable Native Storefront',
+    'store.toggleToShopify': 'Shopify Mode',
+    'store.toggleToNative': 'Native Mode',
+    'store.toggleConfirmToShopify': 'Switching to Shopify mode will pause the native storefront (the subdomain stays reserved — you can switch back anytime). Continue?',
+    'store.toggleConfirmToNative': 'Switching to Native mode will pause Shopify sync (the connection stays saved — you can switch back anytime). Continue?',
+    'store.nativePausedNote': 'Native storefront is OFF — switch to Native mode to activate it.',
+    'store.shopifyPausedNote': 'Shopify sync paused — switch to Shopify mode to resume.',
+    'store.toggleFailed': 'Toggle failed',
 
     'activityLog.title': 'Activity Log',
     'activityLog.entries': 'entries',
