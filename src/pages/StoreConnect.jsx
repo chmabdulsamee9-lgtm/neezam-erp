@@ -139,7 +139,7 @@ export default function StoreConnect({ storeId }) {
     }
     const { data } = await supabase
       .from("stores")
-      .select("id, store_name, eneezam_id, shopify_url, platform, subdomain, custom_domain, custom_domain_status")
+      .select("id, store_name, eneezam_id, shopify_url, platform, subdomain, custom_domain, custom_domain_status, store_custom_domains(domain, role, status)")
       .eq("id", storeId);
     setStores(data || []);
     setLoading(false);
@@ -278,12 +278,18 @@ export default function StoreConnect({ storeId }) {
     }
   };
 
-  const handleAddCustomDomain = async (store) => {
-    const rest = (domainInputs[store.id] || "").trim().toLowerCase();
-    if (!rest) return;
-    const domain = `www.${rest}`;
-    setDomainError((prev) => ({ ...prev, [store.id]: "" }));
-    setDomainBusy((prev) => ({ ...prev, [store.id]: true }));
+  // A store may register up to two domains: role 'primary' (serves real
+  // content) and role 'alt' (optional, 301-redirects to the active primary).
+  // Role is assigned server-side by /add-custom-domain based on what already
+  // exists for the store — the frontend just points each slot's "Add" at
+  // whichever slot is currently empty.
+  const getDomainRow = (store, role) => (store.store_custom_domains || []).find((d) => d.role === role) || null;
+
+  const handleAddCustomDomain = async (store, slotKey) => {
+    const domain = (domainInputs[slotKey] || "").trim().toLowerCase();
+    if (!domain) return;
+    setDomainError((prev) => ({ ...prev, [slotKey]: "" }));
+    setDomainBusy((prev) => ({ ...prev, [slotKey]: true }));
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(`${CF_URL}/add-custom-domain`, {
@@ -296,44 +302,56 @@ export default function StoreConnect({ storeId }) {
       });
       const data = await res.json();
       if (!data.success) {
-        setDomainError((prev) => ({ ...prev, [store.id]: data.error || t("store.customDomainInvalid") }));
+        setDomainError((prev) => ({ ...prev, [slotKey]: data.error || t("store.customDomainInvalid") }));
         return;
       }
-      setDomainCname((prev) => ({ ...prev, [store.id]: data.cname_instructions }));
+      setDomainCname((prev) => ({ ...prev, [`${store.id}:${data.role}`]: data.cname_instructions }));
       setStores((prev) => prev.map((s) => (
-        s.id === store.id ? { ...s, custom_domain: domain, custom_domain_status: "pending" } : s
+        s.id === store.id
+          ? { ...s, store_custom_domains: [...(s.store_custom_domains || []), { domain: data.domain, role: data.role, status: "pending" }] }
+          : s
       )));
-      logActivity(store.id, "custom_domain_connected", { domain });
+      setDomainInputs((prev) => ({ ...prev, [slotKey]: "" }));
+      logActivity(store.id, "custom_domain_connected", { domain: data.domain, role: data.role });
     } catch (err) {
-      setDomainError((prev) => ({ ...prev, [store.id]: err.message }));
+      setDomainError((prev) => ({ ...prev, [slotKey]: err.message }));
     } finally {
-      setDomainBusy((prev) => ({ ...prev, [store.id]: false }));
+      setDomainBusy((prev) => ({ ...prev, [slotKey]: false }));
     }
   };
 
-  const handleCheckCustomDomainStatus = async (store) => {
-    setDomainChecking((prev) => ({ ...prev, [store.id]: true }));
+  const handleCheckCustomDomainStatus = async (store, role) => {
+    const row = getDomainRow(store, role);
+    if (!row) return;
+    const slotKey = `${store.id}:${role}`;
+    setDomainChecking((prev) => ({ ...prev, [slotKey]: true }));
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`${CF_URL}/check-custom-domain-status?store_id=${encodeURIComponent(store.id)}`, {
-        headers: { Authorization: `Bearer ${session?.access_token}` },
-      });
+      const res = await fetch(
+        `${CF_URL}/check-custom-domain-status?store_id=${encodeURIComponent(store.id)}&domain=${encodeURIComponent(row.domain)}`,
+        { headers: { Authorization: `Bearer ${session?.access_token}` } }
+      );
       const data = await res.json();
       if (data.status) {
         setStores((prev) => prev.map((s) => (
-          s.id === store.id ? { ...s, custom_domain_status: data.status } : s
+          s.id === store.id
+            ? { ...s, store_custom_domains: (s.store_custom_domains || []).map((d) => (d.role === role ? { ...d, status: data.status } : d)) }
+            : s
         )));
       }
     } catch (err) {
-      setDomainError((prev) => ({ ...prev, [store.id]: err.message }));
+      setDomainError((prev) => ({ ...prev, [slotKey]: err.message }));
     } finally {
-      setDomainChecking((prev) => ({ ...prev, [store.id]: false }));
+      setDomainChecking((prev) => ({ ...prev, [slotKey]: false }));
     }
   };
 
-  const handleRemoveCustomDomain = async (store) => {
+  const handleRemoveCustomDomain = async (store, role) => {
+    const row = getDomainRow(store, role);
+    if (!row) return;
+    const slotKey = `${store.id}:${role}`;
     if (!window.confirm(t("store.removeDomainConfirm"))) return;
-    setDomainBusy((prev) => ({ ...prev, [store.id]: true }));
+    setDomainBusy((prev) => ({ ...prev, [slotKey]: true }));
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(`${CF_URL}/remove-custom-domain`, {
@@ -342,23 +360,62 @@ export default function StoreConnect({ storeId }) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session?.access_token}`,
         },
-        body: JSON.stringify({ store_id: store.id }),
+        body: JSON.stringify({ store_id: store.id, domain: row.domain }),
       });
       const data = await res.json();
       if (!data.success) {
-        setDomainError((prev) => ({ ...prev, [store.id]: data.error || t("store.customDomainInvalid") }));
+        setDomainError((prev) => ({ ...prev, [slotKey]: data.error || t("store.customDomainInvalid") }));
         return;
       }
       setStores((prev) => prev.map((s) => (
-        s.id === store.id ? { ...s, custom_domain: null, custom_domain_status: null } : s
+        s.id === store.id
+          ? { ...s, store_custom_domains: (s.store_custom_domains || []).filter((d) => d.role !== role) }
+          : s
       )));
-      setDomainCname((prev) => ({ ...prev, [store.id]: null }));
-      setDomainInputs((prev) => ({ ...prev, [store.id]: "" }));
-      logActivity(store.id, "custom_domain_removed", { domain: store.custom_domain });
+      setDomainCname((prev) => ({ ...prev, [slotKey]: null }));
+      logActivity(store.id, "custom_domain_removed", { domain: row.domain, role });
     } catch (err) {
-      setDomainError((prev) => ({ ...prev, [store.id]: err.message }));
+      setDomainError((prev) => ({ ...prev, [slotKey]: err.message }));
     } finally {
-      setDomainBusy((prev) => ({ ...prev, [store.id]: false }));
+      setDomainBusy((prev) => ({ ...prev, [slotKey]: false }));
+    }
+  };
+
+  const handleSetPrimaryDomain = async (store) => {
+    const altRow = getDomainRow(store, "alt");
+    if (!altRow) return;
+    const slotKey = `${store.id}:makePrimary`;
+    setDomainBusy((prev) => ({ ...prev, [slotKey]: true }));
+    setDomainError((prev) => ({ ...prev, [slotKey]: "" }));
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${CF_URL}/set-primary-domain`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ store_id: store.id, domain: altRow.domain }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setDomainError((prev) => ({ ...prev, [slotKey]: data.error || t("store.customDomainInvalid") }));
+        return;
+      }
+      setStores((prev) => prev.map((s) => {
+        if (s.id !== store.id) return s;
+        const domains = (s.store_custom_domains || []).map((d) => {
+          if (d.role === "alt" && d.domain === altRow.domain) return { ...d, role: "primary" };
+          if (d.role === "primary") return { ...d, role: "alt" };
+          return d;
+        });
+        return { ...s, store_custom_domains: domains, custom_domain: altRow.domain };
+      }));
+      logActivity(store.id, "custom_domain_primary_changed", { domain: altRow.domain });
+    } catch (err) {
+      setDomainError((prev) => ({ ...prev, [slotKey]: err.message }));
+    } finally {
+      setDomainBusy((prev) => ({ ...prev, [slotKey]: false }));
     }
   };
 
@@ -1069,179 +1126,175 @@ export default function StoreConnect({ storeId }) {
                       {t("store.customDomainTitle")}
                     </p>
 
-                    {!store.custom_domain ? (
-                      <div>
-                        <p style={{ margin: "0 0 8px", fontSize: 12, color: "var(--ne-muted)" }}>
-                          {t("store.customDomainWwwHint")}
-                        </p>
-                        <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10 }}>
-                          <div style={{
-                            flex: 1,
-                            display: "flex",
-                            alignItems: "center",
-                            border: "1px solid var(--ne-border)",
-                            borderRadius: 9,
-                            background: "var(--ne-bg)",
-                            overflow: "hidden",
-                          }}>
-                            <span style={{
-                              padding: "10px 0 10px 14px",
-                              fontSize: 14,
-                              fontWeight: 700,
-                              color: "var(--ne-muted)",
-                              whiteSpace: "nowrap",
-                            }}>
-                              www.
-                            </span>
-                            <input
-                              type="text"
-                              placeholder={t("store.customDomainPlaceholder")}
-                              value={domainInputs[store.id] || ""}
-                              onChange={(e) => {
-                                // Strip any www./http(s):// prefix the user pastes, so they can't
-                                // accidentally end up with "www.www.domain.com" — the "www." the
-                                // user sees is fixed and non-editable, they only type the rest.
-                                const stripped = e.target.value
-                                  .replace(/^https?:\/\//i, "")
-                                  .replace(/^www\./i, "");
-                                setDomainInputs((prev) => ({ ...prev, [store.id]: stripped }));
-                              }}
-                              style={{
-                                flex: 1,
-                                padding: "10px 14px 10px 2px",
-                                border: "none",
-                                background: "transparent",
-                                color: "var(--ne-text)",
-                                fontSize: 14,
-                                outline: "none",
-                              }}
-                            />
-                          </div>
-                          <button
-                          onClick={() => handleAddCustomDomain(store)}
-                          disabled={!(domainInputs[store.id] || "").trim() || domainBusy[store.id]}
-                          style={{
-                            background: (!(domainInputs[store.id] || "").trim() || domainBusy[store.id]) ? "var(--ne-border)" : "var(--ne-grad)",
-                            color: "#fff",
-                            border: "none",
-                            borderRadius: 9,
-                            padding: "10px 16px",
-                            fontSize: 13,
-                            fontWeight: 700,
-                            cursor: (!(domainInputs[store.id] || "").trim() || domainBusy[store.id]) ? "not-allowed" : "pointer",
-                            whiteSpace: "nowrap",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 6,
-                          }}
-                        >
-                          <Icon name="link" size={13} />
-                          {domainBusy[store.id] ? t("store.customDomainConnecting") : t("store.connectDomainButton")}
-                        </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                          <span style={{ fontSize: 13, color: "var(--ne-text)", fontWeight: 600 }}>
-                            {store.custom_domain}
-                          </span>
-                          {store.custom_domain_status === "active" ? (
-                            <span style={{
-                              fontSize: 11, padding: "3px 10px",
-                              background: "var(--ne-success-soft)", color: "var(--ne-success)",
-                              borderRadius: 20, fontWeight: 700,
-                            }}>
-                              {t("store.customDomainActive")}
-                            </span>
-                          ) : store.custom_domain_status === "error" ? (
-                            <span style={{
-                              fontSize: 11, padding: "3px 10px",
-                              background: "var(--ne-danger-soft)", color: "var(--ne-danger)",
-                              borderRadius: 20, fontWeight: 700,
-                            }}>
-                              {t("store.customDomainError")}
-                            </span>
-                          ) : (
-                            <span style={{
-                              fontSize: 11, padding: "3px 10px",
-                              background: "var(--ne-warning-soft)", color: "var(--ne-warning)",
-                              borderRadius: 20, fontWeight: 700,
-                            }}>
-                              {t("store.customDomainPending")}
-                            </span>
-                          )}
-                        </div>
-                        <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
-                          <button
-                            onClick={() => handleCheckCustomDomainStatus(store)}
-                            disabled={domainChecking[store.id]}
-                            style={{
-                              background: "transparent", color: "var(--ne-text)", border: "1px solid var(--ne-border)",
-                              borderRadius: 9, padding: "6px 14px", fontSize: 12, fontWeight: 700,
-                              cursor: domainChecking[store.id] ? "not-allowed" : "pointer",
-                              display: "inline-flex", alignItems: "center", gap: 6,
-                            }}
-                          >
-                            <Icon name="refresh" size={11} />
-                            {domainChecking[store.id] ? t("store.checkingStatus") : t("store.checkStatusButton")}
-                          </button>
-                          <button
-                            onClick={() => handleRemoveCustomDomain(store)}
-                            disabled={domainBusy[store.id]}
-                            style={{
-                              background: "transparent", color: "var(--ne-danger)", border: "1px solid var(--ne-border)",
-                              borderRadius: 9, padding: "6px 14px", fontSize: 12, fontWeight: 700,
-                              cursor: domainBusy[store.id] ? "not-allowed" : "pointer",
-                            }}
-                          >
-                            {t("store.removeDomainButton")}
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                    {["primary", "alt"].map((role) => {
+                      const row = getDomainRow(store, role);
+                      const slotKey = `${store.id}:${role}`;
+                      const label = role === "primary" ? t("store.primaryDomainLabel") : t("store.altDomainLabel");
+                      // The alt slot's "add" input only shows once a primary exists —
+                      // it's an optional second domain, not a required pair.
+                      if (!row && role === "alt" && !getDomainRow(store, "primary")) return null;
 
-                    {domainCname[store.id] && (
-                      <div style={{
-                        marginTop: 12, padding: "12px 14px", background: "var(--ne-surface-2)",
-                        border: "1px solid var(--ne-border)", borderRadius: 9,
-                      }}>
-                        <p style={{ margin: "0 0 8px", fontSize: 12.5, fontWeight: 700, color: "var(--ne-text)" }}>
-                          {t("store.cnameInstructionsTitle")}
-                        </p>
-                        {[
-                          { labelKey: "store.cnameType", value: domainCname[store.id].type },
-                          { labelKey: "store.cnameName", value: domainCname[store.id].name },
-                          { labelKey: "store.cnameTarget", value: domainCname[store.id].target },
-                        ].map((row) => {
-                          const copyKey = `${store.id}-${row.labelKey}`;
-                          return (
-                            <div key={row.labelKey} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-                              <span style={{ fontSize: 12, color: "var(--ne-muted)", minWidth: 50 }}>{t(row.labelKey)}:</span>
-                              <code style={{ fontSize: 12, color: "var(--ne-text)", background: "var(--ne-bg)", padding: "2px 8px", borderRadius: 6 }}>
-                                {row.value}
-                              </code>
-                              <button
-                                onClick={() => handleCopy(copyKey, row.value)}
+                      return (
+                        <div key={role} style={{ marginBottom: 14 }}>
+                          <p style={{ margin: "0 0 6px", fontSize: 12, fontWeight: 700, color: "var(--ne-muted)" }}>
+                            {label}
+                          </p>
+
+                          {!row ? (
+                            <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10 }}>
+                              <input
+                                type="text"
+                                placeholder={t("store.customDomainPlaceholder")}
+                                value={domainInputs[slotKey] || ""}
+                                onChange={(e) => setDomainInputs((prev) => ({ ...prev, [slotKey]: e.target.value.trim() }))}
                                 style={{
-                                  background: "transparent", border: "1px solid var(--ne-border)", color: "var(--ne-text)",
-                                  borderRadius: 6, padding: "2px 8px", fontSize: 11, cursor: "pointer",
+                                  flex: 1, padding: "10px 14px", borderRadius: 9,
+                                  border: "1px solid var(--ne-border)", background: "var(--ne-bg)",
+                                  color: "var(--ne-text)", fontSize: 14,
+                                }}
+                              />
+                              <button
+                                onClick={() => handleAddCustomDomain(store, slotKey)}
+                                disabled={!(domainInputs[slotKey] || "").trim() || domainBusy[slotKey]}
+                                style={{
+                                  background: (!(domainInputs[slotKey] || "").trim() || domainBusy[slotKey]) ? "var(--ne-border)" : "var(--ne-grad)",
+                                  color: "#fff",
+                                  border: "none",
+                                  borderRadius: 9,
+                                  padding: "10px 16px",
+                                  fontSize: 13,
+                                  fontWeight: 700,
+                                  cursor: (!(domainInputs[slotKey] || "").trim() || domainBusy[slotKey]) ? "not-allowed" : "pointer",
+                                  whiteSpace: "nowrap",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 6,
                                 }}
                               >
-                                {copiedKey === copyKey ? t("store.copiedLabel") : t("store.copyButton")}
+                                <Icon name="link" size={13} />
+                                {domainBusy[slotKey] ? t("store.customDomainConnecting") : t("store.connectDomainButton")}
                               </button>
                             </div>
-                          );
-                        })}
-                        <p style={{ margin: "6px 0 0", fontSize: 11.5, color: "var(--ne-muted-2)" }}>
-                          {t("store.propagationNote")}
-                        </p>
-                      </div>
-                    )}
+                          ) : (
+                            <div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                                <span style={{ fontSize: 13, color: "var(--ne-text)", fontWeight: 600 }}>
+                                  {row.domain}
+                                </span>
+                                {row.status === "active" ? (
+                                  <span style={{
+                                    fontSize: 11, padding: "3px 10px",
+                                    background: "var(--ne-success-soft)", color: "var(--ne-success)",
+                                    borderRadius: 20, fontWeight: 700,
+                                  }}>
+                                    {t("store.customDomainActive")}
+                                  </span>
+                                ) : row.status === "error" ? (
+                                  <span style={{
+                                    fontSize: 11, padding: "3px 10px",
+                                    background: "var(--ne-danger-soft)", color: "var(--ne-danger)",
+                                    borderRadius: 20, fontWeight: 700,
+                                  }}>
+                                    {t("store.customDomainError")}
+                                  </span>
+                                ) : (
+                                  <span style={{
+                                    fontSize: 11, padding: "3px 10px",
+                                    background: "var(--ne-warning-soft)", color: "var(--ne-warning)",
+                                    borderRadius: 20, fontWeight: 700,
+                                  }}>
+                                    {t("store.customDomainPending")}
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+                                <button
+                                  onClick={() => handleCheckCustomDomainStatus(store, role)}
+                                  disabled={domainChecking[slotKey]}
+                                  style={{
+                                    background: "transparent", color: "var(--ne-text)", border: "1px solid var(--ne-border)",
+                                    borderRadius: 9, padding: "6px 14px", fontSize: 12, fontWeight: 700,
+                                    cursor: domainChecking[slotKey] ? "not-allowed" : "pointer",
+                                    display: "inline-flex", alignItems: "center", gap: 6,
+                                  }}
+                                >
+                                  <Icon name="refresh" size={11} />
+                                  {domainChecking[slotKey] ? t("store.checkingStatus") : t("store.checkStatusButton")}
+                                </button>
+                                <button
+                                  onClick={() => handleRemoveCustomDomain(store, role)}
+                                  disabled={domainBusy[slotKey]}
+                                  style={{
+                                    background: "transparent", color: "var(--ne-danger)", border: "1px solid var(--ne-border)",
+                                    borderRadius: 9, padding: "6px 14px", fontSize: 12, fontWeight: 700,
+                                    cursor: domainBusy[slotKey] ? "not-allowed" : "pointer",
+                                  }}
+                                >
+                                  {t("store.removeDomainButton")}
+                                </button>
+                                {role === "alt" && (
+                                  <button
+                                    onClick={() => handleSetPrimaryDomain(store)}
+                                    disabled={domainBusy[`${store.id}:makePrimary`]}
+                                    style={{
+                                      background: "transparent", color: "var(--ne-text)", border: "1px solid var(--ne-border)",
+                                      borderRadius: 9, padding: "6px 14px", fontSize: 12, fontWeight: 700,
+                                      cursor: domainBusy[`${store.id}:makePrimary`] ? "not-allowed" : "pointer",
+                                      display: "inline-flex", alignItems: "center", gap: 6,
+                                    }}
+                                  >
+                                    <Icon name="sparkle" size={11} />
+                                    {domainBusy[`${store.id}:makePrimary`] ? t("store.settingPrimary") : t("store.makePrimaryButton")}
+                                  </button>
+                                )}
+                              </div>
 
-                    {domainError[store.id] && (
-                      <p style={{ color: "var(--ne-danger)", fontSize: 12, marginTop: 8 }}>{domainError[store.id]}</p>
-                    )}
+                              {domainCname[slotKey] && (
+                                <div style={{
+                                  marginTop: 12, padding: "12px 14px", background: "var(--ne-surface-2)",
+                                  border: "1px solid var(--ne-border)", borderRadius: 9,
+                                }}>
+                                  <p style={{ margin: "0 0 8px", fontSize: 12.5, fontWeight: 700, color: "var(--ne-text)" }}>
+                                    {t("store.cnameInstructionsTitle")}
+                                  </p>
+                                  {[
+                                    { labelKey: "store.cnameType", value: domainCname[slotKey].type },
+                                    { labelKey: "store.cnameName", value: domainCname[slotKey].name },
+                                    { labelKey: "store.cnameTarget", value: domainCname[slotKey].target },
+                                  ].map((r) => {
+                                    const copyKey = `${slotKey}-${r.labelKey}`;
+                                    return (
+                                      <div key={r.labelKey} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                                        <span style={{ fontSize: 12, color: "var(--ne-muted)", minWidth: 50 }}>{t(r.labelKey)}:</span>
+                                        <code style={{ fontSize: 12, color: "var(--ne-text)", background: "var(--ne-bg)", padding: "2px 8px", borderRadius: 6 }}>
+                                          {r.value}
+                                        </code>
+                                        <button
+                                          onClick={() => handleCopy(copyKey, r.value)}
+                                          style={{
+                                            background: "transparent", border: "1px solid var(--ne-border)", color: "var(--ne-text)",
+                                            borderRadius: 6, padding: "2px 8px", fontSize: 11, cursor: "pointer",
+                                          }}
+                                        >
+                                          {copiedKey === copyKey ? t("store.copiedLabel") : t("store.copyButton")}
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+                                  <p style={{ margin: "6px 0 0", fontSize: 11.5, color: "var(--ne-muted-2)" }}>
+                                    {t("store.propagationNote")}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {domainError[slotKey] && (
+                            <p style={{ color: "var(--ne-danger)", fontSize: 12, marginTop: 8 }}>{domainError[slotKey]}</p>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
