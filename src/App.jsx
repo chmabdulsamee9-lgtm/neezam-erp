@@ -85,6 +85,7 @@ const PUBLIC_ROUTES = {
   '/terms': PublicTerms,
 }
 const StoreConnect = lazyPage(() => import('./pages/StoreConnect'), 'store-connect')
+const OnlineStore = lazyPage(() => import('./pages/OnlineStore'), 'online-store')
 // Inventory aur Product Costing ab standalone pages nahi hain — unki logic Products page
 // (ProductsManagement.jsx) ke unified card mein merge ho gayi hai. Component files disk pe
 // reused-logic source ke taur par maujood hain, lekin yahan se route/lazy-import nahi hote.
@@ -132,6 +133,7 @@ const GATABLE_MODULES = [
   { id: 'courier-dashboard', labelKey: 'nav.courier-dashboard' },
   { id: 'whatsapp', labelKey: 'nav.whatsapp' },
   { id: 'store-connect', labelKey: 'nav.store-connect' },
+  { id: 'online-store', labelKey: 'nav.online-store' },
   { id: 'meta-connect', labelKey: 'nav.meta-connect' },
   { id: 'courier-connect', labelKey: 'nav.courier-connect' },
   { id: 'payments', labelKey: 'nav.payments' },
@@ -214,6 +216,7 @@ const NAV_ICONS = {
   'courier-dashboard': <svg viewBox="0 0 20 20"><rect x="2" y="9" width="7" height="6" rx="1"/><path d="M9 11h3l2 2.5V15H9"/><circle cx="5" cy="16.5" r="1.4"/><circle cx="12.5" cy="16.5" r="1.4"/><path d="M15.5 3v6M18 5.5v3.5"/></svg>,
   whatsapp: <svg viewBox="0 0 20 20"><path d="M5 17l1-3.2A6.5 6.5 0 1 1 9.5 16L5 17Z"/><path d="M7.2 8c0 2.5 2.3 4.8 4.8 4.8"/></svg>,
   'store-connect': <svg viewBox="0 0 20 20"><path d="M8 12 12 8"/><rect x="2" y="9" width="6" height="6" rx="3" transform="rotate(-45 5 12)"/><rect x="12" y="5" width="6" height="6" rx="3" transform="rotate(-45 15 8)"/></svg>,
+  'online-store': <svg viewBox="0 0 20 20"><path d="M3 8.5 4 3h12l1 5.5" /><path d="M3 8.5a2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0" /><path d="M4.5 8.5V17h11V8.5" /><path d="M8 17v-4h4v4" /></svg>,
   'meta-connect': <svg viewBox="0 0 20 20"><path d="M3 17V9"/><path d="M9 17V3"/><path d="M15 17v-6"/><path d="M2 3.5h6" opacity=".6"/></svg>,
   'courier-connect': <svg viewBox="0 0 20 20"><rect x="2" y="6" width="9" height="7" rx="1"/><path d="M11 9h3.5L17 11.5V13h-6"/><circle cx="6" cy="15.5" r="1.6"/><circle cx="14.5" cy="15.5" r="1.6"/><path d="M2 3.5h6" opacity=".6"/></svg>,
   payments: <svg viewBox="0 0 20 20"><rect x="2.5" y="4.5" width="15" height="11" rx="2"/><path d="M2.5 8.5h15"/><path d="M5.5 12.5h3"/></svg>,
@@ -2060,6 +2063,7 @@ function App() {
     { id: 'courier-dashboard', label: t('nav.courier-dashboard'), group: t('nav.group.insights') },
     { id: 'whatsapp', label: t('nav.whatsapp'), group: t('nav.group.channels') },
     { id: 'store-connect', label: t('nav.store-connect'), group: t('nav.group.channels') },
+    { id: 'online-store', label: t('nav.online-store'), group: t('nav.group.channels') },
     { id: 'meta-connect', label: t('nav.meta-connect'), group: t('nav.group.channels') },
     { id: 'courier-connect', label: t('nav.courier-connect'), group: t('nav.group.channels') },
     { id: 'payments', label: t('nav.payments'), group: t('nav.group.channels') },
@@ -2275,6 +2279,7 @@ function App() {
               <Dashboard storeId={selectedStoreId} apiBase={CF_URL} fetcher={monitoredFetch} liveVersion={liveVersion} />
             )}
             {activeMenu === 'store-connect' && hasAccess('store-connect') && <StoreConnect storeId={selectedStoreId} />}
+            {activeMenu === 'online-store' && hasAccess('online-store') && <OnlineStore storeId={selectedStoreId} />}
             {activeMenu === 'products' && hasAccess('products') && !storePending && (
               <ProductsManagement storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
             )}
@@ -2328,7 +2333,7 @@ function App() {
             {activeMenu === 'master-dashboard/gemini-monitor' && profile.role === 'creator' && (
               <GeminiUsageMonitor cfUrl={CF_URL} session={session} />
             )}
-            {!['home', 'dashboard', 'store-connect', 'products', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'returns', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor'].includes(activeMenu) && (
+            {!['home', 'dashboard', 'store-connect', 'online-store', 'products', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'returns', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor'].includes(activeMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{menuItems.find(m => m.id === activeMenu)?.label}</h2>
