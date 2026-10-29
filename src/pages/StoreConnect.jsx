@@ -279,8 +279,9 @@ export default function StoreConnect({ storeId }) {
   };
 
   const handleAddCustomDomain = async (store) => {
-    const domain = (domainInputs[store.id] || "").trim().toLowerCase();
-    if (!domain) return;
+    const rest = (domainInputs[store.id] || "").trim().toLowerCase();
+    if (!rest) return;
+    const domain = `www.${rest}`;
     setDomainError((prev) => ({ ...prev, [store.id]: "" }));
     setDomainBusy((prev) => ({ ...prev, [store.id]: true }));
     try {
@@ -1069,23 +1070,54 @@ export default function StoreConnect({ storeId }) {
                     </p>
 
                     {!store.custom_domain ? (
-                      <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10 }}>
-                        <input
-                          type="text"
-                          placeholder={t("store.customDomainPlaceholder")}
-                          value={domainInputs[store.id] || ""}
-                          onChange={(e) => setDomainInputs((prev) => ({ ...prev, [store.id]: e.target.value }))}
-                          style={{
+                      <div>
+                        <p style={{ margin: "0 0 8px", fontSize: 12, color: "var(--ne-muted)" }}>
+                          {t("store.customDomainWwwHint")}
+                        </p>
+                        <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10 }}>
+                          <div style={{
                             flex: 1,
-                            padding: "10px 14px",
-                            borderRadius: 9,
+                            display: "flex",
+                            alignItems: "center",
                             border: "1px solid var(--ne-border)",
+                            borderRadius: 9,
                             background: "var(--ne-bg)",
-                            color: "var(--ne-text)",
-                            fontSize: 14,
-                          }}
-                        />
-                        <button
+                            overflow: "hidden",
+                          }}>
+                            <span style={{
+                              padding: "10px 0 10px 14px",
+                              fontSize: 14,
+                              fontWeight: 700,
+                              color: "var(--ne-muted)",
+                              whiteSpace: "nowrap",
+                            }}>
+                              www.
+                            </span>
+                            <input
+                              type="text"
+                              placeholder={t("store.customDomainPlaceholder")}
+                              value={domainInputs[store.id] || ""}
+                              onChange={(e) => {
+                                // Strip any www./http(s):// prefix the user pastes, so they can't
+                                // accidentally end up with "www.www.domain.com" — the "www." the
+                                // user sees is fixed and non-editable, they only type the rest.
+                                const stripped = e.target.value
+                                  .replace(/^https?:\/\//i, "")
+                                  .replace(/^www\./i, "");
+                                setDomainInputs((prev) => ({ ...prev, [store.id]: stripped }));
+                              }}
+                              style={{
+                                flex: 1,
+                                padding: "10px 14px 10px 2px",
+                                border: "none",
+                                background: "transparent",
+                                color: "var(--ne-text)",
+                                fontSize: 14,
+                                outline: "none",
+                              }}
+                            />
+                          </div>
+                          <button
                           onClick={() => handleAddCustomDomain(store)}
                           disabled={!(domainInputs[store.id] || "").trim() || domainBusy[store.id]}
                           style={{
@@ -1106,6 +1138,7 @@ export default function StoreConnect({ storeId }) {
                           <Icon name="link" size={13} />
                           {domainBusy[store.id] ? t("store.customDomainConnecting") : t("store.connectDomainButton")}
                         </button>
+                        </div>
                       </div>
                     ) : (
                       <div>

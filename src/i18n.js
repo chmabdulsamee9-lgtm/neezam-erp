@@ -422,6 +422,7 @@ export const translations = {
 
     'store.customDomainTitle': 'Apna Domain Connect Karo',
     'store.customDomainPlaceholder': 'yourdomain.com',
+    'store.customDomainWwwHint': 'Apna domain www. ke bina type karo — "www." automatically add ho jayega (root/apex domains support nahi hain).',
     'store.connectDomainButton': 'Domain Connect Karo',
     'store.customDomainConnecting': 'Connect ho raha hai...',
     'store.customDomainInvalid': 'Domain connect nahi hua',
@@ -1986,6 +1987,7 @@ export const translations = {
 
     'store.customDomainTitle': 'Connect Your Domain',
     'store.customDomainPlaceholder': 'yourdomain.com',
+    'store.customDomainWwwHint': 'Type your domain without "www." — it is added automatically (root/apex domains are not supported).',
     'store.connectDomainButton': 'Connect Domain',
     'store.customDomainConnecting': 'Connecting...',
     'store.customDomainInvalid': 'Domain could not be connected',
