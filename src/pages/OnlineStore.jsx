@@ -5,14 +5,12 @@ import { useLanguage, useTranslation } from "../i18n";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 
-export default function OnlineStore({ storeId }) {
+export default function OnlineStore({ storeId, onNavigate }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const [currentProfile, setCurrentProfile] = useState(null);
   const [store, setStore] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [editThemeBusy, setEditThemeBusy] = useState(false);
-  const [editThemeError, setEditThemeError] = useState("");
 
   // Activity-log ke "author" field ke liye current user ka naam (StoreConnect.jsx
   // ke currentProfile fetch jaisa hi pattern)
@@ -79,36 +77,13 @@ export default function OnlineStore({ storeId }) {
     window.open(liveUrl, "_blank", "noopener,noreferrer");
   };
 
-  // The storefront's /admin/theme-settings now requires a short-lived signed
-  // token (no shared session between the two apps) — mint one here first,
-  // then open the editor with it attached.
-  const handleEditTheme = async () => {
-    if (!liveUrl || !store) return;
-    setEditThemeBusy(true);
-    setEditThemeError("");
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`${CF_URL}/generate-theme-edit-token`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session?.access_token}`,
-        },
-        body: JSON.stringify({ store_id: store.id }),
-      });
-      const data = await res.json();
-      if (!data.token) {
-        setEditThemeError(data.error || "Edit link generate nahi hua");
-        return;
-      }
-      const themeEditorUrl = `${liveUrl}/admin/theme-settings?token=${encodeURIComponent(data.token)}`;
-      logActivity(store.id, "online_store_theme_edit_opened", { url: `${liveUrl}/admin/theme-settings` });
-      window.open(themeEditorUrl, "_blank", "noopener,noreferrer");
-    } catch (err) {
-      setEditThemeError(err.message);
-    } finally {
-      setEditThemeBusy(false);
-    }
+  // Theme editing now happens inside neezam-erp itself (ThemeEditor.jsx), with
+  // the storefront embedded as a live preview iframe — not a new tab opening
+  // the old Svelte /admin/theme-settings page directly.
+  const handleEditTheme = () => {
+    if (!store) return;
+    logActivity(store.id, "online_store_theme_edit_opened", { store_id: store.id });
+    onNavigate?.("theme-editor");
   };
 
   if (loading) {
@@ -191,21 +166,17 @@ export default function OnlineStore({ storeId }) {
           </button>
           <button
             onClick={handleEditTheme}
-            disabled={!liveUrl || editThemeBusy}
             style={{
               background: "transparent", color: "var(--ne-text)", border: "1px solid var(--ne-border)",
               borderRadius: 9, padding: "10px 16px", fontSize: 13, fontWeight: 700,
-              cursor: (!liveUrl || editThemeBusy) ? "not-allowed" : "pointer",
+              cursor: "pointer",
               display: "inline-flex", alignItems: "center", gap: 6,
             }}
           >
             <Icon name="edit" size={13} />
-            {editThemeBusy ? t("onlineStore.openingTheme") : t("onlineStore.editThemeButton")}
+            {t("onlineStore.editThemeButton")}
           </button>
         </div>
-        {editThemeError && (
-          <p style={{ color: "var(--ne-danger)", fontSize: 12, marginTop: 10 }}>{editThemeError}</p>
-        )}
       </div>
     </div>
   );

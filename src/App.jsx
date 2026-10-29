@@ -86,6 +86,7 @@ const PUBLIC_ROUTES = {
 }
 const StoreConnect = lazyPage(() => import('./pages/StoreConnect'), 'store-connect')
 const OnlineStore = lazyPage(() => import('./pages/OnlineStore'), 'online-store')
+const ThemeEditorPage = lazyPage(() => import('./pages/ThemeEditor'), 'theme-editor')
 // Inventory aur Product Costing ab standalone pages nahi hain — unki logic Products page
 // (ProductsManagement.jsx) ke unified card mein merge ho gayi hai. Component files disk pe
 // reused-logic source ke taur par maujood hain, lekin yahan se route/lazy-import nahi hote.
@@ -2279,7 +2280,8 @@ function App() {
               <Dashboard storeId={selectedStoreId} apiBase={CF_URL} fetcher={monitoredFetch} liveVersion={liveVersion} />
             )}
             {activeMenu === 'store-connect' && hasAccess('store-connect') && <StoreConnect storeId={selectedStoreId} />}
-            {activeMenu === 'online-store' && hasAccess('online-store') && <OnlineStore storeId={selectedStoreId} />}
+            {activeMenu === 'online-store' && hasAccess('online-store') && <OnlineStore storeId={selectedStoreId} onNavigate={setActiveMenu} />}
+            {activeMenu === 'theme-editor' && hasAccess('online-store') && <ThemeEditorPage storeId={selectedStoreId} onNavigate={setActiveMenu} />}
             {activeMenu === 'products' && hasAccess('products') && !storePending && (
               <ProductsManagement storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
             )}
@@ -2333,7 +2335,7 @@ function App() {
             {activeMenu === 'master-dashboard/gemini-monitor' && profile.role === 'creator' && (
               <GeminiUsageMonitor cfUrl={CF_URL} session={session} />
             )}
-            {!['home', 'dashboard', 'store-connect', 'online-store', 'products', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'returns', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor'].includes(activeMenu) && (
+            {!['home', 'dashboard', 'store-connect', 'online-store', 'theme-editor', 'products', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'returns', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor'].includes(activeMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{menuItems.find(m => m.id === activeMenu)?.label}</h2>

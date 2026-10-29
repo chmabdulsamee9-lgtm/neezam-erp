@@ -455,8 +455,15 @@ export const translations = {
     'onlineStore.themeActive': 'Theme #{id} active hai',
     'onlineStore.viewStoreButton': 'Store Dekho',
     'onlineStore.editThemeButton': 'Theme Edit Karo',
-    'onlineStore.openingTheme': 'Theme khula raha hai...',
     'onlineStore.loading': 'Load ho raha hai...',
+
+    'themeEditor.loading': 'Editor load ho raha hai...',
+    'themeEditor.loadFailed': 'Theme config load nahi hua',
+    'themeEditor.backButton': 'Wapas',
+    'themeEditor.saving': 'Save ho raha hai...',
+    'themeEditor.savedPrefix': 'Saved',
+    'themeEditor.saveButton': 'Save Karo',
+    'themeEditor.noLiveUrl': 'Store ka live address nahi mila',
 
     'store.enableNativeStorefront': 'Native Storefront Enable Karo',
     'store.toggleToShopify': 'Shopify Mode',
@@ -2037,8 +2044,15 @@ export const translations = {
     'onlineStore.themeActive': 'Theme #{id} active',
     'onlineStore.viewStoreButton': 'View Store',
     'onlineStore.editThemeButton': 'Edit Theme',
-    'onlineStore.openingTheme': 'Opening theme...',
     'onlineStore.loading': 'Loading...',
+
+    'themeEditor.loading': 'Loading editor...',
+    'themeEditor.loadFailed': 'Could not load theme config',
+    'themeEditor.backButton': 'Back',
+    'themeEditor.saving': 'Saving...',
+    'themeEditor.savedPrefix': 'Saved',
+    'themeEditor.saveButton': 'Save',
+    'themeEditor.noLiveUrl': "Store's live address not found",
 
     'store.enableNativeStorefront': 'Enable Native Storefront',
     'store.toggleToShopify': 'Shopify Mode',
