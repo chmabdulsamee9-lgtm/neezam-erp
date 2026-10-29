@@ -448,6 +448,8 @@ export const translations = {
     'store.nativePausedNote': 'Native storefront OFF hai — Native mode par switch karo isay activate karne ke liye.',
     'store.shopifyPausedNote': 'Shopify sync paused hai — Shopify mode par switch karo resume karne ke liye.',
     'store.toggleFailed': 'Toggle nahi hua',
+    'store.shopifyConnectionHeading': 'Shopify Connection',
+    'store.nativeStorefrontHeading': 'Native Storefront',
 
     'activityLog.title': 'Activity Log',
     'activityLog.entries': 'entries',
@@ -2010,6 +2012,8 @@ export const translations = {
     'store.nativePausedNote': 'Native storefront is OFF — switch to Native mode to activate it.',
     'store.shopifyPausedNote': 'Shopify sync paused — switch to Shopify mode to resume.',
     'store.toggleFailed': 'Toggle failed',
+    'store.shopifyConnectionHeading': 'Shopify Connection',
+    'store.nativeStorefrontHeading': 'Native Storefront',
 
     'activityLog.title': 'Activity Log',
     'activityLog.entries': 'entries',

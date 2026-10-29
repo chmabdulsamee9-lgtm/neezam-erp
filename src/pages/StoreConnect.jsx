@@ -879,27 +879,117 @@ export default function StoreConnect({ storeId }) {
                 </p>
               )}
 
-              {/* Enable Native Storefront — additive, for an existing Shopify store that
-                  doesn't have a subdomain yet (never creates a new store, just reserves a
-                  subdomain on this one) */}
-              {store.platform === "shopify" && !store.subdomain && (
-                <div style={{ marginBottom: 12 }}>
-                  {!showEnableNativeInput[store.id] ? (
+              {/* CARD A — Shopify Connection: shown whenever shopify_url exists, regardless
+                  of which platform is currently active */}
+              {store.shopify_url && (
+                <div style={{
+                  background: "var(--ne-surface)",
+                  border: "1px solid var(--ne-border)",
+                  borderRadius: 10,
+                  padding: "12px 14px",
+                  marginBottom: 12,
+                }}>
+                  <p style={{ margin: "0 0 10px", fontSize: 13, fontWeight: 700, color: "var(--ne-text)" }}>
+                    {t("store.shopifyConnectionHeading")}
+                  </p>
+
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+                    <span style={{ fontSize: 13, color: "var(--ne-text)" }}>{store.shopify_url}</span>
+                    <button
+                      onClick={() => handleConnect(store.shopify_url)}
+                      style={{
+                        background: "transparent", color: "var(--ne-text)", border: "1px solid var(--ne-border)",
+                        borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer",
+                        display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap",
+                      }}
+                    >
+                      <Icon name="refresh" size={10} /> {t("store.reconnect")}
+                    </button>
+                  </div>
+
+                  <div style={{
+                    display: "flex",
+                    flexDirection: isMobile ? "column" : "row",
+                    alignItems: isMobile ? "flex-start" : "center",
+                    justifyContent: "space-between",
+                    gap: isMobile ? 10 : 0,
+                  }}>
+                    <div style={{ fontSize: 13, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <Icon name="database" size={13} /> <strong style={{ color: "var(--ne-text)" }}>{cacheCounts[store.id] ?? "..."}</strong> {t("store.ordersCached")}
+                      {syncEntry.syncing && (
+                        <span style={{ color: "var(--ne-accent)", marginLeft: 10, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                          <Icon name="pending" size={11} /> {t("store.syncing")} {syncEntry.syncedCount?.toLocaleString() ?? 0}
+                          {syncEntry.totalCount ? ` / ${syncEntry.totalCount.toLocaleString()} (${syncPct}%)` : ""}
+                        </span>
+                      )}
+                    </div>
+                    {store.platform === "native" ? (
+                      <span style={{ fontSize: 12, color: "var(--ne-muted)", fontStyle: "italic", whiteSpace: "nowrap" }}>
+                        {t("store.shopifyPausedNote")}
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => startSync(store)}
+                        disabled={syncEntry.syncing}
+                        style={{
+                          background: syncEntry.syncing ? "var(--ne-border)" : "var(--ne-grad)",
+                          color: "#fff",
+                          border: "none",
+                          borderRadius: 9,
+                          padding: "8px 16px",
+                          fontSize: 13,
+                          fontWeight: 700,
+                          cursor: syncEntry.syncing ? "not-allowed" : "pointer",
+                          whiteSpace: "nowrap",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                      >
+                        {syncEntry.syncing ? t("store.syncing") : (<><Icon name="refresh" size={13} /> {t("store.syncOrders")}</>)}
+                      </button>
+                    )}
+                  </div>
+                  {syncEntry.error && !syncEntry.syncing && (
+                    <p style={{ color: "var(--ne-danger)", fontSize: 12, marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                      <Icon name="error" size={12} /> {syncEntry.error}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* CARD B — Native Storefront: the enable-flow for a Shopify store with no
+                  subdomain yet, or the subdomain + custom-domain UI once one exists. Always
+                  rendered when there's a native-capable context — i.e. whenever shopify_url
+                  is missing (pure/native-created store) or a subdomain can still be added. */}
+              <div style={{
+                background: "var(--ne-surface)",
+                border: "1px solid var(--ne-border)",
+                borderRadius: 10,
+                padding: "12px 14px",
+                marginBottom: 12,
+              }}>
+                <p style={{ margin: "0 0 10px", fontSize: 13, fontWeight: 700, color: "var(--ne-text)" }}>
+                  {t("store.nativeStorefrontHeading")}
+                </p>
+
+                {/* Enable Native Storefront — additive, for an existing Shopify store that
+                    doesn't have a subdomain yet (never creates a new store, just reserves a
+                    subdomain on this one) */}
+                {store.platform === "shopify" && !store.subdomain && (
+                  !showEnableNativeInput[store.id] ? (
                     <button
                       onClick={() => setShowEnableNativeInput((prev) => ({ ...prev, [store.id]: true }))}
                       style={{
-                        background: "var(--ne-surface)", color: "var(--ne-text)", border: "1px dashed var(--ne-border)",
-                        borderRadius: 10, padding: "10px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer",
+                        background: "var(--ne-bg)", color: "var(--ne-text)", border: "1px dashed var(--ne-border)",
+                        borderRadius: 9, padding: "10px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer",
                         width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                       }}
                     >
                       <Icon name="shop" size={14} /> {t("store.enableNativeStorefront")}
                     </button>
                   ) : (
-                    <div style={{
-                      background: "var(--ne-surface)", border: "1px solid var(--ne-border)",
-                      borderRadius: 10, padding: "12px 14px",
-                    }}>
+                    <div>
                       <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10, alignItems: isMobile ? "stretch" : "center" }}>
                         <input
                           type="text"
@@ -957,233 +1047,171 @@ export default function StoreConnect({ storeId }) {
                         <p style={{ color: "var(--ne-danger)", fontSize: 13, marginTop: 8 }}>{enableNativeError[store.id]}</p>
                       )}
                     </div>
-                  )}
-                </div>
-              )}
+                  )
+                )}
 
-              {/* Custom domain / native storefront section — shown whenever the store HAS a
-                  subdomain (regardless of whether it's the currently active platform), muted
-                  with a paused note when platform !== 'native' */}
-              {!!store.subdomain && (
-                <div style={{
-                  background: "var(--ne-surface)",
-                  border: "1px solid var(--ne-border)",
-                  borderRadius: 10,
-                  padding: "12px 14px",
-                  marginBottom: 12,
-                  opacity: store.platform === "native" ? 1 : 0.6,
-                }}>
-                  <p style={{ margin: "0 0 4px", fontSize: 13, fontWeight: 700, color: "var(--ne-text)" }}>
-                    {store.subdomain}.eneezam.com
-                  </p>
-                  {store.platform !== "native" && (
-                    <p style={{ margin: "0 0 10px", fontSize: 12, color: "var(--ne-muted)" }}>
-                      {t("store.nativePausedNote")}
+                {/* Subdomain + custom domain connect — shown whenever the store HAS a
+                    subdomain (regardless of whether it's the currently active platform),
+                    muted with a paused note when platform !== 'native'. Rendered directly
+                    inside Card B (no further nested bordered box) to read as one card. */}
+                {!!store.subdomain && (
+                  <div style={{ opacity: store.platform === "native" ? 1 : 0.6 }}>
+                    <p style={{ margin: "0 0 4px", fontSize: 13, fontWeight: 700, color: "var(--ne-text)" }}>
+                      {store.subdomain}.eneezam.com
                     </p>
-                  )}
-                  <p style={{ margin: "0 0 10px", fontSize: 13, fontWeight: 700, color: "var(--ne-text)" }}>
-                    {t("store.customDomainTitle")}
-                  </p>
+                    {store.platform !== "native" && (
+                      <p style={{ margin: "0 0 10px", fontSize: 12, color: "var(--ne-muted)" }}>
+                        {t("store.nativePausedNote")}
+                      </p>
+                    )}
+                    <p style={{ margin: "10px 0 10px", fontSize: 13, fontWeight: 700, color: "var(--ne-text)" }}>
+                      {t("store.customDomainTitle")}
+                    </p>
 
-                  {!store.custom_domain ? (
-                    <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10 }}>
-                      <input
-                        type="text"
-                        placeholder={t("store.customDomainPlaceholder")}
-                        value={domainInputs[store.id] || ""}
-                        onChange={(e) => setDomainInputs((prev) => ({ ...prev, [store.id]: e.target.value }))}
-                        style={{
-                          flex: 1,
-                          padding: "10px 14px",
-                          borderRadius: 9,
-                          border: "1px solid var(--ne-border)",
-                          background: "var(--ne-bg)",
-                          color: "var(--ne-text)",
-                          fontSize: 14,
-                        }}
-                      />
-                      <button
-                        onClick={() => handleAddCustomDomain(store)}
-                        disabled={!(domainInputs[store.id] || "").trim() || domainBusy[store.id]}
-                        style={{
-                          background: (!(domainInputs[store.id] || "").trim() || domainBusy[store.id]) ? "var(--ne-border)" : "var(--ne-grad)",
-                          color: "#fff",
-                          border: "none",
-                          borderRadius: 9,
-                          padding: "10px 16px",
-                          fontSize: 13,
-                          fontWeight: 700,
-                          cursor: (!(domainInputs[store.id] || "").trim() || domainBusy[store.id]) ? "not-allowed" : "pointer",
-                          whiteSpace: "nowrap",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6,
-                        }}
-                      >
-                        <Icon name="link" size={13} />
-                        {domainBusy[store.id] ? t("store.customDomainConnecting") : t("store.connectDomainButton")}
-                      </button>
-                    </div>
-                  ) : (
-                    <div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                        <span style={{ fontSize: 13, color: "var(--ne-text)", fontWeight: 600 }}>
-                          {store.custom_domain}
-                        </span>
-                        {store.custom_domain_status === "active" ? (
-                          <span style={{
-                            fontSize: 11, padding: "3px 10px",
-                            background: "var(--ne-success-soft)", color: "var(--ne-success)",
-                            borderRadius: 20, fontWeight: 700,
-                          }}>
-                            {t("store.customDomainActive")}
-                          </span>
-                        ) : store.custom_domain_status === "error" ? (
-                          <span style={{
-                            fontSize: 11, padding: "3px 10px",
-                            background: "var(--ne-danger-soft)", color: "var(--ne-danger)",
-                            borderRadius: 20, fontWeight: 700,
-                          }}>
-                            {t("store.customDomainError")}
-                          </span>
-                        ) : (
-                          <span style={{
-                            fontSize: 11, padding: "3px 10px",
-                            background: "var(--ne-warning-soft)", color: "var(--ne-warning)",
-                            borderRadius: 20, fontWeight: 700,
-                          }}>
-                            {t("store.customDomainPending")}
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
-                        <button
-                          onClick={() => handleCheckCustomDomainStatus(store)}
-                          disabled={domainChecking[store.id]}
+                    {!store.custom_domain ? (
+                      <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 10 }}>
+                        <input
+                          type="text"
+                          placeholder={t("store.customDomainPlaceholder")}
+                          value={domainInputs[store.id] || ""}
+                          onChange={(e) => setDomainInputs((prev) => ({ ...prev, [store.id]: e.target.value }))}
                           style={{
-                            background: "transparent", color: "var(--ne-text)", border: "1px solid var(--ne-border)",
-                            borderRadius: 9, padding: "6px 14px", fontSize: 12, fontWeight: 700,
-                            cursor: domainChecking[store.id] ? "not-allowed" : "pointer",
-                            display: "inline-flex", alignItems: "center", gap: 6,
+                            flex: 1,
+                            padding: "10px 14px",
+                            borderRadius: 9,
+                            border: "1px solid var(--ne-border)",
+                            background: "var(--ne-bg)",
+                            color: "var(--ne-text)",
+                            fontSize: 14,
+                          }}
+                        />
+                        <button
+                          onClick={() => handleAddCustomDomain(store)}
+                          disabled={!(domainInputs[store.id] || "").trim() || domainBusy[store.id]}
+                          style={{
+                            background: (!(domainInputs[store.id] || "").trim() || domainBusy[store.id]) ? "var(--ne-border)" : "var(--ne-grad)",
+                            color: "#fff",
+                            border: "none",
+                            borderRadius: 9,
+                            padding: "10px 16px",
+                            fontSize: 13,
+                            fontWeight: 700,
+                            cursor: (!(domainInputs[store.id] || "").trim() || domainBusy[store.id]) ? "not-allowed" : "pointer",
+                            whiteSpace: "nowrap",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
                           }}
                         >
-                          <Icon name="refresh" size={11} />
-                          {domainChecking[store.id] ? t("store.checkingStatus") : t("store.checkStatusButton")}
-                        </button>
-                        <button
-                          onClick={() => handleRemoveCustomDomain(store)}
-                          disabled={domainBusy[store.id]}
-                          style={{
-                            background: "transparent", color: "var(--ne-danger)", border: "1px solid var(--ne-border)",
-                            borderRadius: 9, padding: "6px 14px", fontSize: 12, fontWeight: 700,
-                            cursor: domainBusy[store.id] ? "not-allowed" : "pointer",
-                          }}
-                        >
-                          {t("store.removeDomainButton")}
+                          <Icon name="link" size={13} />
+                          {domainBusy[store.id] ? t("store.customDomainConnecting") : t("store.connectDomainButton")}
                         </button>
                       </div>
-                    </div>
-                  )}
+                    ) : (
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 13, color: "var(--ne-text)", fontWeight: 600 }}>
+                            {store.custom_domain}
+                          </span>
+                          {store.custom_domain_status === "active" ? (
+                            <span style={{
+                              fontSize: 11, padding: "3px 10px",
+                              background: "var(--ne-success-soft)", color: "var(--ne-success)",
+                              borderRadius: 20, fontWeight: 700,
+                            }}>
+                              {t("store.customDomainActive")}
+                            </span>
+                          ) : store.custom_domain_status === "error" ? (
+                            <span style={{
+                              fontSize: 11, padding: "3px 10px",
+                              background: "var(--ne-danger-soft)", color: "var(--ne-danger)",
+                              borderRadius: 20, fontWeight: 700,
+                            }}>
+                              {t("store.customDomainError")}
+                            </span>
+                          ) : (
+                            <span style={{
+                              fontSize: 11, padding: "3px 10px",
+                              background: "var(--ne-warning-soft)", color: "var(--ne-warning)",
+                              borderRadius: 20, fontWeight: 700,
+                            }}>
+                              {t("store.customDomainPending")}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+                          <button
+                            onClick={() => handleCheckCustomDomainStatus(store)}
+                            disabled={domainChecking[store.id]}
+                            style={{
+                              background: "transparent", color: "var(--ne-text)", border: "1px solid var(--ne-border)",
+                              borderRadius: 9, padding: "6px 14px", fontSize: 12, fontWeight: 700,
+                              cursor: domainChecking[store.id] ? "not-allowed" : "pointer",
+                              display: "inline-flex", alignItems: "center", gap: 6,
+                            }}
+                          >
+                            <Icon name="refresh" size={11} />
+                            {domainChecking[store.id] ? t("store.checkingStatus") : t("store.checkStatusButton")}
+                          </button>
+                          <button
+                            onClick={() => handleRemoveCustomDomain(store)}
+                            disabled={domainBusy[store.id]}
+                            style={{
+                              background: "transparent", color: "var(--ne-danger)", border: "1px solid var(--ne-border)",
+                              borderRadius: 9, padding: "6px 14px", fontSize: 12, fontWeight: 700,
+                              cursor: domainBusy[store.id] ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            {t("store.removeDomainButton")}
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
-                  {domainCname[store.id] && (
-                    <div style={{
-                      marginTop: 12, padding: "12px 14px", background: "var(--ne-surface-2)",
-                      border: "1px solid var(--ne-border)", borderRadius: 9,
-                    }}>
-                      <p style={{ margin: "0 0 8px", fontSize: 12.5, fontWeight: 700, color: "var(--ne-text)" }}>
-                        {t("store.cnameInstructionsTitle")}
-                      </p>
-                      {[
-                        { labelKey: "store.cnameType", value: domainCname[store.id].type },
-                        { labelKey: "store.cnameName", value: domainCname[store.id].name },
-                        { labelKey: "store.cnameTarget", value: domainCname[store.id].target },
-                      ].map((row) => {
-                        const copyKey = `${store.id}-${row.labelKey}`;
-                        return (
-                          <div key={row.labelKey} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-                            <span style={{ fontSize: 12, color: "var(--ne-muted)", minWidth: 50 }}>{t(row.labelKey)}:</span>
-                            <code style={{ fontSize: 12, color: "var(--ne-text)", background: "var(--ne-bg)", padding: "2px 8px", borderRadius: 6 }}>
-                              {row.value}
-                            </code>
-                            <button
-                              onClick={() => handleCopy(copyKey, row.value)}
-                              style={{
-                                background: "transparent", border: "1px solid var(--ne-border)", color: "var(--ne-text)",
-                                borderRadius: 6, padding: "2px 8px", fontSize: 11, cursor: "pointer",
-                              }}
-                            >
-                              {copiedKey === copyKey ? t("store.copiedLabel") : t("store.copyButton")}
-                            </button>
-                          </div>
-                        );
-                      })}
-                      <p style={{ margin: "6px 0 0", fontSize: 11.5, color: "var(--ne-muted-2)" }}>
-                        {t("store.propagationNote")}
-                      </p>
-                    </div>
-                  )}
+                    {domainCname[store.id] && (
+                      <div style={{
+                        marginTop: 12, padding: "12px 14px", background: "var(--ne-surface-2)",
+                        border: "1px solid var(--ne-border)", borderRadius: 9,
+                      }}>
+                        <p style={{ margin: "0 0 8px", fontSize: 12.5, fontWeight: 700, color: "var(--ne-text)" }}>
+                          {t("store.cnameInstructionsTitle")}
+                        </p>
+                        {[
+                          { labelKey: "store.cnameType", value: domainCname[store.id].type },
+                          { labelKey: "store.cnameName", value: domainCname[store.id].name },
+                          { labelKey: "store.cnameTarget", value: domainCname[store.id].target },
+                        ].map((row) => {
+                          const copyKey = `${store.id}-${row.labelKey}`;
+                          return (
+                            <div key={row.labelKey} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                              <span style={{ fontSize: 12, color: "var(--ne-muted)", minWidth: 50 }}>{t(row.labelKey)}:</span>
+                              <code style={{ fontSize: 12, color: "var(--ne-text)", background: "var(--ne-bg)", padding: "2px 8px", borderRadius: 6 }}>
+                                {row.value}
+                              </code>
+                              <button
+                                onClick={() => handleCopy(copyKey, row.value)}
+                                style={{
+                                  background: "transparent", border: "1px solid var(--ne-border)", color: "var(--ne-text)",
+                                  borderRadius: 6, padding: "2px 8px", fontSize: 11, cursor: "pointer",
+                                }}
+                              >
+                                {copiedKey === copyKey ? t("store.copiedLabel") : t("store.copyButton")}
+                              </button>
+                            </div>
+                          );
+                        })}
+                        <p style={{ margin: "6px 0 0", fontSize: 11.5, color: "var(--ne-muted-2)" }}>
+                          {t("store.propagationNote")}
+                        </p>
+                      </div>
+                    )}
 
-                  {domainError[store.id] && (
-                    <p style={{ color: "var(--ne-danger)", fontSize: 12, marginTop: 8 }}>{domainError[store.id]}</p>
-                  )}
-                </div>
-              )}
-
-              {/* Sync section - sirf jab Shopify connect ho */}
-              {store.shopify_url && (
-                <div style={{
-                  display: "flex",
-                  flexDirection: isMobile ? "column" : "row",
-                  alignItems: isMobile ? "flex-start" : "center",
-                  justifyContent: "space-between",
-                  gap: isMobile ? 10 : 0,
-                  background: "var(--ne-surface)",
-                  border: "1px solid var(--ne-border)",
-                  borderRadius: 10,
-                  padding: "10px 14px",
-                }}>
-                  <div style={{ fontSize: 13, color: "var(--ne-muted)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                    <Icon name="database" size={13} /> <strong style={{ color: "var(--ne-text)" }}>{cacheCounts[store.id] ?? "..."}</strong> {t("store.ordersCached")}
-                    {syncEntry.syncing && (
-                      <span style={{ color: "var(--ne-accent)", marginLeft: 10, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 5 }}>
-                        <Icon name="pending" size={11} /> {t("store.syncing")} {syncEntry.syncedCount?.toLocaleString() ?? 0}
-                        {syncEntry.totalCount ? ` / ${syncEntry.totalCount.toLocaleString()} (${syncPct}%)` : ""}
-                      </span>
+                    {domainError[store.id] && (
+                      <p style={{ color: "var(--ne-danger)", fontSize: 12, marginTop: 8 }}>{domainError[store.id]}</p>
                     )}
                   </div>
-                  {store.platform === "native" ? (
-                    <span style={{ fontSize: 12, color: "var(--ne-muted)", fontStyle: "italic", whiteSpace: "nowrap" }}>
-                      {t("store.shopifyPausedNote")}
-                    </span>
-                  ) : (
-                    <button
-                      onClick={() => startSync(store)}
-                      disabled={syncEntry.syncing}
-                      style={{
-                        background: syncEntry.syncing ? "var(--ne-border)" : "var(--ne-grad)",
-                        color: "#fff",
-                        border: "none",
-                        borderRadius: 9,
-                        padding: "8px 16px",
-                        fontSize: 13,
-                        fontWeight: 700,
-                        cursor: syncEntry.syncing ? "not-allowed" : "pointer",
-                        whiteSpace: "nowrap",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                      }}
-                    >
-                      {syncEntry.syncing ? t("store.syncing") : (<><Icon name="refresh" size={13} /> {t("store.syncOrders")}</>)}
-                    </button>
-                  )}
-                </div>
-              )}
-              {syncEntry.error && !syncEntry.syncing && (
-                <p style={{ color: "var(--ne-danger)", fontSize: 12, marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                  <Icon name="error" size={12} /> {syncEntry.error}
-                </p>
-              )}
+                )}
+              </div>
             </div>
           );})}
         </div>
