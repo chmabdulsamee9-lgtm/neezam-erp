@@ -455,6 +455,7 @@ export const translations = {
     'onlineStore.themeActive': 'Theme #{id} active hai',
     'onlineStore.viewStoreButton': 'Store Dekho',
     'onlineStore.editThemeButton': 'Theme Edit Karo',
+    'onlineStore.openingTheme': 'Theme khula raha hai...',
     'onlineStore.loading': 'Load ho raha hai...',
 
     'store.enableNativeStorefront': 'Native Storefront Enable Karo',
@@ -2036,6 +2037,7 @@ export const translations = {
     'onlineStore.themeActive': 'Theme #{id} active',
     'onlineStore.viewStoreButton': 'View Store',
     'onlineStore.editThemeButton': 'Edit Theme',
+    'onlineStore.openingTheme': 'Opening theme...',
     'onlineStore.loading': 'Loading...',
 
     'store.enableNativeStorefront': 'Enable Native Storefront',
