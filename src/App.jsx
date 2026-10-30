@@ -6,9 +6,13 @@ import { getCachedOrders, saveOrdersBulk, upsertOrder, getMeta, setMeta, clearCa
 import { clearViewCache } from './viewCache'
 // import { syncBookedOrdersCache } from './bookedOrdersData' // DISABLED with the Fix 1F block below
 import { Monogram, Wordmark } from './components/Logo'
-import { SunIcon, MoonIcon, GlobeIcon, RefreshIcon } from './components/Icons'
+import { SunIcon, MoonIcon, GlobeIcon } from './components/Icons'
 import Icon from './components/Icon'
 import ErrorBoundary from './components/ErrorBoundary'
+import InitialsAvatar from './components/InitialsAvatar'
+import GlobalSearch from './components/GlobalSearch'
+import NotificationBell from './components/NotificationBell'
+import BrandSwitcherPopup from './components/BrandSwitcherPopup'
 import { useLanguage, useTranslation } from './i18n'
 import Login from './pages/Login'
 import AppHome from './pages/AppHome'
@@ -108,7 +112,6 @@ const CourierConnect = lazyPage(() => import('./pages/CourierConnect'), 'courier
 const CourierDashboard = lazyPage(() => import('./pages/CourierDashboard'), 'courier-dashboard')
 const CourierDetailedView = lazyPage(() => import('./pages/CourierDetailedView'), 'courier-dashboard/detailed')
 const BookedOrders = lazyPage(() => import('./pages/BookedOrders'), 'courier')
-const Payments = lazyPage(() => import('./pages/Payments'), 'payments')
 const MetaConnect = lazyPage(() => import('./pages/MetaConnect'), 'meta-connect')
 const MetaCallback = lazyPage(() => import('./pages/MetaCallback'), null)
 const AdsAnalytics = lazyPage(() => import('./pages/AdsAnalytics'), 'ads')
@@ -128,7 +131,6 @@ const GATABLE_MODULES = [
   { id: 'ads', labelKey: 'nav.ads' },
   { id: 'pnl', labelKey: 'nav.pnl' },
   { id: 'ledger', labelKey: 'nav.ledger' },
-  { id: 'cities', labelKey: 'nav.cities' },
   { id: 'budget', labelKey: 'nav.budget' },
   { id: 'suggestions', labelKey: 'nav.suggestions' },
   { id: 'courier-dashboard', labelKey: 'nav.courier-dashboard' },
@@ -137,7 +139,6 @@ const GATABLE_MODULES = [
   { id: 'online-store', labelKey: 'nav.online-store' },
   { id: 'meta-connect', labelKey: 'nav.meta-connect' },
   { id: 'courier-connect', labelKey: 'nav.courier-connect' },
-  { id: 'payments', labelKey: 'nav.payments' },
 ]
 const BATCH_SIZE = 1000
 const isValidPhone = (p) => /^\d{11}$/.test(String(p || "").trim())
@@ -210,7 +211,6 @@ const NAV_ICONS = {
   pnl: <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><path d="M10 6.5v7M7.5 8.3c0-1.1 1.1-1.8 2.5-1.8s2.5.6 2.5 1.6c0 2.2-5 1-5 3.2 0 1 1.1 1.6 2.5 1.6s2.5-.7 2.5-1.8"/></svg>,
   ledger: <svg viewBox="0 0 20 20"><rect x="3" y="3" width="14" height="14" rx="2"/><path d="M6 8h8M6 11h8M6 14h5"/></svg>,
   returns: <svg viewBox="0 0 20 20"><path d="M7 5 3 9l4 4"/><path d="M3 9h9a4 4 0 0 1 4 4v1"/></svg>,
-  cities: <svg viewBox="0 0 20 20"><path d="M10 18s6-5.5 6-10a6 6 0 1 0-12 0c0 4.5 6 10 6 10Z"/><circle cx="10" cy="8" r="2"/></svg>,
   products: <svg viewBox="0 0 20 20"><path d="M3 3h6l8 8-6 6-8-8Z"/><circle cx="7" cy="7" r="1.3" fill="currentColor" stroke="none"/></svg>,
   budget: <svg viewBox="0 0 20 20"><rect x="2.5" y="3.5" width="15" height="13" rx="2"/><path d="M2.5 8h15M6 12h2M11 12h3"/></svg>,
   suggestions: <svg viewBox="0 0 20 20"><path d="M10 2.5a5.5 5.5 0 0 0-3 10.1V14h6v-1.4A5.5 5.5 0 0 0 10 2.5Z"/><path d="M8 17h4"/></svg>,
@@ -220,7 +220,6 @@ const NAV_ICONS = {
   'online-store': <svg viewBox="0 0 20 20"><path d="M3 8.5 4 3h12l1 5.5" /><path d="M3 8.5a2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0" /><path d="M4.5 8.5V17h11V8.5" /><path d="M8 17v-4h4v4" /></svg>,
   'meta-connect': <svg viewBox="0 0 20 20"><path d="M3 17V9"/><path d="M9 17V3"/><path d="M15 17v-6"/><path d="M2 3.5h6" opacity=".6"/></svg>,
   'courier-connect': <svg viewBox="0 0 20 20"><rect x="2" y="6" width="9" height="7" rx="1"/><path d="M11 9h3.5L17 11.5V13h-6"/><circle cx="6" cy="15.5" r="1.6"/><circle cx="14.5" cy="15.5" r="1.6"/><path d="M2 3.5h6" opacity=".6"/></svg>,
-  payments: <svg viewBox="0 0 20 20"><rect x="2.5" y="4.5" width="15" height="11" rx="2"/><path d="M2.5 8.5h15"/><path d="M5.5 12.5h3"/></svg>,
   team: <svg viewBox="0 0 20 20"><circle cx="7" cy="7" r="2.6"/><circle cx="14" cy="8" r="2"/><path d="M2.5 17c.5-3 2.2-4.5 4.5-4.5s4 1.5 4.5 4.5"/><path d="M12 17c.4-2.3 1.6-3.7 3.5-3.7s2.7 1.1 3 3.2"/></svg>,
   'activity-log': <svg viewBox="0 0 20 20"><rect x="3" y="2.5" width="14" height="15" rx="2"/><path d="M6.5 7h7M6.5 10.5h7M6.5 14h4"/></svg>,
   settings: <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.5v2M10 15.5v2M17.5 10h-2M4.5 10h-2M15.1 4.9l-1.4 1.4M6.3 13.7l-1.4 1.4M15.1 15.1l-1.4-1.4M6.3 6.3 4.9 4.9"/></svg>,
@@ -1078,6 +1077,20 @@ function App() {
 
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
+  // Admin UI overhaul: D1 global search modal + D3 brand/profile popup — both are plain
+  // top-level toggles, same pattern as sidebarOpen/mobileDrawerOpen above.
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [brandPopupOpen, setBrandPopupOpen] = useState(false)
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setSearchOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   const [ordersData, setOrdersData] = useState([])
   const [ordersLoaded, setOrdersLoaded] = useState(false)
   const [ordersStore, setOrdersStore] = useState(null)
@@ -2052,62 +2065,82 @@ function App() {
   const staffPermissions = currentUserStoreEntry?.permissions || []
   const hasAccess = (moduleId) => (!isStaff || staffPermissions.includes(moduleId)) && !disabledModuleKeys.has(moduleId)
 
+  // Admin UI overhaul (Part A2): reorganized into a flat/nested structure instead of the
+  // old flat-with-group-label scheme. Items with a `parent` id render as an indented child
+  // under that parent (expanded sidebar) or inside a hover flyout (collapsed sidebar) —
+  // see renderTopLevelEntry below. Only two real group headings remain ("Courier Payments",
+  // "Sales channels"); everything else is ungrouped. whatsapp/courier-connect/meta-connect/
+  // team/activity-log are intentionally NOT listed here any more — Part A4/A5 moved them
+  // into the new Settings sub-nav (Settings.jsx), reusing the exact same hasAccess/role
+  // gating at their unchanged render blocks further down, just reached via a different
+  // entry point.
   const allMenuItems = [
-    { id: 'home', label: t('nav.home'), group: t('nav.group.overview') },
-    { id: 'dashboard', label: t('nav.dashboard'), group: t('nav.group.overview') },
-    { id: 'orders', label: t('nav.orders'), group: t('nav.group.overview') },
-    { id: 'courier', label: t('nav.courier'), group: t('nav.group.operations') },
-    { id: 'returns', label: t('nav.returns'), group: t('nav.group.operations') },
-    { id: 'products', label: t('nav.products'), group: t('nav.group.operations') },
-    { id: 'finance-statement', label: t('nav.finance-statement'), group: t('nav.group.finance') },
-    { id: 'ads', label: t('nav.ads'), group: t('nav.group.insights') },
-    { id: 'pnl', label: t('nav.pnl'), group: t('nav.group.insights') },
-    { id: 'ledger', label: t('nav.ledger'), group: t('nav.group.insights') },
-    { id: 'cities', label: t('nav.cities'), group: t('nav.group.insights') },
-    { id: 'budget', label: t('nav.budget'), group: t('nav.group.insights') },
-    { id: 'suggestions', label: t('nav.suggestions'), group: t('nav.group.insights') },
-    { id: 'courier-dashboard', label: t('nav.courier-dashboard'), group: t('nav.group.insights') },
-    { id: 'whatsapp', label: t('nav.whatsapp'), group: t('nav.group.channels') },
-    { id: 'store-connect', label: t('nav.store-connect'), group: t('nav.group.channels') },
-    { id: 'online-store', label: t('nav.online-store'), group: t('nav.group.channels') },
-    { id: 'meta-connect', label: t('nav.meta-connect'), group: t('nav.group.channels') },
-    { id: 'courier-connect', label: t('nav.courier-connect'), group: t('nav.group.channels') },
-    { id: 'payments', label: t('nav.payments'), group: t('nav.group.channels') },
+    { id: 'home', label: t('nav.home') },
+    { id: 'orders', label: t('nav.orders') },
+    { id: 'courier', label: t('nav.courier'), parent: 'orders' },
+    { id: 'returns', label: t('nav.returns'), parent: 'orders' },
+    { id: 'products', label: t('nav.products') },
+    { id: 'dashboard', label: t('nav.dashboard') },
+    { id: 'courier-dashboard', label: t('nav.courier-dashboard'), parent: 'dashboard' },
+    { id: 'pnl', label: t('nav.pnl') },
+    { id: 'ledger', label: t('nav.ledger'), parent: 'pnl' },
+    { id: 'budget', label: t('nav.budget'), parent: 'pnl' },
+    { id: 'finance-statement', label: t('nav.finance-statement'), group: t('nav.group.courierPayments') },
+    { id: 'online-store', label: t('nav.online-store'), group: t('nav.group.salesChannels') },
+    { id: 'store-connect', label: t('nav.store-connect'), group: t('nav.group.salesChannels') },
+    { id: 'ads', label: t('nav.ads'), group: t('nav.group.salesChannels') },
+    { id: 'suggestions', label: t('nav.suggestions') },
   ]
 
-  const isPrivileged = profile.role === 'admin' || profile.role === 'creator'
-  const menuItemsWithExtras = isPrivileged
-    ? [...allMenuItems,
-        { id: 'team', label: t('nav.team'), group: t('nav.group.channels') },
-        { id: 'activity-log', label: t('nav.activity-log'), group: t('nav.group.channels') },
-        { id: 'settings', label: t('nav.settings'), group: t('nav.group.channels') }]
-    : [...allMenuItems, { id: 'settings', label: t('nav.settings'), group: t('nav.group.channels') }]
-
-  const alwaysVisibleIds = ['home', 'team', 'activity-log', 'settings']
-  const menuItems = menuItemsWithExtras.filter(m => hasAccess(m.id) || alwaysVisibleIds.includes(m.id))
+  const alwaysVisibleIds = ['home']
+  // menuItems only used for the "coming soon" placeholder fallback below — the title-bar
+  // lookup and sidebar rendering use pageTitleLookup/topLevelEntries (defined next), since
+  // whatsapp/courier-connect/meta-connect/team/activity-log/settings are no longer part of
+  // allMenuItems but are still real routable pages.
+  const menuItems = allMenuItems.filter(m => hasAccess(m.id) || alwaysVisibleIds.includes(m.id))
   const fullScreenModules = ['orders', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor']
   const currentStoreInfo = userStoresList.find(us => us.store_id === selectedStoreId)?.stores
 
-  // Group nav items in original order, preserving group sequence
-  const groupOrder = [t('nav.group.overview'), t('nav.group.operations'), t('nav.group.finance'), t('nav.group.insights'), t('nav.group.channels')]
-  const groupedMenu = groupOrder.map(g => ({ group: g, items: menuItems.filter(m => m.group === g) })).filter(g => g.items.length > 0)
+  // Flat lookup (unlike menuItems) so the page title / "coming soon" fallback still resolve
+  // correctly for pages that moved out of the sidebar entirely (Settings sub-nav items) or
+  // that only ever had a hidden/indirect route (theme-editor, courier-dashboard/detailed).
+  const pageTitleLookup = [
+    ...allMenuItems,
+    { id: 'settings', label: t('nav.settings') },
+    { id: 'whatsapp', label: t('nav.whatsapp') },
+    { id: 'courier-connect', label: t('nav.courier-connect') },
+    { id: 'meta-connect', label: t('nav.meta-connect') },
+    { id: 'team', label: t('nav.team') },
+    { id: 'activity-log', label: t('nav.activity-log') },
+  ]
+
+  // Part A2/B3: build the sidebar's top-level entries with their (optional) children and
+  // (optional) group heading, in original order. A parent's children are resolved
+  // independently of the parent's own hasAccess check, so hiding a parent module never
+  // hides an otherwise-accessible child's visibility logic — though visually a hidden
+  // parent does mean its children have no visible row to nest under, same tradeoff as the
+  // user's explicit request to nest courier/returns under orders, ledger/budget under pnl,
+  // and courier-dashboard under dashboard.
+  let lastGroupHeading = null
+  const topLevelEntries = allMenuItems
+    .filter(m => !m.parent)
+    .filter(m => hasAccess(m.id) || alwaysVisibleIds.includes(m.id))
+    .map(item => {
+      const children = allMenuItems.filter(c => c.parent === item.id && (hasAccess(c.id) || alwaysVisibleIds.includes(c.id)))
+      const groupHeading = item.group && item.group !== lastGroupHeading ? item.group : null
+      lastGroupHeading = item.group || null
+      return { item, children, groupHeading }
+    })
 
   const closeDrawer = () => setMobileDrawerOpen(false)
 
-  const handleClearCache = async () => {
-    if (!window.confirm(t('action.clearCacheConfirm'))) return;
-    await clearCache();
-    await clearViewCache();
-    window.location.reload();
-  };
-
-  const renderNavItem = (item) => (
+  const renderNavItem = (item, { sub } = {}) => (
     <div key={item.id}
       onMouseEnter={() => prefetchPage(item.id)}
       onTouchStart={() => prefetchPage(item.id)}
       onClick={() => { setActiveMenu(item.id); closeDrawer() }}
-      title={!sidebarOpen ? item.label : ''}
-      className={`ne-navitem${activeMenu === item.id ? ' active' : ''}`}>
+      title={!sidebarOpen && !sub ? item.label : ''}
+      className={`ne-navitem${activeMenu === item.id ? ' active' : ''}${sub ? ' ne-navitem-sub' : ''}`}>
       <span className="ne-ic">{NAV_ICONS[item.id]}</span>
       {(sidebarOpen || mobileDrawerOpen) && <span>{item.label}</span>}
       {item.id === 'orders' && notifCount > 0 && (
@@ -2117,6 +2150,38 @@ function App() {
       )}
     </div>
   )
+
+  // Collapsed-sidebar hover flyout for a parent with children (B3) — expanded sidebar
+  // instead always shows children indented inline (simpler, and with only 2-3 children per
+  // group there's no real win from making it an accordion toggle).
+  const renderTopLevelEntry = (entry) => {
+    if (entry.children.length === 0) return renderNavItem(entry.item)
+    if (sidebarOpen || mobileDrawerOpen) {
+      return (
+        <div key={entry.item.id} className="ne-navgroup-parent">
+          {renderNavItem(entry.item)}
+          <div className="ne-navchildren">
+            {entry.children.map(c => renderNavItem(c, { sub: true }))}
+          </div>
+        </div>
+      )
+    }
+    return (
+      <div key={entry.item.id} className="ne-navgroup-parent">
+        {renderNavItem(entry.item)}
+        <div className="ne-navflyout">
+          <div className="ne-navflyout-title">{entry.item.label}</div>
+          {entry.children.map(c => (
+            <div key={c.id}
+              className={`ne-navflyout-item${activeMenu === c.id ? ' active' : ''}`}
+              onClick={() => { setActiveMenu(c.id); closeDrawer() }}>
+              {c.label}
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="ne-app-shell">
@@ -2156,70 +2221,83 @@ function App() {
             {mobileDrawerOpen && <div className="ne-drawer-backdrop open" onClick={closeDrawer} />}
 
             <div className={`ne-sidebar${sidebarOpen ? '' : ' collapsed'}${mobileDrawerOpen ? ' open' : ''}`}>
-          <div className="ne-brand-row">
-            <Monogram size={22} />
-            {(sidebarOpen || mobileDrawerOpen) && <Wordmark size={18} dark />}
-            <span className="ne-live-dot" title="Realtime connected" />
-            {(sidebarOpen || mobileDrawerOpen) && (
-              <button className="ne-collapse-btn" onClick={() => setSidebarOpen(!sidebarOpen)} style={{ marginLeft: 'auto' }}>◀</button>
-            )}
-            {!sidebarOpen && !mobileDrawerOpen && (
-              <button className="ne-collapse-btn" onClick={() => setSidebarOpen(!sidebarOpen)}>▶</button>
-            )}
+          {/* Part E1 — fixed top region: logo/collapse + search trigger, never scrolls. */}
+          <div className="ne-sidebar-top">
+            <div className="ne-brand-row">
+              <span className={!sidebarOpen && !mobileDrawerOpen ? 'ne-tooltip' : ''} data-tooltip={t('sidebar.expandTooltip')} style={{ display: 'flex' }}>
+                <Monogram size={22} />
+              </span>
+              {(sidebarOpen || mobileDrawerOpen) && <Wordmark size={18} dark />}
+              {(sidebarOpen || mobileDrawerOpen) && (
+                <button className="ne-collapse-btn" onClick={() => setSidebarOpen(!sidebarOpen)} style={{ marginLeft: 'auto' }}><Icon name="chevronLeft" size={14} /></button>
+              )}
+              {!sidebarOpen && !mobileDrawerOpen && (
+                <button className="ne-collapse-btn" onClick={() => setSidebarOpen(!sidebarOpen)}><Icon name="chevronRight" size={14} /></button>
+              )}
+            </div>
+
+            <div onClick={() => setSearchOpen(true)} className="ne-navitem ne-search-trigger" title={!sidebarOpen ? t('search.triggerLabel') : ''}>
+              <span className="ne-ic"><Icon name="search" size={14} /></span>
+              {(sidebarOpen || mobileDrawerOpen) && (
+                <>
+                  <span>{t('search.triggerLabel')}</span>
+                  <span className="ne-search-kbd">Ctrl K</span>
+                </>
+              )}
+            </div>
           </div>
 
-          <div onClick={handleClearCache} className="ne-navitem">
-            <span className="ne-ic">
-              <RefreshIcon style={{ width: 15, height: 15 }} />
-            </span>
-            {(sidebarOpen || mobileDrawerOpen) && <span>{t('action.clearCache')}</span>}
+          {/* Part E1 — scrollable middle region: nav groups only. */}
+          <div className="ne-sidebar-scroll">
+            {topLevelEntries.map(entry => (
+              <div key={entry.item.id}>
+                {entry.groupHeading && (sidebarOpen || mobileDrawerOpen) && <div className="ne-navlabel">{entry.groupHeading}</div>}
+                {renderTopLevelEntry(entry)}
+              </div>
+            ))}
           </div>
 
-          {/* Sidebar hamesha dark hai (light mode mein bhi), isliye yahan theme-var ke bajaye
-              dark-mode ke fixed colors use karte hain — warna light mode mein dark text
-              dark sidebar ke upar illegible ho jata */}
-          {currentStoreInfo && (sidebarOpen || mobileDrawerOpen) && (
-            <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: 8, padding: '8px 10px', fontSize: 11.5, color: '#8C93C4', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Icon name="store" size={12} /> {currentStoreInfo.store_name}
-              {currentStoreInfo.eneezam_id && <span style={{ opacity: 0.7 }}> · {currentStoreInfo.eneezam_id}</span>}
+          {/* Part E1 — fixed bottom region: store/brand identity + bell + Settings, pinned. */}
+          <div className="ne-sidebar-bottom">
+            <div className="ne-sidebar-bottomrow">
+              <div onClick={() => setBrandPopupOpen(v => !v)} className="ne-brandname-btn">
+                <Icon name="store" size={13} />
+                {(sidebarOpen || mobileDrawerOpen) && <span>{currentStoreInfo?.store_name || t('master.myBrands')}</span>}
+              </div>
+              {(sidebarOpen || mobileDrawerOpen) && <NotificationBell cfUrl={CF_URL} session={session} storeId={selectedStoreId} t={t} />}
+              {brandPopupOpen && (
+                <BrandSwitcherPopup
+                  currentStoreInfo={currentStoreInfo}
+                  userStoresList={userStoresList}
+                  selectedStoreId={selectedStoreId}
+                  onSwitchStore={(id) => { handleSwitchStore(id); setBrandPopupOpen(false) }}
+                  profile={profile}
+                  userEmail={session.user.email}
+                  onOpenMasterDashboard={() => { navigate('/master-dashboard'); setSelectedStoreId(null); setOrdersLoaded(false); hasStartedLoadRef.current = false; hasStartedBookedLoadRef.current = false; closeDrawer(); setBrandPopupOpen(false) }}
+                  onSignOut={() => supabase.auth.signOut()}
+                  onClose={() => setBrandPopupOpen(false)}
+                  t={t}
+                />
+              )}
             </div>
-          )}
 
-          {/* TASK 14: Brand Switcher — 2+ brands ho tabhi dikhega */}
-          {userStoresList.length > 1 && (sidebarOpen || mobileDrawerOpen) && (
-            <select value={selectedStoreId || ''} onChange={e => handleSwitchStore(e.target.value)}
-              style={{ width: '100%', padding: '7px 8px', borderRadius: 8, border: '1px solid #232A52', background: '#161B45', color: '#EEF0FF', fontSize: 11.5, marginBottom: 8, cursor: 'pointer' }}>
-              {userStoresList.map(us => (
-                <option key={us.store_id} value={us.store_id}>{us.stores?.store_name}</option>
-              ))}
-            </select>
-          )}
+            {profile.role === 'admin' && userStoresList.length > 1 && (sidebarOpen || mobileDrawerOpen) && (
+              <button onClick={() => { setIsAdminMasterView(true); closeDrawer() }}
+                style={{ width: '100%', padding: '7px', borderRadius: 8, border: '1px solid #232A52', background: 'transparent', color: '#8C93C4', fontSize: 11.5, cursor: 'pointer', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <Icon name="store" size={12} /> {t('master.myBrands')}
+              </button>
+            )}
 
-          {profile.role === 'creator' && (sidebarOpen || mobileDrawerOpen) && (
-            <button onClick={() => { navigate('/master-dashboard'); setSelectedStoreId(null); setOrdersLoaded(false); hasStartedLoadRef.current = false; hasStartedBookedLoadRef.current = false; closeDrawer() }}
-              style={{ width: '100%', padding: '7px', borderRadius: 8, border: '1px solid #232A52', background: 'transparent', color: '#8C93C4', fontSize: 11.5, cursor: 'pointer', marginBottom: 8 }}>
-              {t('master.backToMaster')}
-            </button>
-          )}
-
-          {/* TASK 15: admin ke apne 2+ brands hon to mini master dashboard ka rasta */}
-          {profile.role === 'admin' && userStoresList.length > 1 && (sidebarOpen || mobileDrawerOpen) && (
-            <button onClick={() => { setIsAdminMasterView(true); closeDrawer() }}
-              style={{ width: '100%', padding: '7px', borderRadius: 8, border: '1px solid #232A52', background: 'transparent', color: '#8C93C4', fontSize: 11.5, cursor: 'pointer', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-              <Icon name="store" size={12} /> {t('master.myBrands')}
-            </button>
-          )}
-
-          {groupedMenu.map(g => (
-            <div key={g.group}>
-              {(sidebarOpen || mobileDrawerOpen) && <div className="ne-navlabel">{g.group}</div>}
-              {g.items.map(renderNavItem)}
+            <div
+              onClick={() => { setActiveMenu('settings'); closeDrawer() }}
+              title={!sidebarOpen ? t('nav.settings') : ''}
+              className={`ne-navitem${activeMenu === 'settings' ? ' active' : ''}`}>
+              <span className="ne-ic">{NAV_ICONS.settings}</span>
+              {(sidebarOpen || mobileDrawerOpen) && <span>{t('nav.settings')}</span>}
             </div>
-          ))}
 
-          <div style={{ marginTop: 'auto', paddingTop: 16 }}>
             {(sidebarOpen || mobileDrawerOpen) ? (
-              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, marginBottom: 8 }}>
                 <button onClick={() => setTheme(th => th === 'dark' ? 'light' : 'dark')} title={t('theme.toggle')}
                   style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', height: 34, borderRadius: 9, border: '1px solid #232A52', background: 'rgba(255,255,255,.04)', color: '#EEF0FF', cursor: 'pointer' }}>
                   {theme === 'dark' ? <SunIcon style={{ width: 15, height: 15 }} /> : <MoonIcon style={{ width: 15, height: 15 }} />}
@@ -2231,19 +2309,32 @@ function App() {
               </div>
             ) : (
               <button onClick={() => setTheme(th => th === 'dark' ? 'light' : 'dark')} title={t('theme.toggle')}
-                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', height: 34, borderRadius: 9, border: '1px solid #232A52', background: 'rgba(255,255,255,.04)', color: '#EEF0FF', cursor: 'pointer', marginBottom: 8 }}>
+                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', height: 34, borderRadius: 9, border: '1px solid #232A52', background: 'rgba(255,255,255,.04)', color: '#EEF0FF', cursor: 'pointer', marginTop: 8, marginBottom: 8 }}>
                 {theme === 'dark' ? <SunIcon style={{ width: 15, height: 15 }} /> : <MoonIcon style={{ width: 15, height: 15 }} />}
               </button>
             )}
-            <div onClick={() => supabase.auth.signOut()} className="ne-navitem" style={{ color: '#F26D6D' }}>
-              <span className="ne-ic" style={{ background: 'rgba(242,109,109,.1)' }}>
-                <svg viewBox="0 0 20 20" stroke="#F26D6D"><path d="M7 17H4.5a1.5 1.5 0 0 1-1.5-1.5v-11A1.5 1.5 0 0 1 4.5 3H7"/><path d="M13 14l4-4-4-4"/><path d="M17 10H7"/></svg>
-              </span>
-              {(sidebarOpen || mobileDrawerOpen) && <span>{t('action.logout')}</span>}
-            </div>
           </div>
         </div>
           </>
+        )}
+
+        {searchOpen && (
+          <GlobalSearch
+            storeId={selectedStoreId}
+            storeName={currentStoreInfo?.store_name}
+            onNavigate={setActiveMenu}
+            onClose={() => setSearchOpen(false)}
+            settingsSections={[
+              { id: 'profile', label: t('settings.myProfile') },
+              { id: 'password', label: t('settings.changePassword') },
+              { id: 'whatsapp', label: t('nav.whatsapp') },
+              { id: 'courier-connect', label: t('nav.courier-connect') },
+              { id: 'meta-connect', label: t('nav.meta-connect') },
+              { id: 'team', label: t('nav.team') },
+              { id: 'activity-log', label: t('nav.activity-log') },
+            ]}
+            t={t}
+          />
         )}
 
         <div className="ne-main">
@@ -2251,12 +2342,12 @@ function App() {
             <div className="ne-topbar">
               <button className="ne-hamburger" onClick={() => setMobileDrawerOpen(true)}>☰</button>
               <h1 className="ne-page-title">
-                {menuItems.find(m => m.id === activeMenu)?.label}
+                {pageTitleLookup.find(m => m.id === activeMenu)?.label}
                 {syncStatusText && <span className="ne-sync-status" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="pending" size={11} /> {syncStatusText}</span>}
               </h1>
               <SyncStatusBadge />
               <div className="ne-userchip">
-                <div className="ne-avatar">{session.user.email[0].toUpperCase()}</div>
+                <InitialsAvatar name={profile?.full_name || session.user.email} size={28} />
                 <span>{session.user.email}</span>
               </div>
             </div>
@@ -2266,7 +2357,7 @@ function App() {
             <button className="ne-hamburger" onClick={() => setMobileDrawerOpen(true)} style={{ position: 'absolute', top: 10, left: 10, zIndex: 50 }}>☰</button>
           )}
 
-          <div className="ne-content">
+          <div className={`ne-content${fullScreenModules.includes(activeMenu) ? ' ne-content-fullscreen' : ''}`}>
           <ErrorBoundary key={activeMenu}>
             {((ordersPending && ORDERS_DEPENDENT_PAGES.includes(activeMenu)) || (storePending && STORE_DEPENDENT_PAGES.includes(activeMenu))) && hasAccess(activeMenu) && <PageSkeletonFor menu={activeMenu} />}
             {activeMenu === 'orders' && hasAccess('orders') && !storePending && (
@@ -2316,9 +2407,6 @@ function App() {
             {activeMenu === 'courier-connect' && hasAccess('courier-connect') && (
               <CourierConnect storeId={selectedStoreId} />
             )}
-            {activeMenu === 'payments' && hasAccess('payments') && (
-              <Payments storeId={selectedStoreId} cfUrl={CF_URL} />
-            )}
             {activeMenu === 'whatsapp' && hasAccess('whatsapp') && <WhatsApp />}
             {activeMenu === 'team' && (profile.role === 'admin' || profile.role === 'creator') && (
               <Team storeId={selectedStoreId} storeName={currentStoreInfo?.store_name || ordersStore?.store_name} eneezamId={currentStoreInfo?.eneezam_id || ordersStore?.eneezam_id} cfUrl={CF_URL} />
@@ -2327,7 +2415,14 @@ function App() {
               <ActivityLog storeId={selectedStoreId} />
             )}
             {activeMenu === 'settings' && (
-              <Settings profile={profile} onProfileUpdated={(updated) => setProfile(updated)} />
+              <Settings
+                profile={profile}
+                onProfileUpdated={(updated) => setProfile(updated)}
+                onNavigate={setActiveMenu}
+                hasAccess={hasAccess}
+                currentStoreInfo={currentStoreInfo}
+                userEmail={session.user.email}
+              />
             )}
             {activeMenu === 'pnl' && hasAccess('pnl') && !ordersPending && (
               <ProfitLoss ordersData={ordersData} storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} activePeriod={activePeriod} onPeriodChange={handlePeriodChange} />
@@ -2353,10 +2448,10 @@ function App() {
             {activeMenu === 'master-dashboard/gemini-monitor' && profile.role === 'creator' && (
               <GeminiUsageMonitor cfUrl={CF_URL} session={session} />
             )}
-            {!['home', 'dashboard', 'store-connect', 'online-store', 'theme-editor', 'products', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'returns', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor'].includes(activeMenu) && (
+            {!['home', 'dashboard', 'store-connect', 'online-store', 'theme-editor', 'products', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'returns', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor'].includes(activeMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
-                  <h2 style={{ color: '#fff', marginBottom: 8 }}>{menuItems.find(m => m.id === activeMenu)?.label}</h2>
+                  <h2 style={{ color: '#fff', marginBottom: 8 }}>{pageTitleLookup.find(m => m.id === activeMenu)?.label}</h2>
                   <p style={{ color: 'var(--ne-muted)', fontSize: 14 }}>{t('common.comingSoon')}</p>
                 </div>
               </div>

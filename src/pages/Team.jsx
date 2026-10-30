@@ -15,7 +15,6 @@ const MODULES = [
   { id: "pnl", labelKey: "nav.pnl" },
   { id: "ledger", labelKey: "nav.ledger" },
   { id: "returns", labelKey: "nav.returns" },
-  { id: "cities", labelKey: "nav.cities" },
   { id: "products", labelKey: "nav.products" },
   { id: "budget", labelKey: "nav.budget" },
   { id: "suggestions", labelKey: "nav.suggestions" },

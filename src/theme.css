@@ -21,34 +21,84 @@ html, body {
 .ne-app-shell{font-family:'Inter',system-ui,sans-serif; min-height:100vh; min-height:100dvh; background:var(--ne-bg-glow), var(--ne-bg); color:var(--ne-text); -webkit-font-smoothing:antialiased;}
 .ne-app{display:flex; height:100%; width:100%; overflow:hidden;}
 
-.ne-sidebar{width:240px; flex-shrink:0; background:var(--ne-sidebar-bg); padding:20px 14px; display:flex; flex-direction:column; height:100%; overflow-y:auto;}
-.ne-sidebar.collapsed{width:64px; align-items:center; padding:20px 8px;}
-.ne-brand-row{display:flex; align-items:center; gap:9px; padding:6px 8px 18px;}
-.ne-sidebar.collapsed .ne-brand-row{padding:6px 0 18px; justify-content:center;}
-.ne-live-dot{width:7px; height:7px; border-radius:50%; background:var(--ne-success); box-shadow:0 0 0 0 rgba(52,216,142,.6); animation:ne-pulse 2s infinite; flex-shrink:0;}
-@keyframes ne-pulse{0%{box-shadow:0 0 0 0 rgba(52,216,142,.5);} 70%{box-shadow:0 0 0 6px rgba(52,216,142,0);} 100%{box-shadow:0 0 0 0 rgba(52,216,142,0);}}
+/* Admin UI overhaul: sidebar narrowed ~18% (240px -> 195px); collapsed width unchanged,
+   64px already reads fine at the new proportions. Split into three fixed/scroll regions
+   (Part E1) instead of one scrolling column — .ne-sidebar is now just the outer flex
+   column, .ne-sidebar-top/-scroll/-bottom are its three children. */
+.ne-sidebar{width:195px; flex-shrink:0; background:var(--ne-sidebar-bg); padding:16px 12px; display:flex; flex-direction:column; height:100%; overflow:hidden;}
+.ne-sidebar.collapsed{width:64px; align-items:center; padding:16px 8px;}
+.ne-sidebar-top{flex-shrink:0;}
+.ne-sidebar-scroll{flex:1; min-height:0; overflow-y:auto; margin:0 -4px; padding:0 4px;}
+.ne-sidebar-bottom{flex-shrink:0; padding-top:10px; margin-top:6px; border-top:1px solid rgba(255,255,255,.08);}
+.ne-sidebar.collapsed .ne-sidebar-bottom{width:100%;}
 
-.ne-navlabel{font-size:10px; font-weight:700; color:rgba(255,255,255,.35); text-transform:uppercase; letter-spacing:.07em; padding:14px 8px 5px;}
-.ne-navitem{display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:10px; font-size:13px; color:rgba(255,255,255,.65); cursor:pointer; font-weight:500; white-space:nowrap;}
-.ne-sidebar.collapsed .ne-navitem{justify-content:center; padding:9px;}
-.ne-navitem .ne-ic{width:26px; height:26px; border-radius:8px; background:rgba(255,255,255,.05); display:flex; align-items:center; justify-content:center; flex-shrink:0;}
+.ne-brand-row{display:flex; align-items:center; gap:9px; padding:6px 8px 10px;}
+.ne-sidebar.collapsed .ne-brand-row{padding:6px 0 10px; justify-content:center;}
+
+.ne-navlabel{font-size:10px; font-weight:700; color:rgba(255,255,255,.35); text-transform:uppercase; letter-spacing:.07em; padding:10px 8px 4px;}
+.ne-navitem{display:flex; align-items:center; gap:10px; padding:7px 9px; margin-bottom:1px; border-radius:9px; font-size:13px; color:rgba(255,255,255,.65); cursor:pointer; font-weight:500; white-space:nowrap; position:relative;}
+.ne-sidebar.collapsed .ne-navitem{justify-content:center; padding:8px;}
+.ne-navitem .ne-ic{width:24px; height:24px; border-radius:7px; background:rgba(255,255,255,.05); display:flex; align-items:center; justify-content:center; flex-shrink:0;}
 .ne-navitem .ne-ic svg{width:14px; height:14px; stroke:rgba(255,255,255,.65); fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round;}
-.ne-navitem.active{color:#fff; font-weight:700; background:rgba(255,255,255,.04);}
+/* Part B1: hover stays the old flat tint; active is a distinct "glass/embossed" treatment
+   (gradient-tinted surface + inner highlight + left accent bar), so the two states no
+   longer read almost identically. Built entirely from existing tokens (--ne-grad/--ne-border). */
+.ne-navitem.active{color:#fff; font-weight:700; background:linear-gradient(90deg, rgba(92,124,250,.22), rgba(168,85,247,.10)); box-shadow:inset 0 1px 0 rgba(255,255,255,.08), inset 0 0 0 1px rgba(255,255,255,.06);}
+.ne-navitem.active::before{content:''; position:absolute; left:0; top:4px; bottom:4px; width:3px; border-radius:3px; background:var(--ne-grad);}
+.ne-sidebar.collapsed .ne-navitem.active::before{display:none;}
 .ne-navitem.active .ne-ic{background:var(--ne-grad);}
 .ne-navitem.active .ne-ic svg{stroke:#fff;}
 .ne-navitem:hover:not(.active){background:rgba(255,255,255,.04);}
+.ne-navitem-sub{padding-left:40px; font-size:12.5px;}
+.ne-sidebar.collapsed .ne-navitem-sub{display:none;}
+.ne-navchildren{margin-bottom:2px;}
 
-.ne-collapse-btn{background:none; border:none; color:rgba(255,255,255,.5); cursor:pointer; font-size:14px; padding:4px;}
+/* Part B3 — collapsed-sidebar hover flyout for a parent item with children. */
+.ne-navgroup-parent{position:relative;}
+.ne-navflyout{display:none; position:absolute; left:100%; top:0; margin-left:8px; min-width:170px; background:var(--ne-sidebar-bg); border:1px solid rgba(255,255,255,.12); border-radius:10px; padding:8px; box-shadow:0 12px 32px rgba(0,0,0,.45); z-index:1000;}
+.ne-sidebar.collapsed .ne-navgroup-parent:hover .ne-navflyout{display:block;}
+.ne-navflyout-title{font-size:10px; font-weight:700; color:rgba(255,255,255,.4); text-transform:uppercase; letter-spacing:.06em; padding:2px 8px 6px;}
+.ne-navflyout-item{padding:7px 8px; border-radius:7px; font-size:12.5px; color:rgba(255,255,255,.75); cursor:pointer; white-space:nowrap;}
+.ne-navflyout-item:hover{background:rgba(255,255,255,.06);}
+.ne-navflyout-item.active{background:rgba(255,255,255,.08); color:#fff; font-weight:700;}
 
-.ne-main{flex:1; display:flex; flex-direction:column; height:100%; overflow:hidden; min-width:0; background:var(--ne-surface);}
-.ne-topbar{display:flex; align-items:center; gap:14px; padding:14px 24px; border-bottom:1px solid var(--ne-border); flex-shrink:0;}
+.ne-collapse-btn{background:none; border:none; color:rgba(255,255,255,.5); cursor:pointer; padding:4px; display:flex; align-items:center;}
+
+/* Part B2 — lightweight CSS-only tooltip (no reusable tooltip component exists anywhere
+   in the app per diagnose), used for the collapsed-logo "Expand navigation" hint and
+   anywhere else a quick label-on-hover is useful. */
+.ne-tooltip{position:relative;}
+.ne-tooltip::after{content:attr(data-tooltip); position:absolute; left:100%; top:50%; transform:translateY(-50%); margin-left:10px; background:#0A0E26; color:#EEF0FF; font-size:11.5px; font-weight:600; white-space:nowrap; padding:6px 10px; border-radius:7px; box-shadow:0 8px 24px rgba(0,0,0,.4); opacity:0; pointer-events:none; transition:opacity .12s ease; z-index:1001;}
+.ne-tooltip:hover::after{opacity:1;}
+
+.ne-search-trigger{justify-content:flex-start;}
+.ne-search-kbd{margin-left:auto; font-size:10px; font-weight:700; color:rgba(255,255,255,.4); background:rgba(255,255,255,.06); border-radius:5px; padding:2px 5px; flex-shrink:0;}
+.ne-sidebar.collapsed .ne-search-kbd{display:none;}
+
+.ne-sidebar-bottomrow{display:flex; align-items:center; gap:6px; position:relative; margin-bottom:6px;}
+.ne-sidebar.collapsed .ne-sidebar-bottomrow{flex-direction:column;}
+.ne-brandname-btn{display:flex; align-items:center; gap:7px; flex:1; min-width:0; padding:6px 8px; border-radius:8px; cursor:pointer; font-size:12px; color:#EEF0FF; font-weight:600;}
+.ne-brandname-btn:hover{background:rgba(255,255,255,.05);}
+.ne-brandname-btn span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.ne-sidebar.collapsed .ne-brandname-btn{flex:none;}
+
+.ne-main{flex:1; display:flex; flex-direction:column; height:100%; overflow:hidden; min-width:0; background:var(--ne-sidebar-bg);}
+.ne-topbar{display:flex; align-items:center; gap:14px; padding:14px 24px; border-bottom:1px solid var(--ne-border); flex-shrink:0; background:var(--ne-surface);}
 .ne-hamburger{display:none; width:34px; height:34px; border-radius:9px; flex-shrink:0; background:var(--ne-surface-2); border:1px solid var(--ne-border); color:var(--ne-text); align-items:center; justify-content:center; cursor:pointer; font-size:15px;}
 .ne-page-title{font-size:15px; font-weight:700; margin:0;}
 .ne-sync-status{font-size:11px; color:var(--ne-muted-2); font-weight:400; margin-left:8px;}
 .ne-userchip{display:flex; align-items:center; gap:9px; font-size:12.5px; color:var(--ne-muted); margin-left:auto; font-weight:600;}
 .ne-avatar{width:28px; height:28px; border-radius:50%; background:var(--ne-grad); color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:800; flex-shrink:0;}
 
-.ne-content{flex:1; overflow:auto; min-width:0; width:100%; overscroll-behavior-y: auto;}
+/* Part B4 — layout-shell-level content framing only: .ne-main is now the dark frame
+   (var(--ne-sidebar-bg), set above) and .ne-content itself becomes the rounded surface
+   card, offset from that dark frame by its own margin. No individual page component was
+   touched to achieve this — it's pure CSS on the existing .ne-content element.
+   Full-screen modules (Orders, dev-monitor, etc.) explicitly opt out via
+   .ne-content-fullscreen so their edge-to-edge layouts/sticky toolbars are unaffected —
+   they render exactly as before. */
+.ne-content{flex:1; overflow:auto; min-width:0; width:100%; overscroll-behavior-y:auto; margin:14px; border-radius:16px; background:var(--ne-surface);}
+.ne-content.ne-content-fullscreen{margin:0; border-radius:0;}
 
 .ne-drawer-backdrop{display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:998;}
 .ne-drawer-backdrop.open{display:block;}
@@ -78,12 +128,91 @@ html, body {
 .ne-sidebar::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);}
 .ne-sidebar::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.25);}
 
+/* Part E2 — the scrollable middle region gets its own thinner, higher-contrast scrollbar
+   (reusing the sidebar's existing white-tinted thumb approach above, just narrower and a
+   touch more opaque so it reads clearly against --ne-sidebar-bg at this smaller width). */
+.ne-sidebar-scroll::-webkit-scrollbar{width:5px;}
+.ne-sidebar-scroll::-webkit-scrollbar-track{background:transparent;}
+.ne-sidebar-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.2); border-radius:4px;}
+.ne-sidebar-scroll::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.32);}
+
 /* Hamesha-dark utility/callback screens (Shopify/Meta OAuth callback) ke
    scrollable lists ke liye consistent slim indigo-tinted scrollbar */
 .ne-dark-scroll::-webkit-scrollbar{width:9px; height:9px;}
 .ne-dark-scroll::-webkit-scrollbar-track{background:transparent;}
 .ne-dark-scroll::-webkit-scrollbar-thumb{background:#232A52; border-radius:6px;}
 .ne-dark-scroll::-webkit-scrollbar-thumb:hover{background:#4F567E;}
+
+/* Part D2 — notification bell (ring animation on hover, badge, dropdown). */
+.ne-bell-wrap{position:relative;}
+.ne-bell-btn{background:rgba(255,255,255,.05); border:none; border-radius:8px; width:30px; height:30px; display:flex; align-items:center; justify-content:center; color:#EEF0FF; cursor:pointer; position:relative; flex-shrink:0;}
+.ne-bell-btn:hover svg{animation:ne-bell-ring .4s ease;}
+@keyframes ne-bell-ring{0%,100%{transform:rotate(0);} 20%{transform:rotate(14deg);} 40%{transform:rotate(-12deg);} 60%{transform:rotate(8deg);} 80%{transform:rotate(-6deg);}}
+.ne-bell-badge{position:absolute; top:-3px; right:-3px; background:var(--ne-danger); color:#fff; font-size:9px; font-weight:800; border-radius:8px; padding:1px 4px; min-width:14px; text-align:center; line-height:1.4;}
+.ne-notif-dropdown{position:absolute; bottom:calc(100% + 8px); right:0; width:280px; max-height:360px; background:#0A0E26; border:1px solid rgba(255,255,255,.12); border-radius:12px; box-shadow:0 16px 40px rgba(0,0,0,.5); z-index:1000; display:flex; flex-direction:column;}
+.ne-notif-header{display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid rgba(255,255,255,.08); font-size:12.5px; font-weight:700; color:#EEF0FF;}
+.ne-notif-markread{background:none; border:none; color:var(--ne-accent); font-size:11px; font-weight:700; cursor:pointer; padding:0;}
+.ne-notif-list{overflow-y:auto; max-height:300px;}
+.ne-notif-empty{padding:18px 12px; font-size:12px; color:rgba(255,255,255,.4); text-align:center;}
+.ne-notif-item{padding:10px 12px; border-bottom:1px solid rgba(255,255,255,.06); position:relative;}
+.ne-notif-item.unread::before{content:''; position:absolute; left:4px; top:14px; width:6px; height:6px; border-radius:50%; background:var(--ne-accent);}
+.ne-notif-item-title{font-size:12.5px; font-weight:700; color:#EEF0FF; padding-left:12px;}
+.ne-notif-item-body{font-size:11.5px; color:rgba(255,255,255,.55); margin-top:2px; padding-left:12px;}
+.ne-notif-item-time{font-size:10.5px; color:rgba(255,255,255,.35); margin-top:4px; padding-left:12px;}
+
+/* Part D1 — Ctrl+K global search modal. */
+.ne-search-overlay{position:fixed; inset:0; background:rgba(0,0,0,.6); backdrop-filter:blur(2px); display:flex; align-items:flex-start; justify-content:center; padding-top:12vh; z-index:2000002;}
+.ne-search-modal{width:560px; max-width:92vw; max-height:70vh; background:var(--ne-surface-2); border:1px solid var(--ne-border); border-radius:16px; box-shadow:0 24px 60px rgba(0,0,0,.5); display:flex; flex-direction:column; overflow:hidden;}
+.ne-search-inputrow{display:flex; align-items:center; gap:10px; padding:16px; border-bottom:1px solid var(--ne-border); color:var(--ne-muted);}
+.ne-search-input{flex:1; background:none; border:none; outline:none; color:var(--ne-text); font-size:15px;}
+.ne-search-close{background:none; border:none; color:var(--ne-muted); cursor:pointer; display:flex; padding:4px;}
+.ne-search-chips{display:flex; gap:6px; padding:10px 16px; border-bottom:1px solid var(--ne-border); flex-wrap:wrap;}
+.ne-search-chip{background:var(--ne-surface); border:1px solid var(--ne-border); color:var(--ne-muted); border-radius:16px; padding:5px 12px; font-size:11.5px; font-weight:600; cursor:pointer;}
+.ne-search-chip.active{background:var(--ne-accent-soft); border-color:var(--ne-accent); color:var(--ne-accent);}
+.ne-search-results{overflow-y:auto; padding:8px;}
+.ne-search-empty{padding:28px 16px; text-align:center; color:var(--ne-muted); font-size:13px;}
+.ne-search-group{margin-bottom:6px;}
+.ne-search-grouplabel{font-size:10.5px; font-weight:700; color:var(--ne-muted-2); text-transform:uppercase; letter-spacing:.06em; padding:8px 10px 4px;}
+.ne-search-result{display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:9px; cursor:pointer; color:var(--ne-text); font-size:13px;}
+.ne-search-result:hover{background:var(--ne-surface);}
+.ne-search-result-sub{margin-left:auto; color:var(--ne-muted); font-size:11.5px;}
+
+/* Part D3 — brand/profile popup, anchored to the sidebar bottom block. */
+.ne-popover{position:absolute; bottom:calc(100% + 8px); left:0; width:230px; background:#0A0E26; border:1px solid rgba(255,255,255,.12); border-radius:12px; box-shadow:0 16px 40px rgba(0,0,0,.5); padding:10px; z-index:1000; display:flex; flex-direction:column; gap:6px;}
+.ne-popover-label{font-size:10.5px; font-weight:700; color:rgba(255,255,255,.4); text-transform:uppercase; letter-spacing:.05em; padding:0 2px;}
+.ne-popover-select{width:100%; padding:7px 8px; border-radius:8px; border:1px solid #232A52; background:#161B45; color:#EEF0FF; font-size:12px; cursor:pointer;}
+.ne-popover-storechip{display:flex; align-items:center; gap:6px; font-size:12px; color:#EEF0FF; font-weight:600; padding:4px 2px;}
+.ne-popover-storechip-id{opacity:.6; font-weight:400;}
+.ne-popover-link{display:flex; align-items:center; gap:7px; width:100%; background:none; border:none; color:rgba(255,255,255,.75); font-size:12.5px; font-weight:600; cursor:pointer; padding:7px 6px; border-radius:7px; text-align:left;}
+.ne-popover-link:hover{background:rgba(255,255,255,.06);}
+.ne-popover-logout{color:#F26D6D;}
+.ne-popover-divider{height:1px; background:rgba(255,255,255,.08); margin:2px 0;}
+.ne-popover-profile{display:flex; align-items:center; gap:9px; padding:4px 2px;}
+.ne-popover-profile-text{min-width:0;}
+.ne-popover-profile-name{font-size:12.5px; font-weight:700; color:#EEF0FF; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.ne-popover-profile-email{font-size:11px; color:rgba(255,255,255,.45); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+
+/* Part C — Settings shell. */
+.ne-settings-shell{display:flex; height:100%; min-height:0;}
+.ne-settings-nav{width:230px; flex-shrink:0; border-right:1px solid var(--ne-border); display:flex; flex-direction:column; padding:16px 12px;}
+.ne-settings-storeblock{display:flex; align-items:center; gap:6px; font-size:12px; font-weight:700; color:var(--ne-text); padding:6px 4px 12px;}
+.ne-settings-search{display:flex; align-items:center; gap:8px; background:var(--ne-bg); border:1px solid var(--ne-border); border-radius:9px; padding:7px 10px; color:var(--ne-muted); margin-bottom:10px;}
+.ne-settings-search input{flex:1; background:none; border:none; outline:none; color:var(--ne-text); font-size:12.5px;}
+.ne-settings-navlist{flex:1; overflow-y:auto; min-height:0;}
+.ne-settings-navitem{display:flex; align-items:center; gap:9px; padding:8px 9px; border-radius:8px; font-size:12.5px; color:var(--ne-muted); cursor:pointer; font-weight:600; margin-bottom:1px;}
+.ne-settings-navitem:hover{background:var(--ne-surface);}
+.ne-settings-navitem.active{background:var(--ne-accent-soft); color:var(--ne-accent);}
+.ne-settings-navempty{padding:14px 8px; font-size:12px; color:var(--ne-muted);}
+.ne-settings-userrow{display:flex; align-items:center; gap:9px; padding-top:12px; margin-top:8px; border-top:1px solid var(--ne-border);}
+.ne-settings-userrow-text{min-width:0;}
+.ne-settings-userrow-name{font-size:12.5px; font-weight:700; color:var(--ne-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.ne-settings-userrow-email{font-size:11px; color:var(--ne-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.ne-settings-body{flex:1; overflow-y:auto; min-height:0;}
+@media (max-width:760px){
+  .ne-settings-shell{flex-direction:column;}
+  .ne-settings-nav{width:100%; border-right:none; border-bottom:1px solid var(--ne-border);}
+}
+
 /* ===== LIGHT MODE ===== */
 :root[data-theme="light"]{
   --ne-bg:#F4F5FB;
@@ -109,7 +238,7 @@ html, body {
 :root[data-theme="light"] .ne-skel{ background:#D3D8EA; }
 @keyframes ne-skel-pulse{ 0%,100%{ opacity:.6; } 50%{ opacity:1; } }
 .ne-skel-shell{ display:flex; width:100%; height:100vh; }
-.ne-skel-side{ width:240px; flex-shrink:0; background:var(--ne-sidebar-bg); }
+.ne-skel-side{ width:195px; flex-shrink:0; background:var(--ne-sidebar-bg); }
 .ne-skel-main{ flex:1; min-width:0; padding:16px; display:flex; flex-direction:column; gap:16px; }
 @media (max-width:768px){ .ne-skel-side{ display:none; } }
 
