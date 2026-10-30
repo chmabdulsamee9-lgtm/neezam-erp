@@ -118,7 +118,7 @@ const chipStyle = (active) => ({
   background: active ? "var(--ne-grad)" : "transparent", color: active ? "#fff" : "var(--ne-text)",
 });
 
-export default function ThemeEditor({ storeId, onNavigate }) {
+export default function ThemeEditor({ storeId, themeId, onNavigate, onOpenThemeEditor }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const [currentProfile, setCurrentProfile] = useState(null);
@@ -126,11 +126,16 @@ export default function ThemeEditor({ storeId, onNavigate }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [draft, setDraft] = useState(null);
+  const [themeName, setThemeName] = useState("");
+  const [themeStatus, setThemeStatus] = useState("draft");
+  const [duplicating, setDuplicating] = useState(false);
   const [template, setTemplate] = useState("home");
   const [tab, setTab] = useState("theme");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [savedAt, setSavedAt] = useState(null);
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState("");
   const [previewToken, setPreviewToken] = useState(null);
   const [selectedSectionId, setSelectedSectionId] = useState(null);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
@@ -161,7 +166,7 @@ export default function ThemeEditor({ storeId, onNavigate }) {
   };
 
   useEffect(() => {
-    if (!storeId) {
+    if (!storeId || !themeId) {
       setLoading(false);
       return;
     }
@@ -179,19 +184,21 @@ export default function ThemeEditor({ storeId, onNavigate }) {
         const { data: { session } } = await supabase.auth.getSession();
         const authHeaders = { Authorization: `Bearer ${session?.access_token}` };
 
-        const [cfgRes, tokenRes] = await Promise.all([
-          fetch(`${CF_URL}/get-theme-config?store_id=${encodeURIComponent(storeId)}`, { headers: authHeaders }),
+        const [themeRes, tokenRes] = await Promise.all([
+          fetch(`${CF_URL}/get-store-theme?theme_id=${encodeURIComponent(themeId)}`, { headers: authHeaders }),
           fetch(`${CF_URL}/generate-theme-edit-token`, {
             method: "POST",
             headers: { "Content-Type": "application/json", ...authHeaders },
             body: JSON.stringify({ store_id: storeId }),
           }),
         ]);
-        const cfgData = await cfgRes.json();
+        const themeData = await themeRes.json();
         const tokenData = await tokenRes.json();
-        if (!cfgData.theme_config) throw new Error(cfgData.error || "Theme config load nahi hua");
+        if (!themeData.theme) throw new Error(themeData.error || "Theme load nahi hua");
         if (!tokenData.token) throw new Error(tokenData.error || "Preview token generate nahi hua");
-        setDraft(cfgData.theme_config);
+        setDraft(themeData.theme.theme_config);
+        setThemeName(themeData.theme.name);
+        setThemeStatus(themeData.theme.status);
         setPreviewToken(tokenData.token);
       } catch (err) {
         setLoadError(err.message);
@@ -199,7 +206,7 @@ export default function ThemeEditor({ storeId, onNavigate }) {
         setLoading(false);
       }
     })();
-  }, [storeId]);
+  }, [storeId, themeId]);
 
   const primaryDomain = (store?.store_custom_domains || []).find((d) => d.role === "primary" && d.status === "active")?.domain;
   const liveUrl = primaryDomain ? `https://${primaryDomain}` : store?.subdomain ? `https://${store.subdomain}.eneezam.com` : null;
@@ -267,15 +274,22 @@ export default function ThemeEditor({ storeId, onNavigate }) {
   };
 
   const handleSave = async () => {
-    if (!draft || !store) return;
+    if (!draft || !store || !themeId) return;
+    // Worker rejects writes to a published row — this mirrors that at the
+    // UI level too, via the "Duplicate to edit" banner below, but guard
+    // here too in case Save is clicked in some edge-case race.
+    if (themeStatus === "published") {
+      setSaveError(t("themeEditor.publishedReadOnly"));
+      return;
+    }
     setSaving(true);
     setSaveError("");
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`${CF_URL}/save-theme-config`, {
-        method: "POST",
+      const res = await fetch(`${CF_URL}/update-store-theme`, {
+        method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ store_id: store.id, theme_config: draft }),
+        body: JSON.stringify({ theme_id: themeId, theme_config: draft }),
       });
       const data = await res.json();
       if (!data.success) {
@@ -283,11 +297,64 @@ export default function ThemeEditor({ storeId, onNavigate }) {
         return;
       }
       setSavedAt(new Date());
-      logActivity(store.id, "theme_config_saved", { store_id: store.id });
+      logActivity(store.id, "theme_config_saved", { theme_id: themeId });
     } catch (err) {
       setSaveError(err.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // The worker rejects direct edits to a published row (to avoid accidental
+  // live edits bypassing publish) — this creates a draft copy and re-targets
+  // this same editor instance at it via onOpenThemeEditor, rather than
+  // allowing a mid-edit async fork.
+  const handleDuplicateToEdit = async () => {
+    if (!store || !themeId) return;
+    setDuplicating(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${CF_URL}/create-store-theme`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ store_id: store.id, source_theme_id: themeId }),
+      });
+      const data = await res.json();
+      if (!data.theme) {
+        setSaveError(data.error || "Duplicate nahi hui");
+        return;
+      }
+      logActivity(store.id, "theme_duplicated", { from_theme_id: themeId, to_theme_id: data.theme.id });
+      onOpenThemeEditor?.(data.theme.id);
+    } catch (err) {
+      setSaveError(err.message);
+    } finally {
+      setDuplicating(false);
+    }
+  };
+
+  const handlePublishFromEditor = async () => {
+    if (!store || !themeId) return;
+    setPublishing(true);
+    setPublishError("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${CF_URL}/publish-store-theme`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ theme_id: themeId }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setPublishError(data.error || "Publish nahi hui");
+        return;
+      }
+      setThemeStatus("published");
+      logActivity(store.id, "theme_published", { theme_id: themeId });
+    } catch (err) {
+      setPublishError(err.message);
+    } finally {
+      setPublishing(false);
     }
   };
 
@@ -320,6 +387,12 @@ export default function ThemeEditor({ storeId, onNavigate }) {
             <Icon name="undo" size={12} /> {t("themeEditor.backButton")}
           </button>
           <span style={{ color: "#fff", fontWeight: 700, fontSize: 14 }}>{store.store_name}</span>
+          <span style={{ fontSize: 12, color: "var(--ne-muted)" }}>— {themeName}</span>
+          {themeStatus === "published" && (
+            <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 10px", borderRadius: 20, background: "var(--ne-success-soft)", color: "var(--ne-success)" }}>
+              {t("themeEditor.publishedBadge")}
+            </span>
+          )}
           <span style={{ fontSize: 12, color: "var(--ne-muted)" }}>
             {saving ? t("themeEditor.saving") : savedAt ? `${t("themeEditor.savedPrefix")} ${savedAt.toLocaleTimeString()}` : ""}
           </span>
@@ -331,14 +404,33 @@ export default function ThemeEditor({ storeId, onNavigate }) {
             </button>
           ))}
         </div>
-        <button onClick={handleSave} disabled={saving} style={{
-          background: saving ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", border: "none",
-          borderRadius: 9, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer",
-        }}>
-          {saving ? t("themeEditor.saving") : t("themeEditor.saveButton")}
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          {themeStatus === "draft" && (
+            <button onClick={handlePublishFromEditor} disabled={publishing} style={{
+              background: "transparent", color: "var(--ne-text)", border: "1px solid var(--ne-border)",
+              borderRadius: 9, padding: "9px 16px", fontSize: 13, fontWeight: 700, cursor: publishing ? "not-allowed" : "pointer",
+            }}>
+              {publishing ? t("themeEditor.publishing") : t("themeEditor.publishButton")}
+            </button>
+          )}
+          <button onClick={handleSave} disabled={saving || themeStatus === "published"} style={{
+            background: (saving || themeStatus === "published") ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", border: "none",
+            borderRadius: 9, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: (saving || themeStatus === "published") ? "not-allowed" : "pointer",
+          }}>
+            {saving ? t("themeEditor.saving") : t("themeEditor.saveButton")}
+          </button>
+        </div>
       </div>
+      {themeStatus === "published" && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "8px 16px", background: "var(--ne-warning-soft)", color: "var(--ne-warning)", fontSize: 12.5 }}>
+          <span>{t("themeEditor.publishedReadOnly")}</span>
+          <button onClick={handleDuplicateToEdit} disabled={duplicating} style={{ background: "transparent", border: "1px solid currentColor", color: "inherit", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: duplicating ? "not-allowed" : "pointer" }}>
+            {duplicating ? t("themeEditor.duplicating") : t("themeEditor.duplicateToEditButton")}
+          </button>
+        </div>
+      )}
       {saveError && <p style={{ color: "var(--ne-danger)", fontSize: 12, padding: "8px 16px 0" }}>{saveError}</p>}
+      {publishError && <p style={{ color: "var(--ne-danger)", fontSize: 12, padding: "8px 16px 0" }}>{publishError}</p>}
 
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
         <div style={{ width: 380, borderRight: "1px solid var(--ne-border)", overflowY: "auto", padding: "14px 16px" }}>

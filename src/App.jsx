@@ -1163,6 +1163,11 @@ function App() {
   const [allAddonsList, setAllAddonsList] = useState([])
   const [pendingProfiles, setPendingProfiles] = useState([])
   const [selectedStoreId, setSelectedStoreId] = useState(null)
+  // Which store_themes row ThemeEditorPage opens on — set by OnlineStore.jsx
+  // right before navigating to 'theme-editor' (no URL/route param carries
+  // this today, so it's threaded as plain top-level state, same pattern as
+  // selectedStoreId itself).
+  const [editingThemeId, setEditingThemeId] = useState(null)
   const [activePeriod, setActivePeriod] = useState("30d")
   // Realtime handler purani closure mein chalta hai, isliye current period ref se padhte hain (har render mein update).
   const activePeriodRef = useRef(activePeriod)
@@ -2280,8 +2285,21 @@ function App() {
               <Dashboard storeId={selectedStoreId} apiBase={CF_URL} fetcher={monitoredFetch} liveVersion={liveVersion} />
             )}
             {activeMenu === 'store-connect' && hasAccess('store-connect') && <StoreConnect storeId={selectedStoreId} />}
-            {activeMenu === 'online-store' && hasAccess('online-store') && <OnlineStore storeId={selectedStoreId} onNavigate={setActiveMenu} />}
-            {activeMenu === 'theme-editor' && hasAccess('online-store') && <ThemeEditorPage storeId={selectedStoreId} onNavigate={setActiveMenu} />}
+            {activeMenu === 'online-store' && hasAccess('online-store') && (
+              <OnlineStore
+                storeId={selectedStoreId}
+                onNavigate={setActiveMenu}
+                onOpenThemeEditor={(themeId) => { setEditingThemeId(themeId); setActiveMenu('theme-editor') }}
+              />
+            )}
+            {activeMenu === 'theme-editor' && hasAccess('online-store') && (
+              <ThemeEditorPage
+                storeId={selectedStoreId}
+                themeId={editingThemeId}
+                onNavigate={setActiveMenu}
+                onOpenThemeEditor={setEditingThemeId}
+              />
+            )}
             {activeMenu === 'products' && hasAccess('products') && !storePending && (
               <ProductsManagement storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
             )}
