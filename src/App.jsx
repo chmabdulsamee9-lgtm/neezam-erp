@@ -2526,7 +2526,6 @@ function App() {
             {activeMenu === 'settings' && (
               <Settings
                 profile={profile}
-                onNavigate={setActiveMenu}
                 onBack={() => setActiveMenu(preSettingsRef.current.menu && preSettingsRef.current.menu !== 'settings' ? preSettingsRef.current.menu : 'home')}
                 hasAccess={hasAccess}
                 currentStoreInfo={currentStoreInfo}

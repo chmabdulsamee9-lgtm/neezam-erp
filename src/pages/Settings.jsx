@@ -18,7 +18,7 @@ const MetaConnect = lazy(() => import("./MetaConnect"));
 const Team = lazy(() => import("./Team"));
 const ActivityLog = lazy(() => import("./ActivityLog"));
 
-export default function Settings({ profile, onNavigate, onBack, hasAccess, currentStoreInfo, userEmail, storeId, storeName, eneezamId, cfUrl }) {
+export default function Settings({ profile, onBack, hasAccess, currentStoreInfo, userEmail, storeId, storeName, eneezamId, cfUrl }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const [backHover, setBackHover] = useState(false);
@@ -125,14 +125,14 @@ export default function Settings({ profile, onNavigate, onBack, hasAccess, curre
             <div className="ne-settings-navempty">{t("settings.noMatch")}</div>
           )}
         </div>
-        <button className="ne-settings-userrow ne-settings-userrow-link" onClick={() => onNavigate?.("accounts")} title={t("accounts.title")}>
+        <a className="ne-settings-userrow ne-settings-userrow-link" href="/accounts" target="_blank" rel="noopener noreferrer" title={t("accounts.title")}>
           <InitialsAvatar name={profile?.full_name || userEmail} size={30} />
           <div className="ne-settings-userrow-text">
             <div className="ne-settings-userrow-name">{profile?.full_name || "—"}</div>
             <div className="ne-settings-userrow-email">{userEmail}</div>
           </div>
           <Icon name="chevronRight" size={13} style={{ marginLeft: "auto", opacity: 0.6 }} />
-        </button>
+        </a>
       </div>
 
       <div className="ne-settings-body">
