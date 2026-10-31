@@ -2099,6 +2099,8 @@ function App() {
   // allMenuItems but are still real routable pages.
   const menuItems = allMenuItems.filter(m => hasAccess(m.id) || alwaysVisibleIds.includes(m.id))
   const fullScreenModules = ['orders', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor']
+  // fullScreenModules hides the topbar; Orders keeps that but still gets the rounded content card.
+  const noCardModules = fullScreenModules.filter(m => m !== 'orders')
   const currentStoreInfo = userStoresList.find(us => us.store_id === selectedStoreId)?.stores
 
   // Flat lookup (unlike menuItems) so the page title / "coming soon" fallback still resolve
@@ -2357,7 +2359,7 @@ function App() {
             <button className="ne-hamburger" onClick={() => setMobileDrawerOpen(true)} style={{ position: 'absolute', top: 10, left: 10, zIndex: 50 }}>☰</button>
           )}
 
-          <div className={`ne-content${fullScreenModules.includes(activeMenu) ? ' ne-content-fullscreen' : ''}`}>
+          <div className={`ne-content${noCardModules.includes(activeMenu) ? ' ne-content-fullscreen' : fullScreenModules.includes(activeMenu) ? ' ne-content-notopbar' : ''}`}>
           <ErrorBoundary key={activeMenu}>
             {((ordersPending && ORDERS_DEPENDENT_PAGES.includes(activeMenu)) || (storePending && STORE_DEPENDENT_PAGES.includes(activeMenu))) && hasAccess(activeMenu) && <PageSkeletonFor menu={activeMenu} />}
             {activeMenu === 'orders' && hasAccess('orders') && !storePending && (
