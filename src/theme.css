@@ -25,10 +25,10 @@ html, body {
    64px already reads fine at the new proportions. Split into three fixed/scroll regions
    (Part E1) instead of one scrolling column — .ne-sidebar is now just the outer flex
    column, .ne-sidebar-top/-scroll/-bottom are its three children. */
-.ne-sidebar{width:195px; flex-shrink:0; background:var(--ne-sidebar-bg); padding:16px 12px; display:flex; flex-direction:column; height:100%; overflow:hidden;}
+.ne-sidebar{width:215px; flex-shrink:0; background:var(--ne-sidebar-bg); padding:16px 12px; display:flex; flex-direction:column; height:100%; overflow:hidden;}
 .ne-sidebar.collapsed{width:64px; align-items:center; padding:16px 8px;}
 .ne-sidebar-top{flex-shrink:0;}
-.ne-sidebar-scroll{flex:1; min-height:0; overflow-y:auto; margin:0 -4px; padding:0 4px;}
+.ne-sidebar-scroll{flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; margin:0 -4px; padding:0 4px;}
 .ne-sidebar-bottom{flex-shrink:0; padding-top:10px; margin-top:6px; border-top:1px solid rgba(255,255,255,.08);}
 .ne-sidebar.collapsed .ne-sidebar-bottom{width:100%;}
 
@@ -36,7 +36,8 @@ html, body {
 .ne-sidebar.collapsed .ne-brand-row{padding:6px 0 10px; justify-content:center;}
 
 .ne-navlabel{font-size:10px; font-weight:700; color:rgba(255,255,255,.35); text-transform:uppercase; letter-spacing:.07em; padding:10px 8px 4px;}
-.ne-navitem{display:flex; align-items:center; gap:10px; padding:7px 9px; margin-bottom:1px; border-radius:9px; font-size:13px; color:rgba(255,255,255,.65); cursor:pointer; font-weight:500; white-space:nowrap; position:relative;}
+.ne-navitem{display:flex; align-items:center; gap:10px; padding:7px 9px; margin-bottom:1px; border-radius:9px; font-size:13px; color:rgba(255,255,255,.65); cursor:pointer; font-weight:500; white-space:nowrap; position:relative; min-width:0;}
+.ne-navtext{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .ne-sidebar.collapsed .ne-navitem{justify-content:center; padding:8px;}
 .ne-navitem .ne-ic{width:24px; height:24px; border-radius:7px; background:rgba(255,255,255,.05); display:flex; align-items:center; justify-content:center; flex-shrink:0;}
 .ne-navitem .ne-ic svg{width:14px; height:14px; stroke:rgba(255,255,255,.65); fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round;}
@@ -83,7 +84,7 @@ html, body {
 .ne-sidebar.collapsed .ne-brandname-btn{flex:none;}
 
 .ne-main{flex:1; display:flex; flex-direction:column; height:100%; overflow:hidden; min-width:0; background:var(--ne-sidebar-bg);}
-.ne-topbar{display:flex; align-items:center; gap:14px; padding:14px 24px; border-bottom:1px solid var(--ne-border); flex-shrink:0; background:var(--ne-surface);}
+.ne-topbar{display:flex; align-items:center; gap:14px; padding:14px 24px; border-bottom:1px solid var(--ne-border); flex-shrink:0; background:var(--ne-surface); margin:7px 7px 0; border-radius:12px 12px 0 0;}
 .ne-hamburger{display:none; width:34px; height:34px; border-radius:9px; flex-shrink:0; background:var(--ne-surface-2); border:1px solid var(--ne-border); color:var(--ne-text); align-items:center; justify-content:center; cursor:pointer; font-size:15px;}
 .ne-page-title{font-size:15px; font-weight:700; margin:0;}
 .ne-sync-status{font-size:11px; color:var(--ne-muted-2); font-weight:400; margin-left:8px;}
@@ -97,7 +98,7 @@ html, body {
    Full-screen modules (Orders, dev-monitor, etc.) explicitly opt out via
    .ne-content-fullscreen so their edge-to-edge layouts/sticky toolbars are unaffected —
    they render exactly as before. */
-.ne-content{flex:1; overflow:auto; min-width:0; width:100%; overscroll-behavior-y:auto; margin:14px; border-radius:16px; background:var(--ne-surface);}
+.ne-content{flex:1; overflow:auto; min-width:0; overscroll-behavior-y:auto; margin:0 7px 7px; border-radius:0 0 12px 12px; background:var(--ne-surface);}
 .ne-content.ne-content-fullscreen{margin:0; border-radius:0;}
 
 .ne-drawer-backdrop{display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:998;}
@@ -238,7 +239,7 @@ html, body {
 :root[data-theme="light"] .ne-skel{ background:#D3D8EA; }
 @keyframes ne-skel-pulse{ 0%,100%{ opacity:.6; } 50%{ opacity:1; } }
 .ne-skel-shell{ display:flex; width:100%; height:100vh; }
-.ne-skel-side{ width:195px; flex-shrink:0; background:var(--ne-sidebar-bg); }
+.ne-skel-side{ width:215px; flex-shrink:0; background:var(--ne-sidebar-bg); }
 .ne-skel-main{ flex:1; min-width:0; padding:16px; display:flex; flex-direction:column; gap:16px; }
 @media (max-width:768px){ .ne-skel-side{ display:none; } }
 

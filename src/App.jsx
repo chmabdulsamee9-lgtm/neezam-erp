@@ -2142,7 +2142,7 @@ function App() {
       title={!sidebarOpen && !sub ? item.label : ''}
       className={`ne-navitem${activeMenu === item.id ? ' active' : ''}${sub ? ' ne-navitem-sub' : ''}`}>
       <span className="ne-ic">{NAV_ICONS[item.id]}</span>
-      {(sidebarOpen || mobileDrawerOpen) && <span>{item.label}</span>}
+      {(sidebarOpen || mobileDrawerOpen) && <span className="ne-navtext">{item.label}</span>}
       {item.id === 'orders' && notifCount > 0 && (
         <span style={{ marginLeft: 'auto', background: 'var(--ne-danger)', color: '#fff', borderRadius: 10, fontSize: 9, fontWeight: 700, padding: '1px 6px', minWidth: 16, textAlign: 'center', flexShrink: 0 }}>
           {notifCount > 99 ? '99+' : notifCount}
@@ -2240,7 +2240,7 @@ function App() {
               <span className="ne-ic"><Icon name="search" size={14} /></span>
               {(sidebarOpen || mobileDrawerOpen) && (
                 <>
-                  <span>{t('search.triggerLabel')}</span>
+                  <span className="ne-navtext">{t('search.triggerLabel')}</span>
                   <span className="ne-search-kbd">Ctrl K</span>
                 </>
               )}
@@ -2293,7 +2293,7 @@ function App() {
               title={!sidebarOpen ? t('nav.settings') : ''}
               className={`ne-navitem${activeMenu === 'settings' ? ' active' : ''}`}>
               <span className="ne-ic">{NAV_ICONS.settings}</span>
-              {(sidebarOpen || mobileDrawerOpen) && <span>{t('nav.settings')}</span>}
+              {(sidebarOpen || mobileDrawerOpen) && <span className="ne-navtext">{t('nav.settings')}</span>}
             </div>
 
             {(sidebarOpen || mobileDrawerOpen) ? (
