@@ -2376,8 +2376,9 @@ function App() {
             )}
 
             <div
-              onClick={() => { setActiveMenu('settings'); closeDrawer() }}
-              title={!sidebarOpen ? t('nav.settings') : ''}
+              onClick={() => goToMenu('settings')}
+              onMouseEnter={(e) => { if (!sidebarExpanded) openNavHover({ item: { id: 'settings', label: t('nav.settings') }, children: [] }, e.currentTarget, 'label') }}
+              onMouseLeave={() => { if (!sidebarExpanded) closeNavHoverSoon() }}
               className={`ne-navitem${activeMenu === 'settings' ? ' active' : ''}`}>
               <span className="ne-ic">{NAV_ICONS.settings}</span>
               {(sidebarOpen || mobileDrawerOpen) && <span className="ne-navtext">{t('nav.settings')}</span>}
