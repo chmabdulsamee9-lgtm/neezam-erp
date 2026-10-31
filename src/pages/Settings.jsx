@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, lazy, Suspense } from "react";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
 import InitialsAvatar from "../components/InitialsAvatar";
@@ -7,18 +8,21 @@ import { useLanguage, useTranslation } from "../i18n";
 
 // Admin UI overhaul, Part C — Settings is now a Shopify-style shell: a client-side-filtered
 // "Search settings" list on the left/top, a store-identity block, and a bottom user row that
-// links to /accounts (profile + password live there now). "Add New Brand" is the only local
-// section rendered inline via `activeSection`. WhatsApp,
-// Courier Connect, Meta Connect, Team, and Activity Log were moved out of the main sidebar
-// nav (Part A4/A5) into this list — clicking them calls the same onNavigate(id) the
-// sidebar used to call directly, which reuses App.jsx's existing render blocks and
-// hasAccess/role gating completely unchanged (C3): this shell never re-implements that
-// gating, it only relocates the entry point.
-export default function Settings({ profile, onNavigate, onBack, hasAccess, currentStoreInfo, userEmail }) {
+// links to /accounts (profile + password live there now). Every section — Add New Brand,
+// WhatsApp, Courier Connect, Meta Connect, Team, Activity Log — renders inline via
+// `activeSection` without leaving /settings, gated by the same hasAccess/role checks App.jsx
+// uses for their standalone routes.
+const WhatsApp = lazy(() => import("./WhatsApp"));
+const CourierConnect = lazy(() => import("./CourierConnect"));
+const MetaConnect = lazy(() => import("./MetaConnect"));
+const Team = lazy(() => import("./Team"));
+const ActivityLog = lazy(() => import("./ActivityLog"));
+
+export default function Settings({ profile, onNavigate, onBack, hasAccess, currentStoreInfo, userEmail, storeId, storeName, eneezamId, cfUrl }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const [backHover, setBackHover] = useState(false);
-  const [activeSection, setActiveSection] = useState(profile?.role === "admin" ? "brand" : null);
+  const [selectedSection, setActiveSection] = useState(null);
   const [search, setSearch] = useState("");
 
   // ---- Add new brand ----
@@ -35,9 +39,9 @@ export default function Settings({ profile, onNavigate, onBack, hasAccess, curre
     return items;
   }, [profile?.role, t]);
 
-  // Moved here from the main sidebar nav (A4/A5) — same hasAccess/role gating as before,
-  // just a different entry point. Navigating away reuses App.jsx's unchanged render blocks.
-  const externalSections = useMemo(() => {
+  // Rendered inline below; each entry only exists if it passes the same hasAccess/role check
+  // App.jsx applies to the standalone route, and rendering is keyed off this list.
+  const embeddedSections = useMemo(() => {
     const items = [];
     if (hasAccess?.("whatsapp")) items.push({ id: "whatsapp", label: t("nav.whatsapp"), icon: "comment" });
     if (hasAccess?.("courier-connect")) items.push({ id: "courier-connect", label: t("nav.courier-connect"), icon: "truck" });
@@ -49,18 +53,22 @@ export default function Settings({ profile, onNavigate, onBack, hasAccess, curre
     return items;
   }, [hasAccess, isPrivileged, t]);
 
-  const allSections = [...localSections, ...externalSections];
+  const allSections = [...localSections, ...embeddedSections];
   const filteredSections = search.trim()
     ? allSections.filter((s) => s.label.toLowerCase().includes(search.trim().toLowerCase()))
     : allSections;
+  const isAllowed = (id) => allSections.some((s) => s.id === id);
+  // Only an allowed section can ever be active; defaults to the first one the user may see.
+  const activeSection = isAllowed(selectedSection) ? selectedSection : (allSections[0]?.id ?? null);
 
-  const selectSection = (item) => {
-    if (externalSections.some((s) => s.id === item.id)) {
-      onNavigate?.(item.id);
-    } else {
-      setActiveSection(item.id);
-    }
-  };
+  // ?section=<id> (from global search) picks the section, then is stripped so the URL stays /settings.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const sectionParam = searchParams.get("section");
+  useEffect(() => {
+    if (!sectionParam) return;
+    if (isAllowed(sectionParam)) setActiveSection(sectionParam);
+    setSearchParams({}, { replace: true });
+  }, [sectionParam]);
 
   const addBrand = async (e) => {
     e.preventDefault();
@@ -108,8 +116,8 @@ export default function Settings({ profile, onNavigate, onBack, hasAccess, curre
         <div className="ne-settings-navlist">
           {filteredSections.map((s) => (
             <div key={s.id}
-              className={`ne-settings-navitem${activeSection === s.id && !externalSections.some((e) => e.id === s.id) ? ' active' : ''}`}
-              onClick={() => selectSection(s)}>
+              className={`ne-settings-navitem${activeSection === s.id ? ' active' : ''}`}
+              onClick={() => setActiveSection(s.id)}>
               <Icon name={s.icon} size={14} /> {s.label}
             </div>
           ))}
@@ -128,6 +136,16 @@ export default function Settings({ profile, onNavigate, onBack, hasAccess, curre
       </div>
 
       <div className="ne-settings-body">
+        {embeddedSections.some((s) => s.id === activeSection) && (
+          <Suspense fallback={<p style={{ padding: "1.5rem", margin: 0, fontSize: 13, color: "var(--ne-muted)" }}>{t("common.loading")}</p>}>
+            {activeSection === "whatsapp" && <WhatsApp />}
+            {activeSection === "courier-connect" && <CourierConnect storeId={storeId} />}
+            {activeSection === "meta-connect" && <MetaConnect storeId={storeId} />}
+            {activeSection === "team" && <Team storeId={storeId} storeName={storeName} eneezamId={eneezamId} cfUrl={cfUrl} />}
+            {activeSection === "activity-log" && <ActivityLog storeId={storeId} />}
+          </Suspense>
+        )}
+
         {!activeSection && (
           <SettingsCard>
             <p style={{ margin: 0, fontSize: 13, color: "var(--ne-muted)" }}>{t("settings.pickSection")}</p>

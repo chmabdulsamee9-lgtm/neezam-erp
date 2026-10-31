@@ -2307,7 +2307,7 @@ function App() {
           <>
             {mobileDrawerOpen && <div className="ne-drawer-backdrop open" onClick={closeDrawer} />}
 
-            <div className={`ne-sidebar${sidebarOpen ? '' : ' collapsed'}${mobileDrawerOpen ? ' open' : ''}`}>
+            <div className={`ne-sidebar${sidebarOpen ? '' : ' collapsed'}${mobileDrawerOpen ? ' open' : ''}${activeMenu === 'settings' ? ' ne-sidebar-dimmed' : ''}`}>
           {/* Part E1 — fixed top region: logo/collapse + search trigger, never scrolls. */}
           <div className="ne-sidebar-top">
             <div className="ne-brand-row">
@@ -2435,11 +2435,11 @@ function App() {
             settingsSections={[
               { id: 'accounts-profile', label: t('settings.myProfile'), menu: 'accounts' },
               { id: 'accounts-password', label: t('settings.changePassword'), menu: 'accounts' },
-              { id: 'whatsapp', label: t('nav.whatsapp') },
-              { id: 'courier-connect', label: t('nav.courier-connect') },
-              { id: 'meta-connect', label: t('nav.meta-connect') },
-              { id: 'team', label: t('nav.team') },
-              { id: 'activity-log', label: t('nav.activity-log') },
+              { id: 'whatsapp', label: t('nav.whatsapp'), menu: 'settings?section=whatsapp' },
+              { id: 'courier-connect', label: t('nav.courier-connect'), menu: 'settings?section=courier-connect' },
+              { id: 'meta-connect', label: t('nav.meta-connect'), menu: 'settings?section=meta-connect' },
+              { id: 'team', label: t('nav.team'), menu: 'settings?section=team' },
+              { id: 'activity-log', label: t('nav.activity-log'), menu: 'settings?section=activity-log' },
             ]}
             t={t}
           />
@@ -2530,6 +2530,10 @@ function App() {
                 hasAccess={hasAccess}
                 currentStoreInfo={currentStoreInfo}
                 userEmail={session.user.email}
+                storeId={selectedStoreId}
+                storeName={currentStoreInfo?.store_name || ordersStore?.store_name}
+                eneezamId={currentStoreInfo?.eneezam_id || ordersStore?.eneezam_id}
+                cfUrl={CF_URL}
               />
             )}
             {activeMenu === 'pnl' && hasAccess('pnl') && !ordersPending && (

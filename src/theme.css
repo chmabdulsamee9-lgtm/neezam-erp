@@ -33,7 +33,13 @@ html, body {
 .ne-sidebar-scroll{flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; scrollbar-gutter:stable; margin:0 -12px 0 -4px; padding:0 7px 0 4px;}
 .ne-sidebar.collapsed .ne-sidebar-scroll{align-self:stretch; margin:0 -8px 0 -4px; padding:0 3px 0 4px;}
 .ne-sidebar-bottom{flex-shrink:0; padding-top:10px; margin-top:6px; border-top:1px solid rgba(255,255,255,.08);}
-.ne-sidebar.collapsed .ne-sidebar-bottom{width:100%;}
+.ne-sidebar.collapsed .ne-sidebar-bottom{width:100%; border-top-color:rgba(255,255,255,.12);}
+/* Inside Settings the collapsed main rail fades to signal a secondary mode; hover restores it. */
+.ne-sidebar-scroll, .ne-search-trigger{transition:opacity .15s ease;}
+.ne-sidebar.collapsed.ne-sidebar-dimmed:not(.open) .ne-sidebar-scroll,
+.ne-sidebar.collapsed.ne-sidebar-dimmed:not(.open) .ne-search-trigger{opacity:.4;}
+.ne-sidebar.collapsed.ne-sidebar-dimmed .ne-sidebar-scroll:hover,
+.ne-sidebar.collapsed.ne-sidebar-dimmed .ne-search-trigger:hover{opacity:1;}
 
 .ne-brand-row{display:flex; align-items:center; gap:9px; padding:6px 8px 10px;}
 .ne-sidebar.collapsed .ne-brand-row{padding:6px 0 10px; justify-content:center;}
