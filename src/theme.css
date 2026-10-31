@@ -259,7 +259,7 @@ html, body {
 @media (min-width:761px){
   .ne-topbar-hide-desktop{display:none;}
   .ne-content.ne-content-settings{margin:0; border-radius:0; background:transparent; overflow:hidden;}
-  .ne-content-settings .ne-settings-nav{background:var(--ne-sidebar-bg); border-right:none;}
+  .ne-content-settings .ne-settings-nav{background:var(--ne-sidebar-bg); border-right:none; border-left:1px solid rgba(255,255,255,.2);}
   .ne-content-settings .ne-settings-body{background:var(--ne-surface); border-radius:7px; margin:4px 4px 4px 0;}
   .ne-content-settings .ne-settings-back{color:#EEF0FF;}
   .ne-content-settings .ne-settings-back:hover{background:rgba(255,255,255,.06);}
