@@ -229,25 +229,36 @@ const NAV_ICONS = {
 }
 
 // Rendered position:fixed from the trigger's rect because .ne-sidebar is overflow:hidden.
-function SidebarToggleTip({ label, placement = 'right', style, children }) {
+function SidebarToggleTip({ label, placement = 'right', style, onHoverChange, children }) {
   const [pos, setPos] = useState(null)
   const place = (r) => placement === 'bottom'
     ? { left: r.left + r.width / 2, top: r.bottom + 8 }
     : { left: r.right + 10, top: r.top + r.height / 2 }
   return (
     <span style={{ display: 'flex', ...style }}
-      onMouseEnter={(e) => setPos(place(e.currentTarget.getBoundingClientRect()))}
-      onMouseLeave={() => setPos(null)}>
+      onMouseEnter={(e) => { setPos(place(e.currentTarget.getBoundingClientRect())); onHoverChange?.(true) }}
+      onMouseLeave={() => { setPos(null); onHoverChange?.(false) }}>
       {children}
       {pos && (
         <span className={`ne-toggle-tip ne-toggle-tip-${placement}`} style={{ left: pos.left, top: pos.top }}>
-          <Icon name="sidebarToggle" size={17} />
           <span>{label}</span>
           <span className="ne-kbd" style={{ marginLeft: 4 }}>CTRL</span>
           <span className="ne-kbd">B</span>
         </span>
       )}
     </span>
+  )
+}
+
+// Collapsed sidebar's single top slot: logo by default, swaps in place to the toggle icon on hover.
+function CollapsedLogoToggle({ label, onExpand }) {
+  const [hover, setHover] = useState(false)
+  return (
+    <SidebarToggleTip label={label} onHoverChange={setHover}>
+      <button className="ne-collapse-btn ne-logo-toggle" onClick={onExpand} aria-label={label}>
+        {hover ? <Icon name="sidebarToggle" size={18} /> : <Monogram size={22} />}
+      </button>
+    </SidebarToggleTip>
   )
 }
 
@@ -1104,6 +1115,9 @@ function App() {
   // top-level toggles, same pattern as sidebarOpen/mobileDrawerOpen above.
   const [searchOpen, setSearchOpen] = useState(false)
   const [brandPopupOpen, setBrandPopupOpen] = useState(false)
+  const [navHover, setNavHover] = useState(null)
+  const navHoverTimer = useRef(null)
+  useEffect(() => () => clearTimeout(navHoverTimer.current), [])
   useEffect(() => {
     const isTypingTarget = (el) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))
     const onKey = (e) => {
@@ -2166,12 +2180,26 @@ function App() {
 
   const closeDrawer = () => setMobileDrawerOpen(false)
 
-  const renderNavItem = (item, { sub } = {}) => (
+  const sidebarExpanded = sidebarOpen || mobileDrawerOpen
+  const openNavHover = (entry, el, kind) => {
+    clearTimeout(navHoverTimer.current)
+    const r = el.getBoundingClientRect()
+    setNavHover({ kind, item: entry.item, children: entry.children, rect: { top: r.top, right: r.right, height: r.height } })
+  }
+  // Short delay so the pointer can cross the gap between a nav row and its flyout.
+  const closeNavHoverSoon = () => {
+    clearTimeout(navHoverTimer.current)
+    navHoverTimer.current = setTimeout(() => setNavHover(null), 120)
+  }
+  const keepNavHover = () => clearTimeout(navHoverTimer.current)
+  const goToMenu = (id) => { setActiveMenu(id); setNavHover(null); closeDrawer() }
+
+  const renderNavItem = (item, { sub, onHover } = {}) => (
     <div key={item.id}
-      onMouseEnter={() => prefetchPage(item.id)}
+      onMouseEnter={(e) => { prefetchPage(item.id); if (onHover) onHover(e.currentTarget) }}
+      onMouseLeave={onHover ? closeNavHoverSoon : undefined}
       onTouchStart={() => prefetchPage(item.id)}
-      onClick={() => { setActiveMenu(item.id); closeDrawer() }}
-      title={!sidebarOpen && !sub ? item.label : ''}
+      onClick={() => goToMenu(item.id)}
       className={`ne-navitem${activeMenu === item.id ? ' active' : ''}${sub ? ' ne-navitem-sub' : ''}`}>
       <span className="ne-ic">{NAV_ICONS[item.id]}</span>
       {(sidebarOpen || mobileDrawerOpen) && <span className="ne-navtext">{item.label}</span>}
@@ -2183,33 +2211,24 @@ function App() {
     </div>
   )
 
-  // Collapsed-sidebar hover flyout for a parent with children (B3) — expanded sidebar
-  // instead always shows children indented inline (simpler, and with only 2-3 children per
-  // group there's no real win from making it an accordion toggle).
+  // Expanded: only the active parent shows its children inline; other parents show a hover
+  // flyout. Collapsed: every parent with children gets a flyout, the rest a one-line tooltip.
   const renderTopLevelEntry = (entry) => {
-    if (entry.children.length === 0) return renderNavItem(entry.item)
-    if (sidebarOpen || mobileDrawerOpen) {
-      return (
-        <div key={entry.item.id} className="ne-navgroup-parent">
-          {renderNavItem(entry.item)}
-          <div className="ne-navchildren">
-            {entry.children.map(c => renderNavItem(c, { sub: true }))}
-          </div>
-        </div>
-      )
+    const hasKids = entry.children.length > 0
+    if (!sidebarExpanded) {
+      return renderNavItem(entry.item, { onHover: (el) => openNavHover(entry, el, hasKids ? 'flyout' : 'label') })
+    }
+    if (!hasKids) return renderNavItem(entry.item)
+    const isActiveParent = activeMenu === entry.item.id ||
+      entry.children.some(c => activeMenu === c.id || String(activeMenu || '').startsWith(`${c.id}/`))
+    if (!isActiveParent) {
+      return renderNavItem(entry.item, { onHover: (el) => openNavHover(entry, el, 'flyout') })
     }
     return (
-      <div key={entry.item.id} className="ne-navgroup-parent">
+      <div key={entry.item.id}>
         {renderNavItem(entry.item)}
-        <div className="ne-navflyout">
-          <div className="ne-navflyout-title">{entry.item.label}</div>
-          {entry.children.map(c => (
-            <div key={c.id}
-              className={`ne-navflyout-item${activeMenu === c.id ? ' active' : ''}`}
-              onClick={() => { setActiveMenu(c.id); closeDrawer() }}>
-              {c.label}
-            </div>
-          ))}
+        <div className="ne-navchildren">
+          {entry.children.map(c => renderNavItem(c, { sub: true }))}
         </div>
       </div>
     )
@@ -2260,15 +2279,11 @@ function App() {
                 <>
                   <span style={{ display: 'flex' }}><Monogram size={22} /></span>
                   <SidebarToggleTip label={t('sidebar.collapseTooltip')} placement="bottom" style={{ marginLeft: 'auto' }}>
-                    <button className="ne-collapse-btn" onClick={() => setSidebarOpen(false)} aria-label={t('sidebar.collapseTooltip')}><Icon name="sidebarToggle" size={15} /></button>
+                    <button className="ne-collapse-btn" onClick={() => { setSidebarOpen(false); setNavHover(null) }} aria-label={t('sidebar.collapseTooltip')}><Icon name="sidebarToggle" size={18} /></button>
                   </SidebarToggleTip>
                 </>
               ) : (
-                <>
-                  <SidebarToggleTip label={t('sidebar.expandTooltip')}>
-                    <span role="button" aria-label={t('sidebar.expandTooltip')} style={{ display: 'flex', cursor: 'pointer' }} onClick={() => setSidebarOpen(true)}><Monogram size={22} /></span>
-                  </SidebarToggleTip>
-                </>
+                <CollapsedLogoToggle label={t('sidebar.expandTooltip')} onExpand={() => { setSidebarOpen(true); setNavHover(null) }} />
               )}
             </div>
 
@@ -2284,7 +2299,7 @@ function App() {
           </div>
 
           {/* Part E1 — scrollable middle region: nav groups only. */}
-          <div className="ne-sidebar-scroll">
+          <div className="ne-sidebar-scroll" onScroll={() => setNavHover(null)}>
             {topLevelEntries.map(entry => (
               <div key={entry.item.id}>
                 {entry.groupHeading && (sidebarOpen || mobileDrawerOpen) && <div className="ne-navlabel">{entry.groupHeading}</div>}
@@ -2352,6 +2367,27 @@ function App() {
           </div>
         </div>
           </>
+        )}
+
+        {navHover && navHover.kind === 'flyout' && (
+          <div className="ne-navflyout"
+            style={{ left: navHover.rect.right + 8, top: Math.max(8, Math.min(navHover.rect.top, window.innerHeight - (navHover.children.length * 32 + 48))) }}
+            onMouseEnter={keepNavHover} onMouseLeave={closeNavHoverSoon}>
+            <div className="ne-navflyout-title">{navHover.item.label}</div>
+            {navHover.children.map(c => (
+              <div key={c.id}
+                className={`ne-navflyout-item${activeMenu === c.id ? ' active' : ''}`}
+                onMouseEnter={() => prefetchPage(c.id)}
+                onClick={() => goToMenu(c.id)}>
+                {c.label}
+              </div>
+            ))}
+          </div>
+        )}
+        {navHover && navHover.kind === 'label' && (
+          <span className="ne-toggle-tip ne-toggle-tip-right" style={{ left: navHover.rect.right + 10, top: navHover.rect.top + navHover.rect.height / 2 }}>
+            {navHover.item.label}
+          </span>
         )}
 
         {searchOpen && (

@@ -28,17 +28,20 @@ html, body {
 .ne-sidebar{width:215px; flex-shrink:0; background:var(--ne-sidebar-bg); padding:16px 12px; display:flex; flex-direction:column; height:100%; overflow:hidden;}
 .ne-sidebar.collapsed{width:64px; align-items:center; padding:16px 8px;}
 .ne-sidebar-top{flex-shrink:0;}
-.ne-sidebar-scroll{flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; margin:0 -4px; padding:0 4px;}
+/* Negative right margin = the sidebar's own right padding, so the scrollbar sits flush on the
+   sidebar edge; padding-right = that padding minus the 5px scrollbar, keeping rows symmetric. */
+.ne-sidebar-scroll{flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; scrollbar-gutter:stable; margin:0 -12px 0 -4px; padding:0 7px 0 4px;}
+.ne-sidebar.collapsed .ne-sidebar-scroll{align-self:stretch; margin:0 -8px 0 -4px; padding:0 3px 0 4px;}
 .ne-sidebar-bottom{flex-shrink:0; padding-top:10px; margin-top:6px; border-top:1px solid rgba(255,255,255,.08);}
 .ne-sidebar.collapsed .ne-sidebar-bottom{width:100%;}
 
 .ne-brand-row{display:flex; align-items:center; gap:9px; padding:6px 8px 10px;}
 .ne-sidebar.collapsed .ne-brand-row{padding:6px 0 10px; justify-content:center;}
 
-.ne-navlabel{font-size:10px; font-weight:700; color:rgba(255,255,255,.35); text-transform:uppercase; letter-spacing:.07em; padding:10px 8px 4px;}
-.ne-navitem{display:flex; align-items:center; gap:10px; padding:7px 9px; margin-bottom:1px; border-radius:9px; font-size:13px; color:rgba(255,255,255,.65); cursor:pointer; font-weight:500; white-space:nowrap; position:relative; min-width:0;}
+.ne-navlabel{font-size:10px; font-weight:700; color:rgba(255,255,255,.35); text-transform:uppercase; letter-spacing:.07em; padding:8px 8px 3px;}
+.ne-navitem{display:flex; align-items:center; gap:10px; padding:4px 9px; margin-bottom:1px; border-radius:9px; font-size:13px; color:rgba(255,255,255,.65); cursor:pointer; font-weight:500; white-space:nowrap; position:relative; min-width:0;}
 .ne-navtext{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-.ne-sidebar.collapsed .ne-navitem{justify-content:center; padding:8px;}
+.ne-sidebar.collapsed .ne-navitem{justify-content:center; padding:5px;}
 .ne-navitem .ne-ic{width:24px; height:24px; border-radius:7px; background:rgba(255,255,255,.05); display:flex; align-items:center; justify-content:center; flex-shrink:0;}
 .ne-navitem .ne-ic svg{width:14px; height:14px; stroke:rgba(255,255,255,.65); fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round;}
 /* Part B1: hover stays the old flat tint; active is a distinct "glass/embossed" treatment
@@ -52,18 +55,19 @@ html, body {
 .ne-navitem:hover:not(.active){background:rgba(255,255,255,.04);}
 .ne-navitem-sub{padding-left:40px; font-size:12.5px;}
 .ne-sidebar.collapsed .ne-navitem-sub{display:none;}
-.ne-navchildren{margin-bottom:2px;}
+.ne-navitem-sub{padding-top:3px; padding-bottom:3px;}
 
 /* Part B3 — collapsed-sidebar hover flyout for a parent item with children. */
-.ne-navgroup-parent{position:relative;}
-.ne-navflyout{display:none; position:absolute; left:100%; top:0; margin-left:8px; min-width:170px; background:var(--ne-sidebar-bg); border:1px solid rgba(255,255,255,.12); border-radius:10px; padding:8px; box-shadow:0 12px 32px rgba(0,0,0,.45); z-index:1000;}
-.ne-sidebar.collapsed .ne-navgroup-parent:hover .ne-navflyout{display:block;}
+.ne-navflyout{position:fixed; min-width:170px; background:#0A0E26; border:1px solid rgba(255,255,255,.12); border-radius:10px; padding:6px; box-shadow:0 12px 32px rgba(0,0,0,.45); z-index:2000;}
 .ne-navflyout-title{font-size:10px; font-weight:700; color:rgba(255,255,255,.4); text-transform:uppercase; letter-spacing:.06em; padding:2px 8px 6px;}
 .ne-navflyout-item{padding:7px 8px; border-radius:7px; font-size:12.5px; color:rgba(255,255,255,.75); cursor:pointer; white-space:nowrap;}
 .ne-navflyout-item:hover{background:rgba(255,255,255,.06);}
 .ne-navflyout-item.active{background:rgba(255,255,255,.08); color:#fff; font-weight:700;}
 
-.ne-collapse-btn{background:none; border:none; color:rgba(255,255,255,.5); cursor:pointer; padding:4px; display:flex; align-items:center;}
+.ne-collapse-btn{appearance:none; background:transparent; border:none; outline:none; box-shadow:none; color:rgba(255,255,255,.6); cursor:pointer; width:30px; height:30px; padding:0; border-radius:7px; display:flex; align-items:center; justify-content:center; transition:background .12s ease;}
+.ne-collapse-btn:hover{background:rgba(255,255,255,.08); color:#fff;}
+.ne-collapse-btn:focus-visible{background:rgba(255,255,255,.08); box-shadow:0 0 0 1px rgba(255,255,255,.25);}
+.ne-logo-toggle:hover{background:rgba(255,255,255,.08);}
 
 /* Part B2 — lightweight CSS-only tooltip (no reusable tooltip component exists anywhere
    in the app per diagnose), used for the collapsed-logo "Expand navigation" hint and
@@ -117,6 +121,7 @@ html, body {
   .ne-sidebar .ne-navitem{justify-content:flex-start !important; padding:8px 10px !important;}
   .ne-sidebar .ne-brand-row{justify-content:flex-start !important; padding:6px 8px 18px !important;}
   .ne-collapse-btn{display:none;}
+  .ne-sidebar .ne-sidebar-scroll, .ne-sidebar.collapsed .ne-sidebar-scroll{margin:0 -14px 0 -4px; padding:0 9px 0 4px;}
   .ne-content{padding-bottom:2rem;} /* scroll-end safety margin — aakhri card/button viewport edge se chipka na rahe */
 }
 
