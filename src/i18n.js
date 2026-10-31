@@ -100,6 +100,7 @@ export const translations = {
     'nav.gemini-monitor': 'Gemini Usage Monitor',
 
     'sidebar.expandTooltip': 'Navigation expand karo',
+    'sidebar.collapseTooltip': 'Navigation collapse karo',
     'search.triggerLabel': 'Search Karo',
     'search.placeholder': 'Orders, products, settings mein search karo...',
     'search.catAll': 'Sab',
@@ -1727,6 +1728,7 @@ export const translations = {
     'nav.gemini-monitor': 'Gemini Usage Monitor',
 
     'sidebar.expandTooltip': 'Expand navigation',
+    'sidebar.collapseTooltip': 'Collapse navigation',
     'search.triggerLabel': 'Search',
     'search.placeholder': 'Search orders, products, settings...',
     'search.catAll': 'All',

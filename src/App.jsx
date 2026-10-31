@@ -228,6 +228,26 @@ const NAV_ICONS = {
   'finance-statement': <svg viewBox="0 0 20 20"><rect x="4" y="2" width="12" height="16" rx="2"/><rect x="6" y="4.3" width="8" height="3" rx="0.5"/><circle cx="6.8" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="10" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="13.2" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="6.8" cy="14.5" r=".9" fill="currentColor" stroke="none"/><circle cx="10" cy="14.5" r=".9" fill="currentColor" stroke="none"/><circle cx="13.2" cy="14.5" r=".9" fill="currentColor" stroke="none"/></svg>,
 }
 
+// Rendered position:fixed from the trigger's rect because .ne-sidebar is overflow:hidden.
+function SidebarToggleTip({ label, style, children }) {
+  const [pos, setPos] = useState(null)
+  return (
+    <span style={{ display: 'flex', ...style }}
+      onMouseEnter={(e) => { const r = e.currentTarget.getBoundingClientRect(); setPos({ left: r.right + 10, top: r.top + r.height / 2 }) }}
+      onMouseLeave={() => setPos(null)}>
+      {children}
+      {pos && (
+        <span className="ne-toggle-tip" style={{ left: pos.left, top: pos.top }}>
+          <Icon name="sidebarToggle" size={17} />
+          <span>{label}</span>
+          <span className="ne-kbd" style={{ marginLeft: 4 }}>CTRL</span>
+          <span className="ne-kbd">B</span>
+        </span>
+      )}
+    </span>
+  )
+}
+
 // Loading skeleton (Meta Ads app jaisa) — logo/animation nahi, sirf UI ka dhancha.
 // Function ka naam SplashScreen isliye wahi rakha gaya ke 6 call sites (auth/profile/store/orders gates) na badalne paren.
 function SplashScreen() {
@@ -1082,10 +1102,16 @@ function App() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [brandPopupOpen, setBrandPopupOpen] = useState(false)
   useEffect(() => {
+    const isTypingTarget = (el) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))
     const onKey = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      if (!(e.ctrlKey || e.metaKey)) return
+      const key = e.key.toLowerCase()
+      if (key === 'k') {
         e.preventDefault()
         setSearchOpen(true)
+      } else if (key === 'b' && !isTypingTarget(document.activeElement)) {
+        e.preventDefault()
+        setSidebarOpen(v => !v)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -2226,15 +2252,22 @@ function App() {
           {/* Part E1 — fixed top region: logo/collapse + search trigger, never scrolls. */}
           <div className="ne-sidebar-top">
             <div className="ne-brand-row">
-              <span className={!sidebarOpen && !mobileDrawerOpen ? 'ne-tooltip' : ''} data-tooltip={t('sidebar.expandTooltip')} style={{ display: 'flex' }}>
-                <Monogram size={22} />
-              </span>
-              {(sidebarOpen || mobileDrawerOpen) && <Wordmark size={18} dark />}
-              {(sidebarOpen || mobileDrawerOpen) && (
-                <button className="ne-collapse-btn" onClick={() => setSidebarOpen(!sidebarOpen)} style={{ marginLeft: 'auto' }}><Icon name="chevronLeft" size={14} /></button>
-              )}
-              {!sidebarOpen && !mobileDrawerOpen && (
-                <button className="ne-collapse-btn" onClick={() => setSidebarOpen(!sidebarOpen)}><Icon name="chevronRight" size={14} /></button>
+              {(sidebarOpen || mobileDrawerOpen) ? (
+                <>
+                  <span style={{ display: 'flex' }}><Monogram size={22} /></span>
+                  <SidebarToggleTip label={t('sidebar.collapseTooltip')} style={{ marginLeft: 'auto' }}>
+                    <button className="ne-collapse-btn" onClick={() => setSidebarOpen(false)} aria-label={t('sidebar.collapseTooltip')}><Icon name="sidebarToggle" size={15} /></button>
+                  </SidebarToggleTip>
+                </>
+              ) : (
+                <>
+                  <SidebarToggleTip label={t('sidebar.expandTooltip')}>
+                    <span style={{ display: 'flex', cursor: 'pointer' }} onClick={() => setSidebarOpen(true)}><Monogram size={22} /></span>
+                  </SidebarToggleTip>
+                  <SidebarToggleTip label={t('sidebar.expandTooltip')}>
+                    <button className="ne-collapse-btn" onClick={() => setSidebarOpen(true)} aria-label={t('sidebar.expandTooltip')}><Icon name="sidebarToggle" size={15} /></button>
+                  </SidebarToggleTip>
+                </>
               )}
             </div>
 
