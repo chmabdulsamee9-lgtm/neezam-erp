@@ -54,6 +54,7 @@ const PATHS = {
   arrowUp: <path d="M10 16V4M5 9l5-5 5 5" />,
   arrowDown: <path d="M10 4v12M5 11l5 5 5-5" />,
   chevronRight: <path d="M8 5l5 5-5 5" />,
+  chevronLeft: <path d="M12 5l-5 5 5 5" />,
   sidebarToggle: <><rect x="2.5" y="3.5" width="15" height="13" rx="2.5" /><path d="M7.5 3.5v13" /></>,
   camera: <><path d="M2.5 6.5A1.5 1.5 0 0 1 4 5h2l1-2h6l1 2h2a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 16 16H4a1.5 1.5 0 0 1-1.5-1.5Z" /><circle cx="10" cy="10.5" r="3.2" /></>,
   bell: <><path d="M5 14.5V9a5 5 0 0 1 10 0v5.5l1.3 1.8H3.7Z" /><path d="M8 17.3a2 2 0 0 0 4 0" /></>,

@@ -1264,6 +1264,23 @@ function App() {
   const activeMenuRef = useRef(activeMenu)
 
   useEffect(() => { activeMenuRef.current = activeMenu }, [activeMenu])
+
+  // Entering Settings collapses the sidebar and remembers the page + sidebar state it came
+  // from; leaving Settings (any route) restores that sidebar state. prevMenuRef starts null so
+  // a direct load of /settings is treated as "entering" too.
+  const prevMenuRef = useRef(null)
+  const preSettingsRef = useRef({ menu: null, sidebarOpen: null })
+  useEffect(() => {
+    const prev = prevMenuRef.current
+    prevMenuRef.current = activeMenu
+    if (activeMenu === 'settings' && prev !== 'settings') {
+      preSettingsRef.current = { menu: prev, sidebarOpen }
+      setSidebarOpen(false)
+    } else if (prev === 'settings' && activeMenu !== 'settings' && preSettingsRef.current.sidebarOpen !== null) {
+      setSidebarOpen(preSettingsRef.current.sidebarOpen)
+      preSettingsRef.current.sidebarOpen = null
+    }
+  }, [activeMenu])
   useEffect(() => { selectedStoreIdRef.current = selectedStoreId }, [selectedStoreId])
   useEffect(() => { if (activeMenu === 'orders') setNotifCount(0) }, [activeMenu])
 
@@ -2411,7 +2428,7 @@ function App() {
 
         <div className="ne-main">
           {!fullScreenModules.includes(activeMenu) && (
-            <div className="ne-topbar">
+            <div className={`ne-topbar${activeMenu === 'settings' ? ' ne-topbar-hide-desktop' : ''}`}>
               <button className="ne-hamburger" onClick={() => setMobileDrawerOpen(true)}>☰</button>
               <h1 className="ne-page-title">
                 {pageTitleLookup.find(m => m.id === activeMenu)?.label}
@@ -2429,7 +2446,7 @@ function App() {
             <button className="ne-hamburger" onClick={() => setMobileDrawerOpen(true)} style={{ position: 'absolute', top: 10, left: 10, zIndex: 50 }}>☰</button>
           )}
 
-          <div className={`ne-content${noCardModules.includes(activeMenu) ? ' ne-content-fullscreen' : fullScreenModules.includes(activeMenu) ? ' ne-content-notopbar' : ''}`}>
+          <div className={`ne-content${activeMenu === 'settings' ? ' ne-content-settings' : noCardModules.includes(activeMenu) ? ' ne-content-fullscreen' : fullScreenModules.includes(activeMenu) ? ' ne-content-notopbar' : ''}`}>
           <ErrorBoundary key={activeMenu}>
             {((ordersPending && ORDERS_DEPENDENT_PAGES.includes(activeMenu)) || (storePending && STORE_DEPENDENT_PAGES.includes(activeMenu))) && hasAccess(activeMenu) && <PageSkeletonFor menu={activeMenu} />}
             {activeMenu === 'orders' && hasAccess('orders') && !storePending && (
@@ -2491,6 +2508,7 @@ function App() {
                 profile={profile}
                 onProfileUpdated={(updated) => setProfile(updated)}
                 onNavigate={setActiveMenu}
+                onBack={() => setActiveMenu(preSettingsRef.current.menu && preSettingsRef.current.menu !== 'settings' ? preSettingsRef.current.menu : 'home')}
                 hasAccess={hasAccess}
                 currentStoreInfo={currentStoreInfo}
                 userEmail={session.user.email}

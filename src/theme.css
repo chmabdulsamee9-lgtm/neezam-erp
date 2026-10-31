@@ -216,6 +216,30 @@ html, body {
 .ne-settings-userrow-name{font-size:12.5px; font-weight:700; color:var(--ne-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .ne-settings-userrow-email{font-size:11px; color:var(--ne-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .ne-settings-body{flex:1; overflow-y:auto; min-height:0;}
+.ne-settings-back{display:flex; align-items:center; gap:8px; width:100%; background:none; border:none; padding:7px 8px; margin-bottom:8px; border-radius:8px; font-size:13.5px; font-weight:700; color:var(--ne-text); cursor:pointer; text-align:left;}
+.ne-settings-back:hover{background:var(--ne-surface);}
+
+/* Desktop Settings: no topbar, the sub-nav continues the always-dark sidebar rail on the
+   dark frame, and only .ne-settings-body is the rounded content card. Mobile keeps the
+   stacked light layout with its topbar (the sidebar is a drawer there). */
+@media (min-width:761px){
+  .ne-topbar-hide-desktop{display:none;}
+  .ne-content.ne-content-settings{margin:0; border-radius:0; background:transparent; overflow:hidden;}
+  .ne-content-settings .ne-settings-nav{background:var(--ne-sidebar-bg); border-right:none;}
+  .ne-content-settings .ne-settings-body{background:var(--ne-surface); border-radius:7px; margin:4px 4px 4px 0;}
+  .ne-content-settings .ne-settings-back{color:#EEF0FF;}
+  .ne-content-settings .ne-settings-back:hover{background:rgba(255,255,255,.06);}
+  .ne-content-settings .ne-settings-storeblock{color:#EEF0FF;}
+  .ne-content-settings .ne-settings-search{background:rgba(255,255,255,.05); border-color:rgba(255,255,255,.1); color:rgba(255,255,255,.5);}
+  .ne-content-settings .ne-settings-search input{color:#EEF0FF;}
+  .ne-content-settings .ne-settings-navitem{color:rgba(255,255,255,.65);}
+  .ne-content-settings .ne-settings-navitem:hover{background:rgba(255,255,255,.04);}
+  .ne-content-settings .ne-settings-navitem.active{color:#fff; background:linear-gradient(90deg, rgba(92,124,250,.22), rgba(168,85,247,.10)); box-shadow:inset 0 1px 0 rgba(255,255,255,.08), inset 0 0 0 1px rgba(255,255,255,.06);}
+  .ne-content-settings .ne-settings-navempty{color:rgba(255,255,255,.4);}
+  .ne-content-settings .ne-settings-userrow{border-top-color:rgba(255,255,255,.08);}
+  .ne-content-settings .ne-settings-userrow-name{color:#EEF0FF;}
+  .ne-content-settings .ne-settings-userrow-email{color:rgba(255,255,255,.45);}
+}
 @media (max-width:760px){
   .ne-settings-shell{flex-direction:column;}
   .ne-settings-nav{width:100%; border-right:none; border-bottom:1px solid var(--ne-border);}

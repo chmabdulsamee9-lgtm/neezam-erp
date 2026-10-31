@@ -16,9 +16,10 @@ const isValidPhone = (p) => /^\d{11}$/.test(String(p || "").trim());
 // sidebar used to call directly, which reuses App.jsx's existing render blocks and
 // hasAccess/role gating completely unchanged (C3): this shell never re-implements that
 // gating, it only relocates the entry point.
-export default function Settings({ profile, onProfileUpdated, onNavigate, hasAccess, currentStoreInfo, userEmail }) {
+export default function Settings({ profile, onProfileUpdated, onNavigate, onBack, hasAccess, currentStoreInfo, userEmail }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
+  const [backHover, setBackHover] = useState(false);
   const [activeSection, setActiveSection] = useState("profile");
   const [search, setSearch] = useState("");
 
@@ -141,6 +142,11 @@ export default function Settings({ profile, onProfileUpdated, onNavigate, hasAcc
   return (
     <div className="ne-settings-shell">
       <div className="ne-settings-nav">
+        <button className="ne-settings-back" onClick={() => onBack?.()}
+          onMouseEnter={() => setBackHover(true)} onMouseLeave={() => setBackHover(false)}>
+          <Icon name="chevronLeft" size={15} />
+          <span>{backHover ? t("action.back") : t("settings.title")}</span>
+        </button>
         {currentStoreInfo && (
           <div className="ne-settings-storeblock">
             <Icon name="store" size={13} /> {currentStoreInfo.store_name}
