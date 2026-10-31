@@ -125,7 +125,7 @@ export default function GlobalSearch({ storeId, storeName, onNavigate, onClose, 
             <div className="ne-search-group">
               <div className="ne-search-grouplabel">{t('search.catSettings')}</div>
               {settingsMatches.map((s) => (
-                <div key={`s-${s.id}`} className="ne-search-result" onClick={() => goto('settings')}>
+                <div key={`s-${s.id}`} className="ne-search-result" onClick={() => goto(s.menu || 'settings')}>
                   <Icon name="settings" size={14} />
                   <span>{s.label}</span>
                 </div>

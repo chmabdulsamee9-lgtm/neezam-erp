@@ -104,6 +104,7 @@ const Dashboard = lazyPage(() => import('./pages/Dashboard'), 'dashboard')
 const WhatsApp = lazyPage(() => import('./pages/WhatsApp'), 'whatsapp')
 const Team = lazyPage(() => import('./pages/Team'), 'team')
 const Settings = lazyPage(() => import('./pages/Settings'), 'settings')
+const Accounts = lazyPage(() => import('./pages/Accounts'), null)
 const ActivityLog = lazyPage(() => import('./pages/ActivityLog'), 'activity-log')
 const ProfitLoss = lazyPage(() => import('./pages/ProfitLoss'), 'pnl')
 const SupplierLedger = lazyPage(() => import('./pages/SupplierLedger'), 'ledger')
@@ -1124,6 +1125,7 @@ function App() {
       if (!(e.ctrlKey || e.metaKey)) return
       const key = e.key.toLowerCase()
       if (isTypingTarget(document.activeElement)) return
+      if (window.location.pathname === '/accounts') return
       if (key === 'k') {
         e.preventDefault()
         setSearchOpen(true)
@@ -1274,7 +1276,8 @@ function App() {
     const prev = prevMenuRef.current
     prevMenuRef.current = activeMenu
     if (activeMenu === 'settings' && prev !== 'settings') {
-      preSettingsRef.current = { menu: prev, sidebarOpen }
+      // Coming back from /accounts (opened from Settings) keeps the original pre-Settings page.
+      preSettingsRef.current = { menu: prev === 'accounts' ? preSettingsRef.current.menu : prev, sidebarOpen }
       setSidebarOpen(false)
     } else if (prev === 'settings' && activeMenu !== 'settings' && preSettingsRef.current.sidebarOpen !== null) {
       setSidebarOpen(preSettingsRef.current.sidebarOpen)
@@ -1528,7 +1531,9 @@ function App() {
           persistStoreId(fallbackStoreId)
         }
         const isProductionDomain = window.location.hostname.includes('portal.eneezam.com')
-        if (isProductionDomain) {
+        if (location.pathname === '/accounts') {
+          // store-independent page — don't bounce a direct load of it
+        } else if (isProductionDomain) {
           if (location.pathname !== '/home') {
             navigate('/home', { replace: true })
           }
@@ -2032,6 +2037,20 @@ function App() {
   if (!profile) return <PendingApprovalScreen onSignOut={() => supabase.auth.signOut()} t={t} />
   if (profile.role !== 'creator' && !profile.approved) return <PendingApprovalScreen onSignOut={() => supabase.auth.signOut()} t={t} />
 
+  // /accounts is store-independent (account identity, not store access), so it renders here —
+  // behind the session/profile/approval gates above but before the master-view and store gates.
+  if (activeMenu === 'accounts') {
+    return (
+      <Accounts
+        profile={profile}
+        userEmail={session.user.email}
+        emailVerified={!!session.user.email_confirmed_at}
+        onProfileUpdated={(updated) => setProfile(updated)}
+        onExit={() => (location.key !== 'default' ? navigate(-1) : navigate('/home'))}
+      />
+    )
+  }
+
   if (profile.role === 'creator' && isMasterView) {
     return (
       <MasterDashboard
@@ -2414,8 +2433,8 @@ function App() {
             onNavigate={setActiveMenu}
             onClose={() => setSearchOpen(false)}
             settingsSections={[
-              { id: 'profile', label: t('settings.myProfile') },
-              { id: 'password', label: t('settings.changePassword') },
+              { id: 'accounts-profile', label: t('settings.myProfile'), menu: 'accounts' },
+              { id: 'accounts-password', label: t('settings.changePassword'), menu: 'accounts' },
               { id: 'whatsapp', label: t('nav.whatsapp') },
               { id: 'courier-connect', label: t('nav.courier-connect') },
               { id: 'meta-connect', label: t('nav.meta-connect') },
@@ -2506,7 +2525,6 @@ function App() {
             {activeMenu === 'settings' && (
               <Settings
                 profile={profile}
-                onProfileUpdated={(updated) => setProfile(updated)}
                 onNavigate={setActiveMenu}
                 onBack={() => setActiveMenu(preSettingsRef.current.menu && preSettingsRef.current.menu !== 'settings' ? preSettingsRef.current.menu : 'home')}
                 hasAccess={hasAccess}
