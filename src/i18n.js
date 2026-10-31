@@ -99,8 +99,8 @@ export const translations = {
     'nav.dev-monitor': 'Dev Monitor',
     'nav.gemini-monitor': 'Gemini Usage Monitor',
 
-    'sidebar.expandTooltip': 'Navigation expand karo',
-    'sidebar.collapseTooltip': 'Navigation collapse karo',
+    'sidebar.expandTooltip': 'Menu kholo',
+    'sidebar.collapseTooltip': 'Menu chupao',
     'search.triggerLabel': 'Search Karo',
     'search.placeholder': 'Orders, products, settings mein search karo...',
     'search.catAll': 'Sab',

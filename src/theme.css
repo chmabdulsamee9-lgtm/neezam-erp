@@ -68,7 +68,9 @@ html, body {
 /* Part B2 — lightweight CSS-only tooltip (no reusable tooltip component exists anywhere
    in the app per diagnose), used for the collapsed-logo "Expand navigation" hint and
    anywhere else a quick label-on-hover is useful. */
-.ne-toggle-tip{position:fixed; transform:translateY(-50%); display:flex; align-items:center; gap:8px; background:#0A0E26; color:#EEF0FF; border:1px solid rgba(255,255,255,.12); border-radius:10px; padding:7px 10px; font-size:12px; font-weight:600; white-space:nowrap; box-shadow:0 8px 24px rgba(0,0,0,.4); pointer-events:none; z-index:2000;}
+.ne-toggle-tip-right{transform:translateY(-50%);}
+.ne-toggle-tip-bottom{transform:translateX(-50%);}
+.ne-toggle-tip{position:fixed; display:flex; align-items:center; gap:8px; background:#0A0E26; color:#EEF0FF; border:1px solid rgba(255,255,255,.12); border-radius:10px; padding:7px 10px; font-size:12px; font-weight:600; white-space:nowrap; box-shadow:0 8px 24px rgba(0,0,0,.4); pointer-events:none; z-index:2000;}
 .ne-kbd{font-size:10px; font-weight:700; letter-spacing:.03em; color:rgba(255,255,255,.75); background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.14); border-radius:5px; padding:1px 6px; line-height:1.5;}
 
 .ne-search-trigger{justify-content:flex-start;}

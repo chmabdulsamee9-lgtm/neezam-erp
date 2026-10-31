@@ -229,15 +229,18 @@ const NAV_ICONS = {
 }
 
 // Rendered position:fixed from the trigger's rect because .ne-sidebar is overflow:hidden.
-function SidebarToggleTip({ label, style, children }) {
+function SidebarToggleTip({ label, placement = 'right', style, children }) {
   const [pos, setPos] = useState(null)
+  const place = (r) => placement === 'bottom'
+    ? { left: r.left + r.width / 2, top: r.bottom + 8 }
+    : { left: r.right + 10, top: r.top + r.height / 2 }
   return (
     <span style={{ display: 'flex', ...style }}
-      onMouseEnter={(e) => { const r = e.currentTarget.getBoundingClientRect(); setPos({ left: r.right + 10, top: r.top + r.height / 2 }) }}
+      onMouseEnter={(e) => setPos(place(e.currentTarget.getBoundingClientRect()))}
       onMouseLeave={() => setPos(null)}>
       {children}
       {pos && (
-        <span className="ne-toggle-tip" style={{ left: pos.left, top: pos.top }}>
+        <span className={`ne-toggle-tip ne-toggle-tip-${placement}`} style={{ left: pos.left, top: pos.top }}>
           <Icon name="sidebarToggle" size={17} />
           <span>{label}</span>
           <span className="ne-kbd" style={{ marginLeft: 4 }}>CTRL</span>
@@ -1106,10 +1109,11 @@ function App() {
     const onKey = (e) => {
       if (!(e.ctrlKey || e.metaKey)) return
       const key = e.key.toLowerCase()
+      if (isTypingTarget(document.activeElement)) return
       if (key === 'k') {
         e.preventDefault()
         setSearchOpen(true)
-      } else if (key === 'b' && !isTypingTarget(document.activeElement)) {
+      } else if (key === 'b') {
         e.preventDefault()
         setSidebarOpen(v => !v)
       }
@@ -2255,17 +2259,14 @@ function App() {
               {(sidebarOpen || mobileDrawerOpen) ? (
                 <>
                   <span style={{ display: 'flex' }}><Monogram size={22} /></span>
-                  <SidebarToggleTip label={t('sidebar.collapseTooltip')} style={{ marginLeft: 'auto' }}>
+                  <SidebarToggleTip label={t('sidebar.collapseTooltip')} placement="bottom" style={{ marginLeft: 'auto' }}>
                     <button className="ne-collapse-btn" onClick={() => setSidebarOpen(false)} aria-label={t('sidebar.collapseTooltip')}><Icon name="sidebarToggle" size={15} /></button>
                   </SidebarToggleTip>
                 </>
               ) : (
                 <>
                   <SidebarToggleTip label={t('sidebar.expandTooltip')}>
-                    <span style={{ display: 'flex', cursor: 'pointer' }} onClick={() => setSidebarOpen(true)}><Monogram size={22} /></span>
-                  </SidebarToggleTip>
-                  <SidebarToggleTip label={t('sidebar.expandTooltip')}>
-                    <button className="ne-collapse-btn" onClick={() => setSidebarOpen(true)} aria-label={t('sidebar.expandTooltip')}><Icon name="sidebarToggle" size={15} /></button>
+                    <span role="button" aria-label={t('sidebar.expandTooltip')} style={{ display: 'flex', cursor: 'pointer' }} onClick={() => setSidebarOpen(true)}><Monogram size={22} /></span>
                   </SidebarToggleTip>
                 </>
               )}
