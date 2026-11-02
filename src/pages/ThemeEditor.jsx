@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
+import { STOREFRONT_THEMES } from "../lib/storefrontThemes";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 
@@ -18,8 +19,8 @@ const TEMPLATES = [
 
 // The universal (templates: '*') section library from storefront-layout.ts's
 // SECTION_REGISTRY, plus the two non-locked 'core' product-page sections.
-// Deliberately excludes the ~30 brand-specific jp-*/zero-*/org-*/vince-*
-// section types (themes 5-8's bespoke pre-built sections) — those can still
+// Deliberately excludes the ~30 theme-specific section types of themes 5-8
+// (stored keys jp-*/zero-*/org-*/vince-*, kept for saved layouts) — those can still
 // be edited if already present in a saved layout (via the generic field
 // editor below), just not newly added from this menu. See final report.
 const SECTION_TYPES = [
@@ -444,7 +445,7 @@ export default function ThemeEditor({ storeId, themeId, onNavigate, onOpenThemeE
             <div>
               <p style={groupLabelStyle}>Design theme (1-8)</p>
               <select style={inputStyle} value={settings.active_theme_id || 1} onChange={(e) => updateSettings({ active_theme_id: Number(e.target.value) })}>
-                {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => <option key={n} value={n}>{n}</option>)}
+                {STOREFRONT_THEMES.map((th) => <option key={th.id} value={th.id}>{th.id}. {th.name}</option>)}
               </select>
               <p style={{ fontSize: 12, color: "var(--ne-muted)", marginTop: 10 }}>
                 Preview iframe oppose se draft receive karta hai har change par — Save tabhi real visitors ko dikhta hai jab aap "Save" button dabao.
