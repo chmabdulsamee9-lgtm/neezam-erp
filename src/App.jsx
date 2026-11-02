@@ -99,7 +99,8 @@ const FinanceStatement = lazyPage(() => import('./pages/FinanceStatement'), 'fin
 const DevMonitorDetailed = lazyPage(() => import('./pages/DevMonitorDetailed'), 'master-dashboard/dev-monitor')
 const GeminiUsageMonitor = lazyPage(() => import('./pages/GeminiUsageMonitor'), 'master-dashboard/gemini-monitor')
 const ShopifyCallback = lazyPage(() => import('./pages/ShopifyCallback'), null)
-const Orders = lazyPage(() => import('./pages/Orders'), 'orders')
+const Orders = lazyPage(() => import('./pages/OrdersHub'), 'orders')
+const OrderDetail = lazyPage(() => import('./pages/OrderDetail'), 'orders')
 const Dashboard = lazyPage(() => import('./pages/Dashboard'), 'dashboard')
 const WhatsApp = lazyPage(() => import('./pages/WhatsApp'), 'whatsapp')
 const Team = lazyPage(() => import('./pages/Team'), 'team')
@@ -1101,6 +1102,9 @@ function App() {
   // call karta hai taake sidebar clicks real per-page URLs banayein (back/forward + direct-URL support)
   const activeMenu = (location.pathname === '/' || location.pathname.startsWith('/auth/')) ? 'home' : location.pathname.slice(1)
   const setActiveMenu = (id) => navigate(`/${id}`)
+  // /orders/<id> is a real route: the page is the order detail, the sidebar and layout stay on Orders
+  const orderDetailId = activeMenu.startsWith('orders/') && activeMenu.length > 7 ? activeMenu.slice(7) : null
+  const navMenu = orderDetailId ? 'orders' : activeMenu
 
   // Root-redirect ab auth-aware hai — pehle yeh session check kiye bina hi /dashboard
   // navigate kar deta tha, isliye Login form khule hone par bhi URL "/dashboard" dikhta tha.
@@ -2236,7 +2240,7 @@ function App() {
       onMouseLeave={onHover ? closeNavHoverSoon : undefined}
       onTouchStart={() => prefetchPage(item.id)}
       onClick={() => goToMenu(item.id)}
-      className={`ne-navitem${activeMenu === item.id ? ' active' : ''}${sub ? ' ne-navitem-sub' : ''}`}>
+      className={`ne-navitem${navMenu === item.id ? ' active' : ''}${sub ? ' ne-navitem-sub' : ''}`}>
       <span className="ne-ic">{NAV_ICONS[item.id]}</span>
       {(sidebarOpen || mobileDrawerOpen) && <span className="ne-navtext">{item.label}</span>}
       {item.id === 'orders' && notifCount > 0 && (
@@ -2255,8 +2259,8 @@ function App() {
       return renderNavItem(entry.item, { onHover: (el) => openNavHover(entry, el, hasKids ? 'flyout' : 'label') })
     }
     if (!hasKids) return renderNavItem(entry.item)
-    const isActiveParent = activeMenu === entry.item.id ||
-      entry.children.some(c => activeMenu === c.id || String(activeMenu || '').startsWith(`${c.id}/`))
+    const isActiveParent = navMenu === entry.item.id ||
+      entry.children.some(c => navMenu === c.id || String(navMenu || '').startsWith(`${c.id}/`))
     if (!isActiveParent) {
       return renderNavItem(entry.item, { onHover: (el) => openNavHover(entry, el, 'flyout') })
     }
@@ -2413,7 +2417,7 @@ function App() {
             <div className="ne-navflyout-title">{navHover.item.label}</div>
             {navHover.children.map(c => (
               <div key={c.id}
-                className={`ne-navflyout-item${activeMenu === c.id ? ' active' : ''}`}
+                className={`ne-navflyout-item${navMenu === c.id ? ' active' : ''}`}
                 onMouseEnter={() => prefetchPage(c.id)}
                 onClick={() => goToMenu(c.id)}>
                 {c.label}
@@ -2452,11 +2456,11 @@ function App() {
         )}
 
         <div className="ne-main">
-          {!fullScreenModules.includes(activeMenu) && (
+          {!fullScreenModules.includes(navMenu) && (
             <div className={`ne-topbar${activeMenu === 'settings' ? ' ne-topbar-hide-desktop' : ''}`}>
               <button className="ne-hamburger" onClick={() => setMobileDrawerOpen(true)}>☰</button>
               <h1 className="ne-page-title">
-                {pageTitleLookup.find(m => m.id === activeMenu)?.label}
+                {pageTitleLookup.find(m => m.id === navMenu)?.label}
                 {syncStatusText && <span className="ne-sync-status" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="pending" size={11} /> {syncStatusText}</span>}
               </h1>
               <SyncStatusBadge />
@@ -2467,21 +2471,25 @@ function App() {
             </div>
           )}
 
-          {fullScreenModules.includes(activeMenu) && (
+          {fullScreenModules.includes(navMenu) && (
             <button className="ne-hamburger" onClick={() => setMobileDrawerOpen(true)} style={{ position: 'absolute', top: 10, left: 10, zIndex: 50 }}>☰</button>
           )}
 
-          <div className={`ne-content${activeMenu === 'settings' ? ' ne-content-settings' : noCardModules.includes(activeMenu) ? ' ne-content-fullscreen' : fullScreenModules.includes(activeMenu) ? ' ne-content-notopbar' : ''}`}>
+          <div className={`ne-content${activeMenu === 'settings' ? ' ne-content-settings' : noCardModules.includes(navMenu) ? ' ne-content-fullscreen' : fullScreenModules.includes(navMenu) ? ' ne-content-notopbar' : ''}`}>
           <ErrorBoundary key={activeMenu}>
             {((ordersPending && ORDERS_DEPENDENT_PAGES.includes(activeMenu)) || (storePending && STORE_DEPENDENT_PAGES.includes(activeMenu))) && hasAccess(activeMenu) && <PageSkeletonFor menu={activeMenu} />}
             {activeMenu === 'orders' && hasAccess('orders') && !storePending && (
               <Orders
+                storeId={selectedStoreId}
                 ordersStore={ordersStore} setOrdersStore={setOrdersStore}
                 cfUrl={CF_URL}
                 fetcher={monitoredFetch}
                 liveVersion={liveVersion}
                 bumpLive={bumpLive}
               />
+            )}
+            {orderDetailId && hasAccess('orders') && !storePending && selectedStoreId && (
+              <OrderDetail orderId={orderDetailId} storeId={selectedStoreId} cfUrl={CF_URL} />
             )}
             {activeMenu === 'home' && (
               <AppHome storeId={selectedStoreId} storeName={currentStoreInfo?.store_name} apiBase={CF_URL} fetcher={monitoredFetch} onNavigate={setActiveMenu} canOpen={hasAccess} liveVersion={liveVersion} />
@@ -2567,10 +2575,10 @@ function App() {
             {activeMenu === 'master-dashboard/gemini-monitor' && profile.role === 'creator' && (
               <GeminiUsageMonitor cfUrl={CF_URL} session={session} />
             )}
-            {!['home', 'dashboard', 'store-connect', 'online-store', 'theme-editor', 'products', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'returns', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor'].includes(activeMenu) && (
+            {!['home', 'dashboard', 'store-connect', 'online-store', 'theme-editor', 'products', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'returns', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor'].includes(navMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
-                  <h2 style={{ color: '#fff', marginBottom: 8 }}>{pageTitleLookup.find(m => m.id === activeMenu)?.label}</h2>
+                  <h2 style={{ color: '#fff', marginBottom: 8 }}>{pageTitleLookup.find(m => m.id === navMenu)?.label}</h2>
                   <p style={{ color: 'var(--ne-muted)', fontSize: 14 }}>{t('common.comingSoon')}</p>
                 </div>
               </div>
