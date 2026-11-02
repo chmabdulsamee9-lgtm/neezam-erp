@@ -5,6 +5,7 @@ import { ProductsSkeleton } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 import { getCachedProducts, saveProductsBulk, upsertProduct, getProductsMeta, setProductsMeta } from "../productsCache";
 import { generateSku, isDuplicateSku } from "../utils/skuGenerator";
+import EneezamProducts from "../components/EneezamProducts";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 const PAGE_SIZE = 500;
@@ -142,7 +143,7 @@ async function fetchProductsDelta(storeId, since) {
   return allRows;
 }
 
-export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_URL }) {
+function ShopifyProductsPanel({ storeId, ordersStore, cfUrl = CF_URL }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const eneezamId = ordersStore?.eneezam_id;
@@ -1835,5 +1836,55 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
         </div>
       )}
     </div>
+  );
+}
+
+// Shopify/eNeezam tabs appear only for stores with a connected custom domain (same rule as
+// OnlineStore: an active primary domain). Otherwise the Shopify panel renders exactly as before.
+export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_URL }) {
+  const [lang] = useLanguage();
+  const t = useTranslation(lang);
+  const [connected, setConnected] = useState(false);
+  const [tab, setTab] = useState("shopify");
+  const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 760);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setConnected(false);
+    setTab("shopify");
+    if (!storeId) return;
+    supabase.from("stores").select("id, store_custom_domains(domain, role, status)").eq("id", storeId).maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return;
+        const domains = data?.store_custom_domains || [];
+        setConnected(domains.some((d) => d.role === "primary" && d.status === "active"));
+      }, () => {});
+    return () => { cancelled = true; };
+  }, [storeId]);
+
+  const pad = isMobile ? "1rem" : "1.5rem";
+  const tabBtn = (key) => ({
+    padding: "8px 16px", border: "none", borderBottom: tab === key ? "2px solid var(--ne-accent)" : "2px solid transparent",
+    background: "transparent", color: tab === key ? "var(--ne-text)" : "var(--ne-muted)", fontSize: 13, fontWeight: 700, cursor: "pointer",
+  });
+
+  return (
+    <>
+      {connected && (
+        <div style={{ paddingTop: pad, margin: `0 ${pad}`, display: "flex", gap: 4, borderBottom: "1px solid var(--ne-border)", overflowX: "auto" }}>
+          <button type="button" onClick={() => setTab("shopify")} style={tabBtn("shopify")}>{t("products.tabShopify")}</button>
+          <button type="button" onClick={() => setTab("eneezam")} style={tabBtn("eneezam")}>{t("products.tabEneezam")}</button>
+        </div>
+      )}
+      {connected && tab === "eneezam"
+        ? <div style={{ padding: pad }}><EneezamProducts storeId={storeId} ordersStore={ordersStore} cfUrl={cfUrl} /></div>
+        : <ShopifyProductsPanel storeId={storeId} ordersStore={ordersStore} cfUrl={cfUrl} />}
+    </>
   );
 }
