@@ -17,6 +17,8 @@ const CourierConnect = lazy(() => import("./CourierConnect"));
 const MetaConnect = lazy(() => import("./MetaConnect"));
 const Team = lazy(() => import("./Team"));
 const ActivityLog = lazy(() => import("./ActivityLog"));
+const CheckoutSettings = lazy(() => import("./CheckoutSettings"));
+const ShippingSettings = lazy(() => import("./ShippingSettings"));
 
 export default function Settings({ profile, onBack, hasAccess, currentStoreInfo, userEmail, storeId, storeName, eneezamId, cfUrl }) {
   const [lang] = useLanguage();
@@ -47,6 +49,8 @@ export default function Settings({ profile, onBack, hasAccess, currentStoreInfo,
     if (hasAccess?.("courier-connect")) items.push({ id: "courier-connect", label: t("nav.courier-connect"), icon: "truck" });
     if (hasAccess?.("meta-connect")) items.push({ id: "meta-connect", label: t("nav.meta-connect"), icon: "chart" });
     if (isPrivileged) {
+      items.push({ id: "checkout-settings", label: t("settings.checkout"), icon: "card" });
+      items.push({ id: "shipping-settings", label: t("settings.shipping"), icon: "truck" });
       items.push({ id: "team", label: t("nav.team"), icon: "team" });
       items.push({ id: "activity-log", label: t("nav.activity-log"), icon: "activity-log" });
     }
@@ -141,6 +145,8 @@ export default function Settings({ profile, onBack, hasAccess, currentStoreInfo,
             {activeSection === "whatsapp" && <WhatsApp />}
             {activeSection === "courier-connect" && <CourierConnect storeId={storeId} />}
             {activeSection === "meta-connect" && <MetaConnect storeId={storeId} />}
+            {activeSection === "checkout-settings" && <CheckoutSettings storeId={storeId} cfUrl={cfUrl} />}
+            {activeSection === "shipping-settings" && <ShippingSettings storeId={storeId} cfUrl={cfUrl} />}
             {activeSection === "team" && <Team storeId={storeId} storeName={storeName} eneezamId={eneezamId} cfUrl={cfUrl} />}
             {activeSection === "activity-log" && <ActivityLog storeId={storeId} />}
           </Suspense>

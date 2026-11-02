@@ -2439,6 +2439,8 @@ function App() {
               { id: 'whatsapp', label: t('nav.whatsapp'), menu: 'settings?section=whatsapp' },
               { id: 'courier-connect', label: t('nav.courier-connect'), menu: 'settings?section=courier-connect' },
               { id: 'meta-connect', label: t('nav.meta-connect'), menu: 'settings?section=meta-connect' },
+              { id: 'checkout-settings', label: t('settings.checkout'), menu: 'settings?section=checkout-settings' },
+              { id: 'shipping-settings', label: t('settings.shipping'), menu: 'settings?section=shipping-settings' },
               { id: 'team', label: t('nav.team'), menu: 'settings?section=team' },
               { id: 'activity-log', label: t('nav.activity-log'), menu: 'settings?section=activity-log' },
             ]}
