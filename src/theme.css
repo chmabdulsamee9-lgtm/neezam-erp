@@ -97,7 +97,7 @@ html, body {
 .ne-sidebar.collapsed .ne-brandname-btn{flex:none;}
 
 .ne-main{flex:1; display:flex; flex-direction:column; height:100%; overflow:hidden; min-width:0; background:var(--ne-sidebar-bg);}
-.ne-topbar{display:flex; align-items:center; gap:14px; padding:14px 24px; border-bottom:1px solid var(--ne-border); flex-shrink:0; background:var(--ne-surface); margin:4px 4px 0; border-radius:7px 7px 0 0;}
+.ne-topbar{display:flex; align-items:center; gap:14px; padding:14px 24px; border-bottom:1px solid var(--ne-border); flex-shrink:0; background:var(--ne-surface); margin:4px 4px 0; border-radius:14px 14px 0 0;}
 .ne-hamburger{display:none; width:34px; height:34px; border-radius:9px; flex-shrink:0; background:var(--ne-surface-2); border:1px solid var(--ne-border); color:var(--ne-text); align-items:center; justify-content:center; cursor:pointer; font-size:15px;}
 .ne-page-title{font-size:15px; font-weight:700; margin:0;}
 .ne-sync-status{font-size:11px; color:var(--ne-muted-2); font-weight:400; margin-left:8px;}
@@ -111,8 +111,13 @@ html, body {
    Full-screen modules (Orders, dev-monitor, etc.) explicitly opt out via
    .ne-content-fullscreen so their edge-to-edge layouts/sticky toolbars are unaffected —
    they render exactly as before. */
-.ne-content{flex:1; overflow:auto; min-width:0; overscroll-behavior-y:auto; margin:0 4px 4px; border-radius:0 0 7px 7px; background:var(--ne-surface);}
-.ne-content.ne-content-notopbar{margin:4px; border-radius:7px;}
+.ne-content{flex:1; overflow:auto; min-width:0; overscroll-behavior-y:auto; margin:0 4px 4px; border-radius:0 0 14px 14px; background:var(--ne-surface);}
+.ne-content.ne-content-notopbar{margin:4px; border-radius:14px;}
+/* 14px = SettingsCard / page-card radius. Inset the scrollbar track so the thumb never runs
+   into a rounded corner and gets clipped by it. */
+.ne-content::-webkit-scrollbar-track{margin-bottom:14px;}
+.ne-content.ne-content-notopbar::-webkit-scrollbar-track{margin-top:14px; margin-bottom:14px;}
+.ne-content.ne-content-fullscreen::-webkit-scrollbar-track{margin:0;}
 .ne-content.ne-content-fullscreen{margin:0; border-radius:0;}
 
 .ne-drawer-backdrop{display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:998;}
@@ -260,7 +265,8 @@ html, body {
   .ne-topbar-hide-desktop{display:none;}
   .ne-content.ne-content-settings{margin:0; border-radius:0; background:transparent; overflow:hidden;}
   .ne-content-settings .ne-settings-nav{background:var(--ne-sidebar-bg); border-right:none; border-left:1px solid rgba(255,255,255,.2);}
-  .ne-content-settings .ne-settings-body{background:var(--ne-surface); border-radius:7px; margin:4px 4px 4px 0;}
+  .ne-content-settings .ne-settings-body{background:var(--ne-surface); border-radius:14px; margin:4px 4px 4px 0;}
+  .ne-content-settings .ne-settings-body::-webkit-scrollbar-track{margin-top:14px; margin-bottom:14px;}
   .ne-content-settings .ne-settings-back{color:#EEF0FF;}
   .ne-content-settings .ne-settings-back:hover{background:rgba(255,255,255,.06);}
   .ne-content-settings .ne-settings-storeblock{color:#EEF0FF;}
