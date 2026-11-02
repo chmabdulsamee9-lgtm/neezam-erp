@@ -2439,6 +2439,9 @@ function App() {
               { id: 'whatsapp', label: t('nav.whatsapp'), menu: 'settings?section=whatsapp' },
               { id: 'courier-connect', label: t('nav.courier-connect'), menu: 'settings?section=courier-connect' },
               { id: 'meta-connect', label: t('nav.meta-connect'), menu: 'settings?section=meta-connect' },
+              { id: 'general', label: t('settings.general'), menu: 'settings?section=general' },
+              { id: 'payment-settings', label: t('settings.payments'), menu: 'settings?section=payment-settings' },
+              { id: 'tax-settings', label: t('settings.taxes'), menu: 'settings?section=tax-settings' },
               { id: 'checkout-settings', label: t('settings.checkout'), menu: 'settings?section=checkout-settings' },
               { id: 'shipping-settings', label: t('settings.shipping'), menu: 'settings?section=shipping-settings' },
               { id: 'team', label: t('nav.team'), menu: 'settings?section=team' },
@@ -2536,6 +2539,8 @@ function App() {
                 storeName={currentStoreInfo?.store_name || ordersStore?.store_name}
                 eneezamId={currentStoreInfo?.eneezam_id || ordersStore?.eneezam_id}
                 cfUrl={CF_URL}
+                onOpenOnlineStore={() => setActiveMenu('online-store')}
+                onStoreNameChanged={(name) => setUserStoresList((list) => list.map((us) => (us.store_id === selectedStoreId ? { ...us, stores: { ...us.stores, store_name: name } } : us)))}
               />
             )}
             {activeMenu === 'pnl' && hasAccess('pnl') && !ordersPending && (

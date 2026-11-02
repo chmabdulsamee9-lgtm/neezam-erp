@@ -5,6 +5,7 @@ import Icon from "../components/Icon";
 import InitialsAvatar from "../components/InitialsAvatar";
 import { SettingsCard, settingsInputStyle, settingsLabelStyle } from "../components/SettingsUI";
 import { useLanguage, useTranslation } from "../i18n";
+import { workerFetch } from "../lib/storeApi";
 
 // Admin UI overhaul, Part C — Settings is now a Shopify-style shell: a client-side-filtered
 // "Search settings" list on the left/top, a store-identity block, and a bottom user row that
@@ -19,13 +20,28 @@ const Team = lazy(() => import("./Team"));
 const ActivityLog = lazy(() => import("./ActivityLog"));
 const CheckoutSettings = lazy(() => import("./CheckoutSettings"));
 const ShippingSettings = lazy(() => import("./ShippingSettings"));
+const GeneralSettings = lazy(() => import("./GeneralSettings"));
+const PaymentSettings = lazy(() => import("./PaymentSettings"));
+const TaxSettings = lazy(() => import("./TaxSettings"));
 
-export default function Settings({ profile, onBack, hasAccess, currentStoreInfo, userEmail, storeId, storeName, eneezamId, cfUrl }) {
+export default function Settings({ profile, onBack, hasAccess, currentStoreInfo, userEmail, storeId, storeName, eneezamId, cfUrl, onOpenOnlineStore, onStoreNameChanged }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const [backHover, setBackHover] = useState(false);
   const [selectedSection, setActiveSection] = useState(null);
   const [search, setSearch] = useState("");
+
+  // brand card (name + primary domain) shown under "Search settings"; refreshed when General is saved
+  const [brand, setBrand] = useState({ name: "", domain: "" });
+  useEffect(() => {
+    let alive = true;
+    if (!storeId || !cfUrl) return undefined;
+    workerFetch(cfUrl, `/get-general-settings?store_id=${storeId}`).then(({ status, data }) => {
+      if (alive && status === 200) setBrand({ name: data.store_name || "", domain: data.primary_domain || "" });
+    });
+    return () => { alive = false; };
+  }, [storeId, cfUrl]);
+  const cardName = brand.name || currentStoreInfo?.store_name || storeName || "";
 
   // ---- Add new brand ----
   const [brandName, setBrandName] = useState("");
@@ -45,12 +61,15 @@ export default function Settings({ profile, onBack, hasAccess, currentStoreInfo,
   // App.jsx applies to the standalone route, and rendering is keyed off this list.
   const embeddedSections = useMemo(() => {
     const items = [];
+    items.push({ id: "general", label: t("settings.general"), icon: "settings" }); // every store member; editing is admin/creator only
     if (hasAccess?.("whatsapp")) items.push({ id: "whatsapp", label: t("nav.whatsapp"), icon: "comment" });
     if (hasAccess?.("courier-connect")) items.push({ id: "courier-connect", label: t("nav.courier-connect"), icon: "truck" });
     if (hasAccess?.("meta-connect")) items.push({ id: "meta-connect", label: t("nav.meta-connect"), icon: "chart" });
     if (isPrivileged) {
       items.push({ id: "checkout-settings", label: t("settings.checkout"), icon: "card" });
       items.push({ id: "shipping-settings", label: t("settings.shipping"), icon: "truck" });
+      items.push({ id: "payment-settings", label: t("settings.payments"), icon: "cash" });
+      items.push({ id: "tax-settings", label: t("settings.taxes"), icon: "calculator" });
       items.push({ id: "team", label: t("nav.team"), icon: "team" });
       items.push({ id: "activity-log", label: t("nav.activity-log"), icon: "activity-log" });
     }
@@ -117,6 +136,16 @@ export default function Settings({ profile, onBack, hasAccess, currentStoreInfo,
           <Icon name="search" size={14} />
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("settings.searchPlaceholder")} />
         </div>
+        <div role="button" tabIndex={0} title={t("settings.openGeneral")}
+          onClick={() => setActiveSection("general")} onKeyDown={(e) => { if (e.key === "Enter") setActiveSection("general"); }}
+          style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 0 10px", padding: "10px 12px", borderRadius: 11, cursor: "pointer",
+            border: `1px solid ${activeSection === "general" ? "var(--ne-accent)" : "var(--ne-border)"}`, background: "var(--ne-surface-2)" }}>
+          <InitialsAvatar name={cardName || "S"} size={34} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ne-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cardName || "—"}</div>
+            <div style={{ fontSize: 11, color: "var(--ne-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{brand.domain || t("storeGeneral.domainNone")}</div>
+          </div>
+        </div>
         <div className="ne-settings-navlist">
           {filteredSections.map((s) => (
             <div key={s.id}
@@ -145,6 +174,12 @@ export default function Settings({ profile, onBack, hasAccess, currentStoreInfo,
             {activeSection === "whatsapp" && <WhatsApp />}
             {activeSection === "courier-connect" && <CourierConnect storeId={storeId} />}
             {activeSection === "meta-connect" && <MetaConnect storeId={storeId} />}
+            {activeSection === "general" && (
+              <GeneralSettings storeId={storeId} cfUrl={cfUrl} canEdit={isPrivileged} onOpenOnlineStore={onOpenOnlineStore}
+                onSaved={({ storeName: n }) => { setBrand((b) => ({ ...b, name: n })); onStoreNameChanged?.(n); }} />
+            )}
+            {activeSection === "payment-settings" && <PaymentSettings storeId={storeId} cfUrl={cfUrl} />}
+            {activeSection === "tax-settings" && <TaxSettings storeId={storeId} cfUrl={cfUrl} />}
             {activeSection === "checkout-settings" && <CheckoutSettings storeId={storeId} cfUrl={cfUrl} />}
             {activeSection === "shipping-settings" && <ShippingSettings storeId={storeId} cfUrl={cfUrl} />}
             {activeSection === "team" && <Team storeId={storeId} storeName={storeName} eneezamId={eneezamId} cfUrl={cfUrl} />}

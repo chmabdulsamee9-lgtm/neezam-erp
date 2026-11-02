@@ -3,6 +3,8 @@ import { useLanguage, useTranslation } from "../i18n";
 import Icon from "../components/Icon";
 import { SettingsCard, settingsInputStyle, settingsLabelStyle } from "../components/SettingsUI";
 import { workerFetch, publicFetch, logStoreActivity } from "../lib/storeApi";
+import ChipsInput from "../components/ChipsInput";
+import { gramsToUnit, unitToGrams } from "../lib/units";
 
 // Settings > Shipping and delivery. Flat fee, free-shipping threshold and ordered conditional
 // rules (subtotal / weight / province / city / area). The worker validates and evaluates; the
@@ -14,37 +16,37 @@ const MAX_ENTRY_LEN = 60;
 const norm = (s) => String(s || "").normalize("NFKD").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 
 const numStr = (v) => (v === null || v === undefined ? "" : String(v));
-const gramsToKg = (g) => (g === null || g === undefined ? "" : String(Math.round((Number(g) / 1000) * 1000) / 1000));
+const gramsToDisp = (g, unit) => { const v = gramsToUnit(g, unit); return v === null ? "" : String(v); };
 // "" -> null; a number string -> number; anything else is passed through so the server rejects it with a message
 const parseNum = (s) => { const x = String(s ?? "").trim(); if (x === "") return null; const n = Number(x); return Number.isFinite(n) ? n : x; };
-const kgToGrams = (s) => { const v = parseNum(s); return typeof v === "number" ? Math.round(v * 1000) : v; };
+const dispToGrams = (s, unit) => { const v = parseNum(s); return typeof v === "number" ? unitToGrams(v, unit) : v; };
 
-function fromServer(s) {
+function fromServer(s, unit) {
   return {
-    defaultWeightKg: gramsToKg(s.default_weight_grams),
+    defaultWeightKg: gramsToDisp(s.default_weight_grams, unit),
     flatFee: numStr(s.flat_fee),
     freeEnabled: !!s.free_shipping?.enabled,
     freeMin: numStr(s.free_shipping?.min_subtotal),
     rules: (s.rules || []).map((r) => ({
       id: r.id, name: r.name || "", enabled: r.enabled !== false, fee: numStr(r.fee),
       subtotalMin: numStr(r.conditions?.subtotal_min), subtotalMax: numStr(r.conditions?.subtotal_max),
-      weightMinKg: gramsToKg(r.conditions?.weight_min_grams), weightMaxKg: gramsToKg(r.conditions?.weight_max_grams),
+      weightMinKg: gramsToDisp(r.conditions?.weight_min_grams, unit), weightMaxKg: gramsToDisp(r.conditions?.weight_max_grams, unit),
       provinces: r.conditions?.provinces || [], cities: r.conditions?.cities || [], areas: r.conditions?.areas || [],
     })),
   };
 }
 
-function toServer(d) {
+function toServer(d, unit) {
   return {
     version: 1,
-    default_weight_grams: kgToGrams(d.defaultWeightKg),
+    default_weight_grams: dispToGrams(d.defaultWeightKg, unit),
     flat_fee: parseNum(d.flatFee) ?? 0,
     free_shipping: { enabled: d.freeEnabled, min_subtotal: parseNum(d.freeMin) ?? 0 },
     rules: d.rules.map((r) => ({
       id: r.id, name: r.name.trim(), enabled: r.enabled, fee: parseNum(r.fee) ?? 0,
       conditions: {
         subtotal_min: parseNum(r.subtotalMin), subtotal_max: parseNum(r.subtotalMax),
-        weight_min_grams: kgToGrams(r.weightMinKg), weight_max_grams: kgToGrams(r.weightMaxKg),
+        weight_min_grams: dispToGrams(r.weightMinKg, unit), weight_max_grams: dispToGrams(r.weightMaxKg, unit),
         provinces: r.provinces, cities: r.cities, areas: r.areas,
       },
     })),
@@ -60,54 +62,7 @@ const Toggle = ({ on, onChange, label }) => (
   </button>
 );
 
-/** chips + type-ahead. options: suggestions; allowFree: Enter adds the typed text as-is */
-function ChipsInput({ values, onChange, options = [], allowFree, placeholder, hint, t }) {
-  const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(false);
-  const q = norm(query);
-  const have = new Set(values.map(norm));
-  const suggestions = options.filter((o) => !have.has(norm(o)) && (!q || norm(o).includes(q))).slice(0, 60);
-  const add = (v) => {
-    const text = String(v).replace(/\s+/g, " ").trim();
-    if (!text || text.length > MAX_ENTRY_LEN || have.has(norm(text)) || values.length >= MAX_ENTRIES) return;
-    onChange([...values, text]);
-    setQuery("");
-  };
-  const onKey = (e) => {
-    if (e.key !== "Enter") return;
-    e.preventDefault();
-    const exact = options.find((o) => norm(o) === q);
-    if (exact) add(exact);
-    else if (suggestions.length === 1 && !allowFree) add(suggestions[0]);
-    else if (allowFree) add(query);
-  };
-  return (
-    <div style={{ position: "relative" }}>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 5, padding: "6px 8px", border: "1px solid var(--ne-border)", borderRadius: 9, background: "var(--ne-bg)", minHeight: 36, alignItems: "center" }}>
-        {values.map((v) => (
-          <span key={v} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 12, background: "var(--ne-accent-soft)", color: "var(--ne-text)", fontSize: 11.5, fontWeight: 600 }}>
-            {v}
-            <button type="button" aria-label={`${t("action.delete")} ${v}`} onClick={() => onChange(values.filter((x) => x !== v))} style={{ border: "none", background: "transparent", color: "var(--ne-muted)", cursor: "pointer", padding: 0, display: "inline-flex" }}><Icon name="close" size={10} /></button>
-          </span>
-        ))}
-        <input value={query} onChange={(e) => { setQuery(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} onKeyDown={onKey}
-          placeholder={values.length ? "" : placeholder} maxLength={MAX_ENTRY_LEN}
-          style={{ flex: 1, minWidth: 110, border: "none", outline: "none", background: "transparent", color: "var(--ne-text)", fontSize: 12.5 }} />
-      </div>
-      {open && suggestions.length > 0 && (
-        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50, marginTop: 2, maxHeight: 200, overflowY: "auto", background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 9, boxShadow: "0 8px 30px rgba(0,0,0,.35)" }}>
-          {suggestions.map((o) => (
-            <div key={o} onMouseDown={(e) => { e.preventDefault(); add(o); }} style={{ padding: "6px 10px", fontSize: 12, cursor: "pointer", color: "var(--ne-text)" }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--ne-accent-soft)")} onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>{o}</div>
-          ))}
-        </div>
-      )}
-      {hint && <div style={{ fontSize: 10.5, color: "var(--ne-muted)", marginTop: 3 }}>{hint}</div>}
-    </div>
-  );
-}
-
-function RuleCard({ rule, index, total, geo, currency, onChange, onMove, onDelete, cfUrl, t }) {
+function RuleCard({ rule, index, total, geo, currency, unit, onChange, onMove, onDelete, cfUrl, t }) {
   const [open, setOpen] = useState(!rule.name);
   const set = (patch) => onChange({ ...rule, ...patch });
 
@@ -145,7 +100,7 @@ function RuleCard({ rule, index, total, geo, currency, onChange, onMove, onDelet
   const iconBtn = (disabled) => ({ border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", borderRadius: 7, padding: "4px 7px", cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.4 : 1, display: "inline-flex" });
   const summary = [
     rule.subtotalMin !== "" || rule.subtotalMax !== "" ? `${t("shippingSettings.subtotal")} ${rule.subtotalMin || "0"}–${rule.subtotalMax || "∞"}` : "",
-    rule.weightMinKg !== "" || rule.weightMaxKg !== "" ? `${rule.weightMinKg || "0"}–${rule.weightMaxKg || "∞"} kg` : "",
+    rule.weightMinKg !== "" || rule.weightMaxKg !== "" ? `${rule.weightMinKg || "0"}–${rule.weightMaxKg || "∞"} ${unit}` : "",
     rule.provinces.join(", "), rule.cities.join(", "), rule.areas.join(", "),
   ].filter(Boolean).join(" · ");
 
@@ -174,8 +129,8 @@ function RuleCard({ rule, index, total, geo, currency, onChange, onMove, onDelet
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
             <div><label style={label}>{t("shippingSettings.subtotalMin")}</label><input style={inp} inputMode="decimal" value={rule.subtotalMin} onChange={(e) => set({ subtotalMin: e.target.value })} /></div>
             <div><label style={label}>{t("shippingSettings.subtotalMax")}</label><input style={inp} inputMode="decimal" value={rule.subtotalMax} onChange={(e) => set({ subtotalMax: e.target.value })} /></div>
-            <div><label style={label}>{t("shippingSettings.weightMin")}</label><input style={inp} inputMode="decimal" value={rule.weightMinKg} onChange={(e) => set({ weightMinKg: e.target.value })} /></div>
-            <div><label style={label}>{t("shippingSettings.weightMax")}</label><input style={inp} inputMode="decimal" value={rule.weightMaxKg} onChange={(e) => set({ weightMaxKg: e.target.value })} /></div>
+            <div><label style={label}>{t("shippingSettings.weightMin")} ({unit})</label><input style={inp} inputMode="decimal" value={rule.weightMinKg} onChange={(e) => set({ weightMinKg: e.target.value })} /></div>
+            <div><label style={label}>{t("shippingSettings.weightMax")} ({unit})</label><input style={inp} inputMode="decimal" value={rule.weightMaxKg} onChange={(e) => set({ weightMaxKg: e.target.value })} /></div>
           </div>
           <div><label style={label}>{t("shippingSettings.provinces")}</label>
             <ChipsInput t={t} values={rule.provinces} options={provinceOptions} allowFree={provinceOptions.length === 0} placeholder={t("shippingSettings.anyProvince")} onChange={(v) => set({ provinces: v })} /></div>
@@ -198,6 +153,7 @@ export default function ShippingSettings({ storeId, cfUrl }) {
   const [saved, setSaved] = useState(null);
   const [draft, setDraft] = useState(null);
   const [currency, setCurrency] = useState("PKR");
+  const [unit, setUnit] = useState("kg"); // display unit from General settings; storage is always grams
   const [geo, setGeo] = useState([]);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState(null);
@@ -217,7 +173,10 @@ export default function ShippingSettings({ storeId, cfUrl }) {
         setLoadError(s.data.error || t("shippingSettings.errorLoad"));
       } else {
         if (s.data.error) setLoadError(s.data.error);
-        const d = fromServer(s.data.settings);
+        const u = s.data.weight_unit === "g" ? "g" : "kg";
+        const d = fromServer(s.data.settings, u);
+        setUnit(u);
+        setTest((x) => ({ ...x, weightKg: u === "g" ? "500" : "0.5" }));
         setSaved(d);
         setDraft(d);
         if (s.data.currency) setCurrency(s.data.currency);
@@ -242,9 +201,9 @@ export default function ShippingSettings({ storeId, cfUrl }) {
   const save = async () => {
     setSaving(true);
     setNotice(null);
-    const { status, data } = await workerFetch(cfUrl, "/save-shipping-settings", { method: "POST", body: JSON.stringify({ store_id: storeId, settings: toServer(draft) }) });
+    const { status, data } = await workerFetch(cfUrl, "/save-shipping-settings", { method: "POST", body: JSON.stringify({ store_id: storeId, settings: toServer(draft, unit) }) });
     if (status === 200 && data.success) {
-      const d = fromServer(data.settings);
+      const d = fromServer(data.settings, unit);
       setSaved(d);
       setDraft(d);
       setNotice({ type: "ok", text: t("shippingSettings.saved") });
@@ -260,7 +219,7 @@ export default function ShippingSettings({ storeId, cfUrl }) {
     setTestResult(null);
     const { status, data } = await workerFetch(cfUrl, "/preview-shipping", {
       method: "POST",
-      body: JSON.stringify({ store_id: storeId, subtotal: parseNum(test.subtotal) ?? 0, weight_grams: kgToGrams(test.weightKg) ?? 0, province: test.province, city: test.city, area: test.area, settings: toServer(draft) }),
+      body: JSON.stringify({ store_id: storeId, subtotal: parseNum(test.subtotal) ?? 0, weight_grams: dispToGrams(test.weightKg, unit) ?? 0, province: test.province, city: test.city, area: test.area, settings: toServer(draft, unit) }),
     });
     setTestResult(status === 200 && typeof data.fee === "number" ? { ok: true, ...data } : { ok: false, error: data.error || t("shippingSettings.errorTest") });
     setTesting(false);
@@ -286,7 +245,7 @@ export default function ShippingSettings({ storeId, cfUrl }) {
         <h3 style={h3}>{t("shippingSettings.generalTitle")}</h3>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14 }}>
           <div>
-            <label style={settingsLabelStyle}>{t("shippingSettings.defaultWeight")}</label>
+            <label style={settingsLabelStyle}>{t("shippingSettings.defaultWeight")} ({unit})</label>
             <input style={inp} inputMode="decimal" value={draft.defaultWeightKg} onChange={(e) => set({ defaultWeightKg: e.target.value })} />
             <div style={{ fontSize: 10.5, color: "var(--ne-muted)", marginTop: 3 }}>{t("shippingSettings.defaultWeightHint")}</div>
           </div>
@@ -318,7 +277,7 @@ export default function ShippingSettings({ storeId, cfUrl }) {
         <p style={{ margin: "0 0 12px", fontSize: 11.5, color: "var(--ne-muted)", lineHeight: 1.55 }}>{t("shippingSettings.evalOrder")}</p>
         {draft.rules.length === 0 && <p style={{ fontSize: 12.5, color: "var(--ne-muted)", margin: 0 }}>{t("shippingSettings.noRules")}</p>}
         {draft.rules.map((r, i) => (
-          <RuleCard key={r.id} rule={r} index={i} total={draft.rules.length} geo={geo} currency={currency} cfUrl={cfUrl} t={t}
+          <RuleCard key={r.id} rule={r} index={i} total={draft.rules.length} geo={geo} currency={currency} unit={unit} cfUrl={cfUrl} t={t}
             onChange={(rule) => setRule(i, rule)} onMove={(dir) => moveRule(i, dir)} onDelete={() => set({ rules: draft.rules.filter((_, idx) => idx !== i) })} />
         ))}
         {draft.rules.length >= MAX_RULES && <p style={{ fontSize: 11.5, color: "var(--ne-muted)" }}>{t("shippingSettings.maxRules")}</p>}
@@ -336,7 +295,7 @@ export default function ShippingSettings({ storeId, cfUrl }) {
         <p style={{ margin: "0 0 12px", fontSize: 11.5, color: "var(--ne-muted)" }}>{t("shippingSettings.testHint")}</p>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
           <div><label style={settingsLabelStyle}>{t("shippingSettings.testSubtotal")} ({currency})</label><input style={inp} inputMode="decimal" value={test.subtotal} onChange={(e) => setTest({ ...test, subtotal: e.target.value })} /></div>
-          <div><label style={settingsLabelStyle}>{t("shippingSettings.testWeight")}</label><input style={inp} inputMode="decimal" value={test.weightKg} onChange={(e) => setTest({ ...test, weightKg: e.target.value })} /></div>
+          <div><label style={settingsLabelStyle}>{t("shippingSettings.testWeight")} ({unit})</label><input style={inp} inputMode="decimal" value={test.weightKg} onChange={(e) => setTest({ ...test, weightKg: e.target.value })} /></div>
           <div><label style={settingsLabelStyle}>{t("shippingSettings.testProvince")}</label>
             <input style={inp} list="ship-test-provinces" value={test.province} onChange={(e) => setTest({ ...test, province: e.target.value })} />
             <datalist id="ship-test-provinces">{geo.map((p) => <option key={p.code} value={p.name} />)}</datalist></div>
