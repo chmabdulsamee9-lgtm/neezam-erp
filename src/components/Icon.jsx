@@ -59,6 +59,8 @@ const PATHS = {
   camera: <><path d="M2.5 6.5A1.5 1.5 0 0 1 4 5h2l1-2h6l1 2h2a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 16 16H4a1.5 1.5 0 0 1-1.5-1.5Z" /><circle cx="10" cy="10.5" r="3.2" /></>,
   bell: <><path d="M5 14.5V9a5 5 0 0 1 10 0v5.5l1.3 1.8H3.7Z" /><path d="M8 17.3a2 2 0 0 0 4 0" /></>,
   filter: <path d="M3 4.5h14M6 10h8M8.5 15.5h3" />,
+  plus: <path d="M10 4v12M4 10h12" />,
+  moreHorizontal: <><circle cx="4.5" cy="10" r="1.3" fill="currentColor" stroke="none" /><circle cx="10" cy="10" r="1.3" fill="currentColor" stroke="none" /><circle cx="15.5" cy="10" r="1.3" fill="currentColor" stroke="none" /></>,
 }
 
 export default function Icon({ name, size = 15, style, className, ...rest }) {
