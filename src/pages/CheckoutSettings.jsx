@@ -7,17 +7,17 @@ import { workerFetch, logStoreActivity } from "../lib/storeApi";
 // The server (worker /save-checkout-settings) is the source of truth for validation; the
 // inline checks here only give instant feedback.
 
-const FIELD_ORDER = ["full_name", "email", "phone", "province", "city", "area", "address", "address2", "postal_code", "order_notes"];
+const FIELD_ORDER = ["full_name", "email", "phone", "province", "city", "area", "subarea", "address", "address2", "postal_code", "order_notes"];
 const LOCKED = ["full_name", "province", "city", "address"]; // always shown + required
 const MAX_TEXT = 80;
 // mirrors the storefront's built-in texts (shown as the hint when a label/placeholder is blank)
 const DEFAULT_LABELS = {
-  full_name: "Full name", email: "Email", phone: "Mobile number", province: "Province", city: "City", area: "Area",
+  full_name: "Full name", email: "Email", phone: "Mobile number", province: "Province", city: "City", area: "Area", subarea: "Subarea",
   address: "Street address", address2: "Apartment, floor (optional)", postal_code: "Postal code", order_notes: "Delivery notes (optional)",
 };
 const DEFAULT_PLACEHOLDERS = {
   full_name: "e.g. Ayesha Khan", email: "you@example.com", phone: "03XXXXXXXXX", province: "Search province…", city: "Search city…",
-  area: "Search area…", address: "House, street, landmark…", address2: "Apartment, floor, building", postal_code: "e.g. 54000", order_notes: "e.g. Leave with the guard",
+  area: "Search area…", subarea: "Search subarea…", address: "House, street, landmark…", address2: "Apartment, floor, building", postal_code: "e.g. 54000", order_notes: "e.g. Leave with the guard",
 };
 
 const toggleStyle = (on, disabled) => ({
@@ -88,12 +88,13 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
         ? { label: draft[n].label.trim(), placeholder: draft[n].placeholder.trim() }
         : { visible: draft[n].visible, required: draft[n].required, label: draft[n].label.trim(), placeholder: draft[n].placeholder.trim() };
     }
+    payload.location_picker = { enabled: draft.location_picker?.enabled !== false };
     const { status, data } = await workerFetch(cfUrl, "/save-checkout-settings", { method: "POST", body: JSON.stringify({ store_id: storeId, settings: { version: 1, fields: payload } }) });
     if (status === 200 && data.success) {
       setSaved(data.settings.fields);
       setDraft(data.settings.fields);
       setNotice({ type: "ok", text: t("checkoutSettings.saved") });
-      const changed = FIELD_ORDER.filter((n) => JSON.stringify(saved[n]) !== JSON.stringify(data.settings.fields[n]));
+      const changed = [...FIELD_ORDER, "location_picker"].filter((n) => JSON.stringify(saved[n]) !== JSON.stringify(data.settings.fields[n]));
       logStoreActivity(storeId, "checkout_settings_saved", { changed_fields: changed });
     } else {
       setNotice({ type: "error", text: data.error || t("checkoutSettings.errorSave") });
@@ -135,6 +136,7 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
                   <td style={{ ...td, minWidth: 150 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ne-text)" }}>{t(`checkoutSettings.field.${n}`)}</div>
                     {locked && <div style={{ fontSize: 10.5, color: "var(--ne-muted)", marginTop: 2 }}>{t(n === "province" ? "checkoutSettings.provinceNote" : "checkoutSettings.lockedNote")}</div>}
+                    {n === "subarea" && <div style={{ fontSize: 10.5, color: "var(--ne-muted)", marginTop: 2 }}>{t("checkoutSettings.subareaNote")}</div>}
                   </td>
                   <td style={td}><Toggle on={locked ? true : f.visible} disabled={locked} label={`${t("checkoutSettings.colVisible")}: ${t(`checkoutSettings.field.${n}`)}`} onChange={(v) => setField(n, { visible: v })} /></td>
                   <td style={td}><Toggle on={locked ? true : f.required} disabled={locked} label={`${t("checkoutSettings.colRequired")}: ${t(`checkoutSettings.field.${n}`)}`} onChange={(v) => setField(n, { required: v })} /></td>
@@ -146,6 +148,16 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
           </tbody>
         </table>
         <p style={{ margin: "8px 8px 4px", fontSize: 11, color: "var(--ne-muted)" }}>{t("checkoutSettings.labelHint")}</p>
+      </SettingsCard>
+
+      <SettingsCard>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <Toggle on={draft.location_picker?.enabled !== false} label={t("checkoutSettings.locationPicker")} onChange={(v) => setDraft((d) => ({ ...d, location_picker: { enabled: v } }))} />
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ne-text)" }}>{t("checkoutSettings.locationPicker")}</div>
+            <div style={{ fontSize: 11.5, color: "var(--ne-muted)", marginTop: 2, lineHeight: 1.5 }}>{t("checkoutSettings.locationPickerHelp")}</div>
+          </div>
+        </div>
       </SettingsCard>
 
       {!contactOk && <p style={{ color: "var(--ne-danger)", fontSize: 12.5, margin: "0 0 12px" }}>{t("checkoutSettings.contactRule")}</p>}
@@ -174,6 +186,9 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
               </div>
             );
           })}
+          {draft.location_picker?.enabled !== false && (
+            <div style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--ne-border)", color: "var(--ne-text)", fontSize: 12.5, fontWeight: 700, textAlign: "center" }}>{t("checkoutSettings.previewLocateButton")}</div>
+          )}
         </div>
       </SettingsCard>
     </div>
