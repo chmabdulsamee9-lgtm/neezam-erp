@@ -9,6 +9,9 @@ import { Monogram } from "../components/Logo";
 import { OrdersSkeleton } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 import { getView, setView } from "../viewCache";
+import { Link } from "react-router-dom";
+import OrderSourceIcon from "../components/OrderSourceIcon";
+import { STATUSES, isNativeOrderId } from "../lib/orderStatuses";
 
 const TAB_KEYS = {
   All: "orders.tab.all",
@@ -19,21 +22,9 @@ const TAB_KEYS = {
   Cancelled: "orders.tab.cancelled",
 };
 
-const STATUSES = [
-  { label: "Approved", color: "#34D88E", bg: "#11402A" },
-  { label: "Under Verification", color: "#F2A83E", bg: "#3A2A0D" },
-  { label: "Cancelled", color: "#F26D6D", bg: "#3A1414" },
-  { label: "Not Answering", color: "#FB923C", bg: "#3A2410" },
-  { label: "Powered Off", color: "#F472B6", bg: "#3A1130" },
-  { label: "Hold", color: "#8C93C4", bg: "#161B45" },
-  { label: "Busy", color: "#5C7CFA", bg: "#1C2356" },
-  { label: "FAKE Order", color: "#F26D6D", bg: "#2A0E0E" },
-  { label: "No WhatsApp", color: "#8C93C4", bg: "#1A1E40" },
-  { label: "Callback Scheduled", color: "#A855F7", bg: "#26134A" },
-  { label: "Wrong Number", color: "#F06FA8", bg: "#330F2A" },
-];
-
-const SOURCE_COLORS = { Meta: "#5C7CFA", TikTok: "#F472B6", Snapchat: "#F2A83E", Google: "#34D88E", Direct: "#8C93C4" };
+const SOURCE_COLORS = { Meta: "#5C7CFA", TikTok: "#F472B6", Snapchat: "#F2A83E", Google: "#34D88E", Direct: "#8C93C4", eNeezam: "#A855F7" };
+// A native eNeezam order is identified by its uuid id; its edits go to the worker (store_orders is the source of truth)
+const NATIVE_LIST_NOTE = "Edited from the Orders list";
 const PER_PAGE_OPTIONS = [20, 50, 100];
 const TABS = ["All", "New", "Approved", "Pending", "Ready to Sync", "Cancelled"];
 
@@ -804,6 +795,29 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
     });
   };
 
+  // Native eNeezam orders: store_orders is the source of truth, so every edit goes through the order worker
+  // (server-side validation, recompute, stale check, event log); the worker also keeps the list copy in step.
+  const nativeUpdate = async (orderId, action, payload = {}, expectedUpdatedAt) => {
+    try {
+      const o = orders.find((x) => x.id === orderId);
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetcher(`${cfUrl}/update-store-order`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ store_id: ordersStore?.id, id: orderId, action, expected_updated_at: expectedUpdatedAt || o?.native_updated_at || "latest", ...payload }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.success) return { ok: true, data: json };
+      const fields = json.fields ? Object.values(json.fields).join(" ") : "";
+      return { ok: false, stale: res.status === 409, error: fields || json.error || "Error" };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  };
+  const nativeFailed = (r) => {
+    if (r.stale) { fetchOrdersPage(); window.alert(t("orders.nativeStale")); } else window.alert(`${t("orders.nativeSaveFailed")}: ${r.error}`);
+  };
+
   useEffect(() => {
     const handleClick = (e) => {
       if (!e.target.closest("[data-status-dropdown]") && !e.target.closest("[data-order-btn]")) {
@@ -850,6 +864,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
     const ref = (order.referring_site || "").toLowerCase();
     const landing = (order.landing_site || "").toLowerCase();
     const sourceName = (order.source_name || "").toLowerCase();
+    if (sourceName === "eneezam" || isNativeOrderId(order.id)) return "eNeezam";
     const combined = `${ref} ${landing} ${sourceName}`;
     if (combined.includes("tiktok")) return "TikTok";
     if (combined.includes("facebook") || combined.includes("instagram") || combined.includes("fbclid") || combined.includes("meta") || combined.includes("fb")) return "Meta";
@@ -887,13 +902,20 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
   };
 
   const updateStatus = async (orderId, status) => {
+    const native = isNativeOrderId(orderId);
     const orderForSnapshot = orders.find(o => o.id === orderId);
-    if (orderForSnapshot) await ensureHistorySnapshot(orderForSnapshot);
+    if (orderForSnapshot && !native) await ensureHistorySnapshot(orderForSnapshot);
     const now = new Date().toISOString();
-    const { error } = await supabase.from("order_statuses").upsert(
-      { order_id: String(orderId), store_id: ordersStore?.id, status, updated_at: now, last_edited_at: now },
-      { onConflict: "order_id" }
-    );
+    let error = null;
+    if (native) {
+      const r = await nativeUpdate(orderId, "set_status", { status });
+      if (!r.ok) { error = r.error; nativeFailed(r); }
+    } else {
+      ({ error } = await supabase.from("order_statuses").upsert(
+        { order_id: String(orderId), store_id: ordersStore?.id, status, updated_at: now, last_edited_at: now },
+        { onConflict: "order_id" }
+      ));
+    }
     if (!error) {
       setOrders(prev => prev.map(o => {
         if (o.id !== orderId) return o;
@@ -913,13 +935,19 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
   };
 
   const updateCancellationReason = async (orderId, reason) => {
+    const native = isNativeOrderId(orderId);
     const orderForSnapshot = orders.find(o => o.id === orderId);
-    if (orderForSnapshot) await ensureHistorySnapshot(orderForSnapshot);
+    if (orderForSnapshot && !native) await ensureHistorySnapshot(orderForSnapshot);
     const now = new Date().toISOString();
-    await supabase.from("order_statuses").upsert(
-      { order_id: String(orderId), cancellation_reason: reason, updated_at: now },
-      { onConflict: "order_id" }
-    );
+    if (native) {
+      const r = await nativeUpdate(orderId, "set_cancel_reason", { reason });
+      if (!r.ok) { nativeFailed(r); return; }
+    } else {
+      await supabase.from("order_statuses").upsert(
+        { order_id: String(orderId), cancellation_reason: reason, updated_at: now },
+        { onConflict: "order_id" }
+      );
+    }
     setOrders(prev => prev.map(o => o.id === orderId
       ? { ...o, agent_data: { ...o.agent_data, cancellation_reason: reason } }
       : o
@@ -927,13 +955,30 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
   };
 
   const updateField = async (orderId, field, value) => {
+    const native = isNativeOrderId(orderId);
     const orderForSnapshot = orders.find(o => o.id === orderId);
-    if (orderForSnapshot) await ensureHistorySnapshot(orderForSnapshot);
+    if (orderForSnapshot && !native) await ensureHistorySnapshot(orderForSnapshot);
     const existing = orders.find(o => o.id === orderId)?.agent_data || {};
     // Phone field hamesha normalize karke save hota hai (03xxxxxxxxx format)
     const finalValue = field === "phone" ? normalizePhone(value) : value;
     const updated = { ...existing, [field]: finalValue };
     const now = new Date().toISOString();
+    // native order: the fields that exist on the order itself are saved there; the rest (remarks) stay list-only like on Shopify rows
+    const nativeAction = native ? ({
+      customer_name: ["update_customer", { customer_name: finalValue }],
+      phone: ["update_customer", { customer_phone: finalValue }],
+      address: ["update_address", { address: { address1: finalValue } }],
+      city: ["update_address", { address: { city: finalValue } }],
+    })[field] : null;
+    if (nativeAction) {
+      const r = await nativeUpdate(orderId, nativeAction[0], nativeAction[1]);
+      if (r.ok) {
+        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, agent_data: updated, native_updated_at: r.data.order?.updated_at || o.native_updated_at } : o));
+        logActivity("field_edit", orderId, { field, value: finalValue });
+      } else nativeFailed(r);
+      setEditingCell(null);
+      return;
+    }
     const { error } = await supabase.from("order_statuses").upsert({
       order_id: String(orderId),
       status: orders.find(o => o.id === orderId)?.agent_status || null,
@@ -1085,7 +1130,8 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
     }
   };
 
-  const openSyncConfirm = (ordersToSync) => {
+  const openSyncConfirm = (allOrders) => {
+    const ordersToSync = allOrders.filter((o) => !isNativeOrderId(o.id)); // native eNeezam orders are never pushed to Shopify
     if (!ordersToSync.length) return;
     const items = ordersToSync.map(order => ({ order, ...buildSyncPlan(order) }));
     setSyncConfirmModal({ items });
@@ -1373,6 +1419,11 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
     const now = new Date().toISOString();
     const ids = [...selectedIds];
     for (const orderId of ids) {
+      if (isNativeOrderId(orderId)) {
+        const r = await nativeUpdate(orderId, "set_status", { status });
+        if (!r.ok) nativeFailed(r);
+        continue;
+      }
       await supabase.from("order_statuses").upsert(
         { order_id: String(orderId), store_id: ordersStore?.id, status, updated_at: now, last_edited_at: now },
         { onConflict: "order_id" }
@@ -1480,6 +1531,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
     const initial = override && override.length > 0
       ? override.map(it => ({ ...it }))
       : (order.line_items || []).map(i => ({
+          ...(isNativeOrderId(order.id) ? { item_id: i.id } : {}),
           shopify_product_id: i.product_id ? String(i.product_id) : null,
           variant_id: i.variant_id ? String(i.variant_id) : null,
           title: i.title || "",
@@ -1492,7 +1544,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
     setItemsModal(order);
     setItemsList(initial);
     setItemsListInitial(initial.map(it => ({ ...it })));
-    setItemsShippingFee(order.agent_data?.shipping || "0");
+    setItemsShippingFee(order.agent_data?.shipping || (isNativeOrderId(order.id) ? String(order.total_shipping_price_set?.presentment_money?.amount ?? "0") : "0"));
     setItemsSearch("");
     setItemsSearchResults([]);
     setItemsSyncState(null);
@@ -1558,6 +1610,31 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
     setItemsSyncState(null);
     setItemsSyncError("");
     const now = new Date().toISOString();
+    if (isNativeOrderId(itemsModal.id)) {
+      // native order: lines, shipping and discount are saved on the order itself (server recomputes every total)
+      const lines = itemsList.map((it) => {
+        const init = it.item_id ? itemsListInitial.find((x) => x.item_id === it.item_id) : null;
+        const base = it.item_id ? { item_id: it.item_id } : { variant_id: String(it.variant_id) };
+        const priceChanged = !init || Number(init.price) !== Number(it.price);
+        return { ...base, quantity: Number(it.quantity) || 1, ...(priceChanged ? { unit_price: Number(it.price) || 0 } : {}) };
+      });
+      let r = await nativeUpdate(itemsModal.id, "set_items", { lines });
+      const lineDiscount = itemsList.reduce((a, it) => a + (Number(it.discount) || 0), 0);
+      if (r.ok && lineDiscount > 0) r = await nativeUpdate(itemsModal.id, "set_discount", { amount: lineDiscount, reason: NATIVE_LIST_NOTE }, r.data.order?.updated_at);
+      const startFee = Number(itemsModal.agent_data?.shipping || itemsModal.total_shipping_price_set?.presentment_money?.amount || 0);
+      if (r.ok && Number(itemsShippingFee || 0) !== startFee) r = await nativeUpdate(itemsModal.id, "set_shipping", { mode: "manual", amount: Number(itemsShippingFee || 0), reason: NATIVE_LIST_NOTE }, r.data.order?.updated_at);
+      setItemsSaving(false);
+      if (!r.ok) {
+        setItemsSyncState("error");
+        setItemsSyncError(r.stale ? t("orders.nativeStale") : r.error);
+        if (r.stale) fetchOrdersPage();
+        return;
+      }
+      logActivity("items_edit", itemsModal.id, { name: itemsModal.name });
+      closeItemsModal();
+      fetchOrdersPage();
+      return;
+    }
     const { error } = await supabase.from("order_statuses").upsert({
       order_id: String(itemsModal.id),
       line_items_override: itemsList,
@@ -2017,6 +2094,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
     const waMessage = `Assalam-o-Alaikum ${fullName},\n\nAapka order confirm karna hai:\nOrder #: ${(order.name || "").replace("#", "")}\nProducts: ${productsEditable}\nTotal Amount: Rs. ${order.total_price || "0"}\nAddress: ${address}, ${city}\n\nOrder confirm karne ke liye "1" reply karein.\nCancel karna ho to "2" reply karein.\n\nMeherbani karke apna address bhi verify kar dein — agar koi ghalti ho to bata dein.\n\nShukriya!`;
     const date = new Date(order.created_at).toLocaleDateString("en-PK");
     const time = new Date(order.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" });
+    const isNative = isNativeOrderId(order.id);
     const shopifyUrl = `https://${currentStore?.shopify_url}/admin/orders/${order.id}`;
     const syncState = getSyncState(order);
     const isSelected = selectedIds.has(order.id);
@@ -2035,7 +2113,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
         {order.agent_status || `${t("orders.setStatus")} ▼`}
       </button>
     );
-    const syncRow = (
+    const syncRow = isNative ? null : (
       <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
         <button onClick={() => openSyncConfirm([order])}
           style={{ padding: "2px 8px", borderRadius: 6, fontSize: 9, background: sb.bg, color: sb.color, border: "none", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 4 }}>
@@ -2050,7 +2128,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
       </div>
     );
 
-    return { order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride: !!order.agent_data?.product, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, hasValidHistory, isUndoing, isExpanded, statusBtn, syncRow, isDexServiceable, isDuplicateOrder, duplicateOtherNames, isRepeatCustomer, repeatCustomerOrderName };
+    return { order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride: !!order.agent_data?.product, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isNative, isSelected, isCancelled, hasValidHistory, isUndoing, isExpanded, statusBtn, syncRow, isDexServiceable, isDuplicateOrder, duplicateOtherNames, isRepeatCustomer, repeatCustomerOrderName };
   });
 
   return (
@@ -2145,7 +2223,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
         <select value={sourceFilter} onChange={e => { setSourceFilter(e.target.value); setPage(1); }}
           style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
           <option value="All">{t("orders.allSource")}</option>
-          {["Meta", "TikTok", "Snapchat", "Google", "Direct"].map(s => <option key={s}>{s}</option>)}
+          {["Meta", "TikTok", "Snapchat", "Google", "Direct", "eNeezam"].map(s => <option key={s}>{s}</option>)}
         </select>
         <select value={availableCities.includes(cityFilter) ? cityFilter : "All"} onChange={e => { setCityFilter(e.target.value); setPage(1); }}
           style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
@@ -2167,10 +2245,12 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
                 {t("orders.bulkStatus")} ▼
               </button>
             </div>
-            <button onClick={() => openSyncConfirm(orders.filter(o => selectedIds.has(o.id)))}
-              style={{ padding: "6px 12px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11, cursor: "pointer", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 5 }}>
-              <Icon name="refresh" size={11} /> {t("orders.bulkSync")} ({selectedIds.size})
-            </button>
+            {[...selectedIds].some((id) => !isNativeOrderId(id)) && (
+              <button onClick={() => openSyncConfirm(orders.filter(o => selectedIds.has(o.id)))}
+                style={{ padding: "6px 12px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 11, cursor: "pointer", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                <Icon name="refresh" size={11} /> {t("orders.bulkSync")} ({[...selectedIds].filter((id) => !isNativeOrderId(id)).length})
+              </button>
+            )}
             {selectedHaveValidHistory && (
               <button onClick={() => openUndoConfirm(orders.filter(o => selectedIds.has(o.id)))}
                 style={{ padding: "6px 12px", borderRadius: 9, border: "1px solid var(--ne-warning)", background: "var(--ne-warning-soft)", color: "var(--ne-warning)", fontSize: 11, cursor: "pointer", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 5 }}>
@@ -2207,11 +2287,16 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
         <OrdersSkeleton />
       ) : isMobile ? (
         <div ref={tableRef} style={{ flex: 1, overflowY: "auto" }}>
-          {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, isExpanded, statusBtn, syncRow, isDuplicateOrder, duplicateOtherNames, isRepeatCustomer, repeatCustomerOrderName }) => (
+          {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isNative, isSelected, isCancelled, isExpanded, statusBtn, syncRow, isDuplicateOrder, duplicateOtherNames, isRepeatCustomer, repeatCustomerOrderName }) => (
             <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "8px 12px", marginBottom: 6 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(order.id)} style={{ cursor: "pointer", flexShrink: 0 }} />
-                <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 12 }}>{order.name}</a>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  <OrderSourceIcon native={isNative} />
+                  {isNative
+                    ? <Link to={`/orders/${order.id}`} style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 12 }}>{order.name}</Link>
+                    : <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 12 }}>{order.name}</a>}
+                </span>
                 <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
                   <button onClick={() => openItemsModal(order)}
                     style={{ padding: "3px 9px", borderRadius: 8, fontSize: 10, background: "var(--ne-surface-2)", color: "var(--ne-text)", border: "1px solid var(--ne-border)", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 4 }}>
@@ -2330,14 +2415,19 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
               </div>
             </div>
 
-            {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isSelected, isCancelled, statusBtn, syncRow, isDexServiceable, isDuplicateOrder, duplicateOtherNames, isRepeatCustomer, repeatCustomerOrderName }) => (
+            {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isNative, isSelected, isCancelled, statusBtn, syncRow, isDexServiceable, isDuplicateOrder, duplicateOtherNames, isRepeatCustomer, repeatCustomerOrderName }) => (
               <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, marginBottom: 6, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "visible" }}>
               <div style={{ display: "flex", alignItems: "stretch", gap: 0 }}>
 
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 8px 8px 12px", flexShrink: 0, width: 136, boxSizing: "border-box" }}>
                   <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(order.id)} style={{ cursor: "pointer", flexShrink: 0, marginTop: 2 }} />
                   <div style={{ width: 90, minWidth: 90 }}>
-                    <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 11.5 }}>{order.name}</a>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  <OrderSourceIcon native={isNative} />
+                  {isNative
+                    ? <Link to={`/orders/${order.id}`} style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 11.5 }}>{order.name}</Link>
+                    : <a href={shopifyUrl} target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)", fontWeight: 700, textDecoration: "none", fontSize: 11.5 }}>{order.name}</a>}
+                </span>
                     <div style={{ fontSize: 10.5, color: "var(--ne-muted)", marginTop: 2 }}>{date}</div>
                     <div style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{time}</div>
                   </div>

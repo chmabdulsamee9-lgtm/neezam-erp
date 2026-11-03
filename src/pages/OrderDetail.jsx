@@ -6,7 +6,11 @@ import ChipsInput from "../components/ChipsInput";
 import { workerFetch, publicFetch, logStoreActivity } from "../lib/storeApi";
 import { formatStoreDate, useStoreTimeZone } from "../lib/dates";
 import { toWhatsAppPhone } from "../lib/phone";
-import { Badge, money, paymentBadge, fulfillmentBadge, statusBadge } from "./EneezamOrders";
+import { supabase } from "../supabase";
+import dexLogo from "../assets/couriers/dex.png";
+import OrderSourceIcon from "../components/OrderSourceIcon";
+import { money } from "../lib/orderUi";
+import { STATUSES } from "../lib/orderStatuses";
 
 // Order detail for orders placed on the eNeezam storefront, at the real route /orders/:id.
 // Every change goes through POST /update-store-order with the updated_at this screen last saw; the server
@@ -46,6 +50,10 @@ export default function OrderDetail({ orderId, storeId, cfUrl }) {
   const [order, setOrder] = useState(null);
   const [items, setItems] = useState([]);
   const [events, setEvents] = useState([]);
+  const [agent, setAgent] = useState({ agent_status: null, tracking_number: null, courier_status: null }); // the Orders list status and DEX booking of this order
+  const [dexCities, setDexCities] = useState(null);
+  const [pickups, setPickups] = useState([]);
+  const [booking, setBooking] = useState(false);
   const [banner, setBanner] = useState(null);
   const [busy, setBusy] = useState(false);
   const [editMode, setEditMode] = useState(false);
@@ -60,6 +68,7 @@ export default function OrderDetail({ orderId, storeId, cfUrl }) {
     if (status === 404) { setLoad({ state: "notfound", error: "" }); return false; }
     if (status !== 200 || data.error || !data.order) { setLoad({ state: "error", error: data.error || t("orderDetail.errorLoad") }); return false; }
     setOrder(data.order); setItems(data.items || []); setEvents(data.events || []);
+    setAgent({ agent_status: data.agent_status || null, tracking_number: data.tracking_number || null, courier_status: data.courier_status || null });
     setLoad({ state: "ok", error: "" });
     return true;
   };
@@ -69,6 +78,39 @@ export default function OrderDetail({ orderId, storeId, cfUrl }) {
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, []);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const [c, pk] = await Promise.all([
+        supabase.from("dex_serviceable_cities").select("city"),
+        supabase.from("pickup_addresses").select("*").eq("store_id", storeId).order("created_at"),
+      ]);
+      if (!alive) return;
+      setDexCities(new Set((c.data || []).map((r) => (r.city || "").trim().toLowerCase()).filter(Boolean)));
+      setPickups(pk.data || []);
+    })();
+    return () => { alive = false; };
+  }, [storeId]);
+
+  const bookWithDex = async () => {
+    setBooking(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    const pickup = pickups.find((a) => a.is_default) || pickups[0];
+    try {
+      const res = await fetch(`${cfUrl}/dex-book-order`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ store_id: storeId, order_id: orderId, pickup_address_id: pickup?.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.error) { setBanner({ type: "error", text: `${t("orderDetail.bookFailed")}: ${data.error}` }); logStoreActivity(storeId, "booking_failed", { order: order.name, error: data.error }); }
+      else { await fetchOrder(); setBanner({ type: "ok", text: t("orderDetail.booked") }); logStoreActivity(storeId, "booking_success", { order: order.name, trackingNumber: data.trackingNumber }); }
+    } catch (err) {
+      setBanner({ type: "error", text: `${t("orderDetail.bookFailed")}: ${err.message}` });
+    }
+    setBooking(false);
+  };
 
   /** one place for every change: sends the version we saw, handles stale (409) and shows the result */
   const act = async (action, payload = {}, { okText, keepModal } = {}) => {
@@ -84,6 +126,7 @@ export default function OrderDetail({ orderId, storeId, cfUrl }) {
     }
     if (data.success) {
       setOrder(data.order); setItems(data.items || []); setEvents(data.events || []);
+      setAgent({ agent_status: data.agent_status || null, tracking_number: data.tracking_number || null, courier_status: data.courier_status || null });
       if (!keepModal) setModal(null);
       setBanner({ type: "ok", text: okText || t("orderDetail.saved") });
       logStoreActivity(storeId, `store_order_${action}`, { order: data.order.name });
@@ -96,7 +139,7 @@ export default function OrderDetail({ orderId, storeId, cfUrl }) {
 
   const readOnlyAll = order && order.status === "cancelled";
   const locked = order && order.status !== "open"; // cancelled or archived: money / lines / address are not editable
-  const balance = order ? Math.max(0, Math.round((Number(order.total) - Number(order.paid_total || 0)) * 100) / 100) : 0;
+  const statusDef = STATUSES.find((x) => x.label === (agent.agent_status || (order?.status === "cancelled" ? "Cancelled" : "")));
 
   if (load.state === "loading") return <p style={{ padding: "1.5rem", fontSize: 13, color: "var(--ne-muted)" }}>{t("common.loading")}</p>;
   if (load.state !== "ok") {
@@ -120,7 +163,13 @@ export default function OrderDetail({ orderId, storeId, cfUrl }) {
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
         <button type="button" aria-label={t("orderDetail.backToOrders")} title={t("orderDetail.backToOrders")} style={{ ...btn(false), padding: "6px 8px" }} onClick={() => navigate("/orders")}><Icon name="chevronLeft" size={14} /></button>
         <h2 style={{ margin: 0, fontSize: 20, color: "var(--ne-text)" }}>{order.name}</h2>
-        {paymentBadge(order, t)}{fulfillmentBadge(order, t)}{statusBadge(order, t)}
+        <OrderSourceIcon native size={18} />
+        <select aria-label={t("orders.setStatus")} value={statusDef?.label || ""} disabled={busy || order.status === "archived"}
+          onChange={(e) => { const v = e.target.value; if (v === "Cancelled") { setModalError(""); setModal({ type: "cancel", reason: "" }); } else if (v) act("set_status", { status: v }, { okText: t("orderDetail.statusSaved") }); }}
+          style={{ padding: "3px 9px", borderRadius: 8, fontSize: 11, fontWeight: 700, border: "none", cursor: "pointer", background: statusDef?.bg || "var(--ne-surface-2)", color: statusDef?.color || "var(--ne-muted-2)" }}>
+          {!statusDef && <option value="">{t("orders.setStatus")}</option>}
+          {STATUSES.map((x) => <option key={x.label} value={x.label}>{x.label}</option>)}
+        </select>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           {!locked && <button type="button" style={btn(editMode, false, busy)} disabled={busy} onClick={() => setEditMode((v) => !v)}><Icon name="edit" size={12} /> {editMode ? t("orderDetail.doneEditing") : t("orderDetail.edit")}</button>}
           <div style={{ position: "relative" }} ref={menuRef}>
@@ -146,38 +195,17 @@ export default function OrderDetail({ orderId, storeId, cfUrl }) {
           <ItemsCard order={order} items={items} editMode={editMode && !locked} busy={busy} t={t} storeId={storeId} cfUrl={cfUrl}
             onSave={async (lines) => { const r = await act("set_items", { lines }, { okText: t("orderDetail.itemsSaved") }); if (r.ok) setEditMode(false); return r; }} onCancelEdit={() => setEditMode(false)} />
 
-          <div style={card}>
-            <h3 style={h3}><span>{t("orderDetail.fulfillment")}</span>{fulfillmentBadge(order, t)}</h3>
-            {order.fulfillment_status === "fulfilled" ? (
-              <>
-                <p style={{ margin: "0 0 8px", fontSize: 12.5, color: "var(--ne-muted)" }}>
-                  {t("orderDetail.fulfilledOn")} {formatStoreDate(order.fulfilled_at, tz)}
-                  {sl.fulfillment?.courier ? ` · ${sl.fulfillment.courier}` : ""}{sl.fulfillment?.tracking ? ` · ${t("orderDetail.tracking")} ${sl.fulfillment.tracking}` : ""}
-                </p>
-                {!locked && <button type="button" style={btn(false, false, busy)} disabled={busy} onClick={() => act("mark_unfulfilled", {}, { okText: t("orderDetail.markedUnfulfilled") })}>{t("orderDetail.markUnfulfilled")}</button>}
-              </>
-            ) : (
-              !locked && <button type="button" style={btn(true, false, busy)} disabled={busy} onClick={() => { setModalError(""); setModal({ type: "fulfill", courier: "", tracking: "" }); }}>{t("orderDetail.markFulfilled")}</button>
-            )}
-          </div>
+          <CourierCard order={order} agent={agent} dexCities={dexCities} pickups={pickups} booking={booking} busy={busy} onBook={bookWithDex} t={t} />
 
           <div style={card}>
-            <h3 style={h3}><span>{t("orderDetail.payment")}</span>{paymentBadge(order, t)}</h3>
+            <h3 style={h3}><span>{t("orderDetail.totals")}</span></h3>
             <div style={{ display: "grid", gap: 6, fontSize: 12.5, color: "var(--ne-text)" }}>
               <Row l={t("orderDetail.subtotal")} v={money(order.subtotal, order.currency)} />
-              <Row l={<span>{t("orderDetail.discount")}{order.discount_reason ? <span style={{ color: "var(--ne-muted)" }}> ({order.discount_reason})</span> : null}{!locked && <> <button type="button" style={linkBtn} onClick={() => { setModalError(""); setModal({ type: "discount", amount: String(order.discount_total || 0), reason: order.discount_reason || "" }); }}>{t("orderDetail.editLink")}</button></>}</span>} v={Number(order.discount_total) > 0 ? `-${money(order.discount_total, order.currency)}` : money(0, order.currency)} />
-              <Row l={<span>{t("orderDetail.shipping")} <span style={{ color: "var(--ne-muted)", fontSize: 11 }}>({shippingHint})</span>{!locked && <> <button type="button" style={linkBtn} onClick={() => { setModalError(""); setModal({ type: "shipping", mode: sl.mode === "manual" ? "manual" : "recompute", amount: String(order.shipping_total || 0), reason: sl.reason || "" }); }}>{t("orderDetail.editLink")}</button></>}</span>} v={money(order.shipping_total, order.currency)} />
+              <Row l={<span>{t("orderDetail.discount")}{order.discount_reason ? <span style={{ color: "var(--ne-muted)" }}> ({order.discount_reason})</span> : null}{editMode && !locked && <> <button type="button" style={linkBtn} onClick={() => { setModalError(""); setModal({ type: "discount", amount: String(order.discount_total || 0), reason: order.discount_reason || "" }); }}>{t("orderDetail.editLink")}</button></>}</span>} v={Number(order.discount_total) > 0 ? `-${money(order.discount_total, order.currency)}` : money(0, order.currency)} />
+              <Row l={<span>{t("orderDetail.shipping")} <span style={{ color: "var(--ne-muted)", fontSize: 11 }}>({shippingHint})</span>{editMode && !locked && <> <button type="button" style={linkBtn} onClick={() => { setModalError(""); setModal({ type: "shipping", mode: sl.mode === "manual" ? "manual" : "recompute", amount: String(order.shipping_total || 0), reason: sl.reason || "" }); }}>{t("orderDetail.editLink")}</button></>}</span>} v={money(order.shipping_total, order.currency)} />
               {(order.tax_lines || []).map((tx) => <Row key={tx.id} l={`${tx.name} (${tx.rate_percent}%)`} v={money(tx.amount, order.currency)} />)}
               <div style={{ borderTop: "1px solid var(--ne-border)", paddingTop: 8 }}><Row l={<b>{t("orderDetail.total")}</b>} v={<b>{money(order.total, order.currency)}</b>} /></div>
-              <Row l={t("orderDetail.paid")} v={money(order.paid_total, order.currency)} />
-              <Row l={t("orderDetail.balance")} v={money(balance, order.currency)} />
             </div>
-            {!locked && (
-              <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-                {balance > 0 && <button type="button" style={btn(true, false, busy)} disabled={busy} onClick={() => { setModalError(""); setModal({ type: "paid", amount: String(balance), method: order.payment_method === "cod" ? "Cash on Delivery" : "" }); }}>{t("orderDetail.markPaid")}</button>}
-                {Number(order.paid_total) > 0 && <button type="button" style={btn(false, false, busy)} disabled={busy} onClick={() => act("mark_unpaid", {}, { okText: t("orderDetail.markedUnpaid") })}>{t("orderDetail.markUnpaid")}</button>}
-              </div>
-            )}
           </div>
 
           <Timeline events={events} tz={tz} t={t} busy={busy} onPost={async (message) => {
@@ -208,18 +236,6 @@ export default function OrderDetail({ orderId, storeId, cfUrl }) {
           {modalError && <p style={{ color: "var(--ne-danger)", fontSize: 12 }}>{modalError}</p>}
         </Modal>
       )}
-      {modal?.type === "paid" && (
-        <Modal title={t("orderDetail.markPaid")} onClose={() => setModal(null)} footer={<>
-          <button type="button" style={btn(false)} onClick={() => setModal(null)}>{t("action.cancel")}</button>
-          <button type="button" style={btn(true, false, busy)} disabled={busy} onClick={() => act("mark_paid", { amount: Number(modal.amount), method: modal.method }, { okText: t("orderDetail.paymentRecorded") })}>{t("orderDetail.confirmPaid")}</button></>}>
-          <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "var(--ne-muted)" }}>{t("orderDetail.paidWarn").replace("{balance}", money(balance, order.currency))}</p>
-          <label style={lab}>{t("orderDetail.amount")}</label>
-          <input style={{ ...input, marginBottom: 10 }} inputMode="decimal" value={modal.amount} onChange={(e) => setModal({ ...modal, amount: e.target.value })} />
-          <label style={lab}>{t("orderDetail.paymentMethod")}</label>
-          <input style={input} maxLength={40} value={modal.method} onChange={(e) => setModal({ ...modal, method: e.target.value })} />
-          {modalError && <p style={{ color: "var(--ne-danger)", fontSize: 12 }}>{modalError}</p>}
-        </Modal>
-      )}
       {modal?.type === "discount" && (
         <Modal title={t("orderDetail.editDiscount")} onClose={() => setModal(null)} footer={<>
           <button type="button" style={btn(false)} onClick={() => setModal(null)}>{t("action.cancel")}</button>
@@ -246,16 +262,29 @@ export default function OrderDetail({ orderId, storeId, cfUrl }) {
           {modalError && <p style={{ color: "var(--ne-danger)", fontSize: 12 }}>{modalError}</p>}
         </Modal>
       )}
-      {modal?.type === "fulfill" && (
-        <Modal title={t("orderDetail.markFulfilled")} onClose={() => setModal(null)} footer={<>
-          <button type="button" style={btn(false)} onClick={() => setModal(null)}>{t("action.cancel")}</button>
-          <button type="button" style={btn(true, false, busy)} disabled={busy} onClick={() => act("mark_fulfilled", { courier: modal.courier, tracking: modal.tracking }, { okText: t("orderDetail.markedFulfilled") })}>{t("orderDetail.markFulfilled")}</button></>}>
-          <label style={lab}>{t("orderDetail.courier")}</label>
-          <input style={{ ...input, marginBottom: 10 }} maxLength={60} value={modal.courier} onChange={(e) => setModal({ ...modal, courier: e.target.value })} />
-          <label style={lab}>{t("orderDetail.trackingNumber")}</label>
-          <input style={input} maxLength={80} value={modal.tracking} onChange={(e) => setModal({ ...modal, tracking: e.target.value })} />
-          {modalError && <p style={{ color: "var(--ne-danger)", fontSize: 12 }}>{modalError}</p>}
-        </Modal>
+    </div>
+  );
+}
+
+/* ------------------------------ courier ------------------------------ */
+function CourierCard({ order, agent, dexCities, pickups, booking, busy, onBook, t }) {
+  const city = String(order.shipping_address?.city || "").trim().toLowerCase();
+  const serviceable = !!dexCities && !!city && dexCities.has(city);
+  const closed = order.status !== "open" || agent.agent_status === "Cancelled";
+  return (
+    <div style={card}>
+      <h3 style={h3}><span>{t("orderDetail.courierPanel")}</span><img src={dexLogo} alt="DEX" style={{ height: 14, width: "auto" }} /></h3>
+      {agent.tracking_number ? (
+        <div style={{ fontSize: 12.5, color: "var(--ne-text)", display: "grid", gap: 4 }}>
+          <a href={`https://www.dex.com.pk/tracking?references=${encodeURIComponent(agent.tracking_number)}`} target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)", textDecoration: "underline", overflowWrap: "anywhere" }}>{agent.tracking_number}</a>
+          {agent.courier_status && <span style={{ color: "var(--ne-muted)" }}>{String(agent.courier_status).replace(/_/g, " ")}</span>}
+        </div>
+      ) : (
+        <>
+          <p style={{ margin: "0 0 10px", fontSize: 12.5, color: serviceable ? "var(--ne-accent)" : "var(--ne-muted)" }}>{serviceable ? t("orderDetail.dexRecommended") : t("orderDetail.dexNotListed")}</p>
+          {pickups.length === 0 && <p style={{ margin: "0 0 10px", fontSize: 11.5, color: "var(--ne-warning)" }}>{t("orderDetail.noPickup")}</p>}
+          <button type="button" style={btn(true, false, booking || busy || closed || pickups.length === 0)} disabled={booking || busy || closed || pickups.length === 0} onClick={onBook}>{booking ? t("common.loading") : t("orderDetail.bookDex")}</button>
+        </>
       )}
     </div>
   );

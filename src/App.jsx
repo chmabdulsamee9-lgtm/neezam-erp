@@ -99,7 +99,7 @@ const FinanceStatement = lazyPage(() => import('./pages/FinanceStatement'), 'fin
 const DevMonitorDetailed = lazyPage(() => import('./pages/DevMonitorDetailed'), 'master-dashboard/dev-monitor')
 const GeminiUsageMonitor = lazyPage(() => import('./pages/GeminiUsageMonitor'), 'master-dashboard/gemini-monitor')
 const ShopifyCallback = lazyPage(() => import('./pages/ShopifyCallback'), null)
-const Orders = lazyPage(() => import('./pages/OrdersHub'), 'orders')
+const Orders = lazyPage(() => import('./pages/Orders'), 'orders')
 const OrderDetail = lazyPage(() => import('./pages/OrderDetail'), 'orders')
 const Dashboard = lazyPage(() => import('./pages/Dashboard'), 'dashboard')
 const WhatsApp = lazyPage(() => import('./pages/WhatsApp'), 'whatsapp')
@@ -2480,7 +2480,6 @@ function App() {
             {((ordersPending && ORDERS_DEPENDENT_PAGES.includes(activeMenu)) || (storePending && STORE_DEPENDENT_PAGES.includes(activeMenu))) && hasAccess(activeMenu) && <PageSkeletonFor menu={activeMenu} />}
             {activeMenu === 'orders' && hasAccess('orders') && !storePending && (
               <Orders
-                storeId={selectedStoreId}
                 ordersStore={ordersStore} setOrdersStore={setOrdersStore}
                 cfUrl={CF_URL}
                 fetcher={monitoredFetch}
