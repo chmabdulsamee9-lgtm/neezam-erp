@@ -8,6 +8,7 @@ import { formatStoreDate, useStoreTimeZone } from "../lib/dates";
 import { toWhatsAppPhone } from "../lib/phone";
 import { supabase } from "../supabase";
 import dexLogo from "../assets/couriers/dex.png";
+import { getOrderSource } from "../lib/orderSource";
 import OrderSourceIcon from "../components/OrderSourceIcon";
 import { money } from "../lib/orderUi";
 import { STATUSES } from "../lib/orderStatuses";
@@ -50,7 +51,7 @@ export default function OrderDetail({ orderId, storeId, cfUrl }) {
   const [order, setOrder] = useState(null);
   const [items, setItems] = useState([]);
   const [events, setEvents] = useState([]);
-  const [agent, setAgent] = useState({ agent_status: null, tracking_number: null, courier_status: null }); // the Orders list status and DEX booking of this order
+  const [agent, setAgent] = useState({ agent_status: null, tracking_number: null, courier_status: null, traffic: null }); // the Orders list status and DEX booking of this order
   const [dexCities, setDexCities] = useState(null);
   const [pickups, setPickups] = useState([]);
   const [booking, setBooking] = useState(false);
@@ -68,7 +69,7 @@ export default function OrderDetail({ orderId, storeId, cfUrl }) {
     if (status === 404) { setLoad({ state: "notfound", error: "" }); return false; }
     if (status !== 200 || data.error || !data.order) { setLoad({ state: "error", error: data.error || t("orderDetail.errorLoad") }); return false; }
     setOrder(data.order); setItems(data.items || []); setEvents(data.events || []);
-    setAgent({ agent_status: data.agent_status || null, tracking_number: data.tracking_number || null, courier_status: data.courier_status || null });
+    setAgent({ agent_status: data.agent_status || null, tracking_number: data.tracking_number || null, courier_status: data.courier_status || null, traffic: data.traffic || null });
     setLoad({ state: "ok", error: "" });
     return true;
   };
@@ -126,7 +127,7 @@ export default function OrderDetail({ orderId, storeId, cfUrl }) {
     }
     if (data.success) {
       setOrder(data.order); setItems(data.items || []); setEvents(data.events || []);
-      setAgent({ agent_status: data.agent_status || null, tracking_number: data.tracking_number || null, courier_status: data.courier_status || null });
+      setAgent({ agent_status: data.agent_status || null, tracking_number: data.tracking_number || null, courier_status: data.courier_status || null, traffic: data.traffic || null });
       if (!keepModal) setModal(null);
       setBanner({ type: "ok", text: okText || t("orderDetail.saved") });
       logStoreActivity(storeId, `store_order_${action}`, { order: data.order.name });
@@ -184,7 +185,7 @@ export default function OrderDetail({ orderId, storeId, cfUrl }) {
           </div>
         </div>
       </div>
-      <p style={{ margin: "0 0 14px", fontSize: 12, color: "var(--ne-muted)" }}>{formatStoreDate(order.created_at, tz)} · {t("orderDetail.fromOnlineStore")}</p>
+      <p style={{ margin: "0 0 14px", fontSize: 12, color: "var(--ne-muted)" }}>{formatStoreDate(order.created_at, tz)} · {t("orderDetail.fromOnlineStore")} · {getOrderSource(agent.traffic || {})}</p>
       {banner && <div role="status" style={{ ...card, padding: "9px 12px", color: banner.type === "ok" ? "var(--ne-success)" : banner.type === "warn" ? "var(--ne-warning)" : "var(--ne-danger)", fontSize: 12.5 }}>{banner.text}</div>}
       {order.status === "cancelled" && <div style={{ ...card, padding: "9px 12px", fontSize: 12.5, color: "var(--ne-danger)" }}>{t("orderDetail.cancelledNote")}{order.cancel_reason ? `: ${order.cancel_reason}` : ""}</div>}
       {order.status === "archived" && <div style={{ ...card, padding: "9px 12px", fontSize: 12.5, color: "var(--ne-muted)" }}>{t("orderDetail.archivedNote")}</div>}

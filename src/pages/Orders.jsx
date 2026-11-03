@@ -10,6 +10,7 @@ import { OrdersSkeleton } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 import { getView, setView } from "../viewCache";
 import { Link } from "react-router-dom";
+import { getOrderSource } from "../lib/orderSource";
 import OrderSourceIcon from "../components/OrderSourceIcon";
 import { STATUSES, isNativeOrderId } from "../lib/orderStatuses";
 
@@ -22,7 +23,7 @@ const TAB_KEYS = {
   Cancelled: "orders.tab.cancelled",
 };
 
-const SOURCE_COLORS = { Meta: "#5C7CFA", TikTok: "#F472B6", Snapchat: "#F2A83E", Google: "#34D88E", Direct: "#8C93C4", eNeezam: "#A855F7" };
+const SOURCE_COLORS = { Meta: "#5C7CFA", TikTok: "#F472B6", Snapchat: "#F2A83E", Google: "#34D88E", Direct: "#8C93C4" };
 // A native eNeezam order is identified by its uuid id; its edits go to the worker (store_orders is the source of truth)
 const NATIVE_LIST_NOTE = "Edited from the Orders list";
 const PER_PAGE_OPTIONS = [20, 50, 100];
@@ -860,18 +861,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
   // lekin landing_site mein "utm_source=tiktok" tha; Instagram order ka referring_site
   // "https://instagram.com/" tha lekin purana check "instagram" keyword hi nahi
   // dekhta tha — dono false "Direct" ban rahe the.
-  const getSource = (order) => {
-    const ref = (order.referring_site || "").toLowerCase();
-    const landing = (order.landing_site || "").toLowerCase();
-    const sourceName = (order.source_name || "").toLowerCase();
-    if (sourceName === "eneezam" || isNativeOrderId(order.id)) return "eNeezam";
-    const combined = `${ref} ${landing} ${sourceName}`;
-    if (combined.includes("tiktok")) return "TikTok";
-    if (combined.includes("facebook") || combined.includes("instagram") || combined.includes("fbclid") || combined.includes("meta") || combined.includes("fb")) return "Meta";
-    if (combined.includes("snapchat")) return "Snapchat";
-    if (combined.includes("google")) return "Google";
-    return "Direct";
-  };
+  const getSource = getOrderSource;
 
   const getSKUs = (order) => {
     return order.line_items?.flatMap(i => {
@@ -2223,7 +2213,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
         <select value={sourceFilter} onChange={e => { setSourceFilter(e.target.value); setPage(1); }}
           style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
           <option value="All">{t("orders.allSource")}</option>
-          {["Meta", "TikTok", "Snapchat", "Google", "Direct", "eNeezam"].map(s => <option key={s}>{s}</option>)}
+          {["Meta", "TikTok", "Snapchat", "Google", "Direct"].map(s => <option key={s}>{s}</option>)}
         </select>
         <select value={availableCities.includes(cityFilter) ? cityFilter : "All"} onChange={e => { setCityFilter(e.target.value); setPage(1); }}
           style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
