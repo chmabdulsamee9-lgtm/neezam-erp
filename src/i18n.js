@@ -514,6 +514,10 @@ export const translations = {
     'onlineStore.createError': 'Theme create nahi hui',
     'onlineStore.publishError': 'Publish nahi hui',
     'onlineStore.deleteError': 'Delete nahi hui',
+    'onlineStore.networkError': 'Server tak pohanch nahi saka. Internet check karein aur dobara koshish karein.',
+    'onlineStore.retry': 'Dobara koshish karein',
+    'onlineStore.addedToast': '{name} draft ke taur par add ho gaya.',
+    'onlineStore.statsError': 'Stats load nahi hue',
 
     'themeEditor.loading': 'Editor load ho raha hai...',
     'themeEditor.loadFailed': 'Theme config load nahi hua',
@@ -2546,6 +2550,10 @@ export const translations = {
     'onlineStore.createError': 'Theme could not be created',
     'onlineStore.publishError': 'Publish failed',
     'onlineStore.deleteError': 'Delete failed',
+    'onlineStore.networkError': 'Could not reach the server. Check your connection and try again.',
+    'onlineStore.retry': 'Retry',
+    'onlineStore.addedToast': '{name} was added as a draft.',
+    'onlineStore.statsError': 'Stats could not be loaded',
 
     'themeEditor.loading': 'Loading editor...',
     'themeEditor.loadFailed': 'Could not load theme config',

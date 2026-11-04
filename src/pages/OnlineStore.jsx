@@ -3,21 +3,13 @@ import { supabase } from "../supabase";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
 import { STOREFRONT_THEMES, getStorefrontTheme } from "../lib/storefrontThemes";
+import { formatStoreDate, useStoreTimeZone } from "../lib/dates";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 // Per-row /get-store-theme lookups (for thumbnail theme numbers) are skipped past this many
 // themes, since /list-store-themes doesn't return theme_config; rows then fall back to theme 1.
 const MAX_THEME_LOOKUPS = 20;
 const PREVIEW_W = 1280;
-
-function dateLabel(iso) {
-  if (!iso) return "";
-  try {
-    return new Date(iso).toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
-  } catch {
-    return "";
-  }
-}
 
 const btnPrimary = (disabled) => ({
   background: disabled ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", border: "none", borderRadius: 9,
@@ -63,7 +55,7 @@ function ThemeThumb({ themeNo }) {
 }
 
 // Scaled-down, non-interactive live render of the store.
-function LivePreview({ url, title }) {
+function LivePreview({ url, title, fill }) {
   const boxRef = useRef(null);
   const [scale, setScale] = useState(0.3);
   useEffect(() => {
@@ -75,8 +67,8 @@ function LivePreview({ url, title }) {
   }, []);
   return (
     <div ref={boxRef} style={{
-      position: "relative", width: "100%", aspectRatio: "16 / 10", overflow: "hidden", borderRadius: 10,
-      border: "1px solid var(--ne-border)", background: "var(--ne-surface)",
+      position: "relative", width: "100%", overflow: "hidden", background: "var(--ne-surface)",
+      ...(fill ? { height: "100%" } : { aspectRatio: "16 / 10", borderRadius: 10, border: "1px solid var(--ne-border)" }),
     }}>
       <iframe
         src={url}
@@ -148,6 +140,13 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
   const [rowBusy, setRowBusy] = useState({});
   const [rowError, setRowError] = useState({});
   const [libBusy, setLibBusy] = useState({});
+  const [retryAction, setRetryAction] = useState(null); // what the Retry button next to a themes error runs
+  const [toast, setToast] = useState("");
+  const tz = useStoreTimeZone(storeId, CF_URL);
+  const dateLabel = (iso) => formatStoreDate(iso, tz, { time: false });
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(""), 3500); };
+  // a browser-level failure (no response at all: offline, blocked, refused) gets a readable message, never the raw "Failed to fetch"
+  const failText = (err, fallbackKey) => (err instanceof TypeError || /failed to fetch|networkerror|load failed/i.test(String(err?.message || "")) ? t("onlineStore.networkError") : (err?.message || t(fallbackKey)));
 
   useEffect(() => {
     (async () => {
@@ -208,19 +207,21 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
 
   const fetchThemes = useCallback(async () => {
     if (!storeId) return;
-    setThemesError("");
+    setThemesError(""); setRetryAction(null);
     try {
       const res = await fetch(`${CF_URL}/list-store-themes?store_id=${encodeURIComponent(storeId)}`, { headers: await authHeaders() });
       const data = await res.json();
       if (!data.themes) {
         setThemesError(data.error || t("onlineStore.themesLoadError"));
+        setRetryAction(() => () => fetchThemes());
         setThemes([]);
         return;
       }
       setThemes(data.themes);
       fetchThemeNumbers(data.themes);
     } catch (err) {
-      setThemesError(err.message);
+      setThemesError(failText(err, "onlineStore.themesLoadError"));
+      setRetryAction(() => () => fetchThemes());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeId]);
@@ -239,7 +240,7 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
       }
       setStats(data);
     } catch (err) {
-      setStatsError(err.message);
+      setStatsError(failText(err, "onlineStore.statsError"));
     } finally {
       setStatsLoading(false);
     }
@@ -257,7 +258,7 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
   const liveUrl = primaryDomain ? `https://${primaryDomain}` : store?.subdomain ? `https://${store.subdomain}.eneezam.com` : null;
   const liveHost = liveUrl ? liveUrl.replace(/^https:\/\//, "") : "";
   const publishedTheme = themes.find((th) => th.status === "published") || null;
-  const draftThemes = themes.filter((th) => th.status !== "published");
+  const draftThemes = themes.filter((th) => th.status !== "published").sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
 
   const handleViewStore = () => {
     if (!liveUrl) return;
@@ -268,6 +269,7 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
   const handleCreateTheme = async (sourceThemeId) => {
     if (!store) return;
     setCreating(true);
+    setThemesError(""); setRetryAction(null);
     try {
       const res = await fetch(`${CF_URL}/create-store-theme`, {
         method: "POST",
@@ -277,6 +279,7 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
       const data = await res.json();
       if (!data.theme) {
         setThemesError(data.error || t("onlineStore.createError"));
+        setRetryAction(() => () => handleCreateTheme(sourceThemeId));
         return;
       }
       setNewThemeName("");
@@ -285,27 +288,28 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
       await fetchThemes();
       onOpenThemeEditor?.(data.theme.id);
     } catch (err) {
-      setThemesError(err.message);
+      setThemesError(failText(err, "onlineStore.createError"));
+      setRetryAction(() => () => handleCreateTheme(sourceThemeId));
     } finally {
       setCreating(false);
     }
   };
 
   // Theme library "Add": new draft via /create-store-theme, then point it at the built-in design.
+  // If the second step fails the half-made draft is removed again, so a failed Add leaves nothing behind.
   const handleAddLibraryTheme = async (def) => {
     if (!store) return;
     setLibBusy((p) => ({ ...p, [def.id]: true }));
-    setThemesError("");
+    setThemesError(""); setRetryAction(null);
+    let createdId = null;
     try {
       const headers = { "Content-Type": "application/json", ...(await authHeaders()) };
       const createRes = await fetch(`${CF_URL}/create-store-theme`, {
         method: "POST", headers, body: JSON.stringify({ store_id: store.id, name: def.name }),
       });
       const created = await createRes.json();
-      if (!created.theme) {
-        setThemesError(created.error || t("onlineStore.createError"));
-        return;
-      }
+      if (!created.theme) throw new Error(created.error || t("onlineStore.createError"));
+      createdId = created.theme.id;
       const cfg = created.theme.theme_config || {};
       const updateRes = await fetch(`${CF_URL}/update-store-theme`, {
         method: "PUT", headers,
@@ -315,13 +319,19 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
         }),
       });
       const updated = await updateRes.json();
-      if (updated.error) {
-        setThemesError(updated.error);
-      }
+      if (updated.error) throw new Error(updated.error);
       logActivity(store.id, "theme_created", { theme_id: created.theme.id, base_theme: def.id });
       await fetchThemes();
+      showToast(t("onlineStore.addedToast").replace("{name}", def.name));
     } catch (err) {
-      setThemesError(err.message);
+      if (createdId) {
+        try {
+          await fetch(`${CF_URL}/delete-store-theme`, { method: "DELETE", headers: { "Content-Type": "application/json", ...(await authHeaders()) }, body: JSON.stringify({ theme_id: createdId }) });
+        } catch { /* best effort */ }
+        fetchThemes();
+      }
+      setThemesError(failText(err, "onlineStore.createError"));
+      setRetryAction(() => () => handleAddLibraryTheme(def));
     } finally {
       setLibBusy((p) => ({ ...p, [def.id]: false }));
     }
@@ -344,7 +354,7 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
       logActivity(store.id, "theme_published", { theme_id: themeId });
       await fetchThemes();
     } catch (err) {
-      setRowError((p) => ({ ...p, [themeId]: err.message }));
+      setRowError((p) => ({ ...p, [themeId]: failText(err, "onlineStore.publishError") }));
     } finally {
       setRowBusy((p) => ({ ...p, [themeId]: false }));
     }
@@ -368,7 +378,7 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
       logActivity(store.id, "theme_deleted", { theme_id: themeId });
       await fetchThemes();
     } catch (err) {
-      setRowError((p) => ({ ...p, [themeId]: err.message }));
+      setRowError((p) => ({ ...p, [themeId]: failText(err, "onlineStore.deleteError") }));
     } finally {
       setRowBusy((p) => ({ ...p, [themeId]: false }));
     }
@@ -418,41 +428,43 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
       )}
       {statsError && <p style={{ fontSize: 12, color: "var(--ne-danger)", margin: "0 0 8px" }}>{statsError}</p>}
 
-      {/* B) Current theme */}
-      <div style={{ ...cardStyle, padding: "1.25rem", margin: "18px 0 24px" }}>
-        <p style={{ ...sectionTitle, marginBottom: 14 }}>{t("onlineStore.currentThemeLabel")}</p>
-        <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-          <div style={{ flex: "1 1 340px", minWidth: 0 }}>
-            {liveUrl
-              ? <LivePreview url={liveUrl} title={t("onlineStore.previewTitle")} />
-              : <ThemeThumb themeNo={publishedNo || 1} />}
-          </div>
-          <div style={{ flex: "1 1 220px", minWidth: 0, display: "flex", flexDirection: "column", gap: 12 }}>
-            <div>
-              <p style={{ margin: "0 0 2px", fontSize: 11.5, fontWeight: 700, color: "var(--ne-muted)" }}>{t("onlineStore.addressLabel")}</p>
-              <p style={{ margin: 0, fontSize: 13.5, fontWeight: 700, color: "var(--ne-text)", wordBreak: "break-all" }}>{liveHost || "—"}</p>
-            </div>
-            <div>
-              <p style={{ margin: "0 0 2px", fontSize: 11.5, fontWeight: 700, color: "var(--ne-muted)" }}>{t("onlineStore.publishedThemeLabel")}</p>
+      {/* B) Current theme: one full-width card, the live preview is the background */}
+      <div style={{ ...cardStyle, position: "relative", overflow: "hidden", margin: "18px 0 24px", minHeight: 300, background: "var(--ne-surface)" }}>
+        <div style={{ position: "absolute", inset: 0 }}>
+          {liveUrl
+            ? <LivePreview url={liveUrl} title={t("onlineStore.previewTitle")} fill />
+            : <ThemeThumb themeNo={publishedNo || 1} />}
+        </div>
+        <div style={{ position: "relative", minHeight: 300, display: "flex", alignItems: "flex-end" }}>
+          <div style={{
+            width: "100%", boxSizing: "border-box", padding: "56px 20px 18px", display: "flex", gap: 14, alignItems: "flex-end", justifyContent: "space-between", flexWrap: "wrap",
+            background: "linear-gradient(to top, rgba(8,10,24,.92) 0%, rgba(8,10,24,.62) 55%, rgba(8,10,24,0) 100%)",
+          }}>
+            <div style={{ minWidth: 0, flex: "1 1 240px" }}>
+              <p style={{ margin: 0, fontSize: 11.5, fontWeight: 700, color: "rgba(255,255,255,.7)" }}>{t("onlineStore.currentThemeLabel")}</p>
+              <p style={{ margin: "2px 0 4px", fontSize: 22, fontWeight: 800, color: "#fff", wordBreak: "break-all" }}>{liveHost || "—"}</p>
               {publishedTheme ? (
-                <>
-                  <p style={{ margin: 0, fontSize: 13.5, fontWeight: 700, color: "var(--ne-text)" }}>{publishedTheme.name}</p>
-                  <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{t("onlineStore.lastSaved")}: {dateLabel(publishedTheme.updated_at)}</p>
-                </>
+                <p style={{ margin: 0, fontSize: 12.5, color: "rgba(255,255,255,.8)" }}>
+                  {publishedTheme.name} · {t("onlineStore.lastSaved")}: {dateLabel(publishedTheme.updated_at)}
+                </p>
               ) : (
-                <p style={{ margin: 0, fontSize: 12.5, color: "var(--ne-muted)" }}>{t("onlineStore.noPublishedTheme")}</p>
+                <p style={{ margin: 0, fontSize: 12.5, color: "rgba(255,255,255,.8)" }}>{t("onlineStore.noPublishedTheme")}</p>
               )}
             </div>
-            <div style={{ display: "flex", gap: 8, marginTop: "auto", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <button onClick={handleViewStore} disabled={!liveUrl} style={{ ...btnGhost(!liveUrl), background: "rgba(255,255,255,.12)", color: "#fff", borderColor: "rgba(255,255,255,.35)" }}>
+                <Icon name="link" size={13} /> {t("onlineStore.viewStoreButton")}
+              </button>
               {publishedTheme && (
                 <button onClick={() => onOpenThemeEditor?.(publishedTheme.id)} style={btnPrimary(false)}>
                   <Icon name="edit" size={13} /> {t("onlineStore.editThemeButton")}
                 </button>
               )}
-              <MoreMenu label={t("onlineStore.moreActions")} items={[
-                { key: "view", label: t("onlineStore.viewStoreButton"), icon: "link", onClick: handleViewStore, disabled: !liveUrl },
-                ...(publishedTheme ? [{ key: "dup", label: t("onlineStore.duplicateAction"), icon: "clipboard", onClick: () => handleCreateTheme(publishedTheme.id), disabled: creating }] : []),
-              ]} />
+              {publishedTheme && (
+                <MoreMenu label={t("onlineStore.moreActions")} items={[
+                  { key: "dup", label: t("onlineStore.duplicateAction"), icon: "clipboard", onClick: () => handleCreateTheme(publishedTheme.id), disabled: creating },
+                ]} />
+              )}
             </div>
           </div>
         </div>
@@ -481,7 +493,13 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
             </button>
           </div>
         )}
-        {themesError && <p style={{ color: "var(--ne-danger)", fontSize: 12, margin: "0 0 10px" }}>{themesError}</p>}
+        {themesError && (
+          <div role="alert" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", color: "var(--ne-danger)", fontSize: 12.5, margin: "0 0 10px" }}>
+            <span>{themesError}</span>
+            {retryAction && <button onClick={() => { const fn = retryAction; fn(); }} style={{ ...btnGhost(false), padding: "4px 10px", fontSize: 12 }}>{t("onlineStore.retry")}</button>}
+          </div>
+        )}
+        {toast && <p role="status" style={{ color: "var(--ne-success)", fontSize: 12.5, margin: "0 0 10px" }}>{toast}</p>}
 
         <div style={{ ...cardStyle, overflow: "visible" }}>
           {draftThemes.length === 0 ? (
