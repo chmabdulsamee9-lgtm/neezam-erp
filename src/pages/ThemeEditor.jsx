@@ -1,123 +1,92 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
-import { STOREFRONT_THEMES } from "../lib/storefrontThemes";
+import { TEMPLATES, resolveSections, withResolvedLayout, mutateSections, addSection, removeSection, duplicateSection, toggleSection, moveSection, reorderSection, setSectionSetting, isLocked } from "../lib/themeEditor/layout";
+import { createHistory, pushState, undo, redo, canUndo, canRedo } from "../lib/themeEditor/history";
+import { sectionLabel } from "../lib/themeEditor/labels";
+import SectionsPanel, { AddSectionPopup, RowMenu } from "../components/themeEditor/SectionsPanel";
+import { SectionSettingsForm, ThemeSettingsPanel, ProductMetaPanel } from "../components/themeEditor/SettingsPanels";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
+const TOKEN_REFRESH_MS = 15 * 60 * 1000; // the worker's edit token lives 20 minutes
 
-// Mirrors neezam-storefront/src/lib/storefront-layout.ts's TEMPLATES — a
-// separate repo/runtime, so this is a deliberate, small, hand-kept copy
-// rather than a shared import.
-const TEMPLATES = [
-  { key: "home", label: "Home page", url: "/" },
-  { key: "collection", label: "Collections", url: "/collection" },
-  { key: "product", label: "Products", url: "/product/velvet-matte-lipstick" },
-  { key: "cart", label: "Cart", url: "/cart" },
-  { key: "checkout", label: "Checkout", url: "/checkout" },
-];
+// Full-viewport theme editor (Sections tree + settings panels + live preview). The draft lives in an undo/redo history;
+// every change is pushed to the storefront iframe over postMessage (no save needed to preview), Save writes the whole
+// theme_config through the existing PUT /update-store-theme.
 
-// The universal (templates: '*') section library from storefront-layout.ts's
-// SECTION_REGISTRY, plus the two non-locked 'core' product-page sections.
-// Deliberately excludes the ~30 theme-specific section types of themes 5-8
-// (stored keys jp-*/zero-*/org-*/vince-*, kept for saved layouts) — those can still
-// be edited if already present in a saved layout (via the generic field
-// editor below), just not newly added from this menu. See final report.
-const SECTION_TYPES = [
-  { type: "announcement-bar", label: "Announcement bar" },
-  { type: "hero", label: "Hero banner (with slideshow)" },
-  { type: "featured-collection", label: "Featured collection" },
-  { type: "collection-list", label: "Category rows (icon chips)" },
-  { type: "promo-banner", label: "Promo banner (big CTA)" },
-  { type: "stats-row", label: "Stats / trust counters" },
-  { type: "testimonials", label: "Testimonials carousel row" },
-  { type: "countdown-strip", label: "Flash-sale countdown strip" },
-  { type: "ugc-strip", label: "UGC / Instagram photo strip" },
-  { type: "brand-story", label: "Brand story split" },
-  { type: "trust-marquee", label: "Trust claims marquee" },
-  { type: "deals-grid", label: "Deals strip + offer cards" },
-  { type: "mini-picks", label: "Celeb favourites (mini cards)" },
-  { type: "quote-strip", label: "Brand quote strip" },
-  { type: "press-logos", label: "Press / featured-in logos" },
-  { type: "newsletter", label: "Newsletter signup" },
-  { type: "custom-html", label: "Custom block (HTML)" },
-  { type: "product-reviews", label: "Customer reviews" },
-  { type: "related-products", label: "Related products" },
-];
-const LOCKED_CORE_TYPES = {
-  home: "home-main", collection: "collection-main", product: "product-main", cart: "cart-main", checkout: "checkout-main",
-};
-const LOCKED_TYPE_SET = new Set(Object.values(LOCKED_CORE_TYPES));
-
-function sectionLabel(type) {
-  return SECTION_TYPES.find((s) => s.type === type)?.label
-    || Object.entries(LOCKED_CORE_TYPES).find(([, t]) => t === type)?.[0]
-    || type;
+const EDITOR_CSS = `
+.te-root{position:fixed;inset:0;z-index:1200;display:flex;flex-direction:column;background:var(--ne-sidebar-bg);color:var(--ne-text);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.te-top{height:56px;flex:none;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;padding:0 12px;background:var(--ne-surface);border-bottom:1px solid var(--ne-border)}
+.te-top-l{display:flex;align-items:center;gap:10px;min-width:0}
+.te-top-r{display:flex;align-items:center;gap:6px;justify-content:flex-end;min-width:0}
+.te-ibtn{width:34px;height:34px;flex:none;display:inline-flex;align-items:center;justify-content:center;border-radius:10px;border:1px solid transparent;background:transparent;color:var(--ne-text);cursor:pointer}
+.te-ibtn:hover:not(:disabled){background:var(--ne-surface-2)}
+.te-ibtn:disabled{opacity:.35;cursor:not-allowed}
+.te-ibtn[aria-pressed=true]{background:var(--ne-accent-soft);color:var(--ne-accent)}
+.te-btn{height:34px;padding:0 14px;border-radius:10px;border:1px solid var(--ne-border);background:transparent;color:var(--ne-text);font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:inherit}
+.te-btn:hover:not(:disabled){background:var(--ne-surface-2)}
+.te-btn:disabled{opacity:.45;cursor:not-allowed}
+.te-btn.primary{background:var(--ne-grad);border-color:transparent;color:#fff}
+.te-btn.primary:hover:not(:disabled){filter:brightness(1.08);background:var(--ne-grad)}
+.te-body{flex:1;min-height:0;display:flex;gap:8px;padding:8px;position:relative}
+.te-rail{width:52px;flex:none;display:flex;flex-direction:column;gap:6px;align-items:center;padding:8px 0;background:var(--ne-surface);border:1px solid var(--ne-border);border-radius:14px}
+.te-railbtn{width:38px;height:38px;border-radius:10px;border:none;background:transparent;color:var(--ne-muted);cursor:pointer;display:flex;align-items:center;justify-content:center}
+.te-railbtn:hover{background:var(--ne-surface-2);color:var(--ne-text)}
+.te-railbtn[aria-pressed=true]{background:var(--ne-accent-soft);color:var(--ne-accent)}
+.te-panel{width:320px;flex:none;position:relative;display:flex;flex-direction:column;background:var(--ne-surface);border:1px solid var(--ne-border);border-radius:14px;min-height:0;overflow:hidden}
+.te-panel-h{position:relative;display:flex;align-items:center;gap:8px;min-height:50px;padding:0 10px 0 14px;border-bottom:1px solid var(--ne-border);font-weight:700;font-size:14px;flex:none}
+.te-panel-b{flex:1;min-height:0;overflow-y:auto;padding:10px 10px 18px}
+.te-preview{flex:1;min-width:0;display:flex;justify-content:center;background:var(--ne-surface-2);border:1px solid var(--ne-border);border-radius:14px;overflow:hidden}
+.te-preview.mobile{padding:10px 0}
+.te-frame{width:100%;height:100%;background:#fff;border:0;display:block;box-sizing:border-box}
+.te-frame.mobile{width:390px;max-width:100%;border:1px solid var(--ne-border);border-radius:22px}
+.te-row{position:relative;display:flex;align-items:center;gap:4px;padding:0 4px;min-height:38px;border-radius:10px;border:1px solid transparent;cursor:pointer}
+.te-row:hover{background:var(--ne-surface-2)}
+.te-row.sel{background:var(--ne-accent-soft);border-color:var(--ne-accent)}
+.te-row.drop-before::before,.te-row.drop-after::after{content:'';position:absolute;inset-inline:6px;height:2px;border-radius:2px;background:var(--ne-accent)}
+.te-row.drop-before::before{top:-2px}.te-row.drop-after::after{bottom:-2px}
+.te-act:hover:not(:disabled){background:var(--ne-border) !important;color:var(--ne-text) !important}
+.te-add{display:flex;align-items:center;gap:8px;width:100%;margin-top:4px;padding:8px 10px;border-radius:10px;border:none;background:transparent;color:var(--ne-accent);font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
+.te-add:hover{background:var(--ne-surface-2)}
+.te-pick:hover{background:var(--ne-surface-2) !important}
+.te-pop{position:absolute;z-index:60;background:var(--ne-surface);border:1px solid var(--ne-border);border-radius:14px;box-shadow:0 14px 40px rgba(0,0,0,.45);padding:6px;min-width:210px}
+.te-popitem{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border-radius:10px;border:none;background:transparent;color:var(--ne-text);font-size:13px;text-align:start;cursor:pointer;font-family:inherit}
+.te-popitem:hover{background:var(--ne-surface-2)}
+.te-popitem[aria-current=true]{background:var(--ne-accent-soft);color:var(--ne-accent)}
+.te-narrow-only{display:none}
+@media (max-width: 900px){
+  .te-narrow-only{display:inline-flex}
+  .te-rail{display:none}
+  .te-top{grid-template-columns:auto 1fr auto;gap:6px}
+  .te-top .te-hide-narrow{display:none}
+  .te-panel{position:absolute;z-index:50;inset:8px auto 8px 8px;width:min(340px,calc(100% - 16px));display:none;box-shadow:0 14px 40px rgba(0,0,0,.5)}
+  .te-body.panel-open .te-panel{display:flex}
 }
-function newId(prefix) { return `${prefix}-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6)}`; }
-function makeSection(type) { return { id: newId("sec"), type, enabled: true, settings: {} }; }
+`;
 
-// Mirrors neezam-storefront/src/lib/palette.ts (PALETTE_SLOTS/ELEMENT_TARGETS/
-// FONT_OPTIONS) — default hex values shown here are theme-1's, since this
-// editor doesn't have access to the storefront's full per-theme default map;
-// it only matters for the swatch shown before a slot has ever been set.
-const PALETTE_SLOTS = [
-  { key: "bg", label: "Background", feeds: "Page background, behind everything", default: "#ffffff" },
-  { key: "surface", label: "Surface / Cards", feeds: "Cards, section surfaces, chips, inputs", default: "#f5f5f4" },
-  { key: "text", label: "Headings / Main text", feeds: "Headings, product titles, prices", default: "#111111" },
-  { key: "textMuted", label: "Muted text", feeds: "Captions, vendors, secondary copy", default: "#6f6f6f" },
-  { key: "accent", label: "Accent", feeds: "Buttons, badges, highlights, links", default: "#111111" },
-  { key: "accentContrast", label: "Text on accent", feeds: "Button label text, badge text", default: "#ffffff" },
-  { key: "border", label: "Outlines / Borders", feeds: "Card outlines, input borders, dividers", default: "#e3e3e1" },
-];
-const ELEMENT_TARGETS = [
-  { key: "headings", label: "Headings", defaultSlot: "text" },
-  { key: "bodyText", label: "Body text", defaultSlot: "text" },
-  { key: "buttons", label: "Buttons (bg)", defaultSlot: "accent" },
-  { key: "buttonText", label: "Button text", defaultSlot: "accentContrast" },
-  { key: "links", label: "Links / accents", defaultSlot: "accent" },
-  { key: "badges", label: "Badge / sticker bg", defaultSlot: "accent" },
-  { key: "badgeText", label: "Badge text", defaultSlot: "accentContrast" },
-  { key: "announceBar", label: "Announcement bar bg", defaultSlot: "accent" },
-  { key: "announceText", label: "Announcement text", defaultSlot: "accentContrast" },
-  { key: "outlines", label: "Outlines / inputs", defaultSlot: "border" },
-  { key: "saleBadge", label: "Sale badge bg", defaultSlot: "accent" },
-  { key: "saleText", label: "Sale badge text", defaultSlot: "accentContrast" },
-  { key: "stars", label: "Review stars", defaultSlot: "accent" },
-  { key: "popupCard", label: "Sales popup card", defaultSlot: "surface" },
-];
-const FONT_OPTIONS = [
-  { key: "archivo", label: "Archivo" }, { key: "archivo-black", label: "Archivo Black" },
-  { key: "inter", label: "Inter" }, { key: "space-grotesk", label: "Space Grotesk" },
-  { key: "playfair", label: "Playfair Display" }, { key: "jost", label: "Jost" },
-  { key: "fraunces", label: "Fraunces" }, { key: "nunito", label: "Nunito" },
-  { key: "caveat", label: "Caveat (handwritten)" }, { key: "sora", label: "Sora" },
-  { key: "poppins", label: "Poppins" }, { key: "lora", label: "Lora" },
-  { key: "plus-jakarta", label: "Plus Jakarta Sans" }, { key: "quicksand", label: "Quicksand" },
-  { key: "nunito-sans", label: "Nunito Sans" }, { key: "barlow", label: "Barlow" },
-  { key: "montserrat", label: "Montserrat" },
-];
-const META_LIMITS = { card_tag: 30, title_tag: 30, key_point: 60, key_points_max: 3, info_title: 40, info_body: 600, info_sections_max: 4 };
+function pathToTemplate(path) {
+  const p = String(path || "/").split("?")[0].replace(/\/+$/, "") || "/";
+  if (p === "/") return { key: "home" };
+  if (p === "/collection" || p.startsWith("/collection/")) return { key: "collection" };
+  if (p.startsWith("/product/")) return { key: "product", productPath: p };
+  if (p === "/cart") return { key: "cart" };
+  if (p === "/checkout") return { key: "checkout" };
+  return null;
+}
 
-const TABS = [
-  { id: "theme", label: "Theme" },
-  { id: "sections", label: "Sections" },
-  { id: "design", label: "Design" },
-  { id: "branding", label: "Branding" },
-  { id: "advanced", label: "Advanced" },
-  { id: "products", label: "Products" },
-];
-
-const inputStyle = {
-  width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--ne-border)",
-  background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13,
-};
-const labelStyle = { display: "block", marginBottom: 4, fontSize: 11, fontWeight: 700, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: "0.06em" };
-const groupLabelStyle = { fontSize: 11, fontWeight: 700, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: "0.1em", margin: "18px 0 8px" };
-const chipStyle = (active) => ({
-  padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: "pointer", border: "1px solid var(--ne-border)",
-  background: active ? "var(--ne-grad)" : "transparent", color: active ? "#fff" : "var(--ne-text)",
-});
+function Dialog({ title, body, actions, onClose }) {
+  return (
+    <div role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose?.(); }}
+      style={{ position: "fixed", inset: 0, zIndex: 1300, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div role="dialog" aria-modal="true" aria-label={title} style={{ width: "100%", maxWidth: 420, background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: 20, boxShadow: "0 20px 60px rgba(0,0,0,.5)" }}>
+        <h2 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 700 }}>{title}</h2>
+        <p style={{ margin: "0 0 18px", fontSize: 13.5, lineHeight: 1.5, color: "var(--ne-muted)" }}>{body}</p>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>{actions}</div>
+      </div>
+    </div>
+  );
+}
 
 export default function ThemeEditor({ storeId, themeId, onNavigate, onOpenThemeEditor }) {
   const [lang] = useLanguage();
@@ -126,23 +95,39 @@ export default function ThemeEditor({ storeId, themeId, onNavigate, onOpenThemeE
   const [store, setStore] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [draft, setDraft] = useState(null);
+  const [hist, setHist] = useState(null);
+  const [savedJson, setSavedJson] = useState("");
   const [themeName, setThemeName] = useState("");
   const [themeStatus, setThemeStatus] = useState("draft");
-  const [duplicating, setDuplicating] = useState(false);
+  const [products, setProducts] = useState([]);
+  const [productPath, setProductPath] = useState("");
+  const [metaProductId, setMetaProductId] = useState("");
   const [template, setTemplate] = useState("home");
-  const [tab, setTab] = useState("theme");
+  const [view, setView] = useState("sections"); // sections | theme | products
+  const [selectedId, setSelectedId] = useState(null);
+  const [device, setDevice] = useState("desktop");
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [pageMenu, setPageMenu] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [headMenu, setHeadMenu] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [savedAt, setSavedAt] = useState(null);
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState("");
-  const [previewToken, setPreviewToken] = useState(null);
-  const [selectedSectionId, setSelectedSectionId] = useState(null);
-  const [addMenuOpen, setAddMenuOpen] = useState(false);
-  const [metaProductId, setMetaProductId] = useState("demo-product-1");
+  const [duplicating, setDuplicating] = useState(false);
+  const [dialog, setDialog] = useState(null); // 'leave' | 'publish'
+  const [frameToken, setFrameToken] = useState(null);
+  const hasToken = !!frameToken;
   const iframeRef = useRef(null);
   const postTimer = useRef(null);
+  const [defaultsCache] = useState(() => new Map()); // default section ids stay stable while the editor is open
+  const pendingScroll = useRef(null);
+  const counters = useRef({ added: 0, deleted: 0, duplicated: 0 });
+  const pageMenuRef = useRef(null);
+
+  const draft = hist?.present ?? null;
+  const readOnly = themeStatus === "published";
 
   useEffect(() => {
     (async () => {
@@ -166,11 +151,10 @@ export default function ThemeEditor({ storeId, themeId, onNavigate, onOpenThemeE
     }
   };
 
+  /* ------------------------------------------------------------ load */
   useEffect(() => {
-    if (!storeId || !themeId) {
-      setLoading(false);
-      return;
-    }
+    if (!storeId || !themeId) return undefined;
+    let cancelled = false;
     (async () => {
       setLoading(true);
       setLoadError("");
@@ -180,109 +164,211 @@ export default function ThemeEditor({ storeId, themeId, onNavigate, onOpenThemeE
           .select("id, store_name, subdomain, store_custom_domains(domain, role, status)")
           .eq("id", storeId)
           .maybeSingle();
-        setStore(storeRow || null);
-
         const { data: { session } } = await supabase.auth.getSession();
         const authHeaders = { Authorization: `Bearer ${session?.access_token}` };
-
-        const [themeRes, tokenRes] = await Promise.all([
+        const [themeRes, tokenRes, prodRes] = await Promise.all([
           fetch(`${CF_URL}/get-store-theme?theme_id=${encodeURIComponent(themeId)}`, { headers: authHeaders }),
-          fetch(`${CF_URL}/generate-theme-edit-token`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", ...authHeaders },
-            body: JSON.stringify({ store_id: storeId }),
-          }),
+          fetch(`${CF_URL}/generate-theme-edit-token`, { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders }, body: JSON.stringify({ store_id: storeId }) }),
+          fetch(`${CF_URL}/get-store-products?store_id=${encodeURIComponent(storeId)}`).then((r) => r.json()).catch(() => ({})),
         ]);
         const themeData = await themeRes.json();
         const tokenData = await tokenRes.json();
-        if (!themeData.theme) throw new Error(themeData.error || "Theme load nahi hua");
-        if (!tokenData.token) throw new Error(tokenData.error || "Preview token generate nahi hua");
-        setDraft(themeData.theme.theme_config);
-        setThemeName(themeData.theme.name);
+        if (!themeData.theme) throw new Error(themeData.error || t("themeEditor.loadFailed"));
+        if (!tokenData.token) throw new Error(tokenData.error || t("themeEditor.tokenFailed"));
+        if (cancelled) return;
+        const cfg = themeData.theme.theme_config || {};
+        defaultsCache.clear();
+        counters.current = { added: 0, deleted: 0, duplicated: 0 };
+        const list = (Array.isArray(prodRes?.products) ? prodRes.products : []).filter((p) => p && p.handle);
+        setStore(storeRow || null);
+        setHist(createHistory(cfg));
+        setSavedJson(JSON.stringify(cfg));
+        setThemeName(themeData.theme.name || "");
         setThemeStatus(themeData.theme.status);
-        setPreviewToken(tokenData.token);
+        setProducts(list);
+        setProductPath(list[0] ? `/product/${list[0].handle}` : "");
+        setMetaProductId(list[0]?.id || "");
+        setFrameToken(tokenData.token);
+        setTemplate("home");
+        setSelectedId(null);
       } catch (err) {
-        setLoadError(err.message);
+        if (!cancelled) setLoadError(err.message);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeId, themeId]);
 
+  // keep the edit token alive so the preview can keep navigating between pages in a long session
+  useEffect(() => {
+    if (!storeId || !hasToken) return undefined;
+    const id = setInterval(async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch(`${CF_URL}/generate-theme-edit-token`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` }, body: JSON.stringify({ store_id: storeId }) });
+        const d = await res.json();
+        if (d.token) setFrameToken(d.token);
+      } catch { /* keep the old token; it still works until it expires */ }
+    }, TOKEN_REFRESH_MS);
+    return () => clearInterval(id);
+  }, [storeId, hasToken]);
+
+  /* ------------------------------------------------------------ preview */
   const primaryDomain = (store?.store_custom_domains || []).find((d) => d.role === "primary" && d.status === "active")?.domain;
   const liveUrl = primaryDomain ? `https://${primaryDomain}` : store?.subdomain ? `https://${store.subdomain}.eneezam.com` : null;
-  const templateUrl = TEMPLATES.find((tp) => tp.key === template)?.url || "/";
-  const previewSrc = liveUrl && previewToken
-    ? `${liveUrl}${templateUrl}?token=${encodeURIComponent(previewToken)}&preview=1`
-    : null;
+  const templateUrl = template === "product" ? productPath : TEMPLATES.find((tp) => tp.key === template)?.url || "/";
 
+  // the iframe only navigates when the page changes; a refreshed token is picked up by the next navigation
+  const frameSrc = useMemo(() => {
+    if (!liveUrl || !frameToken || !templateUrl) return null;
+    return `${liveUrl}${templateUrl}?token=${encodeURIComponent(frameToken)}&preview=1`;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveUrl, templateUrl, hasToken]);
+
+  const sections = useMemo(() => (draft ? resolveSections(draft, template, defaultsCache) : []), [draft, template, defaultsCache]);
+  const previewConfig = useMemo(() => (draft ? withResolvedLayout(draft, template, defaultsCache) : null), [draft, template, defaultsCache]);
+  // latest values for the message handler (which is registered once)
+  const previewRef = useRef(null);
+  const sectionsRef = useRef([]);
+  const selectedRef = useRef(null);
+  useEffect(() => { previewRef.current = previewConfig; sectionsRef.current = sections; selectedRef.current = selectedId; });
+
+  const post = useCallback((msg) => { iframeRef.current?.contentWindow?.postMessage(msg, "*"); }, []);
   const sendPreview = useCallback(() => {
-    if (!draft) return;
-    iframeRef.current?.contentWindow?.postMessage({ type: "eneezam:theme-preview", themeConfig: draft }, "*");
-  }, [draft]);
+    if (previewRef.current) post({ type: "eneezam:theme-preview", themeConfig: previewRef.current });
+  }, [post]);
 
   useEffect(() => {
-    if (!draft) return;
+    if (!previewConfig) return undefined;
     clearTimeout(postTimer.current);
-    postTimer.current = setTimeout(sendPreview, 400);
+    postTimer.current = setTimeout(sendPreview, 250);
     return () => clearTimeout(postTimer.current);
-  }, [draft, sendPreview]);
+  }, [previewConfig, sendPreview]);
+
+  // pending: the section was just created, so the preview has to finish rendering it before it can scroll there
+  const selectSection = useCallback((id, { scroll = false, pending = false } = {}) => {
+    setSelectedId(id);
+    setView("sections");
+    setAddOpen(false);
+    pendingScroll.current = scroll && pending && id ? id : null;
+    post({ type: "eneezam:select-section", id, scroll });
+  }, [post]);
 
   useEffect(() => {
     function onMessage(e) {
-      if (e.data?.type === "eneezam:theme-preview-ready") sendPreview();
+      if (e.source !== iframeRef.current?.contentWindow) return;
+      const d = e.data;
+      if (!d || typeof d.type !== "string") return;
+      if (d.type === "eneezam:theme-preview-ready") {
+        sendPreview();
+        if (selectedRef.current) post({ type: "eneezam:select-section", id: selectedRef.current, scroll: false });
+      } else if (d.type === "eneezam:theme-preview-applied") {
+        if (pendingScroll.current) {
+          post({ type: "eneezam:select-section", id: pendingScroll.current, scroll: true });
+          pendingScroll.current = null;
+        }
+      } else if (d.type === "eneezam:section-click") {
+        if (sectionsRef.current.some((s) => s.id === d.id)) {
+          setSelectedId(d.id);
+          setView("sections");
+          setAddOpen(false);
+          setPanelOpen(true);
+          post({ type: "eneezam:select-section", id: d.id, scroll: false });
+        }
+      } else if (d.type === "eneezam:preview-navigate") {
+        const hit = pathToTemplate(d.path);
+        if (!hit) return;
+        if (hit.productPath) setProductPath(hit.productPath);
+        setTemplate(hit.key);
+        setSelectedId(null);
+      }
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [sendPreview]);
+  }, [sendPreview, post]);
 
-  const updateSettings = (patch) => setDraft((d) => ({ ...d, settings: { ...d.settings, ...patch } }));
-  const updateLayoutSections = (tplKey, fn) => setDraft((d) => {
-    const current = d.layouts?.[tplKey]?.sections || [];
-    return { ...d, layouts: { ...d.layouts, [tplKey]: { sections: fn(current) } } };
-  });
+  /* ------------------------------------------------------------ editing */
+  const commit = useCallback((fn, key) => {
+    setHist((h) => (h ? pushState(h, fn(h.present), { key }) : h));
+  }, []);
+  const mutate = (fn, key) => commit((d) => mutateSections(d, template, fn, defaultsCache), key);
 
-  const sections = draft?.layouts?.[template]?.sections || [];
-  const selected = sections.find((s) => s.id === selectedSectionId) || null;
-  const lockedType = LOCKED_CORE_TYPES[template];
+  const selected = selectedId ? sections.find((s) => s.id === selectedId) || null : null;
 
-  const toggleEnabled = (id) => updateLayoutSections(template, (arr) => arr.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s)));
-  const removeSection = (id) => {
-    const target = sections.find((s) => s.id === id);
-    if (target && LOCKED_TYPE_SET.has(target.type)) return;
-    updateLayoutSections(template, (arr) => arr.filter((s) => s.id !== id));
-    if (selectedSectionId === id) setSelectedSectionId(null);
+  const onToggle = (id) => mutate((a) => toggleSection(a, id));
+  const onMove = (id, dir) => mutate((a) => moveSection(a, id, dir, template));
+  const onReorder = (id, targetId, edge) => mutate((a) => reorderSection(a, id, targetId, edge, template));
+  const onDelete = (id) => {
+    mutate((a) => removeSection(a, id));
+    counters.current.deleted += 1;
+    if (selectedId === id) selectSection(null);
   };
-  const moveSection = (id, dir) => updateLayoutSections(template, (arr) => {
-    const idx = arr.findIndex((s) => s.id === id);
-    const swapIdx = idx + dir;
-    if (idx < 0 || swapIdx < 0 || swapIdx >= arr.length) return arr;
-    const next = [...arr];
-    [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
-    return next;
-  });
-  const addSection = (secType) => {
-    updateLayoutSections(template, (arr) => [...arr, makeSection(secType)]);
-    setAddMenuOpen(false);
+  const onDuplicate = (id) => {
+    const next = duplicateSection(sections, id);
+    if (next === sections) return;
+    const idx = sections.findIndex((s) => s.id === id);
+    const copy = next[idx + 1];
+    mutate(() => next);
+    counters.current.duplicated += 1;
+    selectSection(copy.id, { scroll: true, pending: true });
   };
-  const setSectionField = (id, key, value) => updateLayoutSections(template, (arr) =>
-    arr.map((s) => (s.id === id ? { ...s, settings: { ...s.settings, [key]: value } } : s))
-  );
-  const addSectionField = (id) => {
-    const key = window.prompt("Field key (e.g. heading)?");
-    if (!key) return;
-    setSectionField(id, key.trim(), "");
+  const onAdd = (type) => {
+    const next = addSection(sections, type, template);
+    if (next === sections) return;
+    const created = next.find((s) => !sections.includes(s));
+    mutate(() => next);
+    counters.current.added += 1;
+    setAddOpen(false);
+    selectSection(created.id, { scroll: true, pending: true });
+  };
+  const onSectionSetting = (key, value) => { if (selected) mutate((a) => setSectionSetting(a, selected.id, key, value), `sec.${selected.id}.${key}`); };
+  const onSettings = (fn, key) => commit((d) => ({ ...d, settings: fn(d.settings || {}) }), `set.${key}`);
+  const onMeta = (patch, key) => {
+    if (!metaProductId) return;
+    commit((d) => ({ ...d, product_meta: { ...(d.product_meta || {}), [metaProductId]: { ...(d.product_meta?.[metaProductId] || {}), ...patch } } }), `meta.${metaProductId}.${key}`);
   };
 
-  const handleSave = async () => {
-    if (!draft || !store || !themeId) return;
-    // Worker rejects writes to a published row — this mirrors that at the
-    // UI level too, via the "Duplicate to edit" banner below, but guard
-    // here too in case Save is clicked in some edge-case race.
-    if (themeStatus === "published") {
-      setSaveError(t("themeEditor.publishedReadOnly"));
-      return;
+  const doUndo = useCallback(() => setHist((h) => (h ? undo(h) : h)), []);
+  const doRedo = useCallback(() => setHist((h) => (h ? redo(h) : h)), []);
+
+  const dirty = useMemo(() => !!draft && !readOnly && JSON.stringify(draft) !== savedJson, [draft, savedJson, readOnly]);
+
+  useEffect(() => {
+    function onKey(e) {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const el = e.target;
+      const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
+      if (typing) return; // let the field keep its own text undo
+      const k = e.key.toLowerCase();
+      if (k === "z" && !e.shiftKey) { e.preventDefault(); doUndo(); }
+      else if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); doRedo(); }
     }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [doUndo, doRedo]);
+
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const warn = (e) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
+  useEffect(() => {
+    if (!pageMenu) return undefined;
+    const down = (e) => { if (pageMenuRef.current && !pageMenuRef.current.contains(e.target)) setPageMenu(false); };
+    const key = (e) => { if (e.key === "Escape") setPageMenu(false); };
+    document.addEventListener("mousedown", down);
+    document.addEventListener("keydown", key);
+    return () => { document.removeEventListener("mousedown", down); document.removeEventListener("keydown", key); };
+  }, [pageMenu]);
+
+  /* ------------------------------------------------------------ save / publish / duplicate */
+  const handleSave = async () => {
+    if (!draft || !store || !themeId || saving) return true;
+    if (themeStatus === "published") { setSaveError(t("themeEditor.publishedReadOnly")); return false; }
     setSaving(true);
     setSaveError("");
     try {
@@ -293,23 +379,43 @@ export default function ThemeEditor({ storeId, themeId, onNavigate, onOpenThemeE
         body: JSON.stringify({ theme_id: themeId, theme_config: draft }),
       });
       const data = await res.json();
-      if (!data.success) {
-        setSaveError(data.error || "Save nahi hua");
-        return;
-      }
+      if (!data.success) { setSaveError(data.error || t("themeEditor.saveFailed")); return false; }
+      setSavedJson(JSON.stringify(draft));
       setSavedAt(new Date());
-      logActivity(store.id, "theme_config_saved", { theme_id: themeId });
+      logActivity(store.id, "theme_config_saved", { theme_id: themeId, ...counters.current });
+      counters.current = { added: 0, deleted: 0, duplicated: 0 };
+      return true;
     } catch (err) {
-      setSaveError(err.message);
+      setSaveError(err.message || t("themeEditor.saveFailed"));
+      return false;
     } finally {
       setSaving(false);
     }
   };
 
-  // The worker rejects direct edits to a published row (to avoid accidental
-  // live edits bypassing publish) — this creates a draft copy and re-targets
-  // this same editor instance at it via onOpenThemeEditor, rather than
-  // allowing a mid-edit async fork.
+  const handlePublish = async () => {
+    setDialog(null);
+    if (!store || !themeId || dirty) return;
+    setPublishing(true);
+    setPublishError("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${CF_URL}/publish-store-theme`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ theme_id: themeId }),
+      });
+      const data = await res.json();
+      if (!data.success) { setPublishError(data.error || t("themeEditor.publishFailed")); return; }
+      setThemeStatus("published");
+      logActivity(store.id, "theme_published", { theme_id: themeId });
+    } catch (err) {
+      setPublishError(err.message || t("themeEditor.publishFailed"));
+    } finally {
+      setPublishing(false);
+    }
+  };
+
   const handleDuplicateToEdit = async () => {
     if (!store || !themeId) return;
     setDuplicating(true);
@@ -321,403 +427,174 @@ export default function ThemeEditor({ storeId, themeId, onNavigate, onOpenThemeE
         body: JSON.stringify({ store_id: store.id, source_theme_id: themeId }),
       });
       const data = await res.json();
-      if (!data.theme) {
-        setSaveError(data.error || "Duplicate nahi hui");
-        return;
-      }
+      if (!data.theme) { setSaveError(data.error || t("themeEditor.duplicateFailed")); return; }
       logActivity(store.id, "theme_duplicated", { from_theme_id: themeId, to_theme_id: data.theme.id });
       onOpenThemeEditor?.(data.theme.id);
     } catch (err) {
-      setSaveError(err.message);
+      setSaveError(err.message || t("themeEditor.duplicateFailed"));
     } finally {
       setDuplicating(false);
     }
   };
 
-  const handlePublishFromEditor = async () => {
-    if (!store || !themeId) return;
-    setPublishing(true);
-    setPublishError("");
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`${CF_URL}/publish-store-theme`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ theme_id: themeId }),
-      });
-      const data = await res.json();
-      if (!data.success) {
-        setPublishError(data.error || "Publish nahi hui");
-        return;
-      }
-      setThemeStatus("published");
-      logActivity(store.id, "theme_published", { theme_id: themeId });
-    } catch (err) {
-      setPublishError(err.message);
-    } finally {
-      setPublishing(false);
-    }
-  };
+  const goBack = () => { if (dirty) setDialog("leave"); else onNavigate?.("online-store"); };
 
-  if (loading) {
-    return <div style={{ padding: "1.5rem", color: "var(--ne-muted)" }}>{t("themeEditor.loading")}</div>;
+  /* ------------------------------------------------------------ render */
+  if (loading && storeId && themeId) {
+    return <div className="te-root"><style>{EDITOR_CSS}</style><div style={{ margin: "auto", color: "var(--ne-muted)", fontSize: 14 }}>{t("themeEditor.loading")}</div></div>;
   }
-  if (loadError || !store) {
+  if (loadError || !store || !draft) {
     return (
-      <div style={{ padding: "1.25rem" }}>
-        <button onClick={() => onNavigate?.("online-store")} style={{ background: "transparent", border: "1px solid var(--ne-border)", color: "var(--ne-text)", borderRadius: 9, padding: "8px 14px", fontSize: 13, cursor: "pointer", marginBottom: 16 }}>
-          <Icon name="undo" size={13} /> {t("themeEditor.backButton")}
-        </button>
-        <div style={{ background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "2rem", textAlign: "center", color: "var(--ne-danger)" }}>
-          {loadError || t("themeEditor.loadFailed")}
+      <div className="te-root">
+        <style>{EDITOR_CSS}</style>
+        <div style={{ margin: "auto", maxWidth: 440, width: "100%", padding: 16 }}>
+          <button className="te-btn" onClick={() => onNavigate?.("online-store")} style={{ marginBottom: 14, display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="chevronLeft" size={13} />{t("themeEditor.backButton")}</button>
+          <div style={{ background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "2rem", textAlign: "center", color: "var(--ne-danger)" }}>{loadError || t("themeEditor.loadFailed")}</div>
         </div>
       </div>
     );
   }
 
   const settings = draft.settings || {};
+  const themeNum = Number(settings.active_theme_id) || 1;
+  const pageLabel = t(TEMPLATES.find((tp) => tp.key === template).labelKey);
+  const statusText = readOnly ? t("themeEditor.publishedBadge") : t("themeEditor.draftBadge");
+  const railBtn = (key, icon, label) => (
+    <button key={key} type="button" className="te-railbtn" aria-pressed={view === key} title={label} aria-label={label}
+      onClick={() => { setView(key); setSelectedId(null); post({ type: "eneezam:select-section", id: null }); setAddOpen(false); setPanelOpen(true); }}>
+      <Icon name={icon} size={18} />
+    </button>
+  );
+  const panelTitle = view === "theme" ? t("themeEditor.themeSettings") : view === "products" ? t("themeEditor.productDetails") : pageLabel;
+  const showSettings = view === "sections" && selected;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
-        padding: "10px 16px", borderBottom: "1px solid var(--ne-border)", flexWrap: "wrap",
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <button onClick={() => onNavigate?.("online-store")} style={{ background: "transparent", border: "1px solid var(--ne-border)", color: "var(--ne-text)", borderRadius: 9, padding: "7px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <Icon name="undo" size={12} /> {t("themeEditor.backButton")}
+    <div className="te-root">
+      <style>{EDITOR_CSS}</style>
+
+      <div className="te-top">
+        <div className="te-top-l">
+          <button className="te-btn" onClick={goBack} style={{ display: "inline-flex", alignItems: "center", gap: 6, paddingInline: 10 }} title={t("themeEditor.backTitle")}>
+            <Icon name="chevronLeft" size={14} /><span className="te-hide-narrow">{t("themeEditor.backButton")}</span>
           </button>
-          <span style={{ color: "#fff", fontWeight: 700, fontSize: 14 }}>{store.store_name}</span>
-          <span style={{ fontSize: 12, color: "var(--ne-muted)" }}>— {themeName}</span>
-          {themeStatus === "published" && (
-            <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 10px", borderRadius: 20, background: "var(--ne-success-soft)", color: "var(--ne-success)" }}>
-              {t("themeEditor.publishedBadge")}
+          <button className="te-ibtn te-narrow-only" aria-pressed={panelOpen} onClick={() => setPanelOpen((v) => !v)} title={t("themeEditor.togglePanel")} aria-label={t("themeEditor.togglePanel")}><Icon name="layout" size={17} /></button>
+          <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ color: "var(--ne-text)", fontWeight: 700, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }} title={themeName}>{themeName || t("themeEditor.untitled")}</span>
+            <span style={{ flex: "none", fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 20, background: readOnly ? "var(--ne-success-soft)" : "var(--ne-warning-soft)", color: readOnly ? "var(--ne-success)" : "var(--ne-warning)" }}>{statusText}</span>
+            <span className="te-hide-narrow" aria-live="polite" style={{ fontSize: 12, color: dirty ? "var(--ne-warning)" : "var(--ne-muted)", whiteSpace: "nowrap" }}>
+              {saving ? t("themeEditor.saving") : dirty ? t("themeEditor.unsaved") : savedAt ? `${t("themeEditor.savedPrefix")} ${savedAt.toLocaleTimeString()}` : ""}
             </span>
+          </div>
+        </div>
+
+        <div ref={pageMenuRef} style={{ position: "relative", justifySelf: "center" }}>
+          <button className="te-btn" aria-haspopup="menu" aria-expanded={pageMenu} onClick={() => setPageMenu((v) => !v)} style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 150, justifyContent: "space-between" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><Icon name="home" size={14} />{pageLabel}</span><Icon name="chevronDown" size={13} />
+          </button>
+          {pageMenu && (
+            <div className="te-pop" role="menu" style={{ top: "calc(100% + 6px)", insetInlineStart: "50%", transform: "translateX(-50%)" }}>
+              {TEMPLATES.map((tp) => (
+                <button key={tp.key} role="menuitem" className="te-popitem" aria-current={template === tp.key}
+                  onClick={() => { setTemplate(tp.key); setSelectedId(null); setPageMenu(false); }}>{t(tp.labelKey)}</button>
+              ))}
+            </div>
           )}
-          <span style={{ fontSize: 12, color: "var(--ne-muted)" }}>
-            {saving ? t("themeEditor.saving") : savedAt ? `${t("themeEditor.savedPrefix")} ${savedAt.toLocaleTimeString()}` : ""}
-          </span>
         </div>
-        <div style={{ display: "flex", gap: 4, background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 20, padding: 3 }}>
-          {TEMPLATES.map((tp) => (
-            <button key={tp.key} onClick={() => setTemplate(tp.key)} style={chipStyle(template === tp.key)}>
-              {tp.label}
-            </button>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          {themeStatus === "draft" && (
-            <button onClick={handlePublishFromEditor} disabled={publishing} style={{
-              background: "transparent", color: "var(--ne-text)", border: "1px solid var(--ne-border)",
-              borderRadius: 9, padding: "9px 16px", fontSize: 13, fontWeight: 700, cursor: publishing ? "not-allowed" : "pointer",
-            }}>
+
+        <div className="te-top-r">
+          <div className="te-hide-narrow" style={{ display: "inline-flex", gap: 2, padding: 2, border: "1px solid var(--ne-border)", borderRadius: 12 }}>
+            <button className="te-ibtn" aria-pressed={device === "desktop"} onClick={() => setDevice("desktop")} title={t("themeEditor.desktop")} aria-label={t("themeEditor.desktop")}><Icon name="desktop" size={16} /></button>
+            <button className="te-ibtn" aria-pressed={device === "mobile"} onClick={() => setDevice("mobile")} title={t("themeEditor.mobile")} aria-label={t("themeEditor.mobile")}><Icon name="mobile" size={16} /></button>
+          </div>
+          <button className="te-ibtn" onClick={doUndo} disabled={readOnly || !canUndo(hist)} title={t("themeEditor.undo")} aria-label={t("themeEditor.undo")}><Icon name="undo" size={16} /></button>
+          <button className="te-ibtn" onClick={doRedo} disabled={readOnly || !canRedo(hist)} title={t("themeEditor.redo")} aria-label={t("themeEditor.redo")}><Icon name="redo" size={16} /></button>
+          {!readOnly && (
+            <button className="te-btn te-hide-narrow" onClick={() => setDialog("publish")} disabled={publishing || dirty} title={dirty ? t("themeEditor.saveFirst") : t("themeEditor.publishButton")}>
               {publishing ? t("themeEditor.publishing") : t("themeEditor.publishButton")}
             </button>
           )}
-          <button onClick={handleSave} disabled={saving || themeStatus === "published"} style={{
-            background: (saving || themeStatus === "published") ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", border: "none",
-            borderRadius: 9, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: (saving || themeStatus === "published") ? "not-allowed" : "pointer",
-          }}>
-            {saving ? t("themeEditor.saving") : t("themeEditor.saveButton")}
-          </button>
+          <button className="te-btn primary" onClick={handleSave} disabled={saving || readOnly || !dirty}>{saving ? t("themeEditor.saving") : t("themeEditor.saveButton")}</button>
         </div>
       </div>
-      {themeStatus === "published" && (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "8px 16px", background: "var(--ne-warning-soft)", color: "var(--ne-warning)", fontSize: 12.5 }}>
-          <span>{t("themeEditor.publishedReadOnly")}</span>
-          <button onClick={handleDuplicateToEdit} disabled={duplicating} style={{ background: "transparent", border: "1px solid currentColor", color: "inherit", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: duplicating ? "not-allowed" : "pointer" }}>
-            {duplicating ? t("themeEditor.duplicating") : t("themeEditor.duplicateToEditButton")}
-          </button>
+
+      {(readOnly || saveError || publishError) && (
+        <div role="alert" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "8px 16px", fontSize: 12.5, background: saveError || publishError ? "var(--ne-danger-soft)" : "var(--ne-warning-soft)", color: saveError || publishError ? "var(--ne-danger)" : "var(--ne-warning)" }}>
+          <span>{saveError || publishError || t("themeEditor.publishedReadOnly")}</span>
+          {readOnly && !saveError && !publishError && (
+            <button className="te-btn" onClick={handleDuplicateToEdit} disabled={duplicating} style={{ color: "inherit", borderColor: "currentColor" }}>{duplicating ? t("themeEditor.duplicating") : t("themeEditor.duplicateToEditButton")}</button>
+          )}
+          {(saveError || publishError) && <button className="te-btn" onClick={() => { setSaveError(""); setPublishError(""); }} style={{ color: "inherit", borderColor: "currentColor" }}>{t("themeEditor.dismiss")}</button>}
         </div>
       )}
-      {saveError && <p style={{ color: "var(--ne-danger)", fontSize: 12, padding: "8px 16px 0" }}>{saveError}</p>}
-      {publishError && <p style={{ color: "var(--ne-danger)", fontSize: 12, padding: "8px 16px 0" }}>{publishError}</p>}
 
-      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-        <div style={{ width: 380, borderRight: "1px solid var(--ne-border)", overflowY: "auto", padding: "14px 16px" }}>
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 10 }}>
-            {TABS.map((tb) => (
-              <button key={tb.id} onClick={() => setTab(tb.id)} style={chipStyle(tab === tb.id)}>{tb.label}</button>
-            ))}
+      <div className={`te-body${panelOpen ? " panel-open" : ""}`}>
+        <nav className="te-rail" aria-label={t("themeEditor.tools")}>
+          {railBtn("sections", "layout", t("themeEditor.sections"))}
+          {railBtn("theme", "palette", t("themeEditor.themeSettings"))}
+          {railBtn("products", "tag", t("themeEditor.productDetails"))}
+        </nav>
+
+        <aside className="te-panel" aria-label={panelTitle}>
+          <div className="te-panel-h">
+            {showSettings && (
+              <button className="te-ibtn" onClick={() => selectSection(null)} title={t("themeEditor.backToSections")} aria-label={t("themeEditor.backToSections")}><Icon name="chevronLeft" size={16} /></button>
+            )}
+            <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{showSettings ? sectionLabel(t, selected.type) : panelTitle}</span>
+            {showSettings && !isLocked(selected.type) && !readOnly && (
+              <>
+                <button className="te-ibtn" onClick={() => setHeadMenu((v) => !v)} aria-haspopup="menu" aria-expanded={headMenu} title={t("themeEditor.more")} aria-label={t("themeEditor.more")}><Icon name="moreHorizontal" size={16} /></button>
+                {headMenu && <RowMenu t={t} section={selected} template={template} sections={sections} onDuplicate={onDuplicate} onMove={onMove} onDelete={onDelete} onClose={() => setHeadMenu(false)} />}
+              </>
+            )}
+            <button className="te-ibtn te-narrow-only" onClick={() => setPanelOpen(false)} title={t("themeEditor.closePanel")} aria-label={t("themeEditor.closePanel")}><Icon name="close" size={15} /></button>
           </div>
+          <div className="te-panel-b">
+            {view === "sections" && !selected && (
+              <SectionsPanel t={t} template={template} sections={sections} selectedId={selectedId} readOnly={readOnly}
+                onSelect={(id) => selectSection(id, { scroll: true })} onHover={(id) => post({ type: "eneezam:hover-section", id })}
+                onToggle={onToggle} onDuplicate={onDuplicate} onDelete={onDelete} onMove={onMove} onReorder={onReorder} onAdd={onAdd} onOpenAdd={() => setAddOpen(true)} />
+            )}
+            {showSettings && <SectionSettingsForm t={t} section={selected} readOnly={readOnly} onChange={onSectionSetting} />}
+            {view === "theme" && <fieldset disabled={readOnly} style={{ border: "none", margin: 0, padding: 0, minWidth: 0 }}><ThemeSettingsPanel t={t} settings={settings} onSettings={onSettings} /></fieldset>}
+            {view === "products" && (
+              <fieldset disabled={readOnly} style={{ border: "none", margin: 0, padding: 0, minWidth: 0 }}>
+                <ProductMetaPanel t={t} products={products} productId={metaProductId} onProductId={setMetaProductId} meta={draft.product_meta?.[metaProductId]} onMeta={onMeta} />
+              </fieldset>
+            )}
+          </div>
+          {addOpen && view === "sections" && !selected && <AddSectionPopup t={t} template={template} themeId={themeNum} onClose={() => setAddOpen(false)} onPick={onAdd} />}
+        </aside>
 
-          {tab === "theme" && (
-            <div>
-              <p style={groupLabelStyle}>Design theme (1-8)</p>
-              <select style={inputStyle} value={settings.active_theme_id || 1} onChange={(e) => updateSettings({ active_theme_id: Number(e.target.value) })}>
-                {STOREFRONT_THEMES.map((th) => <option key={th.id} value={th.id}>{th.id}. {th.name}</option>)}
-              </select>
-              <p style={{ fontSize: 12, color: "var(--ne-muted)", marginTop: 10 }}>
-                Preview iframe oppose se draft receive karta hai har change par — Save tabhi real visitors ko dikhta hai jab aap "Save" button dabao.
-              </p>
-            </div>
-          )}
-
-          {tab === "sections" && (
-            <div>
-              <p style={groupLabelStyle}>{TEMPLATES.find((tp) => tp.key === template)?.label} — sections</p>
-              {sections.map((s) => (
-                <div key={s.id} style={{
-                  display: "flex", alignItems: "center", gap: 4, border: "1px solid var(--ne-border)",
-                  borderRadius: 8, marginBottom: 4, background: selectedSectionId === s.id ? "var(--ne-surface-2)" : "var(--ne-surface)",
-                  opacity: s.enabled ? 1 : 0.55,
-                }}>
-                  {LOCKED_TYPE_SET.has(s.type) && <Icon name="key" size={11} />}
-                  <button onClick={() => setSelectedSectionId(s.id)} style={{ flex: 1, textAlign: "left", padding: "8px 6px", fontSize: 12.5, color: "var(--ne-text)", background: "transparent", border: "none", cursor: "pointer" }}>
-                    {sectionLabel(s.type)}
-                  </button>
-                  {!LOCKED_TYPE_SET.has(s.type) && (
-                    <>
-                      <button onClick={() => moveSection(s.id, -1)} style={{ padding: 6, background: "transparent", border: "none", color: "var(--ne-muted)", cursor: "pointer" }}>▲</button>
-                      <button onClick={() => moveSection(s.id, 1)} style={{ padding: 6, background: "transparent", border: "none", color: "var(--ne-muted)", cursor: "pointer" }}>▼</button>
-                    </>
-                  )}
-                  <button onClick={() => toggleEnabled(s.id)} style={{ padding: 6, background: "transparent", border: "none", color: "var(--ne-muted)", cursor: "pointer" }}>
-                    <Icon name={s.enabled ? "check" : "close"} size={12} />
-                  </button>
-                  {!LOCKED_TYPE_SET.has(s.type) && (
-                    <button onClick={() => removeSection(s.id)} style={{ padding: 6, background: "transparent", border: "none", color: "var(--ne-danger)", cursor: "pointer" }}>
-                      <Icon name="trash" size={12} />
-                    </button>
-                  )}
-                </div>
-              ))}
-
-              <div style={{ position: "relative", marginTop: 8 }}>
-                <button onClick={() => setAddMenuOpen((v) => !v)} style={{ width: "100%", padding: "8px", borderRadius: 9, border: "1px dashed var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 12.5, cursor: "pointer" }}>
-                  + Add section
-                </button>
-                {addMenuOpen && (
-                  <div style={{ position: "absolute", left: 0, right: 0, top: "100%", zIndex: 10, background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 9, maxHeight: 240, overflowY: "auto", marginTop: 4 }}>
-                    {SECTION_TYPES.map((m) => (
-                      <button key={m.type} onClick={() => addSection(m.type)} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", fontSize: 12.5, background: "transparent", border: "none", color: "var(--ne-text)", cursor: "pointer" }}>
-                        {m.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {selected && (
-                <div style={{ marginTop: 18 }}>
-                  <p style={groupLabelStyle}>{sectionLabel(selected.type)} — fields</p>
-                  {Object.entries(selected.settings || {}).map(([key, value]) => (
-                    <div key={key} style={{ marginBottom: 8 }}>
-                      <label style={labelStyle}>{key}</label>
-                      {typeof value === "boolean" ? (
-                        <button onClick={() => setSectionField(selected.id, key, !value)} style={chipStyle(value)}>{value ? "On" : "Off"}</button>
-                      ) : typeof value === "number" ? (
-                        <input type="number" style={inputStyle} value={value} onChange={(e) => setSectionField(selected.id, key, Number(e.target.value))} />
-                      ) : String(value).length > 60 ? (
-                        <textarea style={{ ...inputStyle, minHeight: 70 }} value={String(value)} onChange={(e) => setSectionField(selected.id, key, e.target.value)} />
-                      ) : (
-                        <input type="text" style={inputStyle} value={String(value)} onChange={(e) => setSectionField(selected.id, key, e.target.value)} />
-                      )}
-                    </div>
-                  ))}
-                  <button onClick={() => addSectionField(selected.id)} style={{ fontSize: 11.5, color: "var(--ne-muted)", textDecoration: "underline", background: "transparent", border: "none", cursor: "pointer" }}>
-                    + Add field
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {tab === "design" && (
-            <div>
-              <p style={groupLabelStyle}>Palette — 7 slots</p>
-              {PALETTE_SLOTS.map((slot) => (
-                <div key={slot.key} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                  <input type="color" value={settings.palette?.[slot.key] || slot.default}
-                    onChange={(e) => updateSettings({ palette: { ...(settings.palette || {}), [slot.key]: e.target.value } })}
-                    style={{ width: 36, height: 36, border: "none", background: "none", cursor: "pointer" }} />
-                  <div style={{ minWidth: 0 }}>
-                    <p style={{ margin: 0, fontSize: 12.5, fontWeight: 600, color: "var(--ne-text)" }}>{slot.label}</p>
-                    <p style={{ margin: 0, fontSize: 10.5, color: "var(--ne-muted)" }}>{slot.feeds}</p>
-                  </div>
-                </div>
-              ))}
-
-              <p style={groupLabelStyle}>Element assignments</p>
-              {ELEMENT_TARGETS.map((el) => (
-                <div key={el.key} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                  <span style={{ flex: 1, fontSize: 12, color: "var(--ne-text)" }}>{el.label}</span>
-                  <select style={{ ...inputStyle, width: 150 }} value={settings.palette_assign?.[el.key] || ""}
-                    onChange={(e) => updateSettings({ palette_assign: { ...(settings.palette_assign || {}), [el.key]: e.target.value || null } })}>
-                    <option value="">Default ({el.defaultSlot})</option>
-                    {PALETTE_SLOTS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-                  </select>
-                </div>
-              ))}
-
-              <p style={groupLabelStyle}>Fonts</p>
-              {[["heading", "Headings"], ["body", "Body"], ["accent", "Accent / script"]].map(([key, label]) => (
-                <div key={key} style={{ marginBottom: 10 }}>
-                  <label style={labelStyle}>{label}</label>
-                  <select style={inputStyle} value={settings.font_overrides?.[key] || ""}
-                    onChange={(e) => updateSettings({ font_overrides: { ...(settings.font_overrides || {}), [key]: e.target.value || null } })}>
-                    <option value="">Theme default</option>
-                    {FONT_OPTIONS.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}
-                  </select>
-                </div>
-              ))}
-
-              <p style={groupLabelStyle}>Custom CSS</p>
-              <textarea style={{ ...inputStyle, minHeight: 100, fontFamily: "monospace" }} value={settings.custom_css || ""}
-                onChange={(e) => updateSettings({ custom_css: e.target.value || null })} placeholder="Injected on every page" />
-            </div>
-          )}
-
-          {tab === "branding" && (
-            <div>
-              <p style={groupLabelStyle}>Brand</p>
-              <label style={labelStyle}>Store display name</label>
-              <input style={inputStyle} value={settings.store_display_name || ""} maxLength={60}
-                onChange={(e) => updateSettings({ store_display_name: e.target.value || null })} />
-              <label style={{ ...labelStyle, marginTop: 10 }}>Tagline</label>
-              <input style={inputStyle} value={settings.store_tagline || ""} maxLength={120}
-                onChange={(e) => updateSettings({ store_tagline: e.target.value || null })} />
-              <label style={{ ...labelStyle, marginTop: 10 }}>Logo image URL</label>
-              <input style={inputStyle} value={settings.logo_url || ""} placeholder="https://...logo.png"
-                onChange={(e) => updateSettings({ logo_url: e.target.value || null })} />
-              <label style={{ ...labelStyle, marginTop: 10 }}>Brand color (legacy single accent)</label>
-              <input type="color" value={settings.brand_color || "#111111"}
-                onChange={(e) => updateSettings({ brand_color: e.target.value })}
-                style={{ width: 44, height: 36, border: "none", background: "none", cursor: "pointer" }} />
-            </div>
-          )}
-
-          {tab === "advanced" && (
-            <div>
-              <p style={groupLabelStyle}>Sales pop-up</p>
-              <button style={chipStyle(settings.sales_pop?.enabled !== false)} onClick={() => updateSettings({ sales_pop: { ...settings.sales_pop, enabled: !(settings.sales_pop?.enabled !== false) } })}>
-                {settings.sales_pop?.enabled !== false ? "On" : "Off"}
-              </button>
-
-              <p style={groupLabelStyle}>Sold-count badge</p>
-              <button style={chipStyle(settings.sold_badge?.enabled !== false)} onClick={() => updateSettings({ sold_badge: { ...settings.sold_badge, enabled: !(settings.sold_badge?.enabled !== false) } })}>
-                {settings.sold_badge?.enabled !== false ? "On" : "Off"}
-              </button>
-              <label style={{ ...labelStyle, marginTop: 8 }}>Badge text</label>
-              <input style={inputStyle} value={settings.sold_badge?.template || ""}
-                onChange={(e) => updateSettings({ sold_badge: { ...settings.sold_badge, template: e.target.value } })} />
-
-              <p style={groupLabelStyle}>Stock-left badge</p>
-              <button style={chipStyle(settings.stock_badge?.enabled !== false)} onClick={() => updateSettings({ stock_badge: { ...settings.stock_badge, enabled: !(settings.stock_badge?.enabled !== false) } })}>
-                {settings.stock_badge?.enabled !== false ? "On" : "Off"}
-              </button>
-
-              <p style={groupLabelStyle}>Product cards</p>
-              {[["show_rating", "Star ratings"], ["quick_view", "Quick view"], ["quick_add", "Quick add"]].map(([k, label]) => (
-                <button key={k} style={{ ...chipStyle(settings.card?.[k] !== false), marginRight: 6, marginBottom: 6 }}
-                  onClick={() => updateSettings({ card: { ...settings.card, [k]: !(settings.card?.[k] !== false) } })}>
-                  {label}
-                </button>
-              ))}
-
-              <p style={groupLabelStyle}>Sale sticker</p>
-              <div style={{ display: "flex", gap: 10 }}>
-                <input type="color" value={settings.sale_badge?.burst_color || "#fdf65e"}
-                  onChange={(e) => updateSettings({ sale_badge: { ...settings.sale_badge, burst_color: e.target.value } })}
-                  style={{ width: 36, height: 36, border: "none", background: "none", cursor: "pointer" }} />
-                <input type="color" value={settings.sale_badge?.text_color || "#2e6eb0"}
-                  onChange={(e) => updateSettings({ sale_badge: { ...settings.sale_badge, text_color: e.target.value } })}
-                  style={{ width: 36, height: 36, border: "none", background: "none", cursor: "pointer" }} />
-              </div>
-
-              <p style={groupLabelStyle}>PDP perks line</p>
-              <input style={inputStyle} maxLength={120} value={settings.pdp_perks || ""}
-                onChange={(e) => updateSettings({ pdp_perks: e.target.value || null })} />
-
-              <p style={groupLabelStyle}>Shipping &amp; returns</p>
-              <label style={labelStyle}>Heading</label>
-              <input style={inputStyle} value={settings.shipping_returns?.heading || ""}
-                onChange={(e) => updateSettings({ shipping_returns: { ...settings.shipping_returns, heading: e.target.value } })} />
-              <label style={{ ...labelStyle, marginTop: 8 }}>Lines (one per line)</label>
-              <textarea style={{ ...inputStyle, minHeight: 100 }} value={settings.shipping_returns?.lines || ""}
-                onChange={(e) => updateSettings({ shipping_returns: { ...settings.shipping_returns, lines: e.target.value } })} />
-
-              <p style={groupLabelStyle}>AI brand brief</p>
-              <textarea style={{ ...inputStyle, minHeight: 90 }} value={settings.ai_brief || ""}
-                placeholder="Describe brand vibe, audience, colors/fonts mood..."
-                onChange={(e) => updateSettings({ ai_brief: e.target.value || null })} />
-            </div>
-          )}
-
-          {tab === "products" && (
-            <div>
-              <p style={groupLabelStyle}>Per-product merchandising</p>
-              <p style={{ fontSize: 11.5, color: "var(--ne-muted)", marginBottom: 10 }}>
-                Product ID type karo (eNeezam ka product identifier) — card tag, title tag, key points, aur info accordions set karne ke liye.
-              </p>
-              <label style={labelStyle}>Product ID</label>
-              <input style={inputStyle} value={metaProductId} onChange={(e) => setMetaProductId(e.target.value)} />
-
-              {metaProductId && (() => {
-                const meta = draft.product_meta?.[metaProductId] || {};
-                const updateMeta = (patch) => setDraft((d) => ({
-                  ...d,
-                  product_meta: { ...d.product_meta, [metaProductId]: { ...meta, ...patch } },
-                }));
-                return (
-                  <div style={{ marginTop: 14 }}>
-                    <label style={labelStyle}>Card tag (max {META_LIMITS.card_tag})</label>
-                    <input style={inputStyle} maxLength={META_LIMITS.card_tag} value={meta.card_tag || ""}
-                      onChange={(e) => updateMeta({ card_tag: e.target.value })} />
-                    <label style={{ ...labelStyle, marginTop: 10 }}>Title tag (max {META_LIMITS.title_tag})</label>
-                    <input style={inputStyle} maxLength={META_LIMITS.title_tag} value={meta.title_tag || ""}
-                      onChange={(e) => updateMeta({ title_tag: e.target.value })} />
-                    <p style={{ ...groupLabelStyle, marginTop: 14 }}>Key points (max {META_LIMITS.key_points_max})</p>
-                    {[0, 1, 2].map((i) => (
-                      <input key={i} style={{ ...inputStyle, marginBottom: 6 }} maxLength={META_LIMITS.key_point}
-                        placeholder={`Key point ${i + 1}`} value={meta.key_points?.[i] || ""}
-                        onChange={(e) => {
-                          const kp = [...(meta.key_points || []), "", "", ""].slice(0, META_LIMITS.key_points_max);
-                          kp[i] = e.target.value;
-                          updateMeta({ key_points: kp });
-                        }} />
-                    ))}
-                    <p style={{ ...groupLabelStyle, marginTop: 14 }}>Info sections (max {META_LIMITS.info_sections_max})</p>
-                    {[0, 1, 2, 3].map((i) => (
-                      <div key={i} style={{ border: "1px solid var(--ne-border)", borderRadius: 8, padding: 10, marginBottom: 8 }}>
-                        <input style={{ ...inputStyle, marginBottom: 6 }} maxLength={META_LIMITS.info_title}
-                          placeholder={`Section ${i + 1} title`} value={meta.info_sections?.[i]?.title || ""}
-                          onChange={(e) => {
-                            const arr = [...(meta.info_sections || [])];
-                            while (arr.length <= i) arr.push({ title: "", body: "" });
-                            arr[i] = { ...arr[i], title: e.target.value };
-                            updateMeta({ info_sections: arr.slice(0, META_LIMITS.info_sections_max) });
-                          }} />
-                        <textarea style={{ ...inputStyle, minHeight: 60 }} maxLength={META_LIMITS.info_body}
-                          placeholder="Body" value={meta.info_sections?.[i]?.body || ""}
-                          onChange={(e) => {
-                            const arr = [...(meta.info_sections || [])];
-                            while (arr.length <= i) arr.push({ title: "", body: "" });
-                            arr[i] = { ...arr[i], body: e.target.value };
-                            updateMeta({ info_sections: arr.slice(0, META_LIMITS.info_sections_max) });
-                          }} />
-                      </div>
-                    ))}
-                  </div>
-                );
-              })()}
-            </div>
-          )}
-        </div>
-
-        <div style={{ flex: 1, background: "var(--ne-surface-2)", display: "flex", justifyContent: "center", padding: 14 }}>
-          {previewSrc ? (
-            <iframe
-              ref={iframeRef}
-              src={previewSrc}
-              title="Storefront live preview"
-              style={{ width: "100%", maxWidth: 1100, height: "100%", border: "1px solid var(--ne-border)", borderRadius: 12, background: "#fff" }}
-            />
+        <main className={`te-preview${device === "mobile" ? " mobile" : ""}`} aria-label={t("themeEditor.previewLabel")}>
+          {frameSrc ? (
+            <iframe ref={iframeRef} className={`te-frame${device === "mobile" ? " mobile" : ""}`} src={frameSrc} title={t("themeEditor.previewLabel")} />
           ) : (
-            <p style={{ color: "var(--ne-muted)", alignSelf: "center" }}>{t("themeEditor.noLiveUrl")}</p>
+            <p style={{ color: "var(--ne-muted)", alignSelf: "center", padding: 20, textAlign: "center", maxWidth: 360 }}>
+              {template === "product" && liveUrl && !productPath ? t("themeEditor.noProductPreview") : t("themeEditor.noLiveUrl")}
+            </p>
           )}
-        </div>
+        </main>
       </div>
+
+      {dialog === "leave" && (
+        <Dialog title={t("themeEditor.leaveTitle")} body={t("themeEditor.leaveBody")} onClose={() => setDialog(null)}
+          actions={(
+            <>
+              <button className="te-btn" onClick={() => setDialog(null)}>{t("themeEditor.keepEditing")}</button>
+              <button className="te-btn" onClick={() => { setDialog(null); onNavigate?.("online-store"); }} style={{ color: "var(--ne-danger)" }}>{t("themeEditor.leaveAnyway")}</button>
+              <button className="te-btn primary" onClick={async () => { setDialog(null); if (await handleSave()) onNavigate?.("online-store"); }}>{t("themeEditor.saveAndLeave")}</button>
+            </>
+          )} />
+      )}
+      {dialog === "publish" && (
+        <Dialog title={t("themeEditor.publishTitle")} body={t("themeEditor.publishBody")} onClose={() => setDialog(null)}
+          actions={(
+            <>
+              <button className="te-btn" onClick={() => setDialog(null)}>{t("themeEditor.cancel")}</button>
+              <button className="te-btn primary" onClick={handlePublish}>{t("themeEditor.publishConfirm")}</button>
+            </>
+          )} />
+      )}
     </div>
   );
 }
