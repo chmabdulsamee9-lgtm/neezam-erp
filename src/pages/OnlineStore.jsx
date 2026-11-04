@@ -4,6 +4,7 @@ import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
 import { STOREFRONT_THEMES, getStorefrontTheme } from "../lib/storefrontThemes";
 import { formatStoreDate, useStoreTimeZone } from "../lib/dates";
+import StoreMetricsStrip from "../components/StoreMetricsStrip";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 // Per-row /get-store-theme lookups (for thumbnail theme numbers) are skipped past this many
@@ -134,6 +135,7 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
   const [stats, setStats] = useState(null);
   const [statsError, setStatsError] = useState("");
   const [statsLoading, setStatsLoading] = useState(true);
+  const [range, setRange] = useState(30); // days: 7 / 30 / 90
   const [showNewInput, setShowNewInput] = useState(false);
   const [newThemeName, setNewThemeName] = useState("");
   const [creating, setCreating] = useState(false);
@@ -231,28 +233,31 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
     setStatsLoading(true);
     setStatsError("");
     try {
-      const res = await fetch(`${CF_URL}/get-performance-stats?store_id=${encodeURIComponent(storeId)}&days=30`, { headers: await authHeaders() });
+      const res = await fetch(`${CF_URL}/get-performance-stats?store_id=${encodeURIComponent(storeId)}&days=${range}`, { headers: await authHeaders() });
       const data = await res.json();
       if (data.error) {
-        setStatsError(data.error);
+        setStatsError(t("onlineStore.statsError"));
         setStats(null);
         return;
       }
       setStats(data);
     } catch (err) {
       setStatsError(failText(err, "onlineStore.statsError"));
+      setStats(null);
     } finally {
       setStatsLoading(false);
     }
-  }, [storeId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeId, range]);
 
   useEffect(() => {
     setLoading(true);
     fetchStore();
     fetchThemes();
-    fetchStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeId]);
+
+  useEffect(() => { fetchStats(); }, [fetchStats]);
 
   const primaryDomain = (store?.store_custom_domains || []).find((d) => d.role === "primary" && d.status === "active")?.domain;
   const liveUrl = primaryDomain ? `https://${primaryDomain}` : store?.subdomain ? `https://${store.subdomain}.eneezam.com` : null;
@@ -398,13 +403,6 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
     );
   }
 
-  const statTiles = [
-    { key: "lcp_p75", label: "LCP (P75)", unit: "ms", value: stats?.lcp_p75 != null ? Math.round(stats.lcp_p75) : null },
-    { key: "inp_p75", label: "INP (P75)", unit: "ms", value: stats?.inp_p75 != null ? Math.round(stats.inp_p75) : null },
-    { key: "cls_p75", label: "CLS (P75)", unit: "", value: stats?.cls_p75 != null ? Number(stats.cls_p75).toFixed(3) : null },
-    { key: "sessions", label: t("onlineStore.sessionsLabel"), unit: "", value: stats?.sessions ?? null },
-  ];
-  const hasAnyStats = statTiles.some((s) => s.value != null && s.value !== 0);
   const publishedNo = publishedTheme ? themeNumbers[publishedTheme.id] : null;
 
   return (
@@ -412,30 +410,17 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
       <h2 style={{ color: "var(--ne-text)", margin: "0 0 4px" }}>{t("onlineStore.title")}</h2>
       <p style={{ color: "var(--ne-muted)", fontSize: 13, margin: "0 0 18px" }}>{t("onlineStore.subtitle")}</p>
 
-      {/* A) Speed stats */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10, marginBottom: 8 }}>
-        {statTiles.map((s) => (
-          <div key={s.key} style={{ ...cardStyle, borderRadius: 12, padding: "12px 14px" }}>
-            <p style={{ margin: "0 0 4px", fontSize: 11, fontWeight: 700, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{s.label}</p>
-            <p style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "var(--ne-text)" }}>
-              {statsLoading ? "…" : s.value != null ? `${s.value}${s.unit}` : "—"}
-            </p>
-          </div>
-        ))}
-      </div>
-      {!statsLoading && !hasAnyStats && !statsError && (
-        <p style={{ fontSize: 12, color: "var(--ne-muted)", margin: "0 0 8px" }}>{t("onlineStore.statsEmpty")}</p>
-      )}
-      {statsError && <p style={{ fontSize: 12, color: "var(--ne-danger)", margin: "0 0 8px" }}>{statsError}</p>}
+      {/* A) Speed + traffic stats */}
+      <StoreMetricsStrip range={range} onRange={setRange} stats={stats} loading={statsLoading} error={statsError} onRetry={fetchStats} t={t} />
 
       {/* B) Current theme: one full-width card, the live preview is the background */}
-      <div style={{ ...cardStyle, position: "relative", overflow: "hidden", margin: "18px 0 24px", minHeight: 300, background: "var(--ne-surface)" }}>
+      <div style={{ ...cardStyle, position: "relative", overflow: "hidden", margin: "18px 0 24px", minHeight: 600, background: "var(--ne-surface)" }}>
         <div style={{ position: "absolute", inset: 0 }}>
           {liveUrl
             ? <LivePreview url={liveUrl} title={t("onlineStore.previewTitle")} fill />
             : <ThemeThumb themeNo={publishedNo || 1} />}
         </div>
-        <div style={{ position: "relative", minHeight: 300, display: "flex", alignItems: "flex-end" }}>
+        <div style={{ position: "relative", minHeight: 600, display: "flex", alignItems: "flex-end" }}>
           <div style={{
             width: "100%", boxSizing: "border-box", padding: "56px 20px 18px", display: "flex", gap: 14, alignItems: "flex-end", justifyContent: "space-between", flexWrap: "wrap",
             background: "linear-gradient(to top, rgba(8,10,24,.92) 0%, rgba(8,10,24,.62) 55%, rgba(8,10,24,0) 100%)",

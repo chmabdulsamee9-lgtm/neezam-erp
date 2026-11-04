@@ -53,6 +53,7 @@ const PATHS = {
   sparkle: <path d="M10 2l1.8 5.2L17 9l-5.2 1.8L10 16l-1.8-5.2L3 9l5.2-1.8Z" />,
   arrowUp: <path d="M10 16V4M5 9l5-5 5 5" />,
   arrowDown: <path d="M10 4v12M5 11l5 5 5-5" />,
+  calendar: <><rect x="3.5" y="4.5" width="13" height="12" rx="2" /><path d="M3.5 8.5h13M7 3v3M13 3v3" /></>,
   chevronRight: <path d="M8 5l5 5-5 5" />,
   chevronLeft: <path d="M12 5l-5 5 5 5" />,
   sidebarToggle: <><rect x="2.5" y="3.5" width="15" height="13" rx="2.5" /><path d="M7.5 3.5v13" /></>,

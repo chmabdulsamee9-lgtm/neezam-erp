@@ -2457,7 +2457,7 @@ function App() {
 
         <div className="ne-main">
           {!fullScreenModules.includes(navMenu) && (
-            <div className={`ne-topbar${activeMenu === 'settings' ? ' ne-topbar-hide-desktop' : ''}`}>
+            <div className={`ne-topbar${activeMenu === 'settings' || activeMenu === 'online-store' ? ' ne-topbar-hide-desktop' : ''}`}>
               <button className="ne-hamburger" onClick={() => setMobileDrawerOpen(true)}>☰</button>
               <h1 className="ne-page-title">
                 {pageTitleLookup.find(m => m.id === navMenu)?.label}
