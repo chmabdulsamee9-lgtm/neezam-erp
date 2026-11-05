@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
-import { STOREFRONT_THEMES, getStorefrontTheme } from "../lib/storefrontThemes";
+import { getStorefrontTheme } from "../lib/storefrontThemes";
+import { isV2, NOVA_ID, NOVA_NAME, createDefaultConfig } from "../lib/themeV2/engine.generated";
 import { formatStoreDate, useStoreTimeZone } from "../lib/dates";
 import StoreMetricsStrip from "../components/StoreMetricsStrip";
 
@@ -25,8 +26,31 @@ const btnGhost = (disabled) => ({
 const cardStyle = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14 };
 const sectionTitle = { margin: 0, fontSize: 15, fontWeight: 700, color: "var(--ne-text)" };
 
+// Miniature of a v2 theme package, drawn from its default color scheme 1 (no images, CSS only).
+const NOVA_DEFAULTS = createDefaultConfig(NOVA_ID).settings;
+function NovaThumb() {
+  const s = NOVA_DEFAULTS;
+  return (
+    <div aria-hidden="true" style={{ width: "100%", aspectRatio: "16 / 10", background: s.scheme_1_bg, borderRadius: 8, overflow: "hidden", border: "1px solid var(--ne-border)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+      <div style={{ height: "8%", background: s.scheme_3_bg }} />
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4% 6%" }}>
+        <div style={{ width: "22%", height: 5, background: s.scheme_1_text, borderRadius: 2 }} />
+        <div style={{ display: "flex", gap: 4 }}>{[0, 1].map((i) => <div key={i} style={{ width: 12, height: 3, background: s.scheme_1_muted, borderRadius: 2 }} />)}</div>
+      </div>
+      <div style={{ flex: 1.4, background: s.scheme_3_bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5 }}>
+        <span style={{ fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", color: s.scheme_3_text, fontWeight: 800, fontSize: 13, lineHeight: 1 }}>Aa</span>
+        <div style={{ width: "22%", height: 7, background: s.scheme_3_button, borderRadius: 4 }} />
+      </div>
+      <div style={{ flex: 1, display: "flex", gap: "4%", padding: "5% 6%" }}>
+        {[0, 1, 2, 3].map((i) => <div key={i} style={{ flex: 1, background: s.scheme_1_surface, borderRadius: 4 }} />)}
+      </div>
+    </div>
+  );
+}
+
 // CSS-only miniature of a storefront theme, drawn from that theme's colours/fonts/radius.
 function ThemeThumb({ themeNo }) {
+  if (themeNo === NOVA_ID) return <NovaThumb />;
   const th = getStorefrontTheme(themeNo);
   const c = th.colors;
   const r = `min(${th.radius}, 8px)`;
@@ -199,7 +223,8 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
       try {
         const res = await fetch(`${CF_URL}/get-store-theme?theme_id=${encodeURIComponent(th.id)}`, { headers });
         const data = await res.json();
-        return [th.id, Number(data.theme?.theme_config?.settings?.active_theme_id) || 1];
+        const cfg = data.theme?.theme_config;
+        return [th.id, isV2(cfg) ? cfg.theme_id : Number(cfg?.settings?.active_theme_id) || 1];
       } catch {
         return [th.id, 1];
       }
@@ -300,45 +325,32 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
     }
   };
 
-  // Theme library "Add": new draft via /create-store-theme, then point it at the built-in design.
-  // If the second step fails the half-made draft is removed again, so a failed Add leaves nothing behind.
-  const handleAddLibraryTheme = async (def) => {
+  // New theme / library "Add": a new draft built by the worker from the theme package's complete default config.
+  const handleCreatePreset = async (preset, name, { open } = {}) => {
     if (!store) return;
-    setLibBusy((p) => ({ ...p, [def.id]: true }));
+    setLibBusy((p) => ({ ...p, [preset]: true }));
+    setCreating(true);
     setThemesError(""); setRetryAction(null);
-    let createdId = null;
     try {
-      const headers = { "Content-Type": "application/json", ...(await authHeaders()) };
-      const createRes = await fetch(`${CF_URL}/create-store-theme`, {
-        method: "POST", headers, body: JSON.stringify({ store_id: store.id, name: def.name }),
+      const res = await fetch(`${CF_URL}/create-store-theme`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+        body: JSON.stringify({ store_id: store.id, name: name || NOVA_NAME, preset }),
       });
-      const created = await createRes.json();
-      if (!created.theme) throw new Error(created.error || t("onlineStore.createError"));
-      createdId = created.theme.id;
-      const cfg = created.theme.theme_config || {};
-      const updateRes = await fetch(`${CF_URL}/update-store-theme`, {
-        method: "PUT", headers,
-        body: JSON.stringify({
-          theme_id: created.theme.id,
-          theme_config: { ...cfg, settings: { ...(cfg.settings || {}), active_theme_id: def.id } },
-        }),
-      });
-      const updated = await updateRes.json();
-      if (updated.error) throw new Error(updated.error);
-      logActivity(store.id, "theme_created", { theme_id: created.theme.id, base_theme: def.id });
+      const data = await res.json();
+      if (!data.theme) throw new Error(data.error || t("onlineStore.createError"));
+      logActivity(store.id, "theme_created", { theme_id: data.theme.id, preset });
+      setNewThemeName("");
+      setShowNewInput(false);
       await fetchThemes();
-      showToast(t("onlineStore.addedToast").replace("{name}", def.name));
+      if (open) onOpenThemeEditor?.(data.theme.id);
+      else showToast(t("onlineStore.addedToast").replace("{name}", name || NOVA_NAME));
     } catch (err) {
-      if (createdId) {
-        try {
-          await fetch(`${CF_URL}/delete-store-theme`, { method: "DELETE", headers: { "Content-Type": "application/json", ...(await authHeaders()) }, body: JSON.stringify({ theme_id: createdId }) });
-        } catch { /* best effort */ }
-        fetchThemes();
-      }
       setThemesError(failText(err, "onlineStore.createError"));
-      setRetryAction(() => () => handleAddLibraryTheme(def));
+      setRetryAction(() => () => handleCreatePreset(preset, name, { open }));
     } finally {
-      setLibBusy((p) => ({ ...p, [def.id]: false }));
+      setLibBusy((p) => ({ ...p, [preset]: false }));
+      setCreating(false);
     }
   };
 
@@ -469,11 +481,11 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
               autoFocus
               value={newThemeName}
               onChange={(e) => setNewThemeName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && !creating) handleCreateTheme(publishedTheme?.id); }}
+              onKeyDown={(e) => { if (e.key === "Enter" && !creating) handleCreatePreset(NOVA_ID, newThemeName.trim(), { open: true }); }}
               placeholder={t("onlineStore.newThemeNamePlaceholder")}
               style={{ flex: "1 1 220px", padding: "8px 12px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13 }}
             />
-            <button onClick={() => handleCreateTheme(publishedTheme?.id)} disabled={creating} style={btnPrimary(creating)}>
+            <button onClick={() => handleCreatePreset(NOVA_ID, newThemeName.trim(), { open: true })} disabled={creating} style={btnPrimary(creating)}>
               {creating ? t("onlineStore.creatingTheme") : t("onlineStore.createAction")}
             </button>
           </div>
@@ -526,20 +538,18 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
         <p style={{ ...sectionTitle, marginBottom: 4 }}>{t("onlineStore.themeLibraryLabel")}</p>
         <p style={{ fontSize: 12.5, color: "var(--ne-muted)", margin: "0 0 12px" }}>{t("onlineStore.themeLibraryHint")}</p>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 14 }}>
-          {STOREFRONT_THEMES.map((def) => (
-            <div key={def.id} style={{ ...cardStyle, padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-              <ThemeThumb themeNo={def.id} />
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                <div style={{ minWidth: 0 }}>
-                  <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "var(--ne-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{def.name}</p>
-                  <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--ne-muted)" }}>{t("onlineStore.byEneezam")}</p>
-                </div>
-                <button onClick={() => handleAddLibraryTheme(def)} disabled={libBusy[def.id]} style={btnGhost(libBusy[def.id])}>
-                  {libBusy[def.id] ? t("onlineStore.adding") : t("onlineStore.addAction")}
-                </button>
+          <div style={{ ...cardStyle, padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+            <NovaThumb />
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <div style={{ minWidth: 0 }}>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "var(--ne-text)" }}>{NOVA_NAME}</p>
+                <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--ne-muted)" }}>{t("onlineStore.byEneezam")} · {t("onlineStore.novaTagline")}</p>
               </div>
+              <button onClick={() => handleCreatePreset(NOVA_ID, NOVA_NAME)} disabled={libBusy[NOVA_ID]} style={btnGhost(libBusy[NOVA_ID])}>
+                {libBusy[NOVA_ID] ? t("onlineStore.adding") : t("onlineStore.addAction")}
+              </button>
             </div>
-          ))}
+          </div>
         </div>
       </div>
     </div>
