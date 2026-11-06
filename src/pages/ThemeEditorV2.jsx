@@ -2,16 +2,15 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
-import { TEMPLATES } from "../lib/themeEditor/layout";
-import { createHistory, pushState, undo, redo, canUndo, canRedo } from "../lib/themeEditor/history";
+import { createHistory, pushState, undo, redo, canUndo, canRedo } from "../lib/themeV2/history";
 import { EDITOR_CSS, Dialog } from "../components/themeEditor/shell";
-import { ProductMetaPanel } from "../components/themeEditor/SettingsPanels";
+import ProductMetaPanel from "../components/themeEditorV2/ProductMetaPanel";
 import Tree, { AddSectionPopup, SelectionMenu } from "../components/themeEditorV2/Tree";
 import { SchemaFields, ThemeSettingsV2 } from "../components/themeEditorV2/SchemaForm";
 import Tip from "../components/themeEditorV2/Tip";
 import * as V2 from "../lib/themeV2/engine.generated";
 import {
-  SHORTCUTS, matchShortcut, isTypingTarget, readInspector, writeInspector,
+  TEMPLATES, SHORTCUTS, matchShortcut, isTypingTarget, readInspector, writeInspector,
   createScrollSync, onScrollReport, scrollPairTo, thumbGeometry, topFromThumb, saveAsDraft,
 } from "../lib/themeV2/editorLogic";
 

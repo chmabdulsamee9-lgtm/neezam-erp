@@ -2,15 +2,11 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
-import { getStorefrontTheme } from "../lib/storefrontThemes";
-import { isV2, NOVA_ID, NOVA_NAME, createDefaultConfig } from "../lib/themeV2/engine.generated";
+import { NOVA_ID, NOVA_NAME, createDefaultConfig } from "../lib/themeV2/engine.generated";
 import { formatStoreDate, useStoreTimeZone } from "../lib/dates";
 import StoreMetricsStrip from "../components/StoreMetricsStrip";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
-// Per-row /get-store-theme lookups (for thumbnail theme numbers) are skipped past this many
-// themes, since /list-store-themes doesn't return theme_config; rows then fall back to theme 1.
-const MAX_THEME_LOOKUPS = 20;
 const PREVIEW_W = 1280;
 
 const btnPrimary = (disabled) => ({
@@ -48,33 +44,11 @@ function NovaThumb() {
   );
 }
 
-// CSS-only miniature of a storefront theme, drawn from that theme's colours/fonts/radius.
-function ThemeThumb({ themeNo }) {
-  if (themeNo === NOVA_ID) return <NovaThumb />;
-  const th = getStorefrontTheme(themeNo);
-  const c = th.colors;
-  const r = `min(${th.radius}, 8px)`;
+// Neutral box for an old-format theme (it has no preview any more).
+function LegacyThumb() {
   return (
-    <div aria-hidden="true" style={{
-      width: "100%", aspectRatio: "16 / 10", background: c.bg, borderRadius: 8, overflow: "hidden",
-      border: "1px solid var(--ne-border)", display: "flex", flexDirection: "column", padding: "6%", gap: "6%",
-      boxSizing: "border-box",
-    }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ width: "26%", height: 5, background: c.text, borderRadius: 2 }} />
-        <div style={{ display: "flex", gap: 4 }}>
-          {[0, 1, 2].map((i) => <div key={i} style={{ width: 12, height: 3, background: c.textMuted, borderRadius: 2 }} />)}
-        </div>
-      </div>
-      <div style={{ flex: 1.3, background: c.surface, border: `1px solid ${c.border}`, borderRadius: r, display: "flex", flexDirection: "column", justifyContent: "center", gap: 5, padding: "0 8%" }}>
-        <span style={{ fontFamily: th.headingFont, color: c.text, fontWeight: 700, fontSize: 13, lineHeight: 1 }}>Aa</span>
-        <div style={{ width: "34%", height: 7, background: c.accent, borderRadius: r }} />
-      </div>
-      <div style={{ flex: 1, display: "flex", gap: "5%" }}>
-        {[0, 1, 2].map((i) => (
-          <div key={i} style={{ flex: 1, background: c.surface, border: `1px solid ${c.border}`, borderRadius: r }} />
-        ))}
-      </div>
+    <div aria-hidden="true" style={{ width: "100%", aspectRatio: "16 / 10", borderRadius: 8, border: "1px dashed var(--ne-border)", background: "var(--ne-surface)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--ne-muted-2)" }}>
+      <Icon name="warning" size={18} />
     </div>
   );
 }
@@ -154,7 +128,6 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
   const [store, setStore] = useState(null);
   const [loading, setLoading] = useState(true);
   const [themes, setThemes] = useState([]);
-  const [themeNumbers, setThemeNumbers] = useState({});
   const [themesError, setThemesError] = useState("");
   const [stats, setStats] = useState(null);
   const [statsError, setStatsError] = useState("");
@@ -216,22 +189,6 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
     setLoading(false);
   };
 
-  const fetchThemeNumbers = async (list) => {
-    if (!list.length || list.length > MAX_THEME_LOOKUPS) { setThemeNumbers({}); return; }
-    const headers = await authHeaders();
-    const entries = await Promise.all(list.map(async (th) => {
-      try {
-        const res = await fetch(`${CF_URL}/get-store-theme?theme_id=${encodeURIComponent(th.id)}`, { headers });
-        const data = await res.json();
-        const cfg = data.theme?.theme_config;
-        return [th.id, isV2(cfg) ? cfg.theme_id : Number(cfg?.settings?.active_theme_id) || 1];
-      } catch {
-        return [th.id, 1];
-      }
-    }));
-    setThemeNumbers(Object.fromEntries(entries));
-  };
-
   const fetchThemes = useCallback(async () => {
     if (!storeId) return;
     setThemesError(""); setRetryAction(null);
@@ -245,7 +202,6 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
         return;
       }
       setThemes(data.themes);
-      fetchThemeNumbers(data.themes);
     } catch (err) {
       setThemesError(failText(err, "onlineStore.themesLoadError"));
       setRetryAction(() => () => fetchThemes());
@@ -415,7 +371,7 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
     );
   }
 
-  const publishedNo = publishedTheme ? themeNumbers[publishedTheme.id] : null;
+  const isLegacy = (th) => th?.engine === "legacy";
 
   return (
     <div style={{ padding: "1.25rem", maxWidth: 1000, margin: "0 auto" }}>
@@ -430,7 +386,7 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
         <div style={{ position: "absolute", inset: 0 }}>
           {liveUrl
             ? <LivePreview url={liveUrl} title={t("onlineStore.previewTitle")} fill />
-            : <ThemeThumb themeNo={publishedNo || 1} />}
+            : isLegacy(publishedTheme) ? <LegacyThumb /> : <NovaThumb />}
         </div>
         <div style={{ position: "relative", minHeight: 600, display: "flex", alignItems: "flex-end" }}>
           <div style={{
@@ -442,7 +398,7 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
               <p style={{ margin: "2px 0 4px", fontSize: 22, fontWeight: 800, color: "#fff", wordBreak: "break-all" }}>{liveHost || "—"}</p>
               {publishedTheme ? (
                 <p style={{ margin: 0, fontSize: 12.5, color: "rgba(255,255,255,.8)" }}>
-                  {publishedTheme.name} · {t("onlineStore.lastSaved")}: {dateLabel(publishedTheme.updated_at)}
+                  {publishedTheme.name} · {isLegacy(publishedTheme) ? t("onlineStore.legacyLabel") : `${t("onlineStore.lastSaved")}: ${dateLabel(publishedTheme.updated_at)}`}
                 </p>
               ) : (
                 <p style={{ margin: 0, fontSize: 12.5, color: "rgba(255,255,255,.8)" }}>{t("onlineStore.noPublishedTheme")}</p>
@@ -452,12 +408,12 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
               <button onClick={handleViewStore} disabled={!liveUrl} style={{ ...btnGhost(!liveUrl), background: "rgba(255,255,255,.12)", color: "#fff", borderColor: "rgba(255,255,255,.35)" }}>
                 <Icon name="link" size={13} /> {t("onlineStore.viewStoreButton")}
               </button>
-              {publishedTheme && (
+              {publishedTheme && !isLegacy(publishedTheme) && (
                 <button onClick={() => onOpenThemeEditor?.(publishedTheme.id)} style={btnPrimary(false)}>
                   <Icon name="edit" size={13} /> {t("onlineStore.editThemeButton")}
                 </button>
               )}
-              {publishedTheme && (
+              {publishedTheme && !isLegacy(publishedTheme) && (
                 <MoreMenu label={t("onlineStore.moreActions")} items={[
                   { key: "dup", label: t("onlineStore.duplicateAction"), icon: "clipboard", onClick: () => handleCreateTheme(publishedTheme.id), disabled: creating },
                 ]} />
@@ -508,24 +464,34 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
                 borderTop: i === 0 ? "none" : "1px solid var(--ne-border)",
               }}>
                 <div style={{ width: 112, flexShrink: 0 }}>
-                  <ThemeThumb themeNo={themeNumbers[th.id] || 1} />
+                  {isLegacy(th) ? <LegacyThumb /> : <NovaThumb />}
                 </div>
                 <div style={{ flex: "1 1 160px", minWidth: 0 }}>
                   <p style={{ margin: 0, fontSize: 13.5, fontWeight: 700, color: "var(--ne-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{th.name}</p>
-                  <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{t("onlineStore.addedLabel")}: {dateLabel(th.created_at)}</p>
+                  <p style={{ margin: "2px 0 0", fontSize: 11.5, color: isLegacy(th) ? "var(--ne-warning)" : "var(--ne-muted)" }}>
+                    {isLegacy(th) ? t("onlineStore.legacyLabel") : `${t("onlineStore.addedLabel")}: ${dateLabel(th.created_at)}`}
+                  </p>
                 </div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                  <button onClick={() => handlePublish(th.id)} disabled={rowBusy[th.id]} style={btnGhost(rowBusy[th.id])}>
-                    {rowBusy[th.id] ? t("onlineStore.busy") : t("onlineStore.publishAction")}
-                  </button>
-                  <button onClick={() => onOpenThemeEditor?.(th.id)} style={btnPrimary(false)}>
-                    {t("onlineStore.editThemeButton")}
-                  </button>
-                  <MoreMenu label={t("onlineStore.moreActions")} items={[
-                    { key: "dup", label: t("onlineStore.duplicateAction"), icon: "clipboard", onClick: () => handleCreateTheme(th.id), disabled: creating },
-                    { key: "del", label: t("onlineStore.deleteAction"), icon: "trash", onClick: () => handleDelete(th.id), disabled: rowBusy[th.id], danger: true },
-                  ]} />
-                </div>
+                {isLegacy(th) ? (
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <button onClick={() => handleDelete(th.id)} disabled={rowBusy[th.id]} style={{ ...btnGhost(rowBusy[th.id]), color: "var(--ne-danger)" }}>
+                      <Icon name="trash" size={13} /> {rowBusy[th.id] ? t("onlineStore.busy") : t("onlineStore.deleteAction")}
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <button onClick={() => handlePublish(th.id)} disabled={rowBusy[th.id]} style={btnGhost(rowBusy[th.id])}>
+                      {rowBusy[th.id] ? t("onlineStore.busy") : t("onlineStore.publishAction")}
+                    </button>
+                    <button onClick={() => onOpenThemeEditor?.(th.id)} style={btnPrimary(false)}>
+                      {t("onlineStore.editThemeButton")}
+                    </button>
+                    <MoreMenu label={t("onlineStore.moreActions")} items={[
+                      { key: "dup", label: t("onlineStore.duplicateAction"), icon: "clipboard", onClick: () => handleCreateTheme(th.id), disabled: creating },
+                      { key: "del", label: t("onlineStore.deleteAction"), icon: "trash", onClick: () => handleDelete(th.id), disabled: rowBusy[th.id], danger: true },
+                    ]} />
+                  </div>
+                )}
                 {rowError[th.id] && <p style={{ width: "100%", margin: 0, color: "var(--ne-danger)", fontSize: 11.5 }}>{rowError[th.id]}</p>}
               </div>
             ))

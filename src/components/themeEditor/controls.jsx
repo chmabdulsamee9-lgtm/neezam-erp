@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Icon from "../Icon";
 import Toggle from "../Toggle";
-import { isHex, toSixHex, linkProblem } from "../../lib/themeEditor/settingsModel";
+import { isHex, toSixHex, linkProblem } from "../../lib/themeV2/inputs";
 import { inputStyle } from "./controlStyles";
 
 // Form controls shared by every panel of the theme editor. All of them are controlled: the parent owns the value and

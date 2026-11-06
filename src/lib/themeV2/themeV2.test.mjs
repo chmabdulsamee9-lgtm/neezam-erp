@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import * as V2 from "./engine.generated.js";
-import { createHistory, pushState, undo, redo, canUndo } from "../themeEditor/history.js";
+import { createHistory, pushState, undo, redo, canUndo, canRedo, HISTORY_LIMIT } from "./history.js";
 import * as L from "./editorLogic.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -178,3 +178,50 @@ test("insert at index: preview + before/after a section and the tree + between r
   assert.equal(tree.config.groups.footer.order[0], tree.id, "header/footer groups too");
   assert.equal(V2.addSection(cfg, "home", "main-product", { index: 0 }).id, null, "page rules still apply");
 });
+
+/* ------------------------------------------------------------------ undo/redo history (history.js) */
+test("history: push, undo, redo, new edit clears redo", () => {
+  let h = createHistory({ v: 0 });
+  assert.equal(canUndo(h), false);
+  const s1 = { v: 1 }, s2 = { v: 2 }, s3 = { v: 3 };
+  h = pushState(h, s1, { now: 1000 });
+  h = pushState(h, s2, { now: 5000 });
+  assert.equal(h.present, s2);
+  assert.equal(canUndo(h), true);
+  h = undo(h);
+  assert.equal(h.present, s1);
+  assert.equal(canRedo(h), true);
+  h = undo(h);
+  assert.deepEqual(h.present, { v: 0 });
+  assert.equal(undo(h), h, "nothing to undo");
+  h = redo(h);
+  assert.equal(h.present, s1);
+  h = pushState(h, s3, { now: 9000 });
+  assert.equal(canRedo(h), false, "a new edit drops the redo branch");
+  h = undo(h);
+  assert.equal(h.present, s1);
+  assert.equal(redo(redo(h)).present, s3, "redo past the end stays put");
+});
+
+test("history: same-key edits within the window coalesce into one undo step; a different key or a pause starts a new one", () => {
+  let h = createHistory({ t: "" });
+  h = pushState(h, { t: "a" }, { key: "title", now: 1000 });
+  h = pushState(h, { t: "ab" }, { key: "title", now: 1300 });
+  h = pushState(h, { t: "abc" }, { key: "title", now: 1600 });
+  assert.equal(h.past.length, 1);
+  assert.deepEqual(undo(h).present, { t: "" }, "one undo reverts the whole typing burst");
+  h = pushState(h, { t: "abcd" }, { key: "other", now: 1700 });
+  assert.equal(h.past.length, 2);
+  h = pushState(h, { t: "abcde" }, { key: "other", now: 9000 });
+  assert.equal(h.past.length, 3, "a pause longer than the window starts a new step");
+  const same = h.present;
+  assert.equal(pushState(h, same), h, "pushing the identical state is ignored");
+});
+
+test("history is capped", () => {
+  let h = createHistory(0);
+  for (let i = 1; i <= HISTORY_LIMIT + 20; i++) h = pushState(h, i, { now: i * 5000 });
+  assert.equal(h.past.length, HISTORY_LIMIT);
+  assert.equal(h.present, HISTORY_LIMIT + 20);
+});
+

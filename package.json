@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "test": "node --test src/lib/themeEditor/themeEditor.test.mjs src/lib/themeV2/themeV2.test.mjs",
+    "test": "node --test src/lib/themeV2/themeV2.test.mjs",
     "sync:theme-v2": "node scripts/sync-theme-v2.mjs",
     "preview": "vite preview"
   },

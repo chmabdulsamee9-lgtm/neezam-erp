@@ -171,3 +171,35 @@ The six-step path above still holds. For the new target, reorder so speed work l
 5. **Extract packages (L):** start with designs 1 to 4 (token-only plus a few CSS blocks), then 5 to 8. Each package gets its own CSS and bundle plus a size budget checked in CI (add a build step that fails over budget).
 6. **Footer and header as section groups inside each package (M to L).**
 7. **Third-party themes (L to XL):** only after isolation and review (section 8).
+
+---
+
+# Legacy removed (2026-11-06)
+
+Nova (v2) is the only theme engine. The old 8-design system is gone from both repos. The audit sections above describe the
+system as it was before this cleanup; use them as history, not as the current state.
+
+**Storefront (`neezam-erp-worker/storefront`)**
+- One route renders every store page, `src/pages/[...path].astro`: home, collection, product, cart, checkout (native checkout form,
+  unchanged), the order confirmation page and 404s. All through the Nova engine in `src/v2/`.
+- The order confirmation page (`/thank-you?token=`) is a Nova page: same order data, server-rendered, never cached, noindex;
+  no or unknown token is a 404, an order lookup failure is a 503. The order token never reaches the footer form.
+- A store whose `theme_config` is not v2 (empty or old format) renders the Nova default (`configOrDefault` in
+  `shared/theme-v2/defaults.js`). Old-format configs are never read, so they cannot throw.
+- Removed: `themes.css`, theme definitions, the `jp-`/`zero-`/`org-`/`vince-` renderers, the design 1-8 header subnavs, the
+  legacy layout registry and section renderer, the client-side re-render and old preview scripts, the legacy Svelte editor
+  route, `BaseLayout`, every Svelte island only the legacy pages used, tailwind, the unused font files and the legacy docs.
+- Kept: Nova, the checkout form with its dropdowns and location picker, geo and reverse-geocode APIs, the cart scripts,
+  search, tracking, the web-vitals beacon and attribution.
+
+**Worker**
+- `PUT /update-store-theme`, `POST /create-store-theme` and `POST /save-theme-config` accept only v2 configs. Anything else gets
+  HTTP 400 with `reason: "legacy_not_supported"`. The published-save flag (`confirm_published`), the validator and the
+  sanitizers are unchanged. `POST /publish-store-theme` refuses an old-format theme. New themes start from the Nova default.
+- `GET /list-store-themes` returns `engine: "v2" | "legacy"` per theme so the ERP can label old-format themes.
+
+**ERP**
+- The legacy editor, its "Legacy theme" banner, the generated legacy registry copy and its sync script, and the old editor
+  tests are removed. Opening an old-format theme shows a "not supported" screen. In the Online Store list an old-format theme
+  shows "Legacy theme, not supported" with Delete only. "New theme" and the library offer only Nova.
+- Database rows are not touched by code: the one old-format draft row is deleted by SQL by the owner.

@@ -2,6 +2,15 @@
 // mobile view scroll maths with its loop guard, the custom scrollbar geometry and the "Save as draft" requests.
 // Unit-tested in themeV2.test.mjs.
 
+/** the five editable pages (labels are i18n keys; the product page previews a real product of the store) */
+export const TEMPLATES = [
+  { key: "home", labelKey: "themeEditor.page.home", url: "/" },
+  { key: "collection", labelKey: "themeEditor.page.collection", url: "/collection" },
+  { key: "product", labelKey: "themeEditor.page.product", url: "/collection" },
+  { key: "cart", labelKey: "themeEditor.page.cart", url: "/cart" },
+  { key: "checkout", labelKey: "themeEditor.page.checkout", url: "/checkout" },
+];
+
 /* ------------------------------------------------------------------ shortcuts */
 export const SHORTCUTS = {
   sections: ["CTRL", "1"],
