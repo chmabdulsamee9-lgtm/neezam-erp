@@ -934,7 +934,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
       if (!r.ok) { nativeFailed(r); return; }
     } else {
       await supabase.from("order_statuses").upsert(
-        { order_id: String(orderId), cancellation_reason: reason, updated_at: now },
+        { order_id: String(orderId), store_id: ordersStore?.id, cancellation_reason: reason, updated_at: now },
         { onConflict: "order_id" }
       );
     }
@@ -971,6 +971,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
     }
     const { error } = await supabase.from("order_statuses").upsert({
       order_id: String(orderId),
+      store_id: ordersStore?.id,
       status: orders.find(o => o.id === orderId)?.agent_status || null,
       customer_name: updated.customer_name || null,
       phone: updated.phone || null,
@@ -1020,6 +1021,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
       const now = new Date().toISOString();
       supabase.from("order_statuses").upsert({
         order_id: String(order.id),
+        store_id: ordersStore?.id,
         status: order.agent_status || null,
         customer_name: agentData.customer_name || null,
         phone: finalPhone,
@@ -1044,7 +1046,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
         }
       });
     });
-  }, [orders]);
+  }, [orders, ordersStore?.id]);
 
   // ---------- SYNC PLAN / DIFF ----------
   const buildSyncPlan = (order) => {
@@ -1098,7 +1100,6 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
         body: JSON.stringify({
           shop: storeData.shopify_url,
-          token: storeData.api_token,
           orderId: order.id,
           updates: { shipping_address: addressPayload, phone: phoneToSync },
         }),
@@ -1107,7 +1108,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
       if (!data.errors && !data.error) {
         const now = new Date().toISOString();
         await supabase.from("order_statuses").upsert(
-          { order_id: String(order.id), synced_at: now, updated_at: now },
+          { order_id: String(order.id), store_id: storeData.id, synced_at: now, updated_at: now },
           { onConflict: "order_id" }
         );
         setOrders(prev => prev.map(o => o.id === order.id ? { ...o, synced_at: now } : o));
@@ -1165,7 +1166,6 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
         body: JSON.stringify({
           shop: storeData.shopify_url,
-          token: storeData.api_token,
           orderId: order.id,
           updates: {
             shipping_address: {
@@ -1184,6 +1184,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
         const prevAgent = h.previous_agent_data || {};
         await supabase.from("order_statuses").upsert({
           order_id: String(order.id),
+          store_id: storeData.id,
           status: h.previous_status || null,
           customer_name: prevAgent.customer_name || null,
           phone: prevAgent.phone || null,

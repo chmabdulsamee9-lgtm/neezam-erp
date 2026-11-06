@@ -184,8 +184,8 @@ export default function Login() {
 
       const { data: storeData, error: storeError } = await supabase
         .from('stores')
-        .insert({ store_name: brandName.trim(), shopify_url: null, api_token: null })
-        .select()
+        .insert({ store_name: brandName.trim(), user_id: userId })
+        .select('id, eneezam_id')
         .single()
       if (storeError) { setError('Brand create karne mein error: ' + storeError.message); setLoading(false); return }
 

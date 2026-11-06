@@ -620,7 +620,7 @@ export default function ProfitLoss({ ordersData, storeId, ordersStore, cfUrl = C
       {/* Comparison lines — never merged into the breakdown cards above or netProfit;
           purely additional context next to the existing manual expense categories. */}
       <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: "0.6rem", marginBottom: "1rem" }}>
-        {!!ordersStore?.meta_access_token && !!ordersStore?.meta_ad_account_id && (
+        {!!ordersStore?.meta_ad_account_id && (
           <div style={{ flex: 1, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, padding: "0.8rem 1rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <div>
               <div style={{ fontSize: 10, color: "var(--ne-muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 3 }}>{t("pnl.metaAdSpendLabel")}</div>

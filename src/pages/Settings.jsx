@@ -102,8 +102,8 @@ export default function Settings({ profile, onBack, hasAccess, currentStoreInfo,
     try {
       const { data: storeData, error: storeError } = await supabase
         .from("stores")
-        .insert({ store_name: brandName.trim(), shopify_url: null, api_token: null })
-        .select()
+        .insert({ store_name: brandName.trim(), user_id: profile.id })
+        .select("id")
         .single();
       if (storeError) { setBrandError(storeError.message); setBrandSaving(false); return; }
       const { error: linkError } = await supabase.from("user_stores").insert({

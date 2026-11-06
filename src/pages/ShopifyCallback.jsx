@@ -51,26 +51,14 @@ export default function ShopifyCallback() {
         return;
       }
 
-      const storeName = shop.replace(".myshopify.com", "");
-
-      let dbError;
-      if (state) {
-        const { error } = await supabase.from("stores").update({
-          shopify_url: shop,
-          api_token: data.access_token,
-          platform: "shopify",
-        }).eq("eneezam_id", state);
-        dbError = error;
-      } else {
-        const { error } = await supabase.from("stores").upsert({
-          user_id: session.user.id,
-          store_name: storeName,
-          shopify_url: shop,
-          api_token: data.access_token,
-          platform: "shopify",
-        }, { onConflict: "shopify_url" });
-        dbError = error;
-      }
+      // the token is saved by the worker (the stores secret columns are not writable from the browser)
+      const saveRes = await fetch(`${CF_URL}/shopify-save-token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ shop, access_token: data.access_token, store_eneezam_id: state || undefined }),
+      });
+      const saveData = await saveRes.json().catch(() => ({}));
+      const dbError = saveRes.ok && saveData.success ? null : { message: saveData.error || "save failed" };
 
       if (dbError) {
         setStatus("❌ Save error: " + dbError.message);

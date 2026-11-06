@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../supabase";
+import { fetchStoreRow } from "../lib/storeColumns";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
 
@@ -195,7 +196,7 @@ export default function CourierConnect({ storeId }) {
 
   const fetchStore = async () => {
     setLoading(true);
-    const { data } = await supabase.from("stores").select("*").eq("id", storeId).single();
+    const { data } = await fetchStoreRow(supabase, storeId);
     setStore(data || null);
     setDefaultWeight(data?.default_weight_kg ?? "0.5");
     setDefaultLength(data?.default_length_cm ?? "20");

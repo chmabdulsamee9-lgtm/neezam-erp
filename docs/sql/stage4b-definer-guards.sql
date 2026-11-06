@@ -1,0 +1,63 @@
+-- STAGE 4b: SECURITY DEFINER functions that bypass RLS: internal guards. RISK: medium (Booked remarks, order numbers, store deletion).
+-- Needs stage 0 and stage 4a. The owner has NOT yet pasted the current definitions (needed-queries.sql Q4), so I do NOT write
+-- CREATE OR REPLACE for any of them: rewriting a function body I cannot see could change business logic. Everything below is a clearly
+-- marked TEMPLATE to apply once Q4 is pasted back (then I turn each template into the exact guarded CREATE OR REPLACE).
+-- Apply one function at a time; smoke-test production ERP + dev preview after each (Booked: add a remark; Orders: create a TEST native
+-- order; Master dashboard: do NOT delete a real store). On breakage restore the saved original definition from Q4.
+--
+-- Who calls them (grep of both repos):
+--   append_order_remark(p_order_id, p_manual_order_number, p_text, p_author): the BROWSER (BookedOrders.jsx, 2 call sites), authenticated.
+--       It takes NO store argument, so the guard must derive the store from the order row.
+--   delete_store_cascade(p_store_id): the WORKER only (/admin-delete-store, service key). The browser never calls it.
+--   get_next_local_order_number(...): the WORKER only (service key).
+--   next_store_order_number(<store id>): the WORKER only (service key). It is "authenticated-only" today, so any merchant could burn
+--       another store's order counter. Optional hardening block below.
+-- Because delete_store_cascade and get_next_local_order_number have no browser caller, stage 4a already removed them from authenticated;
+-- the internal guard is defence in depth (a future grant by mistake must not be exploitable).
+
+-- ------------------------------------------------------------------ 1. append_order_remark: TEMPLATE (keep the existing body, add the guard at the top)
+-- Add as the first statements of the function body (the order's store is looked up by whichever identifier the browser sent):
+--   declare v_store uuid;
+--   begin
+--     select os.store_id into v_store from public.order_statuses os
+--      where (p_order_id is not null and os.order_id = p_order_id) or (p_manual_order_number is not null and os.manual_order_number = p_manual_order_number)
+--      limit 1;
+--     if auth.role() <> 'service_role' and not public.has_store_access(v_store) then raise exception 'forbidden'; end if;
+--     ... existing body unchanged ...
+-- and make sure the header has:  SECURITY DEFINER  SET search_path = public
+-- NEEDS-CHECK: if append_order_remark creates the order_statuses row when none exists, v_store is null for a brand-new order; then the
+-- guard must fall back to shopify_orders_cache (select store_id from public.shopify_orders_cache where id::text = p_order_id::text).
+
+-- ------------------------------------------------------------------ 2. delete_store_cascade: TEMPLATE (store OWNER only, not just team)
+--   begin
+--     if auth.role() <> 'service_role' then
+--       if not exists (select 1 from public.stores s where s.id = p_store_id and s.user_id = auth.uid()) and not public.is_creator() then
+--         raise exception 'forbidden';
+--       end if;
+--     end if;
+--     ... existing body unchanged ...
+-- header: SECURITY DEFINER  SET search_path = public. (is_creator() is allowed because the worker's /admin-delete-store accepts the creator;
+-- through the worker the call is made with the service key, so auth.role() = 'service_role' and the guard is skipped.)
+
+-- ------------------------------------------------------------------ 3. get_next_local_order_number: TEMPLATE
+--   begin
+--     if auth.role() <> 'service_role' and not public.has_store_access(p_store_id) then raise exception 'forbidden'; end if;
+--     ... existing body unchanged ...
+-- (adjust the parameter name to the real signature from Q4)
+
+-- ------------------------------------------------------------------ 4. protect_profile_privileged_fields / rls_auto_enable
+-- Trigger / event-trigger functions: not callable through the API once stage 4a revoked execute. No guard needed. KEEP the
+-- protect_profile_privileged_fields trigger on profiles (stage 4c profiles relies on it to stop role / approval escalation).
+
+-- ------------------------------------------------------------------ 5. OPTIONAL hardening: next_store_order_number worker-only
+-- Run only after confirming Q7 shows no invoker-rights caller; the worker calls it with the service key.
+-- do $$ declare r record; begin
+--   for r in select p.oid::regprocedure as sig from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname='public' and p.proname = 'next_store_order_number' loop
+--     execute format('revoke execute on function %s from public, anon, authenticated', r.sig);
+--     execute format('grant execute on function %s to service_role', r.sig);
+--   end loop; end $$;
+-- ROLLBACK of 5:  grant execute on function public.next_store_order_number(<args from Q8>) to authenticated;
+
+-- ============================== ROLLBACK (stage 4b) ==============================
+-- Nothing is applied by this file yet (templates only). When templates are applied, the rollback is: re-run the original
+-- CREATE OR REPLACE FUNCTION text saved from Q4.
