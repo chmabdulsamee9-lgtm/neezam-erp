@@ -250,6 +250,17 @@ export function AddSectionPopup({ cfg, theme, scope, t, sl, onPick, onClose }) {
   );
 }
 
+/** thin "+" between two rows of the tree: inserts a section at that index */
+function InsertSlot({ t, onClick }) {
+  return (
+    <div className="te2-slot">
+      <button type="button" aria-label={t("themeEditor.v2.insertHere")} title={t("themeEditor.v2.insertHere")} onClick={onClick}>
+        <Icon name="plus" size={11} />
+      </button>
+    </div>
+  );
+}
+
 export default function Tree(props) {
   const { cfg, page, t, readOnly, expanded, onOpenAdd } = props;
   const groups = [
@@ -261,14 +272,19 @@ export default function Tree(props) {
     <div>
       {groups.map((g) => {
         const sections = listSections(cfg, g.scope);
-        const canAdd = addableSections(cfg, g.scope).length > 0;
+        const canAdd = !readOnly && addableSections(cfg, g.scope).length > 0;
         return (
-          <section key={g.scope} aria-label={g.title} style={{ marginBottom: 14 }}>
+          <section key={g.scope} aria-label={g.title} style={{ marginBottom: 12 }}>
             <h3 className="te2-group">{g.title}</h3>
             {sections.length === 0 && <p className="te2-empty">{t("themeEditor.emptyGroup")}</p>}
-            {sections.map((s) => <SectionNode key={s.id} ctx={props} scope={g.scope} section={s} expanded={expanded.has(s.id)} />)}
-            {!readOnly && canAdd && (
-              <button type="button" className="te-add" onClick={() => onOpenAdd(g.scope)}><Icon name="plus" size={14} />{t("themeEditor.addSection")}</button>
+            {sections.map((s, i) => (
+              <div key={s.id}>
+                {canAdd && <InsertSlot t={t} onClick={() => onOpenAdd(g.scope, i)} />}
+                <SectionNode ctx={props} scope={g.scope} section={s} expanded={expanded.has(s.id)} />
+              </div>
+            ))}
+            {canAdd && (
+              <button type="button" className="te-add" onClick={() => onOpenAdd(g.scope, sections.length)}><Icon name="plus" size={13} />{t("themeEditor.addSection")}</button>
             )}
           </section>
         );
