@@ -7,18 +7,18 @@
 2. Rotate in the order below (highest impact first).
 
 ## 1. Meta
-- Old app (id 1554596542737935): its stored tokens (`stores.meta_access_token`) die automatically when you switch to the new Meta app, and the old app stays unused. Do both: in the old app's dashboard set the app to **Disabled** or remove its Facebook Login redirect URI so stolen tokens cannot be used through it. Rotate the old app secret anyway (Meta dashboard > Settings > Basic > Reset).
+- **1** store holds a Meta token. Old app (id 1554596542737935): its stored token (`stores.meta_access_token`) dies automatically when you switch to the new Meta app, and the old app stays unused. Do both: in the old app's dashboard set the app to **Disabled** or remove its Facebook Login redirect URI so stolen tokens cannot be used through it. Rotate the old app secret anyway (Meta dashboard > Settings > Basic > Reset).
 - New app: keep its secret only in the Worker (`npx wrangler secret put META_APP_SECRET`), never in code or chat.
 - After the cutover, every store reconnects Meta once (Meta Connect > Disconnect, Connect).
 - Sanity check on Meta: Business settings > Security Center > list of apps with access; remove the old app from every ad account.
 
 ## 2. DEX
-- `dex_access_token` / `dex_refresh_token`: the code never reads them (DEX uses `DEX_APP_KEY`, a Worker variable, plus `dex_seller_id`). Check with `select count(*) from stores where dex_access_token is not null` (Q13). If any rows hold values, ask DEX to revoke those tokens, then null them: `update stores set dex_access_token = null, dex_refresh_token = null;` (run by you).
-- `DEX_APP_KEY` is in `wrangler.toml` in plain text (both environments). It is not in `stores`, but it is in git history: ask DEX to rotate it, then move it to a secret: `npx wrangler secret put DEX_APP_KEY` and delete the `[vars]` line.
-- Stores connected through the integration code (`/dex-bind-account`): re-bind after DEX rotates, on each connected store.
+Your results show **0** DEX tokens in `stores` (`dex_access_token` / `dex_refresh_token` are empty or unused; the code never reads them), so there is nothing to rotate in the database.
+- `DEX_APP_KEY` is in `wrangler.toml` in plain text (both environments), so it is in git history. Ask DEX to rotate it, then move it to a secret: `npx wrangler secret put DEX_APP_KEY` and delete the `[vars]` line.
+- Stores connected through the integration code (`/dex-bind-account`): re-bind after DEX rotates the key.
 
 ## 3. Shopify (per store)
-Each store with a Shopify link has two secrets: the access token in `api_token` and, for stores with their own custom app, `shopify_client_secret`.
+Your results: **5** stores hold an `api_token` and **4** hold a `shopify_client_secret` (of 9 stores). Each store with a Shopify link has up to two secrets: the access token in `api_token` and, for stores with their own custom app, `shopify_client_secret`.
 - Which stores: `select id, store_name, shopify_url, (api_token is not null) as has_token, (shopify_client_secret is not null) as has_client_secret from stores order by store_name;` (9 stores; DR GLOW runs on the native storefront and may have none).
 - `api_token`: in the Shopify admin of each store, open the app that created it and **uninstall / reinstall** it (or revoke the token), then in the ERP: Store Connect > reconnect. The new token is saved by the worker (`/shopify-save-token`).
 - `shopify_client_secret`: in each store's custom app (Shopify admin > Settings > Apps and sales channels > Develop apps > API credentials), rotate the API secret key, then update the column by SQL (`update stores set shopify_client_secret = '<new>' where id = '<id>'`, run by you; this column is never written by the app).

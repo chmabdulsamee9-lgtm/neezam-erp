@@ -1,16 +1,18 @@
--- STAGE 2: column-level lockdown of the secret columns on public.stores.
---
--- DO NOT RUN BEFORE THE DEV BRANCH IS MERGED TO PRODUCTION (portal.eneezam.com).
--- The old production ERP does supabase.from('stores').select('*') and writes api_token / meta tokens straight from the browser;
--- after this stage `select *` from the browser fails with "permission denied for column ..." and the whole ERP stops loading.
--- Also needs: stage 1f applied, worker commit 72b2250 deployed (it already is), dev ERP commit with SAFE_STORE_COLUMNS merged.
---
--- Secret columns: meta_access_token, dex_access_token, dex_refresh_token, shopify_client_secret, api_token.
--- authenticated and anon lose SELECT / INSERT / UPDATE on exactly those columns; every other column keeps working through
--- column-level grants (computed from information_schema, so columns I do not know about stay accessible). service_role keeps all.
--- The worker (service_role) is unaffected. DELETE stays a table-level grant.
--- Apply one stage at a time, then smoke-test production ERP and dev preview: login, Home, Orders, Booked, Returns, Online Store,
--- Meta Connect (connect, disconnect), Settings > Courier Connect, Team. On breakage run the ROLLBACK block immediately.
+-- STAGE 2: column-level lockdown of the secret columns on public.stores
+-- 1. WHAT IT DOES: authenticated and anon lose SELECT / INSERT / UPDATE on exactly meta_access_token, dex_access_token, dex_refresh_token,
+--    shopify_client_secret and api_token; every other column keeps working through column-level grants computed from
+--    information_schema. service_role keeps all (the worker is unaffected). DELETE stays a table-level grant.
+-- 2. WHEN: AFTER-MERGE. DO NOT RUN BEFORE THE SECURITY CODE IS IN PRODUCTION: the old production ERP does
+--    supabase.from('stores').select('*') and writes tokens straight from the browser; after this stage `select *` fails with
+--    "permission denied for column" and the whole ERP stops loading. Needs stage 1f.
+-- 3. RISK: HIGH (one wrong assumption stops every page that loads the store row).
+-- 4. SMOKE TEST: Production ERP (portal.eneezam.com) AND the dev preview: login as admin, creator and staff, Home, Orders (list, Edit Items,
+--    cancel on a TEST order only), Booked, Returns, Online Store, Meta Connect, Settings, Team; then drglow.online home / product /
+--    cart / checkout. Meta Connect (connect, disconnect), Store Connect (reconnect Shopify on a TEST store), Courier Connect
+--    (weights, label mode), Settings > add a brand.
+-- 5. ROLLBACK: The ROLLBACK block at the bottom is one line and instant.
+-- Apply ONE file at a time. No BEGIN / COMMIT: policies are created first, the old permissive policy is dropped second, RLS / revokes come last,
+-- so a failure part-way never locks anyone out. Before-state facts: docs/sql/before-state-facts.md. Order and gating: docs/sql/RUNBOOK.md.
 
 do $$
 declare

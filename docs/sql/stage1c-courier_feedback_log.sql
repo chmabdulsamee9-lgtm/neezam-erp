@@ -1,16 +1,22 @@
--- STAGE 1c: courier_feedback_log. RISK: low-medium (Booked orders: courier feedback history and export).
--- Needs stage 0. Apply one table at a time; smoke-test production ERP + dev preview after it (Booked: expand an order's
--- courier history; Booked export; Orders; Home; Returns). On breakage run the ROLLBACK block immediately.
--- Browser needs: SELECT (BookedOrders.jsx filters by order_id). The worker inserts rows (service key).
--- NEEDS-CHECK: this file assumes the table has a store_id column (Q3 in needed-queries.sql). If it does not, CREATE POLICY
--- fails on the select policy BEFORE anything is dropped (nothing changes); then use variant B below.
+-- STAGE 1c: courier_feedback_log
+-- 1. WHAT IT DOES: Members read feedback rows of their store (Booked: expanded order history and export); the worker inserts rows with the service
+--    key. anon can no longer read or insert.
+-- 2. WHEN: BEFORE-MERGE. The old production ERP only selects this table as a logged-in user.
+-- 3. RISK: LOW-MEDIUM.
+-- 4. SMOKE TEST: Production ERP (portal.eneezam.com) AND the dev preview: login as admin, creator and staff, Home, Orders (list, Edit Items,
+--    cancel on a TEST order only), Booked, Returns, Online Store, Meta Connect, Settings, Team; then drglow.online home / product /
+--    cart / checkout. Booked: expand an order to see its courier history, and run an export.
+-- 5. ROLLBACK: The ROLLBACK block at the bottom restores a permissive policy and the default grants (policy names of the old state are in
+--    before-state-facts.md; the exact original text is whatever your pg_policies listing showed).
+-- Apply ONE file at a time. No BEGIN / COMMIT: policies are created first, the old permissive policy is dropped second, RLS / revokes come last,
+-- so a failure part-way never locks anyone out. Before-state facts: docs/sql/before-state-facts.md. Order and gating: docs/sql/RUNBOOK.md.
 
 drop policy if exists ne_courier_feedback_log_service on public.courier_feedback_log;
 drop policy if exists ne_courier_feedback_log_select on public.courier_feedback_log;
 create policy ne_courier_feedback_log_service on public.courier_feedback_log for all to service_role using (true) with check (true);
--- variant A (store_id column exists)
+-- variant A (the table has a store_id column; run docs/sql/needed-queries.sql Q3 to check). If CREATE POLICY fails nothing was dropped yet: use variant B.
 create policy ne_courier_feedback_log_select on public.courier_feedback_log for select to authenticated using (public.has_store_access(store_id));
--- variant B (no store_id column): scope through the order's status row. Use INSTEAD of variant A:
+-- variant B (no store_id column) INSTEAD of variant A:
 -- create policy ne_courier_feedback_log_select on public.courier_feedback_log for select to authenticated
 --   using (exists (select 1 from public.order_statuses os where os.order_id::text = courier_feedback_log.order_id::text and public.has_store_access(os.store_id)));
 
@@ -25,12 +31,12 @@ revoke all on public.courier_feedback_log from anon, authenticated;
 grant select on public.courier_feedback_log to authenticated;
 grant all on public.courier_feedback_log to service_role;
 
--- VERIFY (read-only)
+-- ============================== VERIFY (read-only)
+-- select relrowsecurity from pg_class where oid = 'public.courier_feedback_log'::regclass;   -- expect true
 -- select policyname, roles, cmd from pg_policies where tablename = 'courier_feedback_log';
 -- select grantee, privilege_type from information_schema.role_table_grants where table_name = 'courier_feedback_log' and grantee in ('anon','authenticated');
 
--- ============================== ROLLBACK (stage 1c) ==============================
--- Old state: public SELECT true + INSERT (confirmed by the owner's earlier SQL).
+-- ============================== ROLLBACK
 -- drop policy if exists ne_courier_feedback_log_service on public.courier_feedback_log;
 -- drop policy if exists ne_courier_feedback_log_select on public.courier_feedback_log;
 -- create policy rollback_courier_feedback_log_public_select on public.courier_feedback_log for select to public using (true);

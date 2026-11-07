@@ -55,11 +55,15 @@ test("SAFE_STORE_COLUMNS contains no secret column, no wildcard, and no duplicat
   assert.ok(cols.includes("meta_pixel_id") && cols.includes("meta_pixel_name") && cols.includes("id"));
 });
 
-test("the sign-up and add-brand inserts set the owner and do not write secret columns", () => {
-  for (const f of ["pages/Login.jsx", "pages/Settings.jsx"]) {
-    const text = readFileSync(join(SRC, f), "utf8");
-    const m = /from\(\s*["']stores["']\s*\)\s*\.insert\(\{([^}]*)\}\)/.exec(text);
-    assert.ok(m, f);
-    assert.match(m[1], /user_id:/, `${f}: owner id on insert`);
+test("sign-up creates nothing from the browser; add-brand sets the owner", () => {
+  const login = readFileSync(join(SRC, "pages/Login.jsx"), "utf8");
+  assert.match(login, /\/signup-create-account/, "sign-up goes through the worker");
+  for (const t of ["stores", "profiles", "user_stores", "store_subscriptions"]) {
+    assert.equal(new RegExp(`from\(\s*["']${t}["']\s*\)\s*\.insert`).test(login), false, `Login.jsx must not insert into ${t}`);
   }
+  assert.equal(/auth\.signUp/.test(login), false, "no browser-side auth.signUp");
+  const settings = readFileSync(join(SRC, "pages/Settings.jsx"), "utf8");
+  const m = /from\(\s*["']stores["']\s*\)\s*\.insert\(\{([^}]*)\}\)/.exec(settings);
+  assert.ok(m, "Settings.jsx add-brand insert");
+  assert.match(m[1], /user_id:/, "owner id on insert");
 });

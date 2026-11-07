@@ -1,17 +1,23 @@
--- STAGE 1f: stores. RISK: HIGHEST of stage 1 (every page loads the store row; the worker's getStores() and the storefront depend on it).
--- Needs stage 0 and the deployed worker commit 72b2250 (service key in getStores). Apply LAST in stage 1.
--- Apply one table at a time; smoke-test production ERP + dev preview after it (login, Home, Orders, Booked, Returns, Online Store,
--- Meta Connect, Settings > add brand, Team, Courier Connect) and drglow.online (home, product, cart, checkout). On breakage run the
--- ROLLBACK block immediately.
--- After this stage the secret columns are no longer readable by OTHER tenants, but any logged-in member of a store can still read
--- that store's own secret columns until STAGE 2. Stage 2 must wait for the production ERP merge (the old ERP does select('*')).
---
--- Browser needs (audit section 1): SELECT own/team stores (+ all stores for the creator), INSERT a new brand with user_id = auth.uid()
--- (Login sign-up, Settings add brand; the dev ERP now sends user_id), UPDATE non-secret columns (store_name by creator, default
--- weights, label mode), DELETE a store (Store Connect delete: owner/admin/creator).
--- NEEDS-CHECK before applying (a) the PRODUCTION ERP (old code) inserts a brand WITHOUT user_id: with the policy below that insert is
--- rejected until the dev ERP is merged. If you must apply stage 1f before the merge, replace ne_stores_insert with the relaxed
--- variant at the bottom (marked TEMPORARY). (b) Q11: if "Confirm email" is ON, sign-up has no session when it inserts the store.
+-- STAGE 1f: stores
+-- 1. WHAT IT DOES: Row-level security on stores for authenticated only: SELECT own / team / owned stores (creator: all), INSERT only with user_id =
+--    the caller, UPDATE by members (non-secret columns are all the browser touches), DELETE by the owner, an admin linked to the
+--    store, or the creator. anon gets nothing; service_role keeps everything.
+-- 2. WHEN: AFTER-MERGE (needs the new ERP code in production). The old production ERP inserts a brand WITHOUT user_id (Login sign-up,
+--    Settings > add brand), which this INSERT policy rejects. The hotfix branch / dev code sends user_id and moves sign-up to the
+--    worker (/signup-create-account).
+-- 3. RISK: HIGHEST of stage 1 (every page loads the store row; the worker's getStores() and the storefront depend on it, both use the
+--    service key and are unaffected).
+-- 4. SMOKE TEST: Production ERP (portal.eneezam.com) AND the dev preview: login as admin, creator and staff, Home, Orders (list, Edit Items,
+--    cancel on a TEST order only), Booked, Returns, Online Store, Meta Connect, Settings, Team; then drglow.online home / product /
+--    cart / checkout. Settings > add a brand on a TEST account, sign-up of a TEST account on the new code, Courier Connect weights,
+--    Store Connect.
+-- 5. ROLLBACK: The ROLLBACK block restores the old open policy. After this stage other tenants can no longer read this store's secrets, but
+--    members still can until STAGE 2.
+-- Apply ONE file at a time. No BEGIN / COMMIT: policies are created first, the old permissive policy is dropped second, RLS / revokes come last,
+-- so a failure part-way never locks anyone out. Before-state facts: docs/sql/before-state-facts.md. Order and gating: docs/sql/RUNBOOK.md.
+
+-- UPDATE is for members (not only admins) on purpose: staff with the courier permission save default weights and the label mode from the browser.
+-- Which columns a member may change is decided by stage 2 (secret columns are blocked there).
 
 drop policy if exists ne_stores_service on public.stores;
 drop policy if exists ne_stores_select on public.stores;
@@ -19,7 +25,7 @@ drop policy if exists ne_stores_insert on public.stores;
 drop policy if exists ne_stores_update on public.stores;
 drop policy if exists ne_stores_delete on public.stores;
 create policy ne_stores_service on public.stores for all to service_role using (true) with check (true);
-create policy ne_stores_select on public.stores for select to authenticated using (public.has_store_access(id) or user_id = auth.uid());
+create policy ne_stores_select on public.stores for select to authenticated using (public.has_store_access(id));
 create policy ne_stores_insert on public.stores for insert to authenticated with check (user_id = auth.uid());
 create policy ne_stores_update on public.stores for update to authenticated using (public.has_store_access(id)) with check (public.has_store_access(id));
 create policy ne_stores_delete on public.stores for delete to authenticated using (public.is_store_admin(id));
@@ -35,21 +41,14 @@ revoke all on public.stores from anon, authenticated;
 grant select, insert, update, delete on public.stores to authenticated;
 grant all on public.stores to service_role;
 
--- VERIFY (read-only)
--- select policyname, roles, cmd from pg_policies where tablename = 'stores';
+-- ============================== VERIFY (read-only)
+-- select relrowsecurity from pg_class where oid = 'public.stores'::regclass;                       -- expect true
+-- select policyname, roles, cmd from pg_policies where tablename = 'stores';                       -- expect 5 ne_stores_* policies
 -- select grantee, privilege_type from information_schema.role_table_grants where table_name = 'stores' and grantee in ('anon','authenticated');
---   -- expect authenticated: DELETE, INSERT, SELECT, UPDATE and nothing for anon; no TRUNCATE / REFERENCES / TRIGGER
--- Logged in as a normal admin the ERP must list only that admin's stores; as the creator all stores.
+--   -- expect authenticated: DELETE, INSERT, SELECT, UPDATE; nothing for anon; no TRUNCATE / REFERENCES / TRIGGER
+-- Logged in as a normal admin the ERP lists only that admin's stores; as the creator all 9.
 
--- TEMPORARY relaxed insert (only if the production ERP is not merged yet; remove after the merge):
--- drop policy ne_stores_insert on public.stores;
--- create policy ne_stores_insert on public.stores for insert to authenticated with check (user_id is null or user_id = auth.uid());
--- Caveat: a row inserted with user_id null is not readable by its creator until the user_stores link exists (the old ERP
--- does `.insert().select()`), so with the relaxed variant also run stage 4c user_stores BEFORE users sign up, or accept that
--- brand creation returns an error toast while still creating the row. Prefer merging the dev ERP first.
-
--- ============================== ROLLBACK (stage 1f) ==============================
--- Old state: public ALL true; anon and authenticated also held TRUNCATE / REFERENCES / TRIGGER (stage 0 removed those).
+-- ============================== ROLLBACK
 -- drop policy if exists ne_stores_service on public.stores;
 -- drop policy if exists ne_stores_select on public.stores;
 -- drop policy if exists ne_stores_insert on public.stores;

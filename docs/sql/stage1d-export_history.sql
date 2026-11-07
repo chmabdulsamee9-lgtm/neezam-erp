@@ -1,8 +1,14 @@
--- STAGE 1d: export_history. RISK: low (Booked orders CSV export history).
--- Needs stage 0. Apply one table at a time; smoke-test production ERP + dev preview after it (Booked: export, then open the
--- export history list; Orders; Home). On breakage run the ROLLBACK block immediately.
--- Browser needs: SELECT (filtered by store_id) and INSERT (store_id, created_by, file_path, row_count) in BookedOrders.jsx.
--- The Supabase Storage bucket "courier-exports" has its own policies (Q10 in needed-queries.sql) and is not changed here.
+-- STAGE 1d: export_history
+-- 1. WHAT IT DOES: Members read and add export-history rows of their store (Booked: the list of exported files). anon can no longer read or insert.
+-- 2. WHEN: BEFORE-MERGE. The old ERP reads and inserts this table as a logged-in user and already sends store_id.
+-- 3. RISK: LOW.
+-- 4. SMOKE TEST: Production ERP (portal.eneezam.com) AND the dev preview: login as admin, creator and staff, Home, Orders (list, Edit Items,
+--    cancel on a TEST order only), Booked, Returns, Online Store, Meta Connect, Settings, Team; then drglow.online home / product /
+--    cart / checkout. Booked: run an export, then open the export history list and download the file.
+-- 5. ROLLBACK: The ROLLBACK block at the bottom restores a permissive policy and the default grants (policy names of the old state are in
+--    before-state-facts.md; the exact original text is whatever your pg_policies listing showed).
+-- Apply ONE file at a time. No BEGIN / COMMIT: policies are created first, the old permissive policy is dropped second, RLS / revokes come last,
+-- so a failure part-way never locks anyone out. Before-state facts: docs/sql/before-state-facts.md. Order and gating: docs/sql/RUNBOOK.md.
 
 drop policy if exists ne_export_history_service on public.export_history;
 drop policy if exists ne_export_history_select on public.export_history;
@@ -22,11 +28,12 @@ revoke all on public.export_history from anon, authenticated;
 grant select, insert on public.export_history to authenticated;
 grant all on public.export_history to service_role;
 
--- VERIFY (read-only)
+-- ============================== VERIFY (read-only)
+-- select relrowsecurity from pg_class where oid = 'public.export_history'::regclass;   -- expect true
 -- select policyname, roles, cmd from pg_policies where tablename = 'export_history';
+-- select grantee, privilege_type from information_schema.role_table_grants where table_name = 'export_history' and grantee in ('anon','authenticated');
 
--- ============================== ROLLBACK (stage 1d) ==============================
--- Old state: public SELECT true + INSERT.
+-- ============================== ROLLBACK
 -- drop policy if exists ne_export_history_service on public.export_history;
 -- drop policy if exists ne_export_history_select on public.export_history;
 -- drop policy if exists ne_export_history_insert on public.export_history;

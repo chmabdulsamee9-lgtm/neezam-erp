@@ -1,31 +1,38 @@
--- STAGE 4c-1: order_sync_history (RLS currently DISABLED). RISK: medium (Orders page: Sync to Shopify and Undo).
--- ORDER OF 4c: 1 order_sync_history, 2 shopify_orders_cache, 3 order_statuses, 4 user_stores, 5 profiles. Order matters; order_statuses
--- and shopify_orders_cache are the RISKIEST (Orders, Home, Booked, Returns all read them). Apply one file at a time and smoke-test BOTH
--- production ERP (portal.eneezam.com) and the dev preview after each: login, Home, Orders (list, Edit Items, cancel on a TEST order only,
--- Sync + Undo on a TEST order only), Booked, Returns, Online Store, Meta Connect, Settings, Team. On breakage run the ROLLBACK block NOW.
--- Needs stage 0 and stage 4a.
---
--- Browser: Orders.jsx selects the WHOLE table with no filter (fetchAllSyncHistory), upserts one snapshot per order, deletes on undo.
--- After this stage each user only sees the history of their own stores' orders. The dev ERP filter is unchanged; RLS does the scoping.
--- NEEDS-CHECK: columns (Q2). The table is keyed by order_id; I do not know whether it has a store_id column.
---   Variant A (store_id exists): scope directly.   Variant B (no store_id): scope through order_statuses / shopify_orders_cache.
--- CREATE POLICY fails if the column does not exist, BEFORE anything is dropped, so a wrong guess changes nothing: then use variant B.
--- Triggers (Q6): if a trigger on this table writes to an RLS table as the invoking user, flag it to me; do not guess.
+-- STAGE 4c-1: order_sync_history (RLS currently DISABLED)
+-- 1. WHAT IT DOES: Turns RLS on. The BROWSER uses this table (Orders.jsx: reads ALL rows with no filter, upserts one snapshot per order before a
+--    Shopify sync, deletes it on undo). The table has NO store_id column, so each row is scoped through its order: the caller needs
+--    access to the store of the order_statuses row (or, for an order with no status row yet, the shopify_orders_cache row). Done with
+--    a SECURITY DEFINER helper has_order_access(text) so it works whatever the RLS state of those tables is.
+-- 2. WHEN: BEFORE-MERGE. The old ERP's reads, upserts and deletes are all of orders the user can already see, which the policy allows.
+-- 3. RISK: MEDIUM (Orders: Sync to Shopify and Undo Sync).
+-- 4. SMOKE TEST: Production ERP (portal.eneezam.com) AND the dev preview: login as admin, creator and staff, Home, Orders (list, Edit Items,
+--    cancel on a TEST order only), Booked, Returns, Online Store, Meta Connect, Settings, Team; then drglow.online home / product /
+--    cart / checkout. Orders: Sync a TEST order, then Undo it; the Undo button must appear for previously synced orders.
+-- 5. ROLLBACK: The ROLLBACK block disables RLS and restores the full grants.
+-- Apply ONE file at a time. No BEGIN / COMMIT: policies are created first, the old permissive policy is dropped second, RLS / revokes come last,
+-- so a failure part-way never locks anyone out. Before-state facts: docs/sql/before-state-facts.md. Order and gating: docs/sql/RUNBOOK.md.
+
+-- ORDER OF 4c: 1 order_sync_history, 2 shopify_orders_cache, 3 order_statuses, 4 user_stores, 5 profiles.
+-- NEEDS-CHECK: order_sync_history.order_id and order_statuses.order_id / shopify_orders_cache.id are compared as text, which works for text and numeric ids.
+-- NEEDS-CHECK (Q6-style): this table has no triggers according to the owner's results (only order_statuses, product_costs and stores have triggers).
+
+create or replace function public.has_order_access(p_order_id text)
+returns boolean language sql stable security definer set search_path = public
+as $$
+  select p_order_id is not null and (
+    auth.role() = 'service_role'
+    or exists (select 1 from public.order_statuses os where os.order_id::text = p_order_id and public.has_store_access(os.store_id))
+    or exists (select 1 from public.shopify_orders_cache c where c.id::text = p_order_id and public.has_store_access(c.store_id))
+  );
+$$;
+revoke all on function public.has_order_access(text) from public, anon;
+grant execute on function public.has_order_access(text) to authenticated, service_role;
 
 drop policy if exists ne_order_sync_history_service on public.order_sync_history;
 drop policy if exists ne_order_sync_history_all on public.order_sync_history;
 create policy ne_order_sync_history_service on public.order_sync_history for all to service_role using (true) with check (true);
--- variant A
 create policy ne_order_sync_history_all on public.order_sync_history for all to authenticated
-  using (public.has_store_access(store_id)) with check (public.has_store_access(store_id));
--- variant B, use INSTEAD of variant A:
--- create policy ne_order_sync_history_all on public.order_sync_history for all to authenticated
---   using (exists (select 1 from public.order_statuses os where os.order_id::text = order_sync_history.order_id::text and public.has_store_access(os.store_id))
---       or exists (select 1 from public.shopify_orders_cache c where c.id::text = order_sync_history.order_id::text and public.has_store_access(c.store_id)))
---   with check (exists (select 1 from public.order_statuses os where os.order_id::text = order_sync_history.order_id::text and public.has_store_access(os.store_id))
---       or exists (select 1 from public.shopify_orders_cache c where c.id::text = order_sync_history.order_id::text and public.has_store_access(c.store_id)));
--- NOTE for variant A: the dev ERP upsert of a snapshot does not send store_id today (Orders.jsx ensureHistorySnapshot). If you choose
--- variant A, tell me and I add store_id to that upsert before you apply this file. Variant B needs no ERP change.
+  using (public.has_order_access(order_id::text)) with check (public.has_order_access(order_id::text));
 
 do $$ declare r record; begin
   for r in select policyname from pg_policies where schemaname = 'public' and tablename = 'order_sync_history' and policyname not like 'ne\_%' escape '\' loop
@@ -38,13 +45,13 @@ revoke all on public.order_sync_history from anon, authenticated;
 grant select, insert, update, delete on public.order_sync_history to authenticated;
 grant all on public.order_sync_history to service_role;
 
--- VERIFY (read-only)
+-- ============================== VERIFY (read-only)
 -- select relrowsecurity from pg_class where oid = 'public.order_sync_history'::regclass;   -- expect true
--- As a normal admin, Orders > an order with a past Sync still offers Undo.
+-- As an admin: select count(*) from order_sync_history  -> only rows of that admin's orders (less than the total).
 
--- ============================== ROLLBACK (stage 4c-1) ==============================
--- Old state: RLS disabled, full grants to anon and authenticated.
+-- ============================== ROLLBACK
 -- drop policy if exists ne_order_sync_history_service on public.order_sync_history;
 -- drop policy if exists ne_order_sync_history_all on public.order_sync_history;
 -- alter table public.order_sync_history disable row level security;
 -- grant all on public.order_sync_history to anon, authenticated, service_role;
+-- drop function if exists public.has_order_access(text);   -- only after nothing else uses it

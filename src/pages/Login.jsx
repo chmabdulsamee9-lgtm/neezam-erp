@@ -176,37 +176,15 @@ export default function Login() {
       const verifyData = await verifyRes.json()
       if (verifyData.error) { setError(verifyData.error); setLoading(false); return }
 
-      // OTP verified — ab asal account/brand/profile banao
-      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ email, password })
-      if (signUpError) { setError(signUpError.message); setLoading(false); return }
-      const userId = signUpData.user?.id
-      if (!userId) { setError('Signup mein masla hua, dobara try karo'); setLoading(false); return }
-
-      const { data: storeData, error: storeError } = await supabase
-        .from('stores')
-        .insert({ store_name: brandName.trim(), user_id: userId })
-        .select('id, eneezam_id')
-        .single()
-      if (storeError) { setError('Brand create karne mein error: ' + storeError.message); setLoading(false); return }
-
-      await supabase.from('profiles').insert({
-        id: userId,
-        email,
-        full_name: fullName.trim(),
-        phone: phone.trim(),
-        role: 'admin',
-        approved: false,
+      // OTP verified — account, brand, profile, store link and the approval request are all created by the worker
+      // (the browser has no session during sign-up, and these tables are protected by row-level security)
+      const createRes = await fetch(`${CF_URL}/signup-create-account`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, code: signupOtp.trim(), password, brand_name: brandName.trim(), full_name: fullName.trim(), phone: phone.trim() }),
       })
-
-      await supabase.from('user_stores').insert({ user_id: userId, store_id: storeData.id })
-
-      // Subscription request — pending_approval, creator Master Dashboard se approve karega.
-      // store_id yahan eneezam_id-based hai (stores.id UUID nahi). disabled_modules/monthly_order_limit/
-      // reminder_enabled sab DB defaults se fully-open aate hain — plan/addon ab access-gating se decoupled hain.
-      await supabase.from('store_subscriptions').insert({
-        store_id: storeData.eneezam_id,
-        status: 'pending_approval',
-      })
+      const createData = await createRes.json().catch(() => ({}))
+      if (!createRes.ok || !createData.success) { setError(createData.error || 'Signup mein masla hua, dobara try karo'); setLoading(false); return }
 
       // Welcome email best-effort hai — fail ho to bhi signup complete maana jayega
       fetch(`${CF_URL}/send-welcome-email`, {

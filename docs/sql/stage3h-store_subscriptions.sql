@@ -1,42 +1,49 @@
--- STAGE 3h: store_subscriptions. RISK: medium (sign-up, module access control, quota banner, creator approvals).
--- Needs stage 0 (and stage 4c user_stores is NOT required). Apply one table at a time; smoke-test production ERP + dev preview after
--- it (login as a normal admin: Home loads, modules visible; login as creator: Master dashboard, approve/edit access on a TEST store;
--- sign-up of a TEST account on dev preview only). On breakage run the ROLLBACK block immediately.
--- INVESTIGATE result: store_subscriptions.store_id is stores.eneezam_id (text), not stores.id. Browser code:
---   select (own store: App.jsx refreshStoreSubscription; creator: all stores), insert (Login sign-up: status 'pending_approval';
---   creator: Master dashboard approve/access), update (creator only: App.jsx 559/1594).
--- Policies: SELECT = has access to the store with that eneezam_id; INSERT = creator any row, or anyone for their own store only as
--- 'pending_approval' (so nobody can self-approve); UPDATE / DELETE = creator only. The worker uses the service key.
--- NEEDS-CHECK: the columns `status` and `store_id` exist (they do in code); confirm with Q3.
+-- STAGE 3h: store_subscriptions
+-- 1. WHAT IT DOES: Closes the open `authenticated INSERT with_check true` policy: a member may insert only a 'pending_approval' request for their
+--    own store; everything else (approve, edit access, quota) stays with the existing creator policies and the worker. The existing
+--    SELECT policy (which maps through stores.eneezam_id) and the creator policies are NOT touched.
+-- 2. WHEN: BEFORE-MERGE. The old ERP's sign-up inserts {store_id: eneezam_id, status: 'pending_approval'} as the new user (Login.jsx),
+--    which the new policy allows once that user is linked to the store (user_stores row exists before the insert; stores.user_id is
+--    also accepted). If "Confirm email" is ON the old sign-up has no session and would already fail today.
+-- 3. RISK: MEDIUM (sign-up approval flow, module access, quota banner).
+-- 4. SMOKE TEST: Production ERP (portal.eneezam.com) AND the dev preview: login as admin, creator and staff, Home, Orders (list, Edit Items,
+--    cancel on a TEST order only), Booked, Returns, Online Store, Meta Connect, Settings, Team; then drglow.online home / product /
+--    cart / checkout. Log in as a normal admin (modules visible, no quota error); as the creator approve / edit access on a TEST
+--    store; sign up a TEST account on the dev preview (new code) and see it appear under pending approvals.
+-- 5. ROLLBACK: The ROLLBACK block recreates the open INSERT policy.
+-- Apply ONE file at a time. No BEGIN / COMMIT: policies are created first, the old permissive policy is dropped second, RLS / revokes come last,
+-- so a failure part-way never locks anyone out. Before-state facts: docs/sql/before-state-facts.md. Order and gating: docs/sql/RUNBOOK.md.
+
+-- store_subscriptions.store_id is TEXT = stores.eneezam_id, so the helper maps it. NEEDS-CHECK: the status value written by the ERP is
+-- 'pending_approval' (Login.jsx, worker /signup-create-account); the task text said 'pending', the code says 'pending_approval'.
 
 drop policy if exists ne_store_subscriptions_service on public.store_subscriptions;
-drop policy if exists ne_store_subscriptions_select on public.store_subscriptions;
-drop policy if exists ne_store_subscriptions_insert on public.store_subscriptions;
-drop policy if exists ne_store_subscriptions_update on public.store_subscriptions;
-drop policy if exists ne_store_subscriptions_delete on public.store_subscriptions;
+drop policy if exists ne_store_subscriptions_insert_pending on public.store_subscriptions;
 create policy ne_store_subscriptions_service on public.store_subscriptions for all to service_role using (true) with check (true);
-create policy ne_store_subscriptions_select on public.store_subscriptions for select to authenticated using (public.has_store_access_eneezam(store_id::text));
-create policy ne_store_subscriptions_insert on public.store_subscriptions for insert to authenticated
-  with check (public.is_creator() or (status = 'pending_approval' and public.has_store_access_eneezam(store_id::text)));
-create policy ne_store_subscriptions_update on public.store_subscriptions for update to authenticated using (public.is_creator()) with check (public.is_creator());
-create policy ne_store_subscriptions_delete on public.store_subscriptions for delete to authenticated using (public.is_creator());
+create policy ne_store_subscriptions_insert_pending on public.store_subscriptions for insert to authenticated
+  with check (status = 'pending_approval' and public.has_store_access_by_eneezam_id(store_id::text));
 
+-- drop ONLY the open insert policy(ies): authenticated INSERT with check = true. Creator policies and the SELECT policy stay.
 do $$ declare r record; begin
-  for r in select policyname from pg_policies where schemaname = 'public' and tablename = 'store_subscriptions' and policyname not like 'ne\_%' escape '\' loop
+  for r in select policyname from pg_policies
+            where schemaname = 'public' and tablename = 'store_subscriptions' and cmd = 'INSERT'
+              and policyname not like 'ne\_%' escape '\' and btrim(coalesce(with_check, 'true')) = 'true' loop
+    raise notice 'dropping open insert policy %', r.policyname;
     execute format('drop policy %I on public.store_subscriptions', r.policyname);
   end loop;
 end $$;
+
 alter table public.store_subscriptions enable row level security;
-revoke all on public.store_subscriptions from anon, authenticated;
-grant select, insert, update, delete on public.store_subscriptions to authenticated;
+revoke all on public.store_subscriptions from anon;
 grant all on public.store_subscriptions to service_role;
 
--- ============================== ROLLBACK (stage 3h) ==============================
--- Old state: authenticated could INSERT (check unknown) and SELECT; Q1 holds the exact original text.
+-- ============================== VERIFY (read-only)
+-- select policyname, roles, cmd, with_check from pg_policies where tablename = 'store_subscriptions' order by cmd, policyname;
+--   -- expect: the creator policies, the SELECT policy, ne_store_subscriptions_insert_pending, ne_store_subscriptions_service; no INSERT with check true
+-- as a normal admin: insert into store_subscriptions (store_id, status) values ('<own eneezam_id>', 'approved');   -- must FAIL
+
+-- ============================== ROLLBACK
 -- drop policy if exists ne_store_subscriptions_service on public.store_subscriptions;
--- drop policy if exists ne_store_subscriptions_select on public.store_subscriptions;
--- drop policy if exists ne_store_subscriptions_insert on public.store_subscriptions;
--- drop policy if exists ne_store_subscriptions_update on public.store_subscriptions;
--- drop policy if exists ne_store_subscriptions_delete on public.store_subscriptions;
--- create policy rollback_store_subscriptions_auth_all on public.store_subscriptions for all to authenticated using (true) with check (true);
--- grant all on public.store_subscriptions to authenticated, service_role;
+-- drop policy if exists ne_store_subscriptions_insert_pending on public.store_subscriptions;
+-- create policy rollback_store_subscriptions_auth_insert on public.store_subscriptions for insert to authenticated with check (true);
+-- grant all on public.store_subscriptions to anon, authenticated, service_role;
