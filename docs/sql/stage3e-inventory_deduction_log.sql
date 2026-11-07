@@ -1,4 +1,7 @@
 -- STAGE 3e: inventory_deduction_log
+-- GROUP: Group 1 (safe before the merge)
+-- PREREQUISITES: stage 0 (must be applied BEFORE stage 4c3)
+-- ONE-LINE SMOKE TEST: Profit & Loss loads; change the status of a TEST order.
 -- 1. WHAT IT DOES: Members read their store's inventory deductions (Profit & Loss). Trigger support: members may INSERT rows for their own store
 --    (deduct_inventory_for_order runs as the user). Before: any merchant could read every tenant's rows (authenticated SELECT true),
 --    and no authenticated INSERT policy existed.

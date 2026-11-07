@@ -1,10 +1,12 @@
 -- STAGE 2: column-level lockdown of the secret columns on public.stores
+-- GROUP: Group 2 ONLY, after production redeploy
+-- PREREQUISITES: stage 1f + the security hotfix / dev ERP live in production
+-- ONE-LINE SMOKE TEST: Meta Connect, Store Connect and Courier Connect load with no "permission denied for column".
 -- 1. WHAT IT DOES: authenticated and anon lose SELECT / INSERT / UPDATE on exactly meta_access_token, dex_access_token, dex_refresh_token,
 --    shopify_client_secret and api_token; every other column keeps working through column-level grants computed from
 --    information_schema. service_role keeps all (the worker is unaffected). DELETE stays a table-level grant.
--- 2. WHEN: AFTER-MERGE. DO NOT RUN BEFORE THE SECURITY CODE IS IN PRODUCTION: the old production ERP does
---    supabase.from('stores').select('*') and writes tokens straight from the browser; after this stage `select *` fails with
---    "permission denied for column" and the whole ERP stops loading. Needs stage 1f.
+-- 2. WHEN: GROUP 2 ONLY, after production redeploy - NOT before the production redeploy: the old master ERP does select('*') on stores from the
+--    browser. Run it only once production runs the security hotfix / dev ERP and its tests passed there.
 -- 3. RISK: HIGH (one wrong assumption stops every page that loads the store row).
 -- 4. SMOKE TEST: Production ERP (portal.eneezam.com) AND the dev preview: login as admin, creator and staff, Home, Orders (list, Edit Items,
 --    cancel on a TEST order only), Booked, Returns, Online Store, Meta Connect, Settings, Team; then drglow.online home / product /

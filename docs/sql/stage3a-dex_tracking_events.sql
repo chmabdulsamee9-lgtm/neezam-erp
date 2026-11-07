@@ -1,7 +1,11 @@
 -- STAGE 3a: dex_tracking_events
+-- GROUP: Group 2 ONLY, after production redeploy
+-- PREREQUISITES: stage 0
+-- ONE-LINE SMOKE TEST: Booked list and export (failure reasons column).
 -- 1. WHAT IT DOES: Members read tracking events of their store (Booked: failure reasons). The worker writes with the service key. Before, any
 --    merchant could read every tenant's events (authenticated SELECT true).
--- 2. WHEN: BEFORE-MERGE. The old ERP only selects it as a logged-in user.
+-- 2. WHEN: GROUP 2 ONLY, after production redeploy - NOT before the production redeploy: the old master BookedOrders.jsx reads dex_tracking_events from
+--    the browser. Run it only once production runs the security hotfix / dev ERP and its tests passed there.
 -- 3. RISK: LOW.
 -- 4. SMOKE TEST: Production ERP (portal.eneezam.com) AND the dev preview: login as admin, creator and staff, Home, Orders (list, Edit Items,
 --    cancel on a TEST order only), Booked, Returns, Online Store, Meta Connect, Settings, Team; then drglow.online home / product /

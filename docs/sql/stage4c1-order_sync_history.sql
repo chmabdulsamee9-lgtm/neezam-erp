@@ -1,9 +1,13 @@
 -- STAGE 4c-1: order_sync_history (RLS currently DISABLED)
+-- GROUP: Group 2 ONLY, after production redeploy
+-- PREREQUISITES: stage 0
+-- ONE-LINE SMOKE TEST: Orders: Sync then Undo on a TEST order.
 -- 1. WHAT IT DOES: Turns RLS on. The BROWSER uses this table (Orders.jsx: reads ALL rows with no filter, upserts one snapshot per order before a
 --    Shopify sync, deletes it on undo). The table has NO store_id column, so each row is scoped through its order: the caller needs
 --    access to the store of the order_statuses row (or, for an order with no status row yet, the shopify_orders_cache row). Done with
 --    a SECURITY DEFINER helper has_order_access(text) so it works whatever the RLS state of those tables is.
--- 2. WHEN: BEFORE-MERGE. The old ERP's reads, upserts and deletes are all of orders the user can already see, which the policy allows.
+-- 2. WHEN: GROUP 2 ONLY, after production redeploy - NOT before the production redeploy: the old master Orders.jsx reads, upserts and deletes
+--    order_sync_history from the browser. Run it only once production runs the security hotfix / dev ERP and its tests passed there.
 -- 3. RISK: MEDIUM (Orders: Sync to Shopify and Undo Sync).
 -- 4. SMOKE TEST: Production ERP (portal.eneezam.com) AND the dev preview: login as admin, creator and staff, Home, Orders (list, Edit Items,
 --    cancel on a TEST order only), Booked, Returns, Online Store, Meta Connect, Settings, Team; then drglow.online home / product /

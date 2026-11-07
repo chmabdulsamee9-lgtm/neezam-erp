@@ -1,4 +1,8 @@
 -- STAGE 4c5a: profiles privilege-escalation fix (trigger functions only, no RLS change)
+-- GROUP: Group 1 (safe before the merge) - URGENT, apply right after stage 0
+-- PREREQUISITES: stage 0 (is_creator, is_admin, shares_store_with)
+-- ONE-LINE SMOKE TEST: TEST admin console: updating own role / approved changes nothing; Team edit of a teammate and the creator approving a TEST account still
+--    work.
 -- 1. WHAT IT DOES: Closes a hole that exists TODAY: the BEFORE UPDATE trigger function protect_profile_privileged_fields() lets any caller whose
 --    own profile role is 'admin' or 'creator' change everything, and every merchant owner is an admin, so an admin can set their own
 --    role to 'creator' (full takeover of every tenant) or their own approved = true. This file replaces the function and adds a
@@ -8,6 +12,8 @@
 --    row rules. Insert guard: a caller who is not the service role and not a creator cannot insert role 'creator' or approved = true.
 -- 2. WHEN: BEFORE-MERGE and URGENT: apply right after stage 0, before everything else in group 1. It does not depend on RLS (it protects
 --    while RLS on profiles is still off), and it changes nothing any page does today (checked in the audit below).
+--    NOTE: It is a trigger-function change, not a policy: it adds no restriction any page of the old ERP relies on (checked in the audit), so it is
+--    safe before the redeploy even though the old ERP uses profiles.
 -- 3. RISK: LOW to apply, HIGH value. The only behaviour it removes is self-promotion / self-approval.
 -- 4. SMOKE TEST: On the dev preview with a TEST admin account, open the browser console and run: `const {data:{session}} = await
 --    supabase.auth.getSession(); (await supabase.from('profiles').update({role:'creator', approved:true}).eq('id',
@@ -89,6 +95,7 @@ drop trigger if exists trg_profiles_block_privileged_insert on public.profiles;
 create trigger trg_profiles_block_privileged_insert before insert on public.profiles
   for each row execute function public.profiles_block_privileged_insert();
 
+-- OLD BROWSER SIGN-UP STILL PASSES the insert guard: it inserts role 'admin' with approved = false (master Login.jsx:222); the guard only rejects role 'creator' or approved = true.
 -- grants of the replaced function are unchanged (stage 4a keeps authenticated execute; trigger functions need no grant to fire)
 
 -- ============================== VERIFY (read-only)
@@ -101,8 +108,11 @@ create trigger trg_profiles_block_privileged_insert before insert on public.prof
 --   admin cannot self-promote to creator, cannot self-approve, can still manage teammates (name / phone / email), creator can approve pending users.
 
 -- ============================== ROLLBACK
+-- >>> PASTE THE EXACT ORIGINAL HERE <<< (the output of Q11 / STEP 0: `select pg_get_functiondef('public.protect_profile_privileged_fields'::regproc);`)
+-- If you saved it, run THAT text (a `create or replace function ...`) and IGNORE the reconstructed body below. The reconstructed body is only a fallback.
 -- drop trigger if exists trg_profiles_block_privileged_insert on public.profiles;
 -- drop function if exists public.profiles_block_privileged_insert();
+-- (the two statements above are replaced by this single copy; do not run them twice)
 -- Restore the previous UPDATE function. RECONSTRUCTED from the owner's description (acting role read from profiles where id = auth.uid(); anything other than
 -- admin / creator gets role, approved and email reset to OLD; admin and creator pass). Prefer the saved exact definition from STEP 0 if you have it:
 -- create or replace function public.protect_profile_privileged_fields()

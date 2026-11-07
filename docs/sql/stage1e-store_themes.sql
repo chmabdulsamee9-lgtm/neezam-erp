@@ -1,4 +1,7 @@
 -- STAGE 1e: store_themes
+-- GROUP: Group 1 (safe before the merge)
+-- PREREQUISITES: stage 0
+-- ONE-LINE SMOKE TEST: Online Store opens the editor (no publish); drglow.online home and a product load.
 -- 1. WHAT IT DOES: service_role only. The ERP reads and writes themes exclusively through the worker (list / get / create / update / publish /
 --    delete), and the storefront reads the published theme through the worker too, so no browser role needs this table.
 -- 2. WHEN: BEFORE-MERGE. Neither the old nor the new ERP touches the table directly (checked with git grep on master and dev).

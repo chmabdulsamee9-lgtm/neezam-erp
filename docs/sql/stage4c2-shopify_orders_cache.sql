@@ -1,8 +1,11 @@
 -- STAGE 4c-2: shopify_orders_cache (RLS currently DISABLED; customer name, phone, address)
+-- GROUP: Group 2 ONLY, after production redeploy
+-- PREREQUISITES: stage 0
+-- ONE-LINE SMOKE TEST: Orders list and search, Booked, and a status change in a second tab shows up (realtime).
 -- 1. WHAT IT DOES: Turns RLS on. Members read the cached orders of their stores only (has_store_access(store_id)); nobody in the browser writes it
 --    (all writers are the worker, service key, which bypasses RLS). anon loses everything.
--- 2. WHEN: BEFORE-MERGE. The old ERP reads it as a logged-in user and always filters by store_id (App.jsx, bookedOrdersData, GlobalSearch,
---    Booked, Store Connect, labels).
+-- 2. WHEN: GROUP 2 ONLY, after production redeploy - NOT before the production redeploy: the old master ERP reads shopify_orders_cache from the browser
+--    (App.jsx, Booked, Store Connect, labels). Run it only once production runs the security hotfix / dev ERP and its tests passed there.
 -- 3. RISK: HIGH (Orders, Home, Booked, Returns, global search and labels all read it).
 -- 4. SMOKE TEST: Production ERP (portal.eneezam.com) AND the dev preview: login as admin, creator and staff, Home, Orders (list, Edit Items,
 --    cancel on a TEST order only), Booked, Returns, Online Store, Meta Connect, Settings, Team; then drglow.online home / product /

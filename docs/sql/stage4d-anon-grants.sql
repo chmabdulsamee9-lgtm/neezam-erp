@@ -1,12 +1,14 @@
 -- STAGE 4d: anon grants cleanup (the final sweep)
+-- GROUP: Group 2 ONLY, after production redeploy (last table step)
+-- PREREQUISITES: every group 1 and group 2 file above applied
+-- ONE-LINE SMOKE TEST: Logged out: pricing page, Contact form, sign-up OTP mail; then log in.
 -- 1. WHAT IT DOES: Revokes every privilege of anon on all tables and sequences in schema public, then grants back ONLY: SELECT on addons and plans;
 --    INSERT on password_reset_requests; INSERT on contact_submissions. Grant-back list = what logged-out visitors need: the pricing
 --    page reads plans / addons; the public Contact form inserts into contact_submissions with the anon key (Contact.jsx);
 --    password_reset_requests is kept per the intended list (no code in either repo uses it today: the reset flow uses the worker +
 --    otp_verifications).
--- 2. WHEN: AFTER everything else (last of the table steps). The new grant on contact_submissions FIXES the contact form (today anon has no
---    INSERT, so the form fails); this is a behaviour change, an anon INSERT-only grant with RLS decides the rows. Spam risk: consider
---    a worker endpoint later.
+-- 2. WHEN: GROUP 2 ONLY, after production redeploy (last table step) - NOT before the production redeploy: the old master ERP reads plans / addons and
+--    inserts contact_submissions with the anon key. Run it only once production runs the security hotfix / dev ERP and its tests passed there.
 -- 3. RISK: MEDIUM (public pages: landing, pricing, contact form).
 -- 4. SMOKE TEST: Logged OUT on production and dev preview: landing page, pricing (plans and add-ons show), Contact form (submit a TEST message),
 --    sign-up and forgot-password (OTP mail arrives), login. Then logged in: Home, Orders, Booked, Returns, Online Store, Meta

@@ -1,4 +1,7 @@
 -- STAGE 1b: store_custom_domains
+-- GROUP: Group 1 (safe before the merge)
+-- PREREQUISITES: stage 0
+-- ONE-LINE SMOKE TEST: Online Store shows the connected domain.
 -- 1. WHAT IT DOES: Members read their store's domains (the ERP embeds store_custom_domains(domain, role, status) in stores selects); every write is
 --    done by the worker with the service key. anon loses everything.
 -- 2. WHEN: BEFORE-MERGE. The old production ERP only reads this table as a logged-in user, which the new policy allows.

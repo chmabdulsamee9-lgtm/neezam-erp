@@ -1,4 +1,7 @@
 -- STAGE 3f: dex_rate_card
+-- GROUP: Group 1 (safe before the merge)
+-- PREREQUISITES: stage 0
+-- ONE-LINE SMOKE TEST: Finance Statement loads.
 -- 1. WHAT IT DOES: Everyone logged in keeps READ; only the creator can WRITE (global courier rates, not per store; no browser code writes it, the
 --    worker patches it with the service key). Before: authenticated ALL true.
 -- 2. WHEN: BEFORE-MERGE (no browser caller).

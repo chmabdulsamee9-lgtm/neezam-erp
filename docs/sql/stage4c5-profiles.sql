@@ -1,12 +1,14 @@
 -- STAGE 4c-5: profiles (RLS currently DISABLED; roles, approval flag, phone, email)
+-- GROUP: Group 2 ONLY, after production redeploy
+-- PREREQUISITES: stage 4c5a and stage 4c4; the security hotfix / dev ERP live in production
+-- ONE-LINE SMOKE TEST: Log in as admin, creator and staff; creator approves a TEST account; Team shows names.
 -- 1. WHAT IT DOES: Turns RLS on. SELECT: own row, a creator, or a user who shares a store with the caller (admin viewing the team). UPDATE: own
 --    row, a creator, or an admin updating a teammate (same semantics as today's profiles_update_self_or_privileged but through
 --    helpers: no self-query, no recursion). INSERT: only your own row, only as role 'admin' with approved = false (exactly what the
 --    sign-up writes). DELETE: creator only. The privilege trigger functions (no self-promotion, no self-approval, insert guard) are
 --    in stage4c5a-profiles-privilege-fix.sql, which MUST be applied first: it is also what makes the UPDATE-own-row policy safe.
--- 2. WHEN: Needs stage4c5a first (urgent, before-merge). This RLS step is AFTER-MERGE (conservative; same reasoning as 4c-4). It CAN run
---    before the merge only when the owner has confirmed "Confirm email" is OFF, because the old sign-up inserts its profile as the
---    new user. On the new code the profile is created by the worker, so it is independent of the setting.
+-- 2. WHEN: GROUP 2 ONLY, after production redeploy - NOT before the production redeploy: the old master ERP reads and writes profiles from the browser
+--    (App.jsx, Team, Orders, Login ...). Run it only once production runs the security hotfix / dev ERP and its tests passed there.
 -- 3. RISK: HIGH (login reads the profile; the master dashboard lists and approves accounts; Team lists members).
 -- 4. SMOKE TEST: Production ERP (portal.eneezam.com) AND the dev preview: login as admin, creator and staff, Home, Orders (list, Edit Items,
 --    cancel on a TEST order only), Booked, Returns, Online Store, Meta Connect, Settings, Team; then drglow.online home / product /

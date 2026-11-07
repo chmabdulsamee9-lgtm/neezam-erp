@@ -1,4 +1,7 @@
 -- STAGE 5c: whatsapp_sessions and whatsapp_replies (service_role only)
+-- GROUP: Group 3 (optional, last, after production redeploy) - BLOCKED until the owner answers the WhatsApp-server question
+-- PREREQUISITES: owner confirms (a) whether a separate WhatsApp server uses these tables and (b) that it uses the service key, or that none exists
+-- ONE-LINE SMOKE TEST: Send and receive one TEST WhatsApp message (if a server exists); the ERP WhatsApp page loads.
 -- 1. WHAT IT DOES: Turns RLS on and removes all access for anon and authenticated; only service_role keeps access. Today whatsapp_sessions has one
 --    {public} ALL true policy with RLS DISABLED (so everybody can read / write it) and anon has full privileges on whatsapp_replies.
 -- 2. WHEN: LAST STEP, BLOCKED until the owner confirms (a) whether a separate WhatsApp server uses these tables, and (b) that such a server

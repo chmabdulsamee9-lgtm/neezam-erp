@@ -1,4 +1,7 @@
 -- STAGE 4a: function EXECUTE grants in schema public
+-- GROUP: Group 1 (safe before the merge)
+-- PREREQUISITES: stage 0
+-- ONE-LINE SMOKE TEST: Booked add a remark, change a TEST order status, edit a product cost (fires the triggers).
 -- 1. WHAT IT DOES: For every function in the lists below: REVOKE EXECUTE from PUBLIC and anon, then GRANT EXECUTE explicitly to authenticated and
 --    service_role (revoking from PUBLIC also removes authenticated's implicit grant, so it is re-granted). Extension-owned functions
 --    (pg_trgm: gin_*, gtrgm_*, similarity*, word_similarity*, strict_word_similarity*, set_limit, show_*) are excluded in every loop
@@ -13,6 +16,16 @@
 -- Apply ONE file at a time. No BEGIN / COMMIT: policies are created first, the old permissive policy is dropped second, RLS / revokes come last,
 -- so a failure part-way never locks anyone out. Before-state facts: docs/sql/before-state-facts.md. Order and gating: docs/sql/RUNBOOK.md.
 
+-- FUNCTIONS TOUCHED (revoke EXECUTE from PUBLIC and anon; grant EXECUTE to authenticated and service_role; nothing is ever revoked from authenticated):
+--   definer:    append_order_remark, delete_store_cascade, get_next_local_order_number, protect_profile_privileged_fields, rls_auto_enable
+--   write:      charge_dropship_debit_for_order, create_return_record_if_needed, deduct_inventory_for_order, receive_return, sync_all_dropship_debits,
+--               sync_all_inventory_deductions, set_eneezam_id, generate_eneezam_id
+--   by pattern: every handle_* function (handle_dispatch_event, handle_order_returned, handle_order_shipped_dropship_debit, handle_product_cost_dropship_backfill)
+--               and every order_statuses_* function (order_statuses_preserve_set_once, order_statuses_touch_updated_at)
+--   read:       booked_classify, booked_final_bucket, build_matched_address, get_product_cost_as_of, get_store_stats, match_address, norm_pk_phone,
+--               normalize_addr_text, order_skus, order_source, soc_phone_key
+--   NOT touched: pg_trgm and any other extension-owned function (pg_depend deptype 'e'), the access helpers from stage 0, the *_impl functions from stage 4b
+--               (stage 4b revokes those itself), booked_page / orders_page / dashboard_stats / home_* / orders_filter_options / next_store_order_number (already authenticated-only).
 -- WHY authenticated MUST KEEP EXECUTE: the trigger functions are SECURITY INVOKER and call other functions, and EXECUTE is checked on every
 -- nested call (a trigger function itself needs no grant to fire, but what it calls does):
 --   handle_dispatch_event -> charge_dropship_debit_for_order, deduct_inventory_for_order

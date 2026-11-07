@@ -1,10 +1,13 @@
 -- STAGE 1f: stores
+-- GROUP: Group 2 ONLY, after production redeploy
+-- PREREQUISITES: stage 0 + the security hotfix / dev ERP live in production
+-- ONE-LINE SMOKE TEST: Settings > add a brand on a TEST account, sign up a TEST account, drglow.online home loads.
 -- 1. WHAT IT DOES: Row-level security on stores for authenticated only: SELECT own / team / owned stores (creator: all), INSERT only with user_id =
 --    the caller, UPDATE by members (non-secret columns are all the browser touches), DELETE by the owner, an admin linked to the
 --    store, or the creator. anon gets nothing; service_role keeps everything.
--- 2. WHEN: AFTER-MERGE (needs the new ERP code in production). The old production ERP inserts a brand WITHOUT user_id (Login sign-up,
---    Settings > add brand), which this INSERT policy rejects. The hotfix branch / dev code sends user_id and moves sign-up to the
---    worker (/signup-create-account).
+-- 2. WHEN: GROUP 2 ONLY, after production redeploy - NOT before the production redeploy: the old master ERP selects / inserts / updates / deletes
+--    stores from the browser (Login, Settings, Store Connect, Meta Connect, Courier Connect, App.jsx). Run it only once production runs the
+--    security hotfix / dev ERP and its tests passed there.
 -- 3. RISK: HIGHEST of stage 1 (every page loads the store row; the worker's getStores() and the storefront depend on it, both use the
 --    service key and are unaffected).
 -- 4. SMOKE TEST: Production ERP (portal.eneezam.com) AND the dev preview: login as admin, creator and staff, Home, Orders (list, Edit Items,
@@ -16,6 +19,11 @@
 -- Apply ONE file at a time. No BEGIN / COMMIT: policies are created first, the old permissive policy is dropped second, RLS / revokes come last,
 -- so a failure part-way never locks anyone out. Before-state facts: docs/sql/before-state-facts.md. Order and gating: docs/sql/RUNBOOK.md.
 
+-- OWNER LOGIC and the 9 stores. is_store_owner(store) is true for the service role, for stores.user_id = the caller, and, when stores.user_id is NULL,
+-- for an ADMIN linked to that store in user_stores. 8 of the 9 stores have user_id NULL (Bloomvera, dewarekhas.pk, Doctor Rubina, DoctorSaba, DR GLOW, Innovenza,
+-- KhasWall.com, Quench); the 9th has user_id set (its name was not given to me: not sure which one it is).
+-- AFTER THIS FILE, per store: SELECT = creator, owner (stores.user_id), or anyone linked in user_stores. DELETE = is_store_admin(): the creator, the owner, or ANY admin linked to the store
+-- (so on all 9 stores the linked admin can delete their own store row from Store Connect; staff cannot). INSERT = only with user_id = the caller (new brands are owned from now on).
 -- UPDATE is for members (not only admins) on purpose: staff with the courier permission save default weights and the label mode from the browser.
 -- Which columns a member may change is decided by stage 2 (secret columns are blocked there).
 

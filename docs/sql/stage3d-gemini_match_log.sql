@@ -1,4 +1,7 @@
 -- STAGE 3d: gemini_match_log
+-- GROUP: Group 1 (safe before the merge)
+-- PREREQUISITES: stage 0
+-- ONE-LINE SMOKE TEST: Orders: use the address match on a TEST order.
 -- 1. WHAT IT DOES: service_role only. Only the worker uses this table (address matching); no browser code references it. Before, any merchant could
 --    read every tenant's match log.
 -- 2. WHEN: BEFORE-MERGE (no browser caller in either ERP version).

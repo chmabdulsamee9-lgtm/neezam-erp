@@ -1,9 +1,13 @@
 -- STAGE 3g: dev_monitoring_log
+-- GROUP: Group 2 ONLY, after production redeploy
+-- PREREQUISITES: stage 0
+-- ONE-LINE SMOKE TEST: Creator opens Dev Monitor; a normal admin cannot see it.
 -- 1. WHAT IT DOES: READ is creator only (the monitor pages are under master-dashboard). INSERT stays for authenticated, but only with their own
 --    user_id (or none). anon INSERT is dropped: the browser logs only on dev/preview hosts (isDevEnv) and only through the Supabase
 --    client of the logged-in user; the worker inserts with the service key. Before: authenticated SELECT true, INSERT for anon,
 --    authenticated, service_role.
--- 2. WHEN: BEFORE-MERGE (production never logs from the browser; the old dev-host logging keeps working for logged-in users).
+-- 2. WHEN: GROUP 2 ONLY, after production redeploy - NOT before the production redeploy: the old master App.jsx and monitor pages read and insert
+--    dev_monitoring_log from the browser. Run it only once production runs the security hotfix / dev ERP and its tests passed there.
 -- 3. RISK: LOW (developer tooling only).
 -- 4. SMOKE TEST: Production ERP (portal.eneezam.com) AND the dev preview: login as admin, creator and staff, Home, Orders (list, Edit Items,
 --    cancel on a TEST order only), Booked, Returns, Online Store, Meta Connect, Settings, Team; then drglow.online home / product /

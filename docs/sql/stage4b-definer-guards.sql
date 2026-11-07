@@ -1,4 +1,7 @@
 -- STAGE 4b: guards for the SECURITY DEFINER functions that bypass RLS
+-- GROUP: Group 1 (safe before the merge)
+-- PREREQUISITES: stage 0 and stage 4a (this file sets its own grants)
+-- ONE-LINE SMOKE TEST: Booked: add a remark on a TEST order works; a foreign store's order is refused.
 -- 1. WHAT IT DOES: The five definer functions were described to me but their BODIES were never pasted, so this file does NOT re-create any body
 --    (that would risk changing business logic). Instead each function is wrapped: the original is renamed to <name>_impl (body
 --    untouched, search_path pinned, callable by service_role only) and a new SECURITY DEFINER wrapper with the same name, signature,
@@ -7,6 +10,8 @@
 -- 2. WHEN: BEFORE-MERGE for get_next_local_order_number and delete_store_cascade (the worker calls them with the service key; the browser
 --    never does). append_order_remark is called by the old ERP's Booked page as a logged-in user for its own orders, which the guard
 --    allows, so it is also safe before the merge. Needs stage 0 and stage 4a (apply 4a first; this file sets its own grants).
+--    NOTE: the old master BookedOrders.jsx calls append_order_remark; the wrapper allows exactly its own store's orders, so it is a function guard and
+--    not a table policy.
 -- 3. RISK: MEDIUM (Booked remarks, new native order numbers, store deletion).
 -- 4. SMOKE TEST: Production ERP (portal.eneezam.com) AND the dev preview: login as admin, creator and staff, Home, Orders (list, Edit Items,
 --    cancel on a TEST order only), Booked, Returns, Online Store, Meta Connect, Settings, Team; then drglow.online home / product /
@@ -19,6 +24,13 @@
 
 -- GUARD RULE: allowed when auth.role() = 'service_role' (the worker) or public.has_store_access(<the store of the row>); anything else raises
 -- 'forbidden' (SQLSTATE 42501). Calls from the SQL editor (no JWT) are refused too: use the service key or run the *_impl function directly.
+-- OWNER LOGIC and the 9 stores. is_store_owner(store) is true for the service role, for stores.user_id = the caller, and, when stores.user_id is NULL,
+-- for an ADMIN linked to that store in user_stores. 8 of the 9 stores have user_id NULL (Bloomvera, dewarekhas.pk, Doctor Rubina, DoctorSaba, DR GLOW, Innovenza,
+-- KhasWall.com, Quench); the 9th has user_id set (its name was not given to me: not sure which one it is).
+-- AFTER THIS FILE, delete_store_cascade (called by the worker /admin-delete-store with the service key, and by nobody else): the service key, a creator, or the OWNER of the store
+-- (for the 8 NULL-owner stores that is their linked admin, for the 9th the user in stores.user_id) may run it through the API; staff and other merchants get 'forbidden'.
+-- NOTE: the worker route itself still lets ANY admin pass a foreign store_id (it uses the service key, which bypasses this guard): see the audit, section on privilege escalation.
+-- RE-RUN: safe. Each block checks first; if <name>_impl exists it prints a notice and does nothing. A wrong signature stops with an error and changes nothing.
 -- NEEDS-CHECK before applying: nothing else (a trigger, a view, another function) may call these by name expecting the old body; the owner's
 -- trigger list shows none (docs/sql/before-state-facts.md).
 
@@ -30,11 +42,13 @@ begin
   select p.oid, pg_get_function_result(p.oid), pg_get_function_identity_arguments(p.oid) into v_oid, v_ret, v_args
     from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = 'append_order_remark';
   if v_oid is null then raise exception 'append_order_remark not found: nothing changed'; end if;
+  -- re-run safety: if the original was already wrapped, do nothing (never rename a wrapper into _impl, never lose the original body)
+  if exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'append_order_remark_impl') then
+    raise notice 'append_order_remark: already applied, skipped';
+    return;
+  end if;
   if v_args <> 'p_order_id text, p_manual_order_number text, p_text text, p_author text' then raise exception 'append_order_remark has an unexpected signature (%): nothing changed', v_args; end if;
   if v_ret like 'SETOF%' or v_ret like 'TABLE%' then raise exception 'append_order_remark returns a set (%): not supported here, nothing changed', v_ret; end if;
-  if exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'append_order_remark_impl') then
-    raise exception 'append_order_remark_impl already exists: this block was already applied';
-  end if;
 
   -- 1. the ORIGINAL function keeps its body untouched; it is renamed, pinned to search_path public, and made callable by service_role only
   execute 'alter function public.append_order_remark(text, text, text, text) rename to append_order_remark_impl';
@@ -69,11 +83,13 @@ begin
   select p.oid, pg_get_function_result(p.oid), pg_get_function_identity_arguments(p.oid) into v_oid, v_ret, v_args
     from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = 'get_next_local_order_number';
   if v_oid is null then raise exception 'get_next_local_order_number not found: nothing changed'; end if;
+  -- re-run safety: if the original was already wrapped, do nothing (never rename a wrapper into _impl, never lose the original body)
+  if exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'get_next_local_order_number_impl') then
+    raise notice 'get_next_local_order_number: already applied, skipped';
+    return;
+  end if;
   if v_args <> 'p_store_id uuid' then raise exception 'get_next_local_order_number has an unexpected signature (%): nothing changed', v_args; end if;
   if v_ret like 'SETOF%' or v_ret like 'TABLE%' then raise exception 'get_next_local_order_number returns a set (%): not supported here, nothing changed', v_ret; end if;
-  if exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'get_next_local_order_number_impl') then
-    raise exception 'get_next_local_order_number_impl already exists: this block was already applied';
-  end if;
 
   -- 1. the ORIGINAL function keeps its body untouched; it is renamed, pinned to search_path public, and made callable by service_role only
   execute 'alter function public.get_next_local_order_number(uuid) rename to get_next_local_order_number_impl';
@@ -105,11 +121,13 @@ begin
   select p.oid, pg_get_function_result(p.oid), pg_get_function_identity_arguments(p.oid) into v_oid, v_ret, v_args
     from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = 'delete_store_cascade';
   if v_oid is null then raise exception 'delete_store_cascade not found: nothing changed'; end if;
+  -- re-run safety: if the original was already wrapped, do nothing (never rename a wrapper into _impl, never lose the original body)
+  if exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'delete_store_cascade_impl') then
+    raise notice 'delete_store_cascade: already applied, skipped';
+    return;
+  end if;
   if v_args <> 'p_store_id uuid' then raise exception 'delete_store_cascade has an unexpected signature (%): nothing changed', v_args; end if;
   if v_ret like 'SETOF%' or v_ret like 'TABLE%' then raise exception 'delete_store_cascade returns a set (%): not supported here, nothing changed', v_ret; end if;
-  if exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'delete_store_cascade_impl') then
-    raise exception 'delete_store_cascade_impl already exists: this block was already applied';
-  end if;
 
   -- 1. the ORIGINAL function keeps its body untouched; it is renamed, pinned to search_path public, and made callable by service_role only
   execute 'alter function public.delete_store_cascade(uuid) rename to delete_store_cascade_impl';
@@ -123,7 +141,7 @@ begin
     returns %s language plpgsql security definer set search_path = public as $b$
     begin
       if auth.role() is distinct from 'service_role' then
-        if not public.is_store_owner(p_store_id) then raise exception 'forbidden' using errcode = '42501'; end if;
+        if not (public.is_creator() or public.is_store_owner(p_store_id)) then raise exception 'forbidden' using errcode = '42501'; end if;
       end if;
       %s public.delete_store_cascade_impl(p_store_id);
     end $b$ $f$, v_ret, case when v_ret = 'void' then 'perform' else 'return' end);

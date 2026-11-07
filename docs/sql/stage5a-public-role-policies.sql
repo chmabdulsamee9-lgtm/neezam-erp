@@ -1,9 +1,12 @@
 -- STAGE 5a: switch {public}-role member policies to authenticated
+-- GROUP: Group 3 (optional, last, after production redeploy)
+-- PREREQUISITES: stage 0
+-- ONE-LINE SMOKE TEST: Products, Suppliers, pickup addresses and product costing still load.
 -- 1. WHAT IT DOES: For each listed table, every policy whose role is {public} is altered to TO authenticated (ALTER POLICY ... TO). The policy text
 --    (who may see which rows) is unchanged; anon simply stops matching. The exact list of changed policies is printed with RAISE
 --    NOTICE: SAVE that output, it is your rollback record.
--- 2. WHEN: AFTER-MERGE group, optional. Safe before the merge too (all ERP code uses these tables as a logged-in user), but it is the
---    lowest-value step, so it comes after the table fixes.
+-- 2. WHEN: GROUP 3 (optional, last, after production redeploy) - NOT before the production redeploy: the old master ERP uses these tables from the
+--    browser. Run it only once production runs the security hotfix / dev ERP and its tests passed there.
 -- 3. RISK: LOW-MEDIUM (these are the Products, Suppliers, pickup addresses and cost screens).
 -- 4. SMOKE TEST: Production ERP (portal.eneezam.com) AND the dev preview: login as admin, creator and staff, Home, Orders (list, Edit Items,
 --    cancel on a TEST order only), Booked, Returns, Online Store, Meta Connect, Settings, Team; then drglow.online home / product /

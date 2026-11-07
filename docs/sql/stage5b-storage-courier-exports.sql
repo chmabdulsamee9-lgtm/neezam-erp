@@ -1,9 +1,13 @@
 -- STAGE 5b: courier-exports storage bucket scoped to the store folder
+-- GROUP: Group 3 (optional, last, after production redeploy)
+-- PREREQUISITES: stage 0
+-- ONE-LINE SMOKE TEST: Booked: export (upload), then download from the history list.
 -- 1. WHAT IT DOES: Replaces the two unscoped storage policies (authenticated SELECT and INSERT for bucket_id = 'courier-exports') with policies
 --    that require the first folder of the object path to be a store the caller can access. The ERP uploads to
 --    `${storeId}/${fileName}` and reads through createSignedUrl with the user's JWT (BookedOrders.jsx; the master ERP uses the same
 --    path), so the first path segment IS the store id.
--- 2. WHEN: AFTER-MERGE group, optional (works with the old ERP too, same path convention).
+-- 2. WHEN: GROUP 3 (optional, last, after production redeploy) - NOT before the production redeploy: the old master ERP uploads to and signs URLs from
+--    this bucket (same ${storeId}/file path). Run it only once production runs the security hotfix / dev ERP and its tests passed there.
 -- 3. RISK: LOW-MEDIUM (Booked exports).
 -- 4. SMOKE TEST: Production ERP (portal.eneezam.com) AND the dev preview: login as admin, creator and staff, Home, Orders (list, Edit Items,
 --    cancel on a TEST order only), Booked, Returns, Online Store, Meta Connect, Settings, Team; then drglow.online home / product /

@@ -1,10 +1,12 @@
 -- STAGE 3h: store_subscriptions
+-- GROUP: Group 2 ONLY, after production redeploy
+-- PREREQUISITES: stage 0
+-- ONE-LINE SMOKE TEST: Admin sees modules and no quota error; creator approves a TEST store; sign up a TEST account.
 -- 1. WHAT IT DOES: Closes the open `authenticated INSERT with_check true` policy: a member may insert only a 'pending_approval' request for their
 --    own store; everything else (approve, edit access, quota) stays with the existing creator policies and the worker. The existing
 --    SELECT policy (which maps through stores.eneezam_id) and the creator policies are NOT touched.
--- 2. WHEN: BEFORE-MERGE. The old ERP's sign-up inserts {store_id: eneezam_id, status: 'pending_approval'} as the new user (Login.jsx),
---    which the new policy allows once that user is linked to the store (user_stores row exists before the insert; stores.user_id is
---    also accepted). If "Confirm email" is ON the old sign-up has no session and would already fail today.
+-- 2. WHEN: GROUP 2 ONLY, after production redeploy - NOT before the production redeploy: the old master App.jsx and Login.jsx read and insert
+--    store_subscriptions from the browser. Run it only once production runs the security hotfix / dev ERP and its tests passed there.
 -- 3. RISK: MEDIUM (sign-up approval flow, module access, quota banner).
 -- 4. SMOKE TEST: Production ERP (portal.eneezam.com) AND the dev preview: login as admin, creator and staff, Home, Orders (list, Edit Items,
 --    cancel on a TEST order only), Booked, Returns, Online Store, Meta Connect, Settings, Team; then drglow.online home / product /

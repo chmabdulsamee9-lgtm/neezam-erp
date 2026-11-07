@@ -1,4 +1,7 @@
 -- STAGE 3b: returns
+-- GROUP: Group 1 (safe before the merge)
+-- PREREQUISITES: stage 0 (must be applied BEFORE stage 4c3)
+-- ONE-LINE SMOKE TEST: Returns page loads; change the status of a TEST order.
 -- 1. WHAT IT DOES: Members read their store's returns (Profit & Loss, Returns). Trigger support: members may INSERT rows for their own store
 --    (create_return_record_if_needed runs as the user). Before: any merchant could read every tenant's rows (authenticated SELECT
 --    true), and no authenticated INSERT policy existed.

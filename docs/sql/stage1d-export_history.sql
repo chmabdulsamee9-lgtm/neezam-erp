@@ -1,6 +1,10 @@
 -- STAGE 1d: export_history
+-- GROUP: Group 2 ONLY, after production redeploy
+-- PREREQUISITES: stage 0
+-- ONE-LINE SMOKE TEST: Booked: run an export, open the history list, download the file.
 -- 1. WHAT IT DOES: Members read and add export-history rows of their store (Booked: the list of exported files). anon can no longer read or insert.
--- 2. WHEN: BEFORE-MERGE. The old ERP reads and inserts this table as a logged-in user and already sends store_id.
+-- 2. WHEN: GROUP 2 ONLY, after production redeploy - NOT before the production redeploy: the old master BookedOrders.jsx reads and inserts
+--    export_history from the browser. Run it only once production runs the security hotfix / dev ERP and its tests passed there.
 -- 3. RISK: LOW.
 -- 4. SMOKE TEST: Production ERP (portal.eneezam.com) AND the dev preview: login as admin, creator and staff, Home, Orders (list, Edit Items,
 --    cancel on a TEST order only), Booked, Returns, Online Store, Meta Connect, Settings, Team; then drglow.online home / product /

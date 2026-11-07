@@ -1,7 +1,11 @@
 -- STAGE 1c: courier_feedback_log
+-- GROUP: Group 2 ONLY, after production redeploy
+-- PREREQUISITES: stage 0
+-- ONE-LINE SMOKE TEST: Booked: expand an order's courier history.
 -- 1. WHAT IT DOES: Members read feedback rows of their store (Booked: expanded order history and export); the worker inserts rows with the service
 --    key. anon can no longer read or insert.
--- 2. WHEN: BEFORE-MERGE. The old production ERP only selects this table as a logged-in user.
+-- 2. WHEN: GROUP 2 ONLY, after production redeploy - NOT before the production redeploy: the old master BookedOrders.jsx reads courier_feedback_log
+--    from the browser. Run it only once production runs the security hotfix / dev ERP and its tests passed there.
 -- 3. RISK: LOW-MEDIUM.
 -- 4. SMOKE TEST: Production ERP (portal.eneezam.com) AND the dev preview: login as admin, creator and staff, Home, Orders (list, Edit Items,
 --    cancel on a TEST order only), Booked, Returns, Online Store, Meta Connect, Settings, Team; then drglow.online home / product /

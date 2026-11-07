@@ -1,12 +1,14 @@
 -- STAGE 4c-3: order_statuses (RLS currently DISABLED)
+-- GROUP: Group 2 ONLY, after production redeploy
+-- PREREQUISITES: stages 3b, 3c, 3e and 4a applied; the security hotfix / dev ERP live in production (it sends store_id on every upsert)
+-- ONE-LINE SMOKE TEST: On a TEST order: change status, Edit Items, cancel; Returns page; edit a product cost; Booked.
 -- 1. WHAT IT DOES: Turns RLS on. Members select, insert and update the statuses of their store's orders (has_store_access(store_id)); there is no
 --    DELETE for the browser. The INVOKER trigger functions are NOT changed (making them SECURITY DEFINER would let anybody call them
 --    cross-tenant through rpc): they keep running as the logged-in user and write to returns, dropship_debit_log,
 --    inventory_deduction_log, supplier_transactions, expenses, which have INSERT policies for members (stage 3b, 3c, 3e and the
 --    existing member policies).
--- 2. WHEN: AFTER-MERGE. The OLD production ERP upserts order_statuses WITHOUT store_id in 5 places (cancellation reason, sync timestamp,
---    edit items, billing fallback, undo); Postgres checks the INSERT arm of an upsert first, so those would be rejected. The hotfix /
---    dev ERP sends store_id on all of them. ALSO requires stage 3b, 3c, 3e applied first (trigger support) and stage 4a.
+-- 2. WHEN: GROUP 2 ONLY, after production redeploy - NOT before the production redeploy: the old master ERP upserts order_statuses from the browser,
+--    five times without store_id. Run it only once production runs the security hotfix / dev ERP and its tests passed there.
 -- 3. RISK: HIGHEST of the whole plan (every order action in Orders, Booked, Returns, Finance and Home reads or writes it; three triggers
 --    run on it).
 -- 4. SMOKE TEST: On BOTH production (after the hotfix is live) and dev preview: Orders list; change the courier/status on a TEST order only; Edit
