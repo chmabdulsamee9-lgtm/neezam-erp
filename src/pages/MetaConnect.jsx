@@ -1,23 +1,40 @@
-import { useState, useEffect } from "react";
-import { supabase } from "../supabase";
+import { useState, useEffect, useCallback } from "react";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
-import { fetchStoreRow, isMetaConnected } from "../lib/storeColumns";
 import { workerFetch } from "../lib/storeApi";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
+const PIXEL_RE = /^[0-9]{5,20}$/;
 
-const META_APP_ID = "1554596542737935";
-const META_REDIRECT_URI = "https://neezam-erp.pages.dev/auth/meta-callback";
-const META_SCOPES = "ads_management,ads_read,business_management,catalog_management,leads_retrieval,pages_show_list,pages_read_engagement,pages_manage_ads,pages_manage_metadata";
+// the result of the OAuth round trip comes back as ?meta=connected | cancelled | error&reason=...
+function bannerFromUrl(t) {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  const result = params.get("meta");
+  if (!result) return null;
+  if (result === "connected") return { kind: "success", text: t("metaConnect.bannerConnected") };
+  if (result === "cancelled") return { kind: "info", text: t("metaConnect.bannerCancelled") };
+  const key = `metaConnect.reason.${params.get("reason")}`;
+  const reason = t(key) === key ? t("metaConnect.reason.generic") : t(key);
+  return { kind: "error", text: `${t("metaConnect.bannerError")} ${reason}` };
+}
 
+// Meta Connect: the OAuth round trip, the token and the ad-account / pixel checks all happen on the server. This page never
+// sees, stores or sends a token: it only starts the connection (/meta-oauth-start), reads the status (/meta-status) and
+// picks an ad account and a pixel by id.
 export default function MetaConnect({ storeId }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
-  const [store, setStore] = useState(null);
+  const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [disconnecting, setDisconnecting] = useState(false);
-  const [error, setError] = useState("");
+  const [busy, setBusy] = useState("");
+  const [banner, setBanner] = useState(() => bannerFromUrl(t)); // { kind: "success" | "error" | "info", text }
+  const [accounts, setAccounts] = useState(null); // null = not loaded
+  const [accountChoice, setAccountChoice] = useState("");
+  const [pixels, setPixels] = useState(null);
+  const [pixelsState, setPixelsState] = useState("idle"); // idle | ok | unavailable
+  const [pixelChoice, setPixelChoice] = useState("");
+  const [manualPixel, setManualPixel] = useState("");
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
 
   useEffect(() => {
@@ -26,93 +43,214 @@ export default function MetaConnect({ storeId }) {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  useEffect(() => {
-    if (storeId) fetchStore();
-  }, [storeId]);
+  const call = useCallback((path, extra = {}) => workerFetch(CF_URL, path, { method: "POST", body: JSON.stringify({ store_id: storeId, ...extra }) }), [storeId]);
 
-  const fetchStore = async () => {
+  const loadStatus = useCallback(async () => {
+    if (!storeId) return;
     setLoading(true);
-    const { data } = await fetchStoreRow(supabase, storeId);
-    setStore(data || null);
+    const { data } = await call("/meta-status", { verify: true });
+    setStatus(data && !data.error ? data : { connected: false, configured: data?.error !== "meta_not_configured", error: data?.error || "" });
     setLoading(false);
-  };
+  }, [storeId, call]);
 
-  const isConnected = isMetaConnected(store);
+  // drop ?meta=... from the address bar once it was read
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("meta")) return;
+    params.delete("meta");
+    params.delete("reason");
+    const rest = params.toString();
+    window.history.replaceState(window.history.state, "", window.location.pathname + (rest ? `?${rest}` : ""));
+  }, []);
 
-  const handleConnect = () => {
-    const authUrl =
-      `https://www.facebook.com/${"v21.0"}/dialog/oauth?client_id=${META_APP_ID}` +
-      `&redirect_uri=${encodeURIComponent(META_REDIRECT_URI)}` +
-      `&state=${storeId}` +
-      `&scope=${encodeURIComponent(META_SCOPES)}`;
-    window.location.href = authUrl;
+  useEffect(() => { setAccounts(null); setPixels(null); setPixelsState("idle"); loadStatus(); }, [storeId, loadStatus]);
+
+  const needsReconnect = !!status?.needs_reconnect;
+  const connected = !!status?.connected;
+
+  const handleConnect = async () => {
+    setBusy("connect");
+    setBanner(null);
+    const { data } = await call("/meta-oauth-start", { return_to: window.location.origin });
+    if (data?.url) { window.location.href = data.url; return; }
+    setBusy("");
+    setBanner({ kind: "error", text: data?.error === "meta_not_configured" ? t("metaConnect.notConfigured") : t("metaConnect.startFailed") });
   };
 
   const handleDisconnect = async () => {
     if (!window.confirm(t("metaConnect.disconnectConfirm"))) return;
-    setDisconnecting(true);
-    setError("");
-    // the token lives only on the server: the worker checks access and clears it
-    const { status, data } = await workerFetch(CF_URL, "/meta-disconnect", { method: "POST", body: JSON.stringify({ store_id: storeId }) });
-    const error = status === 200 && data?.success ? null : { message: data?.error || t("metaConnect.disconnectFailed") };
-    setDisconnecting(false);
-    if (error) { setError(error.message); return; }
-    fetchStore();
+    setBusy("disconnect");
+    setBanner(null);
+    const { status: code, data } = await call("/meta-disconnect");
+    setBusy("");
+    if (code === 200 && data?.success) { setAccounts(null); setPixels(null); setPixelsState("idle"); await loadStatus(); return; }
+    setBanner({ kind: "error", text: data?.error || t("metaConnect.disconnectFailed") });
   };
 
-  const inputCardStyle = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1.5rem" };
+  const loadAccounts = async () => {
+    setBusy("accounts");
+    const { data } = await call("/meta-ad-accounts");
+    setBusy("");
+    if (data?.needs_reconnect) { await loadStatus(); return; }
+    if (data?.error) { setBanner({ kind: "error", text: t("metaConnect.adAccountLoadFailed") }); return; }
+    setAccounts(data.accounts || []);
+    setAccountChoice(data.selected || data.accounts?.[0]?.account_id || "");
+  };
+
+  const saveAccount = async () => {
+    if (!accountChoice) return;
+    setBusy("account");
+    const { data } = await call("/meta-set-account", { ad_account_id: accountChoice });
+    setBusy("");
+    if (data?.success) { setAccounts(null); setBanner({ kind: "success", text: t("metaConnect.adAccountSaved") }); setPixels(null); setPixelsState("idle"); await loadStatus(); return; }
+    if (data?.needs_reconnect) { await loadStatus(); return; }
+    setBanner({ kind: "error", text: t("metaConnect.adAccountLoadFailed") });
+  };
+
+  const loadPixels = useCallback(async () => {
+    setBusy("pixels");
+    const { data } = await call("/meta-pixels");
+    setBusy("");
+    if (data?.needs_reconnect) { await loadStatus(); return; }
+    if (data?.pixels) { setPixels(data.pixels); setPixelsState("ok"); setPixelChoice(data.selected || data.pixels[0]?.id || ""); return; }
+    setPixels([]);
+    setPixelsState("unavailable");
+  }, [call, loadStatus]);
+
+  useEffect(() => { if (connected && !needsReconnect && status?.ad_account_id && pixelsState === "idle") loadPixels(); }, [connected, needsReconnect, status?.ad_account_id, pixelsState, loadPixels]);
+
+  const savePixel = async (id) => {
+    if (!PIXEL_RE.test(id)) { setBanner({ kind: "error", text: t("metaConnect.pixelInvalid") }); return; }
+    setBusy("pixel");
+    const { data } = await call("/meta-set-pixel", { pixel_id: id });
+    setBusy("");
+    if (data?.success) { setManualPixel(""); setBanner({ kind: "success", text: t("metaConnect.pixelSaved") }); await loadStatus(); return; }
+    if (data?.needs_reconnect) { await loadStatus(); return; }
+    setBanner({ kind: "error", text: data?.error === "pixel_not_in_account" ? t("metaConnect.pixelNotInAccount") : t("metaConnect.pixelInvalid") });
+  };
+
+  const removePixel = async () => {
+    if (!window.confirm(t("metaConnect.pixelRemoveConfirm"))) return;
+    setBusy("pixelRemove");
+    const { data } = await call("/meta-remove-pixel");
+    setBusy("");
+    if (data?.success) { setBanner({ kind: "success", text: t("metaConnect.pixelRemoved") }); await loadStatus(); return; }
+    setBanner({ kind: "error", text: t("metaConnect.pixelInvalid") });
+  };
+
+  const card = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1.25rem", marginBottom: 14 };
+  const btnPrimary = (off) => ({ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "10px 16px", background: "var(--ne-grad)", color: "#fff", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: off ? "default" : "pointer", opacity: off ? 0.6 : 1 });
+  const btnGhost = (off, danger) => ({ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 14px", background: "transparent", border: `1px solid ${danger ? "var(--ne-danger)" : "var(--ne-border)"}`, color: danger ? "var(--ne-danger)" : "var(--ne-text)", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: off ? "default" : "pointer", opacity: off ? 0.6 : 1 });
+  const input = { width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface)", color: "var(--ne-text)", fontSize: 13 };
+  const bannerColors = { success: ["var(--ne-success-soft)", "var(--ne-success)"], error: ["var(--ne-danger-soft)", "var(--ne-danger)"], info: ["var(--ne-warning-soft)", "var(--ne-warning)"] };
+
+  const days = status?.expires_in_days;
+  const expiryText = days === null || days === undefined ? "" : days < 0 ? t("metaConnect.expired") : days === 0 ? t("metaConnect.expiresToday") : t("metaConnect.expiresIn").replace("{days}", String(days));
 
   return (
-    <div style={{ padding: isMobile ? "1rem" : "1.5rem", maxWidth: 600, margin: "0 auto", color: "var(--ne-text)" }}>
-      <div style={{ marginBottom: "1.5rem" }}>
+    <div style={{ padding: isMobile ? "1rem" : "1.5rem", maxWidth: 640, margin: "0 auto", color: "var(--ne-text)" }}>
+      <div style={{ marginBottom: "1.25rem" }}>
         <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><Icon name="megaphone" size={17} /> {t("metaConnect.title")}</h1>
         <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{t("metaConnect.subtitle")}</p>
       </div>
 
+      {banner && (
+        <div role="status" style={{ ...card, background: bannerColors[banner.kind][0], color: bannerColors[banner.kind][1], padding: "10px 14px", fontSize: 12.5, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
+          <Icon name={banner.kind === "success" ? "check" : "warning"} size={14} /> <span style={{ flex: 1 }}>{banner.text}</span>
+          <button onClick={() => setBanner(null)} aria-label={t("metaConnect.dismiss")} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", padding: 0 }}><Icon name="close" size={12} /></button>
+        </div>
+      )}
+
       {loading ? (
         <div style={{ textAlign: "center", padding: "3rem", color: "var(--ne-muted)" }}>{t("metaConnect.loading")}</div>
       ) : (
-        <div style={inputCardStyle}>
-          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: isConnected ? "1.25rem" : 0 }}>
-            <div style={{ width: 48, height: 48, borderRadius: 12, background: "var(--ne-surface)", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--ne-border)" }}>
-              <Icon name="megaphone" size={22} />
+        <>
+          {status && status.configured === false && (
+            <div style={{ ...card, color: "var(--ne-warning)", fontSize: 12.5, fontWeight: 600 }}>{t("metaConnect.notConfigured")}</div>
+          )}
+
+          {connected && needsReconnect && (
+            <div role="alert" style={{ ...card, border: "1px solid var(--ne-warning)", background: "var(--ne-warning-soft)" }}>
+              <p style={{ margin: "0 0 4px", fontWeight: 700, color: "var(--ne-warning)", display: "flex", alignItems: "center", gap: 6 }}><Icon name="warning" size={14} /> {t("metaConnect.needsReconnectTitle")}</p>
+              <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "var(--ne-text)" }}>{t("metaConnect.needsReconnectBody")}</p>
+              <button onClick={handleConnect} disabled={!!busy} style={btnPrimary(!!busy)}><Icon name="refresh" size={14} /> {busy === "connect" ? t("metaConnect.connecting") : t("metaConnect.reconnectButton")}</button>
             </div>
-            <div style={{ flex: 1 }}>
-              <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: "var(--ne-text)" }}>{t("metaConnect.accountName")}</p>
-              <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--ne-muted-2)" }}>
-                {isConnected ? store.meta_ad_account_name || `${t("metaConnect.accountIdPrefix")} ${store.meta_ad_account_id}` : t("metaConnect.notConnectedYet")}
-              </p>
+          )}
+
+          <div style={card}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+              <div style={{ width: 48, height: 48, borderRadius: 12, background: "var(--ne-surface)", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--ne-border)" }}><Icon name="megaphone" size={22} /></div>
+              <div style={{ flex: 1, minWidth: 160 }}>
+                <p style={{ margin: 0, fontWeight: 700, fontSize: 15 }}>{t("metaConnect.accountName")}</p>
+                <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--ne-muted-2)" }}>
+                  {connected ? (status.ad_account_name || (status.ad_account_id ? `${t("metaConnect.accountIdPrefix")} ${status.ad_account_id}` : t("metaConnect.noAdAccountYet"))) : t("metaConnect.notConnectedYet")}
+                </p>
+                {connected && expiryText && <p style={{ margin: "2px 0 0", fontSize: 11.5, color: days !== null && days < 7 ? "var(--ne-warning)" : "var(--ne-muted)" }}>{expiryText}</p>}
+              </div>
+              <span style={{ fontSize: 11, padding: "4px 12px", background: connected && !needsReconnect ? "var(--ne-success-soft)" : "var(--ne-warning-soft)", color: connected && !needsReconnect ? "var(--ne-success)" : "var(--ne-warning)", borderRadius: 20, fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 5 }}>
+                <Icon name={connected && !needsReconnect ? "check" : "pending"} size={10} /> {connected && !needsReconnect ? t("metaConnect.connected") : t("metaConnect.notConnected")}
+              </span>
             </div>
-            {isConnected ? (
-              <span style={{ fontSize: 11, padding: "4px 12px", background: "var(--ne-success-soft)", color: "var(--ne-success)", borderRadius: 20, fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 5 }}>
-                <Icon name="check" size={10} /> {t("metaConnect.connected")}
-              </span>
-            ) : (
-              <span style={{ fontSize: 11, padding: "4px 12px", background: "var(--ne-warning-soft)", color: "var(--ne-warning)", borderRadius: 20, fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 5 }}>
-                <Icon name="pending" size={10} /> {t("metaConnect.notConnected")}
-              </span>
-            )}
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
+              {!connected && (
+                <button onClick={handleConnect} disabled={!!busy || status?.configured === false} style={{ ...btnPrimary(!!busy || status?.configured === false), width: isMobile ? "100%" : "auto" }}>
+                  <Icon name="link" size={14} /> {busy === "connect" ? t("metaConnect.connecting") : t("metaConnect.connectButton")}
+                </button>
+              )}
+              {connected && !needsReconnect && <button onClick={handleConnect} disabled={!!busy} style={btnGhost(!!busy)}><Icon name="refresh" size={13} /> {busy === "connect" ? t("metaConnect.connecting") : t("metaConnect.reconnectButton")}</button>}
+              {connected && <button onClick={handleDisconnect} disabled={!!busy} style={btnGhost(!!busy, true)}>{busy === "disconnect" ? t("metaConnect.disconnecting") : t("metaConnect.disconnect")}</button>}
+            </div>
           </div>
 
-          {error && <p style={{ color: "var(--ne-danger)", fontSize: 12, marginTop: 12 }}>{error}</p>}
-
-          {isConnected ? (
-            <>
-              <div style={{ background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "12px 14px", fontSize: 12, color: "var(--ne-muted)", marginTop: 12 }}>
-                {t("metaConnect.connectedAt")} <strong style={{ color: "var(--ne-text)" }}>{store.meta_connected_at ? new Date(store.meta_connected_at).toLocaleString("en-PK") : "—"}</strong>
-              </div>
-              <button onClick={handleDisconnect} disabled={disconnecting}
-                style={{ width: "100%", marginTop: 12, padding: "10px", background: "transparent", border: "1px solid var(--ne-danger)", color: "var(--ne-danger)", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: disconnecting ? "default" : "pointer" }}>
-                {disconnecting ? t("metaConnect.disconnecting") : t("metaConnect.disconnect")}
-              </button>
-            </>
-          ) : (
-            <button onClick={handleConnect}
-              style={{ width: "100%", marginTop: 16, padding: "12px", background: "var(--ne-grad)", color: "#fff", border: "none", borderRadius: 9, fontSize: 14, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-              <Icon name="link" size={14} /> {t("metaConnect.connectButton")}
-            </button>
+          {connected && !needsReconnect && (
+            <div style={card}>
+              <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: 14 }}>{t("metaConnect.adAccountTitle")}</p>
+              <p style={{ margin: "0 0 10px", fontSize: 12, color: "var(--ne-muted)" }}>{status.ad_account_id ? `${t("metaConnect.adAccountCurrent")}: ${status.ad_account_name || status.ad_account_id}` : t("metaConnect.adAccountPickHelp")}</p>
+              {accounts === null ? (
+                <button onClick={loadAccounts} disabled={!!busy} style={btnGhost(!!busy)}>{busy === "accounts" ? t("metaConnect.loading") : status.ad_account_id ? t("metaConnect.adAccountChange") : t("metaConnect.adAccountPick")}</button>
+              ) : accounts.length === 0 ? (
+                <p style={{ margin: 0, fontSize: 12.5, color: "var(--ne-warning)" }}>{t("metaConnect.adAccountNone")}</p>
+              ) : (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <select value={accountChoice} onChange={(e) => setAccountChoice(e.target.value)} aria-label={t("metaConnect.adAccountTitle")} style={{ ...input, flex: 1, minWidth: 200 }}>
+                    {accounts.map((a) => <option key={a.account_id} value={a.account_id}>{a.name || a.account_id} ({a.account_id}){a.currency ? ` · ${a.currency}` : ""}</option>)}
+                  </select>
+                  <button onClick={saveAccount} disabled={!!busy || !accountChoice} style={btnPrimary(!!busy || !accountChoice)}>{busy === "account" ? t("metaConnect.saving") : t("metaConnect.adAccountSave")}</button>
+                </div>
+              )}
+            </div>
           )}
-        </div>
+
+          {connected && !needsReconnect && status.ad_account_id && (
+            <div style={card}>
+              <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: 14 }}>{t("metaConnect.pixelTitle")}</p>
+              <p style={{ margin: "0 0 10px", fontSize: 12, color: "var(--ne-muted)" }}>{t("metaConnect.pixelHelp")}</p>
+              {status.pixel_id && (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12.5 }}>{t("metaConnect.pixelCurrent")}: <strong dir="ltr">{status.pixel_id}</strong></span>
+                  <button onClick={removePixel} disabled={!!busy} style={btnGhost(!!busy, true)}><Icon name="trash" size={13} /> {busy === "pixelRemove" ? t("metaConnect.saving") : t("metaConnect.pixelRemove")}</button>
+                </div>
+              )}
+              {pixelsState === "ok" && pixels.length > 0 && (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                  <select value={pixelChoice} onChange={(e) => setPixelChoice(e.target.value)} aria-label={t("metaConnect.pixelPick")} style={{ ...input, flex: 1, minWidth: 200 }}>
+                    {pixels.map((p) => <option key={p.id} value={p.id}>{p.name || p.id} ({p.id})</option>)}
+                  </select>
+                  <button onClick={() => savePixel(pixelChoice)} disabled={!!busy || !pixelChoice} style={btnPrimary(!!busy || !pixelChoice)}>{busy === "pixel" ? t("metaConnect.saving") : t("metaConnect.pixelSave")}</button>
+                </div>
+              )}
+              {pixelsState === "ok" && pixels.length === 0 && <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "var(--ne-muted)" }}>{t("metaConnect.pixelNone")}</p>}
+              {pixelsState === "unavailable" && <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "var(--ne-warning)" }}>{t("metaConnect.pixelUnavailable")}</p>}
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 6 }}>{t("metaConnect.pixelManualLabel")}</label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <input dir="ltr" inputMode="numeric" value={manualPixel} onChange={(e) => setManualPixel(e.target.value.replace(/\D/g, "").slice(0, 20))} placeholder={t("metaConnect.pixelManualPlaceholder")} style={{ ...input, flex: 1, minWidth: 200 }} />
+                <button onClick={() => savePixel(manualPixel)} disabled={!!busy || !PIXEL_RE.test(manualPixel)} style={btnGhost(!!busy || !PIXEL_RE.test(manualPixel))}>{t("metaConnect.pixelSave")}</button>
+              </div>
+              <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--ne-muted-2)" }}>{t("metaConnect.pixelManualHelp")}</p>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

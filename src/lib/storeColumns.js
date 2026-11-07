@@ -11,10 +11,10 @@ const BASE_COLUMNS = [
   "subdomain", "custom_domain", "custom_domain_status", "theme_id", "catalog_source", "shopify_client_id",
   "default_weight_kg", "default_length_cm", "default_width_cm", "default_height_cm", "label_display_mode",
   "dex_seller_id", "dex_platform_name", "dex_connected_at",
-  "meta_ad_account_id", "meta_ad_account_name", "meta_connected_at", "meta_token_expires_at",
+  "meta_ad_account_id", "meta_ad_account_name", "meta_connected_at", "meta_token_expires_at", "meta_pixel_id",
 ];
-// added by the Meta pixel work; a database that does not have them yet answers 42703 and the helpers retry without
-export const OPTIONAL_STORE_COLUMNS = ["meta_pixel_id", "meta_pixel_name"];
+// meta_pixel_id exists (it is in the base list). meta_pixel_name may not: a database without it answers 42703 and the helpers retry without
+export const OPTIONAL_STORE_COLUMNS = ["meta_pixel_name"];
 
 export const SAFE_STORE_COLUMNS = [...BASE_COLUMNS, ...OPTIONAL_STORE_COLUMNS].join(", ");
 const BASE_STORE_COLUMNS = BASE_COLUMNS.join(", ");

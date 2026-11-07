@@ -70,6 +70,10 @@ const PublicTracking = lazyPage(() => import('./pages/public/Tracking'), null)
 const PublicAbout = lazyPage(() => import('./pages/public/About'), null)
 const PublicContact = lazyPage(() => import('./pages/public/Contact'), null)
 const PublicTerms = lazyPage(() => import('./pages/public/Terms'), null)
+const PublicPrivacy = lazyPage(() => import('./pages/public/Privacy'), null)
+const PublicDataDeletion = lazyPage(() => import('./pages/public/DataDeletion'), null)
+// Legal pages that Meta (and everybody else) must be able to open without logging in, on any host, with or without a session
+const LEGAL_ROUTES = { '/privacy': PublicPrivacy, '/terms': PublicTerms, '/data-deletion': PublicDataDeletion }
 
 // Public marketing-site routes — sirf logged-out visitors ke liye (jaisa
 // pehle sirf "/" ke liye Homepage tha, ab poori 12-page site isi pattern
@@ -2016,6 +2020,9 @@ function App() {
   if (location.pathname === '/auth/meta-callback') {
     return <MetaCallback />
   }
+
+  const LegalPage = LEGAL_ROUTES[location.pathname]
+  if (LegalPage) return <LegalPage />
 
   if (loading) return <SplashScreen />
   if (!session) {
