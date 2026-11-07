@@ -21,7 +21,7 @@
 
 -- OWNER LOGIC and the 9 stores. is_store_owner(store) is true for the service role, for stores.user_id = the caller, and, when stores.user_id is NULL,
 -- for an ADMIN linked to that store in user_stores. 8 of the 9 stores have user_id NULL (Bloomvera, dewarekhas.pk, Doctor Rubina, DoctorSaba, DR GLOW, Innovenza,
--- KhasWall.com, Quench); the 9th has user_id set (its name was not given to me: not sure which one it is).
+-- KhasWall.com, Quench); each of them has exactly 1 member, an admin. The other store, Dewarekhas (id ce66dba7-36aa-4c8e-8a0a-cbd4bd27dc70), has user_id set and 3 members.
 -- AFTER THIS FILE, per store: SELECT = creator, owner (stores.user_id), or anyone linked in user_stores. DELETE = is_store_admin(): the creator, the owner, or ANY admin linked to the store
 -- (so on all 9 stores the linked admin can delete their own store row from Store Connect; staff cannot). INSERT = only with user_id = the caller (new brands are owned from now on).
 -- UPDATE is for members (not only admins) on purpose: staff with the courier permission save default weights and the label mode from the browser.

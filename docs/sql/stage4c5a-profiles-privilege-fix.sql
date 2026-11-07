@@ -23,12 +23,14 @@
 --    as pending). Production ERP (portal.eneezam.com) AND the dev preview: login as admin, creator and staff, Home, Orders (list,
 --    Edit Items, cancel on a TEST order only), Booked, Returns, Online Store, Meta Connect, Settings, Team; then drglow.online home /
 --    product / cart / checkout.
--- 5. ROLLBACK: The ROLLBACK block restores the previous function body (reconstructed from the owner's Q4 summary; the EXACT original is
---    whatever `select pg_get_functiondef('public.protect_profile_privileged_fields'::regproc)` returns, SAVE it first, needed-
---    queries.sql Q11) and drops the insert guard.
+-- 5. ROLLBACK: The ROLLBACK block at the bottom restores the EXACT original function (owner-verified definition from Q11: SECURITY DEFINER, no search_path) and drops the insert guard.
 -- Apply ONE file at a time. No BEGIN / COMMIT: policies are created first, the old permissive policy is dropped second, RLS / revokes come last,
 -- so a failure part-way never locks anyone out. Before-state facts: docs/sql/before-state-facts.md. Order and gating: docs/sql/RUNBOOK.md.
 
+-- ORIGINAL BEHAVIOUR (what this file fixes): the original trigger let ANY caller whose own profile role is 'admin' or 'creator' change role, approved and email of ANY profile,
+-- including their own (self-promotion to creator, self-approval). It also silently reverted role / approved / email changes made with auth.uid() NULL (the service key and
+-- the SQL editor have no auth.uid(), so acting_role was NULL). The new trigger fixes both: service role and SQL editor bypass, and nobody can change their own privileged columns.
+--
 -- WHAT THE PAGES NEED (audit, file:line): Team.jsx:176 an admin edits a teammate's full_name, phone, email; Accounts.jsx:49 a user edits their own full_name, phone;
 -- App.jsx:594 the creator edits an admin's full_name, phone, email; App.jsx:1585 the creator sets approved = true. No page changes role anywhere, and no page
 -- lets an admin change another user's approved. `approved` IS a login gate (App.jsx:1549 shows the pending screen, :1381 and :1389 stop loading data until approved),
@@ -108,22 +110,28 @@ create trigger trg_profiles_block_privileged_insert before insert on public.prof
 --   admin cannot self-promote to creator, cannot self-approve, can still manage teammates (name / phone / email), creator can approve pending users.
 
 -- ============================== ROLLBACK
--- >>> PASTE THE EXACT ORIGINAL HERE <<< (the output of Q11 / STEP 0: `select pg_get_functiondef('public.protect_profile_privileged_fields'::regproc);`)
--- If you saved it, run THAT text (a `create or replace function ...`) and IGNORE the reconstructed body below. The reconstructed body is only a fallback.
+-- 1. drop the insert guard
 -- drop trigger if exists trg_profiles_block_privileged_insert on public.profiles;
 -- drop function if exists public.profiles_block_privileged_insert();
--- (the two statements above are replaced by this single copy; do not run them twice)
--- Restore the previous UPDATE function. RECONSTRUCTED from the owner's description (acting role read from profiles where id = auth.uid(); anything other than
--- admin / creator gets role, approved and email reset to OLD; admin and creator pass). Prefer the saved exact definition from STEP 0 if you have it:
--- create or replace function public.protect_profile_privileged_fields()
--- returns trigger language plpgsql security definer
--- as $$
--- declare acting_role text;
--- begin
---   select role into acting_role from public.profiles where id = auth.uid();
---   if acting_role is distinct from 'admin' and acting_role is distinct from 'creator' then
---     new.role := old.role; new.approved := old.approved; new.email := old.email;
---   end if;
---   return new;
--- end $$;
--- NOTE: the previous version had no search_path; leaving search_path = public set in the rollback is harmless, but `alter function public.protect_profile_privileged_fields() reset search_path;` restores it exactly.
+-- 2. restore the EXACT original of the UPDATE trigger function (owner-verified current definition, SECURITY DEFINER, no search_path).
+--    CREATE OR REPLACE replaces every attribute, so the search_path = public set by this file is removed again.
+-- CREATE OR REPLACE FUNCTION public.protect_profile_privileged_fields()
+--  RETURNS trigger
+--  LANGUAGE plpgsql
+--  SECURITY DEFINER
+-- AS $function$
+-- DECLARE
+--   acting_role text;
+-- BEGIN
+--   SELECT role INTO acting_role FROM public.profiles WHERE id = auth.uid();
+--   -- Sirf admin/creator hi role, approved, ya email badal sakte hain (dusron ke liye).
+--   -- Normal user apna khud ka row update kare to yeh fields silently unchanged reh jayengi.
+--   IF acting_role IS DISTINCT FROM 'admin' AND acting_role IS DISTINCT FROM 'creator' THEN
+--     NEW.role := OLD.role;
+--     NEW.approved := OLD.approved;
+--     NEW.email := OLD.email;
+--   END IF;
+--   RETURN NEW;
+-- END;
+-- $function$;
+-- NOTE: rolling back re-opens the self-promotion hole.

@@ -10,15 +10,15 @@
 --    Nothing should look different.
 -- 5. ROLLBACK: the block at the bottom (the helper functions are harmless and are dropped last, after every later stage was rolled back).
 -- No BEGIN / COMMIT. Statements are ordered so that a failure part-way never locks anyone out.
--- NEEDS-CHECK: the four `alter default privileges for role supabase_admin` lines fail with "role does not exist" if that role is absent; the statements above them
--- are already applied, so just delete those four lines and run the rest.
+-- Nothing in this file is able to fail on a normal Supabase project: the SQL editor runs as postgres, the only default-privilege lines left active are for role postgres
+-- (your own role), and the supabase_admin lines are commented out (optional, see the bottom of the safer-defaults section).
 -- RECURSION: every helper is SECURITY DEFINER and owned by the table owner, so reading profiles / user_stores / stores inside a helper bypasses RLS (owner bypass);
 -- a policy on profiles or user_stores that calls a helper therefore never re-enters its own policy.
 -- OWNER LOGIC and the 9 stores. is_store_owner(store) is true for the service role, for stores.user_id = the caller, and, when stores.user_id is NULL,
 -- for an ADMIN linked to that store in user_stores. 8 of the 9 stores have user_id NULL (Bloomvera, dewarekhas.pk, Doctor Rubina, DoctorSaba, DR GLOW, Innovenza,
--- KhasWall.com, Quench); the 9th has user_id set (its name was not given to me: not sure which one it is).
+-- KhasWall.com, Quench); each of them has exactly 1 member, an admin. The other store, Dewarekhas (id ce66dba7-36aa-4c8e-8a0a-cbd4bd27dc70), has user_id set and 3 members.
 -- After this file nothing changes for anyone (helpers only). After the files that USE it: the linked admin of each NULL-owner store counts as its owner (team
--- management, store-cascade delete); staff never do; a second admin of the 9th store is not its owner; the creator is handled by is_creator().
+-- management, store-cascade delete); staff never do; on Dewarekhas only the user in stores.user_id is the owner (a second admin among its 3 members is not); the creator is handled by is_creator().
 
 -- ------------------------------------------------------------------ helpers (all SECURITY DEFINER, fixed search_path)
 create or replace function public.is_creator()
@@ -133,15 +133,17 @@ grant execute on function public.shares_store_with(uuid) to authenticated, servi
 revoke truncate, references, trigger on all tables in schema public from anon, authenticated;
 
 -- ------------------------------------------------------------------ safer defaults for FUTURE objects
--- (default privileges are per creating role: postgres and supabase_admin are the ones that create objects in a Supabase project)
+-- Default privileges are per creating role. The postgres lines below are active (the SQL editor runs as postgres, so they cannot fail).
+-- The supabase_admin lines are OPTIONAL and commented out: they only affect functions / tables that supabase_admin creates in the future, and they may
+-- fail with 'permission denied' in the Supabase SQL editor. Run them only if you know you need them and are connected as a superuser.
 alter default privileges for role postgres in schema public revoke all on tables from anon;
 alter default privileges for role postgres in schema public revoke all on sequences from anon;
 alter default privileges for role postgres in schema public revoke execute on functions from public, anon;
-alter default privileges for role supabase_admin in schema public revoke all on tables from anon;
-alter default privileges for role supabase_admin in schema public revoke all on sequences from anon;
-alter default privileges for role supabase_admin in schema public revoke execute on functions from public, anon;
+-- alter default privileges for role supabase_admin in schema public revoke all on tables from anon;
+-- alter default privileges for role supabase_admin in schema public revoke all on sequences from anon;
+-- alter default privileges for role supabase_admin in schema public revoke execute on functions from public, anon;
 alter default privileges for role postgres in schema public revoke truncate, references, trigger on tables from authenticated;
-alter default privileges for role supabase_admin in schema public revoke truncate, references, trigger on tables from authenticated;
+-- alter default privileges for role supabase_admin in schema public revoke truncate, references, trigger on tables from authenticated;
 
 -- ============================== VERIFY (read-only)
 -- select has_function_privilege('anon', 'public.has_store_access(uuid)', 'execute');            -- expect false

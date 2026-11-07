@@ -1,7 +1,7 @@
 -- STAGE 4b: guards for the SECURITY DEFINER functions that bypass RLS
 -- GROUP: Group 1 (safe before the merge)
 -- PREREQUISITES: stage 0 and stage 4a (this file sets its own grants)
--- ONE-LINE SMOKE TEST: Booked: add a remark on a TEST order works; a foreign store's order is refused.
+-- ONE-LINE SMOKE TEST: Booked: add a remark on a TEST order works; a foreign store's order is refused; an order with no status row gives no error and changes nothing.
 -- 1. WHAT IT DOES: The five definer functions were described to me but their BODIES were never pasted, so this file does NOT re-create any body
 --    (that would risk changing business logic). Instead each function is wrapped: the original is renamed to <name>_impl (body
 --    untouched, search_path pinned, callable by service_role only) and a new SECURITY DEFINER wrapper with the same name, signature,
@@ -26,16 +26,17 @@
 -- 'forbidden' (SQLSTATE 42501). Calls from the SQL editor (no JWT) are refused too: use the service key or run the *_impl function directly.
 -- OWNER LOGIC and the 9 stores. is_store_owner(store) is true for the service role, for stores.user_id = the caller, and, when stores.user_id is NULL,
 -- for an ADMIN linked to that store in user_stores. 8 of the 9 stores have user_id NULL (Bloomvera, dewarekhas.pk, Doctor Rubina, DoctorSaba, DR GLOW, Innovenza,
--- KhasWall.com, Quench); the 9th has user_id set (its name was not given to me: not sure which one it is).
+-- KhasWall.com, Quench); each of them has exactly 1 member, an admin. The other store, Dewarekhas (id ce66dba7-36aa-4c8e-8a0a-cbd4bd27dc70), has user_id set and 3 members.
 -- AFTER THIS FILE, delete_store_cascade (called by the worker /admin-delete-store with the service key, and by nobody else): the service key, a creator, or the OWNER of the store
--- (for the 8 NULL-owner stores that is their linked admin, for the 9th the user in stores.user_id) may run it through the API; staff and other merchants get 'forbidden'.
+-- (for the 8 NULL-owner stores that is their linked admin, for Dewarekhas the user in stores.user_id) may run it through the API; staff and other merchants get 'forbidden'.
 -- NOTE: the worker route itself still lets ANY admin pass a foreign store_id (it uses the service key, which bypasses this guard): see the audit, section on privilege escalation.
 -- RE-RUN: safe. Each block checks first; if <name>_impl exists it prints a notice and does nothing. A wrong signature stops with an error and changes nothing.
 -- NEEDS-CHECK before applying: nothing else (a trigger, a view, another function) may call these by name expecting the old body; the owner's
 -- trigger list shows none (docs/sql/before-state-facts.md).
 
 -- ---------------------------------------------------------------- append_order_remark
--- append_order_remark: the store is derived from the order's order_statuses row (by order_id, or manual_order_number); no row or no access = forbidden.
+-- append_order_remark: the store is derived from the order's order_statuses row (by order_id, or manual_order_number). NO row = silent no-op (returns nothing, exactly
+-- like the original, which only updates an existing row). Row exists and the caller is not a creator and not linked to that store = 'forbidden'. service_role always passes.
 do $$
 declare v_oid oid; v_ret text; v_args text;
 begin
@@ -67,10 +68,17 @@ begin
          where (p_order_id is not null and os.order_id::text = p_order_id)
             or (p_manual_order_number is not null and os.manual_order_number::text = p_manual_order_number)
          limit 1;
-        if v_store is null or not public.has_store_access(v_store) then raise exception 'forbidden' using errcode = '42501'; end if;
+        -- no order_statuses row for this order: do nothing and return silently (the original only updates an existing row)
+        if not found then
+          %s
+        end if;
+        -- the row exists: only a creator or somebody linked to its store may continue
+        if not (public.is_creator() or (v_store is not null and public.has_store_access(v_store))) then
+          raise exception 'forbidden' using errcode = '42501';
+        end if;
       end if;
       %s public.append_order_remark_impl(p_order_id, p_manual_order_number, p_text, p_author);
-    end $b$ $f$, v_ret, case when v_ret = 'void' then 'perform' else 'return' end);
+    end $b$ $f$, v_ret, case when v_ret = 'void' then 'return;' else 'return null;' end, case when v_ret = 'void' then 'perform' else 'return' end);
   execute 'revoke execute on function public.append_order_remark(text, text, text, text) from public, anon';
   execute 'grant execute on function public.append_order_remark(text, text, text, text) to authenticated, service_role';
 end $$;

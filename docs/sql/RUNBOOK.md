@@ -26,7 +26,7 @@ Run by the owner, ONE file at a time, in the Supabase SQL editor. Claude never r
 | 8 | `stage3d-gemini_match_log.sql` | low | 1 | Orders: address match on a TEST order | its ROLLBACK |
 | 9 | `stage3f-dex_rate_card.sql` | low | 1 | Finance Statement | its ROLLBACK |
 | 10 | `stage4a-functions.sql` | low-med | 1 | Booked add remark; change a TEST status; edit a product cost (fires triggers) | its ROLLBACK |
-| 11 | `stage4b-definer-guards.sql` | **medium** | 1, 10 | Booked remark on a TEST order works; a foreign store's order is refused; create a TEST native order; do NOT delete a real store | per-function ROLLBACK (restores the original exactly); re-running the file is safe |
+| 11 | `stage4b-definer-guards.sql` | **medium** | 1, 10 | Booked remark on a TEST order works; a foreign store's order is refused; an order with no status row gives no error; create a TEST native order; do NOT delete a real store | per-function ROLLBACK (restores the original exactly); re-running the file is safe |
 
 ## GROUP 2 ONLY: after production redeploy (hotfix live and tested)
 | # | File | Risk | Prereq | One-line test | If it fails |

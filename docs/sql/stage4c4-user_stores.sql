@@ -19,10 +19,10 @@
 
 -- OWNER LOGIC and the 9 stores. is_store_owner(store) is true for the service role, for stores.user_id = the caller, and, when stores.user_id is NULL,
 -- for an ADMIN linked to that store in user_stores. 8 of the 9 stores have user_id NULL (Bloomvera, dewarekhas.pk, Doctor Rubina, DoctorSaba, DR GLOW, Innovenza,
--- KhasWall.com, Quench); the 9th has user_id set (its name was not given to me: not sure which one it is).
+-- KhasWall.com, Quench); each of them has exactly 1 member, an admin. The other store, Dewarekhas (id ce66dba7-36aa-4c8e-8a0a-cbd4bd27dc70), has user_id set and 3 members.
 -- AFTER THIS FILE, per store: the linked admin of Bloomvera, dewarekhas.pk, Doctor Rubina, DoctorSaba, DR GLOW, Innovenza, KhasWall.com and Quench can change staff
--- permissions and remove members (Team page) and add members; their staff cannot; the creator can everywhere. On the 9th store only the user in stores.user_id (and the creator)
--- can; a second admin there can still READ the team but not change it. Nobody can add themselves to a store that already has members unless they own it.
+-- permissions and remove members (Team page) and add members; their staff cannot; the creator can everywhere. On Dewarekhas only the user in stores.user_id (and the creator)
+-- can; any other admin among its 3 members can still READ the team but not change it. Nobody can add themselves to a store that already has members unless they own it.
 -- ORDER OF 4c: 1 order_sync_history, 2 shopify_orders_cache, 3 order_statuses, 4 user_stores, 5 profiles.
 -- Browser use (Part 1): App.jsx reads own rows (+ embedded stores) and, for the creator, all admin links; Team.jsx selects a store's members, updates
 -- permissions and deletes a member; Login/Settings insert the user's own link. Nobody in the browser deletes their OWN row. Staff creation is in the
