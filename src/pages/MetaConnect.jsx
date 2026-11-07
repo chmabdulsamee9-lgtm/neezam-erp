@@ -2,6 +2,9 @@ import { useState, useEffect } from "react";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
+import { fetchStoreRow, isMetaConnected } from "../lib/storeColumns";
+
+const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 
 const META_APP_ID = "1554596542737935";
 const META_REDIRECT_URI = "https://neezam-erp.pages.dev/auth/meta-callback";
@@ -28,12 +31,12 @@ export default function MetaConnect({ storeId }) {
 
   const fetchStore = async () => {
     setLoading(true);
-    const { data } = await supabase.from("stores").select("*").eq("id", storeId).single();
+    const { data } = await fetchStoreRow(supabase, storeId);
     setStore(data || null);
     setLoading(false);
   };
 
-  const isConnected = !!store?.meta_access_token;
+  const isConnected = isMetaConnected(store);
 
   const handleConnect = () => {
     const authUrl =
@@ -48,13 +51,20 @@ export default function MetaConnect({ storeId }) {
     if (!window.confirm(t("metaConnect.disconnectConfirm"))) return;
     setDisconnecting(true);
     setError("");
-    const { error } = await supabase.from("stores").update({
-      meta_access_token: null,
-      meta_token_expires_at: null,
-      meta_ad_account_id: null,
-      meta_ad_account_name: null,
-      meta_connected_at: null,
-    }).eq("id", storeId);
+    // the token lives only on the server: the worker checks access and clears it
+    let error = null;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${CF_URL}/meta-disconnect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ store_id: storeId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) error = { message: data.error || t("metaConnect.disconnectFailed") };
+    } catch (err) {
+      error = { message: err.message };
+    }
     setDisconnecting(false);
     if (error) { setError(error.message); return; }
     fetchStore();

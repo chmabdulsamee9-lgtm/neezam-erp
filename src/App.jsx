@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import './theme.css'
 import { supabase } from './supabase'
+import { fetchStoreRow, fetchStoreRows } from './lib/storeColumns'
 import { getCachedOrders, saveOrdersBulk, upsertOrder, getMeta, setMeta, clearCache, getCachedPeriod, setCachedPeriod, clearStoreOrders } from './ordersCache'
 import { clearViewCache } from './viewCache'
 // import { syncBookedOrdersCache } from './bookedOrdersData' // DISABLED with the Fix 1F block below
@@ -1267,7 +1268,7 @@ function App() {
       setAllPlansList(plansData || [])
       const { data: addonsData } = await supabase.from('addons').select('id, name, monthly_price')
       setAllAddonsList(addonsData || [])
-      const { data: stores } = await supabase.from('stores').select('*').order('created_at', { ascending: false })
+      const { data: stores } = await fetchStoreRows(supabase)
       const { data: adminLinks } = await supabase
         .from('user_stores')
         .select('store_id, profiles!inner(id, email, full_name, phone, role, approved)')
@@ -1642,7 +1643,7 @@ function App() {
   // Boot par sirf store row + realtime. Orders/Booked/Dashboard ab server-side hain; poora ordersData sirf P&L/Ads/Budget ke liye lazy load hota hai.
   const loadStoreAndRealtime = async (storeId) => {
     const expectedUserId = session?.user?.id
-    const { data: storeData } = await supabase.from('stores').select('*').eq('id', storeId).single()
+    const { data: storeData } = await fetchStoreRow(supabase, storeId)
     if (session?.user?.id !== expectedUserId || selectedStoreIdRef.current !== storeId) return
     if (!storeData) return
     setOrdersStore(storeData)
@@ -1660,7 +1661,7 @@ function App() {
       const __fetchStatusesStart = performance.now()
       const statusesPromise = fetchAllOrderStatuses(storeId, fromDate)
       statusesPromise.catch(() => {}) // stores fetch pehle fail/return ho to unhandled rejection na ho; asli error neeche await par throw hota hai
-      const { data: storeData } = await supabase.from('stores').select('*').eq('id', storeId).single()
+      const { data: storeData } = await fetchStoreRow(supabase, storeId)
       if (isStale()) return
       if (!storeData) { setOrdersLoading(false); return }
       setOrdersStore(storeData)

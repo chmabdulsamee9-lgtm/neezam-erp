@@ -870,6 +870,7 @@ export const translations = {
     'metaConnect.disconnect': 'Disconnect',
     'metaConnect.connectButton': 'Connect Meta Account',
     'metaConnect.disconnectConfirm': 'Meta Ads account disconnect karna chahte ho?',
+    'metaConnect.disconnectFailed': 'Disconnect nahi ho saka. Dobara koshish karein.',
 
     'whatsapp.connectionTitle': 'WhatsApp Connection',
     'whatsapp.qrTab': 'QR Code',
@@ -2256,6 +2257,7 @@ export const translations = {
     'metaConnect.disconnect': 'Disconnect',
     'metaConnect.connectButton': 'Connect Meta Account',
     'metaConnect.disconnectConfirm': 'Do you want to disconnect the Meta Ads account?',
+    'metaConnect.disconnectFailed': 'Could not disconnect. Please try again.',
 
     'whatsapp.connectionTitle': 'WhatsApp Connection',
     'whatsapp.qrTab': 'QR Code',
