@@ -16,6 +16,7 @@ Worker commits 72b2250 + f66a444 are deployed (service key everywhere, `/signup-
 | # | File | Risk | Extra test | If it fails |
 |---|---|---|---|---|
 | 1 | `stage0-helpers.sql` | low | STD (nothing should change) | its ROLLBACK block |
+| **1a** | **`stage4c5a-profiles-privilege-fix.sql` (URGENT, do it right after step 1)** | low to apply, high value | closes self-promotion to creator and self-approval **today**. Save Q11 first. On a TEST admin (dev preview console) updating own role / approved changes nothing; Team edit of a teammate, My account edit, creator approving a pending TEST account, sign-up of a TEST account all still work | its ROLLBACK |
 | 2 | `stage1b-store_custom_domains.sql` | medium | Online Store shows the domain | its ROLLBACK |
 | 3 | `stage1c-courier_feedback_log.sql` | low-med | Booked: expand an order's courier history | its ROLLBACK (if CREATE POLICY failed, nothing changed: use variant B) |
 | 4 | `stage1d-export_history.sql` | low | Booked: export, list, download | its ROLLBACK |
@@ -41,7 +42,7 @@ Do not start until production runs the new ERP. Test: on production, sign up a t
 | 19 | `stage2-stores-secret-columns.sql` | **HIGH** | Meta Connect (connect, disconnect), Store Connect (reconnect Shopify on a TEST store), Courier Connect, everything loads (no "permission denied for column") | its one-line ROLLBACK |
 | 20 | `stage4c3-order_statuses.sql` | **HIGHEST** | Orders list; change courier/status on a TEST order only; Edit Items; cancel a TEST order; Returns; Products > edit a cost; Booked (list, remark); Home. Needs steps 7, 8, 9 and 14 done | its ROLLBACK (instant) |
 | 21 | `stage4c4-user_stores.sql` | **HIGH** | login admin / creator / staff; Team: change a permission, remove a TEST member; Settings > add brand; sign-up TEST | its ROLLBACK |
-| 22 | `stage4c5-profiles.sql` | **HIGH** | login all three roles; creator approves a TEST account; Team shows names; My account edit; sign-up TEST | its ROLLBACK |
+| 22 | `stage4c5-profiles.sql` (needs 1a) | **HIGH** | login all three roles; creator approves a TEST account; Team shows names; My account edit; sign-up TEST | its ROLLBACK |
 | 23 | `stage4d-anon-grants.sql` | medium | logged OUT: landing, pricing, Contact form (TEST message), sign-up OTP mail, forgot-password; then STD | its ROLLBACK |
 
 ## GROUP 3: optional, last

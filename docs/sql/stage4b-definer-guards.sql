@@ -3,7 +3,7 @@
 --    (that would risk changing business logic). Instead each function is wrapped: the original is renamed to <name>_impl (body
 --    untouched, search_path pinned, callable by service_role only) and a new SECURITY DEFINER wrapper with the same name, signature,
 --    parameter names and return type adds the guard and calls the original. A signature check at the top aborts with nothing changed
---    if the real function differs from the description. protect_profile_privileged_fields only gets `set search_path = public`.
+--    if the real function differs from the description. protect_profile_privileged_fields is NOT touched here any more: it is replaced in ONE place, stage4c5-profiles.sql (see the privilege-escalation fix there).
 -- 2. WHEN: BEFORE-MERGE for get_next_local_order_number and delete_store_cascade (the worker calls them with the service key; the browser
 --    never does). append_order_remark is called by the old ERP's Booked page as a logged-in user for its own orders, which the guard
 --    allows, so it is also safe before the merge. Needs stage 0 and stage 4a (apply 4a first; this file sets its own grants).
@@ -131,8 +131,8 @@ begin
   execute 'grant execute on function public.delete_store_cascade(uuid) to authenticated, service_role';
 end $$;
 
--- ---------------------------------------------------------------- protect_profile_privileged_fields: only the search_path
-alter function public.protect_profile_privileged_fields() set search_path = public;
+-- ---------------------------------------------------------------- protect_profile_privileged_fields
+-- Moved to stage4c5-profiles.sql (one place only): that file replaces the whole function (search_path, service-role bypass, no self-promotion).
 
 -- ---------------------------------------------------------------- next_store_order_number
 -- Checked from the worker code (allocateOrderNumber, called only with the service key; it guesses the parameter name): behaviour is an atomic
@@ -142,8 +142,8 @@ alter function public.protect_profile_privileged_fields() set search_path = publ
 -- ============================== VERIFY (read-only)
 -- select proname, prosecdef, proconfig from pg_proc where pronamespace = 'public'::regnamespace
 --   and proname in ('append_order_remark','append_order_remark_impl','get_next_local_order_number','get_next_local_order_number_impl',
---                   'delete_store_cascade','delete_store_cascade_impl','protect_profile_privileged_fields');
---   -- expect wrappers: prosecdef true, search_path=public; *_impl: search_path=public; protect_profile_privileged_fields: search_path=public
+--                   'delete_store_cascade','delete_store_cascade_impl');
+--   -- expect wrappers: prosecdef true, search_path=public; *_impl: search_path=public
 -- select has_function_privilege('authenticated', 'public.append_order_remark_impl(text,text,text,text)', 'execute');   -- expect false
 -- As an admin of store A calling rpc append_order_remark for an order of store B must raise 'forbidden'; for own order it works.
 
@@ -162,5 +162,3 @@ alter function public.protect_profile_privileged_fields() set search_path = publ
 -- alter function public.delete_store_cascade_impl(uuid) rename to delete_store_cascade;
 -- alter function public.delete_store_cascade(uuid) reset search_path;
 -- grant execute on function public.delete_store_cascade(uuid) to public, anon, authenticated, service_role;
---
--- alter function public.protect_profile_privileged_fields() reset search_path;

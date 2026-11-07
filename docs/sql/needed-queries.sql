@@ -57,3 +57,7 @@ select count(*) filter (where api_token is not null) as shopify_tokens,
        count(*) filter (where meta_access_token is not null) as meta_tokens,
        count(*) filter (where shopify_client_secret is not null) as shopify_client_secrets
 from public.stores;
+
+-- Q11. SAVE the current trigger function before stage4c5a (the exact original, for a precise rollback) and the profiles triggers
+select pg_get_functiondef('public.protect_profile_privileged_fields'::regproc) as protect_function;
+select tgname, pg_get_triggerdef(oid) from pg_trigger where tgrelid = 'public.profiles'::regclass and not tgisinternal;
