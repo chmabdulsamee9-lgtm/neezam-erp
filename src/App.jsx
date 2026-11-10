@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import './theme.css'
 import { supabase } from './supabase'
+import { SOLUTIONS_LINKS } from './pages/public/solutionsLinks'
 import { fetchStoreRow, fetchStoreRows } from './lib/storeColumns'
 import { getCachedOrders, saveOrdersBulk, upsertOrder, getMeta, setMeta, clearCache, getCachedPeriod, setCachedPeriod, clearStoreOrders } from './ordersCache'
 import { clearViewCache } from './viewCache'
@@ -65,6 +66,7 @@ const CourierNetworkSolution = lazyPage(() => import('./pages/public/solutions/C
 const AnalyticsSolution = lazyPage(() => import('./pages/public/solutions/Analytics'), null)
 const ProductsInventorySolution = lazyPage(() => import('./pages/public/solutions/ProductsInventory'), null)
 const AIAdsSolution = lazyPage(() => import('./pages/public/solutions/AIAds'), null)
+const DataSolution = lazyPage(() => import('./pages/public/solutions/DataSolution'), null)
 const PublicPricing = lazyPage(() => import('./pages/public/Pricing'), null)
 const PublicTracking = lazyPage(() => import('./pages/public/Tracking'), null)
 const PublicAbout = lazyPage(() => import('./pages/public/About'), null)
@@ -87,6 +89,8 @@ const PUBLIC_ROUTES = {
   '/solutions/analytics': AnalyticsSolution,
   '/solutions/products': ProductsInventorySolution,
   '/solutions/ads': AIAdsSolution,
+  // solutions described only as data in solutionsLinks.js (the `page` field) share one component
+  ...Object.fromEntries(SOLUTIONS_LINKS.filter((s) => s.page).map((s) => [s.path, DataSolution])),
   '/pricing': PublicPricing,
   '/tracking': PublicTracking,
   '/about': PublicAbout,
@@ -2524,7 +2528,7 @@ function App() {
               <ProductsManagement storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
             )}
             {activeMenu === 'finance-statement' && hasAccess('finance-statement') && !storePending && (
-              <FinanceStatement storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
+              <FinanceStatement storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} isCreator={profile.role === 'creator'} />
             )}
             {activeMenu === 'meta-connect' && hasAccess('meta-connect') && <MetaConnect storeId={selectedStoreId} />}
             {activeMenu === 'ads' && hasAccess('ads') && !ordersPending && (

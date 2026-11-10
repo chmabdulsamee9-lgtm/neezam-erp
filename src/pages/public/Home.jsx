@@ -110,7 +110,7 @@ export default function Home() {
                   <Icon name={s.icon} size={18} />
                 </div>
                 <div style={{ fontSize: 14.5, fontWeight: 700 }}>{t(s.labelKey)}</div>
-                <div style={{ fontSize: 12, color: "var(--ne-muted)", lineHeight: 1.5, flex: 1 }}>{t(BLURB_KEYS[key])}</div>
+                <div style={{ fontSize: 12, color: "var(--ne-muted)", lineHeight: 1.5, flex: 1 }}>{t(s.blurbKey || BLURB_KEYS[key])}</div>
                 <div style={{ fontSize: 12, color: "var(--ne-accent)", fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}>
                   {t("mkt.home.learnMore")} <Icon name="arrowRight" size={11} />
                 </div>

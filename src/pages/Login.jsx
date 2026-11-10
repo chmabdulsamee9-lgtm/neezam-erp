@@ -49,6 +49,8 @@ function Shell({ children, isMobile }) {
 export default function Login() {
   const [lang] = useLanguage()
   const tl = useTranslation(lang)
+  // friendly text for the OTP limits of the worker (rate_limited / too_many_attempts); every other error text is shown as before
+  const otpError = (d) => (d.error === 'rate_limited' ? tl('login.otpRateLimited').replace('{seconds}', String(d.retry_after || 30)) : d.error === 'too_many_attempts' ? tl('login.otpTooMany') : d.error)
   const navigate = useNavigate()
   const location = useLocation()
   // "login" | "signup" | "signup-otp" | "forgot" | "forgot-otp" | "forgot-reset" — initial
@@ -139,7 +141,7 @@ export default function Login() {
         body: JSON.stringify({ email, purpose: 'signup' }),
       })
       const data = await res.json()
-      if (data.error) { setError(data.error); setLoading(false); return }
+      if (data.error) { setError(otpError(data)); setLoading(false); return }
       setSignupOtp('')
       setMode('signup-otp')
     } catch (err) {
@@ -158,7 +160,7 @@ export default function Login() {
         body: JSON.stringify({ email, purpose: 'signup' }),
       })
       const data = await res.json()
-      if (data.error) setError(data.error)
+      if (data.error) setError(otpError(data))
     } catch (err) {
       setError(err.message)
     }
@@ -177,7 +179,7 @@ export default function Login() {
         body: JSON.stringify({ email, purpose: 'signup', code: signupOtp.trim() }),
       })
       const verifyData = await verifyRes.json()
-      if (verifyData.error) { setError(verifyData.error); setLoading(false); return }
+      if (verifyData.error) { setError(otpError(verifyData)); setLoading(false); return }
 
       // OTP verified — account, brand, profile, store link and the approval request are all created by the worker
       // (the browser has no session during sign-up, and these tables are protected by row-level security)
@@ -216,7 +218,7 @@ export default function Login() {
         body: JSON.stringify({ email: forgotEmail.trim(), purpose: 'password_reset' }),
       })
       const data = await res.json()
-      if (data.error) { setError(data.error); setLoading(false); return }
+      if (data.error) { setError(otpError(data)); setLoading(false); return }
       setForgotOtp('')
       setMode('forgot-otp')
     } catch (err) {
@@ -235,7 +237,7 @@ export default function Login() {
         body: JSON.stringify({ email: forgotEmail.trim(), purpose: 'password_reset' }),
       })
       const data = await res.json()
-      if (data.error) setError(data.error)
+      if (data.error) setError(otpError(data))
     } catch (err) {
       setError(err.message)
     }
@@ -254,7 +256,7 @@ export default function Login() {
         body: JSON.stringify({ email: forgotEmail.trim(), purpose: 'password_reset', code: forgotOtp.trim() }),
       })
       const data = await res.json()
-      if (data.error) { setError(data.error); setLoading(false); return }
+      if (data.error) { setError(otpError(data)); setLoading(false); return }
       setMode('forgot-reset')
     } catch (err) {
       setError(err.message)
@@ -275,7 +277,7 @@ export default function Login() {
         body: JSON.stringify({ email: forgotEmail.trim(), code: forgotOtp.trim(), newPassword }),
       })
       const data = await res.json()
-      if (data.error) { setError(data.error); setLoading(false); return }
+      if (data.error) { setError(otpError(data)); setLoading(false); return }
 
       setEmail(forgotEmail.trim())
       setPassword('')

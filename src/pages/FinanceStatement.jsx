@@ -297,7 +297,7 @@ function StatementRow({ period, t, cfUrl, storeId, ordersStore }) {
   );
 }
 
-function RateCardModal({ t, cfUrl, onClose }) {
+function RateCardModal({ t, cfUrl, onClose, canEdit }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -327,6 +327,7 @@ function RateCardModal({ t, cfUrl, onClose }) {
   };
 
   const commit = async (row, field) => {
+    if (!canEdit) return; // the worker accepts rate-card edits from the creator only
     const dk = draftKey(row.id, field);
     if (!(dk in drafts)) return;
     const raw = drafts[dk];
@@ -370,6 +371,7 @@ function RateCardModal({ t, cfUrl, onClose }) {
         </div>
         <div style={{ flex: 1, overflowY: "auto", padding: "10px 18px" }}>
           {error && <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 9, fontSize: 12, background: "var(--ne-danger-soft)", color: "var(--ne-danger)" }}>{error}</div>}
+          {!canEdit && <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 9, fontSize: 12, background: "var(--ne-surface)", color: "var(--ne-muted)" }}>{t("finance.rateCardReadOnly")}</div>}
           {loading ? (
             <SkelTable cols={4} rows={5} />
           ) : (
@@ -391,7 +393,8 @@ function RateCardModal({ t, cfUrl, onClose }) {
                           onChange={(e) => setDrafts((prev) => ({ ...prev, [draftKey(row.id, field)]: e.target.value }))}
                           onBlur={() => commit(row, field)}
                           onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
-                          style={numInputStyle} />
+                          readOnly={!canEdit} aria-readonly={!canEdit}
+                          style={canEdit ? numInputStyle : { ...numInputStyle, opacity: 0.7, cursor: "default" }} />
                       </td>
                     ))}
                   </tr>
@@ -566,7 +569,7 @@ function PackageOverviewTab({ storeId, cfUrl, ordersStore, t }) {
   );
 }
 
-export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL }) {
+export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL, isCreator = false }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const [showRateCard, setShowRateCard] = useState(false);
@@ -677,7 +680,7 @@ export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL 
         <PackageOverviewTab storeId={storeId} cfUrl={cfUrl} ordersStore={ordersStore} t={t} />
       )}
 
-      {showRateCard && <RateCardModal t={t} cfUrl={cfUrl} onClose={() => setShowRateCard(false)} />}
+      {showRateCard && <RateCardModal t={t} cfUrl={cfUrl} canEdit={isCreator} onClose={() => setShowRateCard(false)} />}
     </div>
   );
 }
