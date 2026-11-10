@@ -82,7 +82,7 @@ html, body {
    anywhere else a quick label-on-hover is useful. */
 .ne-toggle-tip-right{transform:translateY(-50%);}
 .ne-toggle-tip-bottom{transform:translateX(-50%);}
-.ne-toggle-tip{position:fixed; display:flex; align-items:center; gap:8px; background:#0A0E26; color:#EEF0FF; border:1px solid rgba(255,255,255,.12); border-radius:10px; padding:7px 10px; font-size:12px; font-weight:600; white-space:nowrap; box-shadow:0 8px 24px rgba(0,0,0,.4); pointer-events:none; z-index:2000;}
+.ne-toggle-tip{transition:none; position:fixed; display:flex; align-items:center; gap:8px; background:#0A0E26; color:#EEF0FF; border:1px solid rgba(255,255,255,.12); border-radius:10px; padding:7px 10px; font-size:12px; font-weight:600; white-space:nowrap; box-shadow:0 8px 24px rgba(0,0,0,.4); pointer-events:none; z-index:2000;}
 .ne-kbd{font-size:10px; font-weight:700; letter-spacing:.03em; color:rgba(255,255,255,.75); background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.14); border-radius:5px; padding:1px 6px; line-height:1.5;}
 
 .ne-search-trigger{justify-content:flex-start;}
@@ -255,6 +255,11 @@ html, body {
   .ne-accounts-row{grid-template-columns:1fr; gap:0;}
 }
 
+/* store card at the top of the Settings panel (same look as the old inline style; the dark-panel variant for the light theme is in the media query below) */
+.ne-settings-storecard{display:flex; align-items:center; gap:10px; margin:0 0 10px; padding:10px 12px; border-radius:11px; cursor:pointer; border:1px solid var(--ne-border); background:var(--ne-surface-2);}
+.ne-settings-storecard.active{border-color:var(--ne-accent);}
+.ne-settings-storecard-name{font-size:13px; font-weight:700; color:var(--ne-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.ne-settings-storecard-sub{font-size:11px; color:var(--ne-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 .ne-settings-back{display:flex; align-items:center; gap:8px; width:100%; background:none; border:none; padding:7px 8px; margin-bottom:8px; border-radius:8px; font-size:13.5px; font-weight:700; color:var(--ne-text); cursor:pointer; text-align:left;}
 .ne-settings-back:hover{background:var(--ne-surface);}
 
@@ -281,6 +286,15 @@ html, body {
   .ne-content-settings .ne-settings-userrow-link svg{color:rgba(255,255,255,.6);}
   .ne-content-settings .ne-settings-userrow-name{color:#EEF0FF;}
   .ne-content-settings .ne-settings-userrow-email{color:rgba(255,255,255,.45);}
+  /* light theme: the Settings panel stays dark, so its store card, back bar and rows use the same dark-rail colours as the menu rows */
+  :root[data-theme="light"] .ne-content-settings .ne-settings-storecard{background:rgba(255,255,255,.05); border-color:rgba(255,255,255,.1);}
+  :root[data-theme="light"] .ne-content-settings .ne-settings-storecard:hover{background:rgba(255,255,255,.08);}
+  :root[data-theme="light"] .ne-content-settings .ne-settings-storecard.active{border-color:var(--ne-accent);}
+  :root[data-theme="light"] .ne-content-settings .ne-settings-storecard-name{color:#EEF0FF;}
+  :root[data-theme="light"] .ne-content-settings .ne-settings-storecard-sub{color:rgba(255,255,255,.45);}
+  :root[data-theme="light"] .ne-content-settings .ne-settings-back:hover{background:rgba(255,255,255,.06);}
+  :root[data-theme="light"] .ne-content-settings .ne-settings-navitem:hover{background:rgba(255,255,255,.04);}
+  :root[data-theme="light"] .ne-content-settings .ne-settings-userrow-link:hover{background:rgba(255,255,255,.04);}
 }
 @media (max-width:760px){
   .ne-settings-shell{flex-direction:column;}
@@ -344,10 +358,13 @@ html, body {
 :root[data-theme="light"] [style*="border-bottom: 1px solid var(--ne-border)"]{border-bottom-color:var(--ne-border-inner) !important;}
 :root[data-theme="light"] [style*="border-top: 1px solid var(--ne-border)"]{border-top-color:var(--ne-border-inner) !important;}
 /* hover rows */
-:root[data-theme="light"] .ne-search-result:hover,
-:root[data-theme="light"] .ne-settings-navitem:hover,
-:root[data-theme="light"] .ne-settings-back:hover,
-:root[data-theme="light"] .ne-settings-userrow-link:hover{background:var(--ne-surface-sub-hover);}
+:root[data-theme="light"] .ne-search-result:hover{background:var(--ne-surface-sub-hover);}
+/* the Settings sub-panel is part of the dark rail on desktop: no light hover there, only on the stacked mobile layout */
+@media (max-width:760px){
+  :root[data-theme="light"] .ne-settings-navitem:hover,
+  :root[data-theme="light"] .ne-settings-back:hover,
+  :root[data-theme="light"] .ne-settings-userrow-link:hover{background:var(--ne-surface-sub-hover);}
+}
 /* popups, menus, dropdowns, modal */
 :root[data-theme="light"] .ne-popover,
 :root[data-theme="light"] .ne-notif-dropdown,

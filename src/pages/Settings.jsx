@@ -136,14 +136,12 @@ export default function Settings({ profile, onBack, hasAccess, currentStoreInfo,
           <Icon name="search" size={14} />
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("settings.searchPlaceholder")} />
         </div>
-        <div role="button" tabIndex={0} title={t("settings.openGeneral")}
-          onClick={() => setActiveSection("general")} onKeyDown={(e) => { if (e.key === "Enter") setActiveSection("general"); }}
-          style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 0 10px", padding: "10px 12px", borderRadius: 11, cursor: "pointer",
-            border: `1px solid ${activeSection === "general" ? "var(--ne-accent)" : "var(--ne-border)"}`, background: "var(--ne-surface-2)" }}>
+        <div role="button" tabIndex={0} title={t("settings.openGeneral")} className={`ne-settings-storecard${activeSection === "general" ? " active" : ""}`}
+          onClick={() => setActiveSection("general")} onKeyDown={(e) => { if (e.key === "Enter") setActiveSection("general"); }}>
           <InitialsAvatar name={cardName || "S"} size={34} />
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ne-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cardName || "—"}</div>
-            <div style={{ fontSize: 11, color: "var(--ne-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{brand.domain || t("storeGeneral.domainNone")}</div>
+            <div className="ne-settings-storecard-name">{cardName || "—"}</div>
+            <div className="ne-settings-storecard-sub">{brand.domain || t("storeGeneral.domainNone")}</div>
           </div>
         </div>
         <div className="ne-settings-navlist">

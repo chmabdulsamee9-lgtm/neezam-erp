@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readSidebarOpen, writeSidebarOpen, clearSidebarOpen, createIdleCollapse, SIDEBAR_IDLE_MS } from "./sidebarState.js";
+import { readSidebarOpen, writeSidebarOpen, clearSidebarOpen, resetSidebarStorage, createIdleCollapse, SIDEBAR_IDLE_MS } from "./sidebarState.js";
 
 const memory = () => {
   const mk = () => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k) }; };
@@ -51,4 +51,30 @@ test("idle collapse: does not collapse while a popup is open or an input is focu
   blocked = false;
   timers.advance(SIDEBAR_IDLE_MS - 1); assert.equal(n, 0);
   timers.advance(1); assert.equal(n, 1);
+});
+
+test("default timers work when setTimeout is strict about its receiver (the browser white-screen bug: window.setTimeout called as a method of another object throws)", () => {
+  const realSet = globalThis.setTimeout, realClear = globalThis.clearTimeout;
+  const strict = (name, fn) => function (...a) { if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation: " + name); return fn(...a); };
+  globalThis.setTimeout = strict("setTimeout", realSet);
+  globalThis.clearTimeout = strict("clearTimeout", realClear);
+  try {
+    const c = createIdleCollapse({ onIdle: () => {} }); // default timers
+    c.touch(); c.touch(); c.stop();
+  } finally { globalThis.setTimeout = realSet; globalThis.clearTimeout = realClear; }
+});
+
+test("corrupt or unexpected stored values start collapsed; resetSidebarStorage clears everything", () => {
+  const w = memory();
+  for (const bad of ["true", "yes", "2", "{}", "null", "undefined", ""]) {
+    w.sessionStorage.setItem("neezam_sidebar_open", bad);
+    assert.equal(readSidebarOpen(w), false, JSON.stringify(bad));
+  }
+  const broken = { localStorage: { removeItem() { throw new Error("blocked"); } }, sessionStorage: { getItem() { throw new Error("blocked"); } } };
+  assert.equal(readSidebarOpen(broken), false);
+  writeSidebarOpen(true, w);
+  w.localStorage.setItem("neezam_sidebar", "1");
+  resetSidebarStorage(w);
+  assert.equal(readSidebarOpen(w), false);
+  assert.equal(w.localStorage.getItem("neezam_sidebar"), null);
 });

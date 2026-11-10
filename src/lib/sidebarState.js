@@ -21,12 +21,24 @@ export function clearSidebarOpen(storage = typeof window !== 'undefined' ? windo
 
 export const SIDEBAR_IDLE_MS = 120000
 
+/** used by the crash screen: forget every stored sidebar value so the next start is collapsed */
+export function resetSidebarStorage(storage = typeof window !== 'undefined' ? window : null) {
+  try {
+    if (!storage) return
+    for (const k of LEGACY_KEYS) storage.localStorage.removeItem(k)
+    storage.sessionStorage.removeItem(KEY)
+  } catch { /* ignore */ }
+}
+
 /**
  * Collapses after delayMs without activity. touch() (re)starts the countdown, stop() cancels it.
  * When the countdown ends and canCollapse() is false (a popup is open, an input is focused, the pointer is over the sidebar)
  * it does not collapse and counts another full delay instead.
  */
-export function createIdleCollapse({ delayMs = SIDEBAR_IDLE_MS, onIdle, canCollapse = () => true, timers = { setTimeout, clearTimeout } }) {
+// the default timers are wrapped: a browser's window.setTimeout throws "Illegal invocation" when it is called as a method of another object
+const realTimers = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (id) => clearTimeout(id) }
+
+export function createIdleCollapse({ delayMs = SIDEBAR_IDLE_MS, onIdle, canCollapse = () => true, timers = realTimers }) {
   let id = null
   const stop = () => { if (id !== null) { timers.clearTimeout(id); id = null } }
   const fire = () => {

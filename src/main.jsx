@@ -4,13 +4,16 @@ import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import App from './App.jsx'
 import { SyncProvider } from './context/SyncContext.jsx'
+import AppCrashBoundary from './components/AppCrashBoundary.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>
-      <SyncProvider>
-        <App />
-      </SyncProvider>
+      <AppCrashBoundary>
+        <SyncProvider>
+          <App />
+        </SyncProvider>
+      </AppCrashBoundary>
     </BrowserRouter>
   </StrictMode>,
 )

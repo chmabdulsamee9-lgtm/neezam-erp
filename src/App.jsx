@@ -1165,6 +1165,20 @@ function App() {
   const [navHover, setNavHover] = useState(null)
   const navHoverTimer = useRef(null)
   useEffect(() => () => clearTimeout(navHoverTimer.current), [])
+  // The rail tooltip / flyout can only exist while the pointer is on a rail icon (or on the flyout itself). Leave events can be missed
+  // when the pointer jumps onto the Settings panel or a popup, so the pointer position is also checked while a tip is showing.
+  useEffect(() => {
+    if (!navHover) return undefined
+    const kind = navHover.kind
+    const onMove = (e) => {
+      const el = e.target
+      const ok = el && el.closest && (kind === 'label' ? el.closest('.ne-navitem') : el.closest('.ne-sidebar, .ne-navflyout'))
+      if (!ok) setNavHover(null)
+    }
+    document.addEventListener('pointermove', onMove)
+    return () => document.removeEventListener('pointermove', onMove)
+  }, [navHover])
+  useEffect(() => { if (sidebarOpen || mobileDrawerOpen) setNavHover((cur) => (cur && cur.kind === 'label' ? null : cur)) }, [sidebarOpen, mobileDrawerOpen])
   useEffect(() => {
     const isTypingTarget = (el) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))
     const onKey = (e) => {
@@ -2278,6 +2292,7 @@ function App() {
   // Short delay so the pointer can cross the gap between a nav row and its flyout.
   const closeNavHoverSoon = () => {
     clearTimeout(navHoverTimer.current)
+    setNavHover((cur) => (cur && cur.kind === 'label' ? null : cur)) // a one-line tip goes at once; only a flyout waits so the pointer can reach it
     navHoverTimer.current = setTimeout(() => setNavHover(null), 120)
   }
   const keepNavHover = () => clearTimeout(navHoverTimer.current)
