@@ -1,18 +1,29 @@
-import { useState, useEffect, useRef, lazy, Suspense } from 'react'
+import WhatsNew from './components/WhatsNew'
+import { hasSeenWhatsNew } from './lib/whatsNew'
+import { readSidebarOpen, writeSidebarOpen, clearSidebarOpen, createIdleCollapse } from './lib/sidebarState'
+import { placeTip } from './lib/popoverPosition'
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import './theme.css'
 import { supabase } from './supabase'
+import { SOLUTIONS_LINKS } from './pages/public/solutionsLinks'
+import { fetchStoreRow, fetchStoreRows } from './lib/storeColumns'
 import { getCachedOrders, saveOrdersBulk, upsertOrder, getMeta, setMeta, clearCache, getCachedPeriod, setCachedPeriod, clearStoreOrders } from './ordersCache'
 import { clearViewCache } from './viewCache'
 // import { syncBookedOrdersCache } from './bookedOrdersData' // DISABLED with the Fix 1F block below
 import { Monogram, Wordmark } from './components/Logo'
-import { SunIcon, MoonIcon, GlobeIcon, RefreshIcon } from './components/Icons'
+import { SunIcon, MoonIcon, GlobeIcon } from './components/Icons'
 import Icon from './components/Icon'
 import ErrorBoundary from './components/ErrorBoundary'
+import InitialsAvatar from './components/InitialsAvatar'
+import GlobalSearch from './components/GlobalSearch'
+import NotificationBell from './components/NotificationBell'
+import BrandSwitcherPopup from './components/BrandSwitcherPopup'
 import { useLanguage, useTranslation } from './i18n'
 import Login from './pages/Login'
 import AppHome from './pages/AppHome'
 import { PageSkeletonFor } from './components/Skeletons'
+import SyncStatusBadge from './components/SyncStatusBadge'
 
 // Page-level lazy loading: har page apna alag chunk, pehli baar khulne par download hota hai.
 // Suspense wrapper ke andar hi hai, isliye call sites (<Orders ... />) bilkul nahi badle.
@@ -59,11 +70,16 @@ const CourierNetworkSolution = lazyPage(() => import('./pages/public/solutions/C
 const AnalyticsSolution = lazyPage(() => import('./pages/public/solutions/Analytics'), null)
 const ProductsInventorySolution = lazyPage(() => import('./pages/public/solutions/ProductsInventory'), null)
 const AIAdsSolution = lazyPage(() => import('./pages/public/solutions/AIAds'), null)
+const DataSolution = lazyPage(() => import('./pages/public/solutions/DataSolution'), null)
 const PublicPricing = lazyPage(() => import('./pages/public/Pricing'), null)
 const PublicTracking = lazyPage(() => import('./pages/public/Tracking'), null)
 const PublicAbout = lazyPage(() => import('./pages/public/About'), null)
 const PublicContact = lazyPage(() => import('./pages/public/Contact'), null)
 const PublicTerms = lazyPage(() => import('./pages/public/Terms'), null)
+const PublicPrivacy = lazyPage(() => import('./pages/public/Privacy'), null)
+const PublicDataDeletion = lazyPage(() => import('./pages/public/DataDeletion'), null)
+// Legal pages that Meta (and everybody else) must be able to open without logging in, on any host, with or without a session
+const LEGAL_ROUTES = { '/privacy': PublicPrivacy, '/terms': PublicTerms, '/data-deletion': PublicDataDeletion }
 
 // Public marketing-site routes — sirf logged-out visitors ke liye (jaisa
 // pehle sirf "/" ke liye Homepage tha, ab poori 12-page site isi pattern
@@ -77,6 +93,8 @@ const PUBLIC_ROUTES = {
   '/solutions/analytics': AnalyticsSolution,
   '/solutions/products': ProductsInventorySolution,
   '/solutions/ads': AIAdsSolution,
+  // solutions described only as data in solutionsLinks.js (the `page` field) share one component
+  ...Object.fromEntries(SOLUTIONS_LINKS.filter((s) => s.page).map((s) => [s.path, DataSolution])),
   '/pricing': PublicPricing,
   '/tracking': PublicTracking,
   '/about': PublicAbout,
@@ -84,18 +102,23 @@ const PUBLIC_ROUTES = {
   '/terms': PublicTerms,
 }
 const StoreConnect = lazyPage(() => import('./pages/StoreConnect'), 'store-connect')
+const OnlineStore = lazyPage(() => import('./pages/OnlineStore'), 'online-store')
+const ThemeEditorPage = lazyPage(() => import('./pages/ThemeEditor'), 'theme-editor')
+// Inventory aur Product Costing ab standalone pages nahi hain — unki logic Products page
+// (ProductsManagement.jsx) ke unified card mein merge ho gayi hai. Component files disk pe
+// reused-logic source ke taur par maujood hain, lekin yahan se route/lazy-import nahi hote.
 const ProductsManagement = lazyPage(() => import('./pages/ProductsManagement'), 'products')
-const InventoryManagement = lazyPage(() => import('./pages/InventoryManagement'), 'inventory')
-const ProductCosting = lazyPage(() => import('./pages/ProductCosting'), 'product-costing')
 const FinanceStatement = lazyPage(() => import('./pages/FinanceStatement'), 'finance-statement')
 const DevMonitorDetailed = lazyPage(() => import('./pages/DevMonitorDetailed'), 'master-dashboard/dev-monitor')
 const GeminiUsageMonitor = lazyPage(() => import('./pages/GeminiUsageMonitor'), 'master-dashboard/gemini-monitor')
 const ShopifyCallback = lazyPage(() => import('./pages/ShopifyCallback'), null)
 const Orders = lazyPage(() => import('./pages/Orders'), 'orders')
+const OrderDetail = lazyPage(() => import('./pages/OrderDetail'), 'orders')
 const Dashboard = lazyPage(() => import('./pages/Dashboard'), 'dashboard')
 const WhatsApp = lazyPage(() => import('./pages/WhatsApp'), 'whatsapp')
 const Team = lazyPage(() => import('./pages/Team'), 'team')
 const Settings = lazyPage(() => import('./pages/Settings'), 'settings')
+const Accounts = lazyPage(() => import('./pages/Accounts'), null)
 const ActivityLog = lazyPage(() => import('./pages/ActivityLog'), 'activity-log')
 const ProfitLoss = lazyPage(() => import('./pages/ProfitLoss'), 'pnl')
 const SupplierLedger = lazyPage(() => import('./pages/SupplierLedger'), 'ledger')
@@ -104,12 +127,34 @@ const CourierConnect = lazyPage(() => import('./pages/CourierConnect'), 'courier
 const CourierDashboard = lazyPage(() => import('./pages/CourierDashboard'), 'courier-dashboard')
 const CourierDetailedView = lazyPage(() => import('./pages/CourierDetailedView'), 'courier-dashboard/detailed')
 const BookedOrders = lazyPage(() => import('./pages/BookedOrders'), 'courier')
-const Payments = lazyPage(() => import('./pages/Payments'), 'payments')
 const MetaConnect = lazyPage(() => import('./pages/MetaConnect'), 'meta-connect')
 const MetaCallback = lazyPage(() => import('./pages/MetaCallback'), null)
 const AdsAnalytics = lazyPage(() => import('./pages/AdsAnalytics'), 'ads')
+const Returns = lazyPage(() => import('./pages/Returns'), 'returns')
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev"
+
+// Manage Access modal ki module-checklist aur sidebar ka allMenuItems — same set, 'home'/'settings'
+// dono jagah excluded (sidebar apne hisaab se alag se add karta hai, checklist unhe disable-able nahi rakhti).
+const GATABLE_MODULES = [
+  { id: 'dashboard', labelKey: 'nav.dashboard' },
+  { id: 'orders', labelKey: 'nav.orders' },
+  { id: 'courier', labelKey: 'nav.courier' },
+  { id: 'returns', labelKey: 'nav.returns' },
+  { id: 'products', labelKey: 'nav.products' },
+  { id: 'finance-statement', labelKey: 'nav.finance-statement' },
+  { id: 'ads', labelKey: 'nav.ads' },
+  { id: 'pnl', labelKey: 'nav.pnl' },
+  { id: 'ledger', labelKey: 'nav.ledger' },
+  { id: 'budget', labelKey: 'nav.budget' },
+  { id: 'suggestions', labelKey: 'nav.suggestions' },
+  { id: 'courier-dashboard', labelKey: 'nav.courier-dashboard' },
+  { id: 'whatsapp', labelKey: 'nav.whatsapp' },
+  { id: 'store-connect', labelKey: 'nav.store-connect' },
+  { id: 'online-store', labelKey: 'nav.online-store' },
+  { id: 'meta-connect', labelKey: 'nav.meta-connect' },
+  { id: 'courier-connect', labelKey: 'nav.courier-connect' },
+]
 const BATCH_SIZE = 1000
 const isValidPhone = (p) => /^\d{11}$/.test(String(p || "").trim())
 
@@ -181,22 +226,55 @@ const NAV_ICONS = {
   pnl: <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><path d="M10 6.5v7M7.5 8.3c0-1.1 1.1-1.8 2.5-1.8s2.5.6 2.5 1.6c0 2.2-5 1-5 3.2 0 1 1.1 1.6 2.5 1.6s2.5-.7 2.5-1.8"/></svg>,
   ledger: <svg viewBox="0 0 20 20"><rect x="3" y="3" width="14" height="14" rx="2"/><path d="M6 8h8M6 11h8M6 14h5"/></svg>,
   returns: <svg viewBox="0 0 20 20"><path d="M7 5 3 9l4 4"/><path d="M3 9h9a4 4 0 0 1 4 4v1"/></svg>,
-  cities: <svg viewBox="0 0 20 20"><path d="M10 18s6-5.5 6-10a6 6 0 1 0-12 0c0 4.5 6 10 6 10Z"/><circle cx="10" cy="8" r="2"/></svg>,
   products: <svg viewBox="0 0 20 20"><path d="M3 3h6l8 8-6 6-8-8Z"/><circle cx="7" cy="7" r="1.3" fill="currentColor" stroke="none"/></svg>,
   budget: <svg viewBox="0 0 20 20"><rect x="2.5" y="3.5" width="15" height="13" rx="2"/><path d="M2.5 8h15M6 12h2M11 12h3"/></svg>,
   suggestions: <svg viewBox="0 0 20 20"><path d="M10 2.5a5.5 5.5 0 0 0-3 10.1V14h6v-1.4A5.5 5.5 0 0 0 10 2.5Z"/><path d="M8 17h4"/></svg>,
   'courier-dashboard': <svg viewBox="0 0 20 20"><rect x="2" y="9" width="7" height="6" rx="1"/><path d="M9 11h3l2 2.5V15H9"/><circle cx="5" cy="16.5" r="1.4"/><circle cx="12.5" cy="16.5" r="1.4"/><path d="M15.5 3v6M18 5.5v3.5"/></svg>,
   whatsapp: <svg viewBox="0 0 20 20"><path d="M5 17l1-3.2A6.5 6.5 0 1 1 9.5 16L5 17Z"/><path d="M7.2 8c0 2.5 2.3 4.8 4.8 4.8"/></svg>,
   'store-connect': <svg viewBox="0 0 20 20"><path d="M8 12 12 8"/><rect x="2" y="9" width="6" height="6" rx="3" transform="rotate(-45 5 12)"/><rect x="12" y="5" width="6" height="6" rx="3" transform="rotate(-45 15 8)"/></svg>,
+  'online-store': <svg viewBox="0 0 20 20"><path d="M3 8.5 4 3h12l1 5.5" /><path d="M3 8.5a2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0" /><path d="M4.5 8.5V17h11V8.5" /><path d="M8 17v-4h4v4" /></svg>,
   'meta-connect': <svg viewBox="0 0 20 20"><path d="M3 17V9"/><path d="M9 17V3"/><path d="M15 17v-6"/><path d="M2 3.5h6" opacity=".6"/></svg>,
   'courier-connect': <svg viewBox="0 0 20 20"><rect x="2" y="6" width="9" height="7" rx="1"/><path d="M11 9h3.5L17 11.5V13h-6"/><circle cx="6" cy="15.5" r="1.6"/><circle cx="14.5" cy="15.5" r="1.6"/><path d="M2 3.5h6" opacity=".6"/></svg>,
-  payments: <svg viewBox="0 0 20 20"><rect x="2.5" y="4.5" width="15" height="11" rx="2"/><path d="M2.5 8.5h15"/><path d="M5.5 12.5h3"/></svg>,
   team: <svg viewBox="0 0 20 20"><circle cx="7" cy="7" r="2.6"/><circle cx="14" cy="8" r="2"/><path d="M2.5 17c.5-3 2.2-4.5 4.5-4.5s4 1.5 4.5 4.5"/><path d="M12 17c.4-2.3 1.6-3.7 3.5-3.7s2.7 1.1 3 3.2"/></svg>,
   'activity-log': <svg viewBox="0 0 20 20"><rect x="3" y="2.5" width="14" height="15" rx="2"/><path d="M6.5 7h7M6.5 10.5h7M6.5 14h4"/></svg>,
   settings: <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.5v2M10 15.5v2M17.5 10h-2M4.5 10h-2M15.1 4.9l-1.4 1.4M6.3 13.7l-1.4 1.4M15.1 15.1l-1.4-1.4M6.3 6.3 4.9 4.9"/></svg>,
   inventory: <svg viewBox="0 0 20 20"><rect x="2.5" y="4" width="15" height="4" rx="1"/><rect x="3.5" y="9" width="13" height="7" rx="1"/><path d="M8 12.5h4"/></svg>,
   'dev-monitor': <svg viewBox="0 0 20 20"><rect x="2" y="3.5" width="16" height="10.5" rx="1.5"/><path d="M7 17h6M10 14v3"/><path d="M5 8l2.5 2.5L10 7l2 2 3-3"/></svg>,
   'finance-statement': <svg viewBox="0 0 20 20"><rect x="4" y="2" width="12" height="16" rx="2"/><rect x="6" y="4.3" width="8" height="3" rx="0.5"/><circle cx="6.8" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="10" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="13.2" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="6.8" cy="14.5" r=".9" fill="currentColor" stroke="none"/><circle cx="10" cy="14.5" r=".9" fill="currentColor" stroke="none"/><circle cx="13.2" cy="14.5" r=".9" fill="currentColor" stroke="none"/></svg>,
+}
+
+// Rendered position:fixed from the trigger's rect because .ne-sidebar is overflow:hidden.
+function SidebarToggleTip({ label, placement = 'right', style, onHoverChange, children }) {
+  const [pos, setPos] = useState(null)
+  const place = (r) => placement === 'bottom'
+    ? { left: r.left + r.width / 2, top: r.bottom + 8 }
+    : { left: r.right + 10, top: r.top + r.height / 2 }
+  return (
+    <span style={{ display: 'flex', ...style }}
+      onMouseEnter={(e) => { setPos(place(e.currentTarget.getBoundingClientRect())); onHoverChange?.(true) }}
+      onMouseLeave={() => { setPos(null); onHoverChange?.(false) }}>
+      {children}
+      {pos && (
+        <span className={`ne-toggle-tip ne-toggle-tip-${placement}`} style={{ left: pos.left, top: pos.top }}>
+          <span>{label}</span>
+          <span className="ne-kbd" style={{ marginLeft: 4 }}>CTRL</span>
+          <span className="ne-kbd">B</span>
+        </span>
+      )}
+    </span>
+  )
+}
+
+// Collapsed sidebar's single top slot: logo by default, swaps in place to the toggle icon on hover.
+function CollapsedLogoToggle({ label, onExpand }) {
+  const [hover, setHover] = useState(false)
+  return (
+    <SidebarToggleTip label={label} onHoverChange={setHover}>
+      <button className="ne-collapse-btn ne-logo-toggle" onClick={onExpand} aria-label={label}>
+        {hover ? <Icon name="sidebarToggle" size={18} /> : <Monogram size={22} />}
+      </button>
+    </SidebarToggleTip>
+  )
 }
 
 // Loading skeleton (Meta Ads app jaisa) — logo/animation nahi, sirf UI ka dhancha.
@@ -257,15 +335,35 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
   const [addonOverrides, setAddonOverrides] = useState({})
   const [planOverrides, setPlanOverrides] = useState({})
   const [deleteConfirmId, setDeleteConfirmId] = useState(null)
+  // Har store ka latest approved store_subscriptions row — eneezam_id se keyed (store_subscriptions.store_id
+  // eneezam_id TEXT hai, stores.id uuid nahi) — quota indicator ke liye.
+  const [subsByEneezamId, setSubsByEneezamId] = useState({})
+  const refreshSubsMap = async () => {
+    const eneezamIds = allStores.map((s) => s.eneezam_id).filter(Boolean)
+    if (eneezamIds.length === 0) { setSubsByEneezamId({}); return }
+    const { data } = await supabase
+      .from('store_subscriptions')
+      .select('store_id, monthly_order_limit, quota_consumed_count, approved_at')
+      .in('store_id', eneezamIds)
+      .eq('status', 'approved')
+      .order('approved_at', { ascending: false })
+    const map = {}
+    ;(data || []).forEach((row) => { if (!map[row.store_id]) map[row.store_id] = row })
+    setSubsByEneezamId(map)
+  }
+  useEffect(() => { refreshSubsMap() }, [allStores])
   const [accessModalStore, setAccessModalStore] = useState(null)
-  const [accessPlanId, setAccessPlanId] = useState('')
-  const [accessAddonIds, setAccessAddonIds] = useState([])
+  const [accessDisabledIds, setAccessDisabledIds] = useState([])
+  const [accessMonthlyLimit, setAccessMonthlyLimit] = useState('')
+  const [accessReminderEnabled, setAccessReminderEnabled] = useState(false)
+  const [accessReminderMessage, setAccessReminderMessage] = useState('')
   const [accessExistingSubId, setAccessExistingSubId] = useState(null)
+  const [accessPrevMonthlyLimit, setAccessPrevMonthlyLimit] = useState('')
   const [accessSaving, setAccessSaving] = useState(false)
   const [accessError, setAccessError] = useState('')
   const [showActivityLog, setShowActivityLog] = useState(false)
   const [showManualAddForm, setShowManualAddForm] = useState(false)
-  const [manualStore, setManualStore] = useState({ store_name: '', shopify_url: '', owner_email: '', owner_password: '', owner_full_name: '', owner_phone: '', plan_id: '' })
+  const [manualStore, setManualStore] = useState({ store_name: '', shopify_url: '', owner_email: '', owner_password: '', owner_full_name: '', owner_phone: '' })
   const [manualStoreSaving, setManualStoreSaving] = useState(false)
   const [manualStoreError, setManualStoreError] = useState('')
   const [manualStoreSuccess, setManualStoreSuccess] = useState(false)
@@ -389,8 +487,8 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
 
   const handleCreateManualStore = async () => {
     setManualStoreError(''); setManualStoreSuccess(false)
-    if (!manualStore.store_name || !manualStore.owner_email || !manualStore.owner_password || !manualStore.plan_id) {
-      setManualStoreError('Store name, owner email, password, aur plan required hain'); return
+    if (!manualStore.store_name || !manualStore.owner_email || !manualStore.owner_password) {
+      setManualStoreError('Store name, owner email, aur password required hain'); return
     }
     setManualStoreSaving(true)
     try {
@@ -403,7 +501,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
       const data = await res.json()
       if (data.error) { setManualStoreError(data.error); setManualStoreSaving(false); return }
       setManualStoreSuccess(true)
-      setManualStore({ store_name: '', shopify_url: '', owner_email: '', owner_password: '', owner_full_name: '', owner_phone: '', plan_id: '' })
+      setManualStore({ store_name: '', shopify_url: '', owner_email: '', owner_password: '', owner_full_name: '', owner_phone: '' })
       onDataChanged()
     } catch (err) {
       setManualStoreError(err.message)
@@ -422,38 +520,48 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
     setEditError('')
     setEditPasswordSuccess(false)
   }
+  const DEFAULT_REMINDER_MESSAGE = 'Aapki subscription payment pending hai — meherbani karke jald payment complete karein taake service bila rukawat jari rahe.'
+
   const openManageAccess = async (store) => {
     setAccessModalStore(store)
-    setAccessPlanId('')
-    setAccessAddonIds([])
+    setAccessDisabledIds([])
+    setAccessMonthlyLimit('')
+    setAccessPrevMonthlyLimit('')
+    setAccessReminderEnabled(false)
+    setAccessReminderMessage('')
     setAccessExistingSubId(null)
     setAccessError('')
     const { data: sub } = await supabase
       .from('store_subscriptions')
-      .select('id, plan_id, selected_addon_ids')
+      .select('*')
       .eq('store_id', store.eneezam_id)
+      .eq('status', 'approved')
       .order('approved_at', { ascending: false })
       .limit(1)
       .maybeSingle()
     if (sub) {
       setAccessExistingSubId(sub.id)
-      setAccessPlanId(sub.plan_id || '')
-      setAccessAddonIds(
-        Array.isArray(sub.selected_addon_ids) ? sub.selected_addon_ids : JSON.parse(sub.selected_addon_ids || '[]')
-      )
+      setAccessDisabledIds(Array.isArray(sub.disabled_modules) ? sub.disabled_modules : [])
+      setAccessMonthlyLimit(sub.monthly_order_limit == null ? '' : String(sub.monthly_order_limit))
+      setAccessPrevMonthlyLimit(sub.monthly_order_limit == null ? '' : String(sub.monthly_order_limit))
+      setAccessReminderEnabled(!!sub.reminder_enabled)
+      setAccessReminderMessage(sub.reminder_message || '')
     }
   }
 
-  const toggleAccessAddon = (addonId) => {
-    setAccessAddonIds((prev) => prev.includes(addonId) ? prev.filter((id) => id !== addonId) : [...prev, addonId])
+  const toggleAccessModule = (moduleId) => {
+    setAccessDisabledIds((prev) => prev.includes(moduleId) ? prev.filter((id) => id !== moduleId) : [...prev, moduleId])
   }
 
   const handleSaveAccess = async () => {
     setAccessSaving(true)
     setAccessError('')
+    const newLimitValue = accessMonthlyLimit === '' ? null : Number(accessMonthlyLimit)
     const payload = {
-      plan_id: accessPlanId,
-      selected_addon_ids: JSON.stringify(accessAddonIds),
+      disabled_modules: accessDisabledIds,
+      monthly_order_limit: newLimitValue,
+      reminder_enabled: accessReminderEnabled,
+      reminder_message: accessReminderMessage.trim() || DEFAULT_REMINDER_MESSAGE,
       status: 'approved',
       approved_at: new Date().toISOString(),
       approved_by: session.user.id,
@@ -469,8 +577,21 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
       setAccessError(error.message)
       return
     }
+    // Limit badha/Unlimited kiya ho to pehle se quota_hidden pade hue orders ko reveal karo
+    const prevNum = accessPrevMonthlyLimit === '' ? null : Number(accessPrevMonthlyLimit)
+    const limitIncreased = newLimitValue === null && prevNum !== null
+      ? true
+      : (newLimitValue !== null && prevNum !== null && newLimitValue > prevNum)
+    if (limitIncreased) {
+      fetch(`${cfUrl}/apply-quota-reveal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ eneezam_id: accessModalStore.eneezam_id }),
+      }).catch(() => {})
+    }
+    refreshSubsMap()
     setAccessModalStore(null)
-    logActivity(accessModalStore.id, 'access_modified', { plan_id: accessPlanId, addon_ids: accessAddonIds })
+    logActivity(accessModalStore.id, 'access_modified', { disabled_modules: accessDisabledIds, monthly_order_limit: newLimitValue, reminder_enabled: accessReminderEnabled })
   }
 
   const closeEditAdmin = () => { setEditingAdmin(null); setEditingStore(null); setEditError(''); setEditPasswordSuccess(false) }
@@ -678,10 +799,6 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
             <input placeholder="Owner Password" type="password" value={manualStore.owner_password} onChange={e => setManualStore(s => ({ ...s, owner_password: e.target.value }))} style={inputStyle} />
             <input placeholder="Owner Full Name" value={manualStore.owner_full_name} onChange={e => setManualStore(s => ({ ...s, owner_full_name: e.target.value }))} style={inputStyle} />
             <input placeholder="Owner Phone" value={manualStore.owner_phone} onChange={e => setManualStore(s => ({ ...s, owner_phone: e.target.value }))} style={inputStyle} />
-            <select value={manualStore.plan_id} onChange={e => setManualStore(s => ({ ...s, plan_id: e.target.value }))} style={inputStyle}>
-              <option value="">Select Plan</option>
-              {allPlansList.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
             <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 10, alignItems: 'center' }}>
               <button onClick={handleCreateManualStore} disabled={manualStoreSaving}
                 style={{ padding: '10px 20px', background: manualStoreSaving ? 'var(--ne-border)' : 'var(--ne-accent)', color: '#fff', border: 'none', borderRadius: 9, fontWeight: 700, cursor: manualStoreSaving ? 'default' : 'pointer' }}>
@@ -720,6 +837,11 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
                 {statCard(s.approved_count ?? '—', t('master.approvedStat'), 'var(--ne-warning)', 'var(--ne-warning-soft)')}
                 {statCard(s.lifetime_count ?? '—', t('master.lifetime'), '#A855F7', 'rgba(168,85,247,.15)')}
               </div>
+              {s.eneezam_id && subsByEneezamId[s.eneezam_id] && (
+                <div style={{ fontSize: 11, color: 'var(--ne-muted)' }}>
+                  {Number(subsByEneezamId[s.eneezam_id].quota_consumed_count) || 0} / {subsByEneezamId[s.eneezam_id].monthly_order_limit ?? t('master.unlimited')} {t('master.quotaUsedLabel')}
+                </div>
+              )}
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={() => onEnterStore(s)}
                   style={{ flex: 1, padding: '9px', borderRadius: 10, border: 'none', background: 'var(--ne-grad)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
@@ -765,25 +887,35 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
 
       {accessModalStore && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000000 }}>
-          <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 16, width: 380, maxWidth: '92vw', padding: '20px', maxHeight: '85vh', overflowY: 'auto' }}>
+          <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 16, width: 420, maxWidth: '92vw', padding: '20px', maxHeight: '85vh', overflowY: 'auto' }}>
             <h3 style={{ margin: '0 0 14px', fontSize: 15, color: 'var(--ne-text)' }}>{t('master.manageAccessFor')} — {accessModalStore.store_name}</h3>
 
-            <label style={{ fontSize: 12, color: 'var(--ne-muted)', display: 'block', marginBottom: 4 }}>{t('master.plan')}</label>
-            <select value={accessPlanId} onChange={(e) => setAccessPlanId(e.target.value)}
-              style={{ width: '100%', padding: '9px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'var(--ne-bg)', color: 'var(--ne-text)', fontSize: 13, marginBottom: 14 }}>
-              <option value="">— {t('master.selectPlan')} —</option>
-              {allPlansList.map((pl) => <option key={pl.id} value={pl.id}>{pl.name}</option>)}
-            </select>
-
-            <label style={{ fontSize: 12, color: 'var(--ne-muted)', display: 'block', marginBottom: 6 }}>{t('master.addons')}</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-              {allAddonsList.map((a) => (
-                <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={accessAddonIds.includes(a.id)} onChange={() => toggleAccessAddon(a.id)} style={{ accentColor: '#5C7CFA' }} />
-                  {a.name}
+            <label style={{ fontSize: 12, color: 'var(--ne-muted)', display: 'block', marginBottom: 6 }}>{t('master.modulesLabel')}</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16, maxHeight: 200, overflowY: 'auto', padding: '2px 4px' }}>
+              {GATABLE_MODULES.map((m) => (
+                <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={!accessDisabledIds.includes(m.id)} onChange={() => toggleAccessModule(m.id)} style={{ accentColor: '#5C7CFA' }} />
+                  {t(m.labelKey)}
                 </label>
               ))}
             </div>
+
+            <label style={{ fontSize: 12, color: 'var(--ne-muted)', display: 'block', marginBottom: 4 }}>{t('master.monthlyOrderLimitLabel')}</label>
+            <select value={accessMonthlyLimit} onChange={(e) => setAccessMonthlyLimit(e.target.value)}
+              style={{ width: '100%', padding: '9px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'var(--ne-bg)', color: 'var(--ne-text)', fontSize: 13, marginBottom: 14 }}>
+              <option value="">{t('master.unlimited')}</option>
+              {[100, 200, 500, 1000, 1500, 2000].map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer', marginBottom: 8 }}>
+              <input type="checkbox" checked={accessReminderEnabled} onChange={(e) => setAccessReminderEnabled(e.target.checked)} style={{ accentColor: '#5C7CFA' }} />
+              {t('master.reminderEnabledLabel')}
+            </label>
+            {accessReminderEnabled && (
+              <textarea value={accessReminderMessage} onChange={(e) => setAccessReminderMessage(e.target.value)}
+                placeholder={DEFAULT_REMINDER_MESSAGE} rows={3}
+                style={{ width: '100%', padding: '9px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'var(--ne-bg)', color: 'var(--ne-text)', fontSize: 13, marginBottom: 14, resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+            )}
 
             {accessError && <p style={{ color: 'var(--ne-danger)', fontSize: 12, margin: '0 0 12px' }}>{accessError}</p>}
 
@@ -792,7 +924,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
                 style={{ flex: 1, padding: '10px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 13, cursor: 'pointer' }}>
                 {t('action.cancel')}
               </button>
-              <button onClick={handleSaveAccess} disabled={accessSaving || !accessPlanId}
+              <button onClick={handleSaveAccess} disabled={accessSaving}
                 style={{ flex: 1, padding: '10px', borderRadius: 9, border: 'none', background: 'var(--ne-grad)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
                 {accessSaving ? '...' : t('action.save')}
               </button>
@@ -861,6 +993,7 @@ function App() {
 
   const [releaseNotes, setReleaseNotes] = useState([])
   const [showReleasePopup, setShowReleasePopup] = useState(false)
+  const [whatsNewOpen, setWhatsNewOpen] = useState(() => !hasSeenWhatsNew())
 
   useEffect(() => {
     if (!session) return
@@ -983,6 +1116,9 @@ function App() {
   // call karta hai taake sidebar clicks real per-page URLs banayein (back/forward + direct-URL support)
   const activeMenu = (location.pathname === '/' || location.pathname.startsWith('/auth/')) ? 'home' : location.pathname.slice(1)
   const setActiveMenu = (id) => navigate(`/${id}`)
+  // /orders/<id> is a real route: the page is the order detail, the sidebar and layout stay on Orders
+  const orderDetailId = activeMenu.startsWith('orders/') && activeMenu.length > 7 ? activeMenu.slice(7) : null
+  const navMenu = orderDetailId ? 'orders' : activeMenu
 
   // Root-redirect ab auth-aware hai — pehle yeh session check kiye bina hi /dashboard
   // navigate kar deta tha, isliye Login form khule hone par bhi URL "/dashboard" dikhta tha.
@@ -992,52 +1128,135 @@ function App() {
     if (location.pathname === '/' && session) navigate('/home', { replace: true })
   }, [location.pathname, session])
 
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  // collapsed by default; a manual toggle is kept for this browser session only (see lib/sidebarState.js)
+  const [sidebarOpen, setSidebarOpen] = useState(() => readSidebarOpen())
+  useEffect(() => { writeSidebarOpen(sidebarOpen) }, [sidebarOpen])
+  // an expanded sidebar folds itself after 2 minutes without the pointer on it; popups and focused inputs keep it open
+  useEffect(() => {
+    if (!sidebarOpen) return undefined
+    const sb = () => document.querySelector('.ne-sidebar')
+    const idle = createIdleCollapse({
+      onIdle: () => { setSidebarOpen(false); setNavHover(null) },
+      canCollapse: () => {
+        const el = sb()
+        if (el && el.matches(':hover')) return false
+        if (document.querySelector('.ne-notif-dropdown, .ne-brand-popover')) return false
+        const a = document.activeElement
+        return !(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.closest('.ne-sidebar, .ne-settings-nav'))
+      },
+    })
+    // listen on the document (the sidebar may mount after this effect) and only count pointer activity over the sidebar
+    const touch = (e) => { if (e.target && e.target.closest && e.target.closest('.ne-sidebar')) idle.touch() }
+    document.addEventListener('pointermove', touch)
+    document.addEventListener('pointerdown', touch)
+    idle.touch()
+    return () => {
+      idle.stop()
+      document.removeEventListener('pointermove', touch)
+      document.removeEventListener('pointerdown', touch)
+    }
+  }, [sidebarOpen])
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
+  // Admin UI overhaul: D1 global search modal + D3 brand/profile popup — both are plain
+  // top-level toggles, same pattern as sidebarOpen/mobileDrawerOpen above.
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [brandPopupOpen, setBrandPopupOpen] = useState(false)
+  const brandBtnRef = useRef(null)
+  const [navHover, setNavHover] = useState(null)
+  const navHoverTimer = useRef(null)
+  useEffect(() => () => clearTimeout(navHoverTimer.current), [])
+  useEffect(() => {
+    const isTypingTarget = (el) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))
+    const onKey = (e) => {
+      if (!(e.ctrlKey || e.metaKey)) return
+      const key = e.key.toLowerCase()
+      if (isTypingTarget(document.activeElement)) return
+      if (window.location.pathname === '/accounts') return
+      if (key === 'k') {
+        e.preventDefault()
+        setSearchOpen(true)
+      } else if (key === 'b') {
+        e.preventDefault()
+        setSidebarOpen(v => !v)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   const [ordersData, setOrdersData] = useState([])
   const [ordersLoaded, setOrdersLoaded] = useState(false)
   const [ordersStore, setOrdersStore] = useState(null)
   const [ordersLoading, setOrdersLoading] = useState(false)
   const [syncStatusText, setSyncStatusText] = useState("")
-  // Module-Visibility (Block C) — store ki APPROVED subscription ke plan.included_modules +
-  // uske selected addons ke module_key ka union. Koi approved subscription na mile to empty
-  // Set (fail-closed) — sirf Finance/Ads/WhatsApp jaise gated modules hide hote hain, baaki
-  // (orders/dashboard/courier waghera) har plan mein hote hain isliye gate hi nahi hote (neeche dekho).
-  const [accessibleModuleKeys, setAccessibleModuleKeys] = useState(new Set())
+  // Module-Visibility — store ki latest APPROVED store_subscriptions row ka disabled_modules
+  // array seedha access-control source hai (plans/addons sirf billing-display ke liye reh
+  // gaye hain, access-gating ke liye ab nahi use hote). Koi approved subscription na mile to
+  // disabledModuleKeys khaali rehta hai (fail-open — naye stores by default sab modules dekh
+  // sakte hain, jab tak admin explicitly kuch disable na kare).
+  const [storeSubscription, setStoreSubscription] = useState(null)
+  const disabledModuleKeys = useMemo(() => new Set(storeSubscription?.disabled_modules || []), [storeSubscription])
+
+  const refreshStoreSubscription = async (eneezamId) => {
+    if (!eneezamId) { setStoreSubscription(null); return }
+    const { data: sub } = await supabase
+      .from('store_subscriptions')
+      .select('*')
+      .eq('store_id', eneezamId)
+      .eq('status', 'approved')
+      .order('approved_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    setStoreSubscription(sub || null)
+  }
 
   useEffect(() => {
-    if (!ordersStore?.eneezam_id) { setAccessibleModuleKeys(new Set()); return }
-    (async () => {
-      const { data: sub } = await supabase
-        .from('store_subscriptions')
-        .select('plan_id, selected_addon_ids')
-        .eq('store_id', ordersStore.eneezam_id)
-        .eq('status', 'approved')
-        .order('approved_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      if (!sub) { setAccessibleModuleKeys(new Set()); return }
-      let rawAddonIds = sub.selected_addon_ids
-      if (typeof rawAddonIds === 'string') {
-        try {
-          rawAddonIds = JSON.parse(rawAddonIds)
-        } catch {
-          rawAddonIds = []
-        }
-      }
-      const validAddonIds = (Array.isArray(rawAddonIds)
-        ? rawAddonIds : [])
-        .filter(id => typeof id === 'string' &&
-          /^[0-9a-f-]{36}$/i.test(id))
-      const [{ data: plan }, { data: addonRows }] = await Promise.all([
-        supabase.from('plans').select('included_modules').eq('id', sub.plan_id).single(),
-        validAddonIds.length > 0
-          ? supabase.from('addons').select('module_key').in('id', validAddonIds)
-          : Promise.resolve({ data: [] }),
-      ])
-      setAccessibleModuleKeys(new Set([...(plan?.included_modules || []), ...(addonRows || []).map((a) => a.module_key)]))
-    })()
+    refreshStoreSubscription(ordersStore?.eneezam_id)
   }, [ordersStore?.eneezam_id])
+
+  // Periodic re-check (1-2 min) — reminder_enabled/quota admin kahin aur se (Manage Access modal)
+  // badal sakta hai, is live session ko bhi uska pata turant chalna chahiye bina reload ke.
+  useEffect(() => {
+    if (!ordersStore?.eneezam_id) return
+    const iv = setInterval(() => refreshStoreSubscription(ordersStore.eneezam_id), 90000)
+    return () => clearInterval(iv)
+  }, [ordersStore?.eneezam_id])
+
+  // --- Quota warning banner (80%+ usage, dismissible once per calendar day) ---
+  const [quotaBannerDismissed, setQuotaBannerDismissed] = useState(false)
+  useEffect(() => {
+    if (!ordersStore?.id) { setQuotaBannerDismissed(false); return }
+    const todayKey = new Date().toISOString().slice(0, 10)
+    try {
+      setQuotaBannerDismissed(localStorage.getItem(`ne_quota_banner_dismissed_${ordersStore.id}_${todayKey}`) === '1')
+    } catch (e) { setQuotaBannerDismissed(false) }
+  }, [ordersStore?.id, storeSubscription])
+  const dismissQuotaBanner = () => {
+    if (!ordersStore?.id) return
+    const todayKey = new Date().toISOString().slice(0, 10)
+    try { localStorage.setItem(`ne_quota_banner_dismissed_${ordersStore.id}_${todayKey}`, '1') } catch (e) {}
+    setQuotaBannerDismissed(true)
+  }
+  const quotaLimit = storeSubscription?.monthly_order_limit
+  const quotaConsumed = Number(storeSubscription?.quota_consumed_count) || 0
+  const quotaRemaining = quotaLimit != null ? Math.max(0, quotaLimit - quotaConsumed) : null
+  const showQuotaBanner = quotaLimit != null && quotaLimit > 0 && !quotaBannerDismissed && (quotaConsumed / quotaLimit) >= 0.8
+
+  // --- Subscription reminder popup (every 15 min while reminder_enabled true) ---
+  const [reminderPopupOpen, setReminderPopupOpen] = useState(false)
+  const reminderTimerRef = useRef(null)
+  useEffect(() => {
+    clearTimeout(reminderTimerRef.current)
+    if (!storeSubscription?.reminder_enabled) { setReminderPopupOpen(false); return }
+    const schedule = () => {
+      reminderTimerRef.current = setTimeout(() => {
+        setReminderPopupOpen(true)
+        schedule()
+      }, 15 * 60 * 1000)
+    }
+    setReminderPopupOpen(true)
+    schedule()
+    return () => clearTimeout(reminderTimerRef.current)
+  }, [storeSubscription?.reminder_enabled])
 
   const [profile, setProfile] = useState(null)
   const [lang, setLang] = useLanguage(profile?.id)
@@ -1049,6 +1268,11 @@ function App() {
   const [allAddonsList, setAllAddonsList] = useState([])
   const [pendingProfiles, setPendingProfiles] = useState([])
   const [selectedStoreId, setSelectedStoreId] = useState(null)
+  // Which store_themes row ThemeEditorPage opens on — set by OnlineStore.jsx
+  // right before navigating to 'theme-editor' (no URL/route param carries
+  // this today, so it's threaded as plain top-level state, same pattern as
+  // selectedStoreId itself).
+  const [editingThemeId, setEditingThemeId] = useState(null)
   const [activePeriod, setActivePeriod] = useState("30d")
   // Realtime handler purani closure mein chalta hai, isliye current period ref se padhte hain (har render mein update).
   const activePeriodRef = useRef(activePeriod)
@@ -1088,6 +1312,24 @@ function App() {
   const activeMenuRef = useRef(activeMenu)
 
   useEffect(() => { activeMenuRef.current = activeMenu }, [activeMenu])
+
+  // Entering Settings collapses the sidebar and remembers the page + sidebar state it came
+  // from; leaving Settings (any route) restores that sidebar state. prevMenuRef starts null so
+  // a direct load of /settings is treated as "entering" too.
+  const prevMenuRef = useRef(null)
+  const preSettingsRef = useRef({ menu: null, sidebarOpen: null })
+  useEffect(() => {
+    const prev = prevMenuRef.current
+    prevMenuRef.current = activeMenu
+    if (activeMenu === 'settings' && prev !== 'settings') {
+      // Coming back from /accounts (opened from Settings) keeps the original pre-Settings page.
+      preSettingsRef.current = { menu: prev === 'accounts' ? preSettingsRef.current.menu : prev, sidebarOpen }
+      setSidebarOpen(false)
+    } else if (prev === 'settings' && activeMenu !== 'settings' && preSettingsRef.current.sidebarOpen !== null) {
+      setSidebarOpen(preSettingsRef.current.sidebarOpen)
+      preSettingsRef.current.sidebarOpen = null
+    }
+  }, [activeMenu])
   useEffect(() => { selectedStoreIdRef.current = selectedStoreId }, [selectedStoreId])
   useEffect(() => { if (activeMenu === 'orders') setNotifCount(0) }, [activeMenu])
 
@@ -1160,6 +1402,7 @@ function App() {
       if (!baselineSet) return
       const newUserId = newSession?.user?.id || null
       if (newUserId !== lastUserIdRef.current) {
+        if (newUserId) { clearSidebarOpen(); setSidebarOpen(false) } // every fresh login starts with the sidebar collapsed
         resetUserState()
         lastUserIdRef.current = newUserId
       }
@@ -1267,7 +1510,7 @@ function App() {
       setAllPlansList(plansData || [])
       const { data: addonsData } = await supabase.from('addons').select('id, name, monthly_price')
       setAllAddonsList(addonsData || [])
-      const { data: stores } = await supabase.from('stores').select('*').order('created_at', { ascending: false })
+      const { data: stores } = await fetchStoreRows(supabase)
       const { data: adminLinks } = await supabase
         .from('user_stores')
         .select('store_id, profiles!inner(id, email, full_name, phone, role, approved)')
@@ -1335,7 +1578,9 @@ function App() {
           persistStoreId(fallbackStoreId)
         }
         const isProductionDomain = window.location.hostname.includes('portal.eneezam.com')
-        if (isProductionDomain) {
+        if (location.pathname === '/accounts') {
+          // store-independent page — don't bounce a direct load of it
+        } else if (isProductionDomain) {
           if (location.pathname !== '/home') {
             navigate('/home', { replace: true })
           }
@@ -1642,7 +1887,7 @@ function App() {
   // Boot par sirf store row + realtime. Orders/Booked/Dashboard ab server-side hain; poora ordersData sirf P&L/Ads/Budget ke liye lazy load hota hai.
   const loadStoreAndRealtime = async (storeId) => {
     const expectedUserId = session?.user?.id
-    const { data: storeData } = await supabase.from('stores').select('*').eq('id', storeId).single()
+    const { data: storeData } = await fetchStoreRow(supabase, storeId)
     if (session?.user?.id !== expectedUserId || selectedStoreIdRef.current !== storeId) return
     if (!storeData) return
     setOrdersStore(storeData)
@@ -1660,7 +1905,7 @@ function App() {
       const __fetchStatusesStart = performance.now()
       const statusesPromise = fetchAllOrderStatuses(storeId, fromDate)
       statusesPromise.catch(() => {}) // stores fetch pehle fail/return ho to unhandled rejection na ho; asli error neeche await par throw hota hai
-      const { data: storeData } = await supabase.from('stores').select('*').eq('id', storeId).single()
+      const { data: storeData } = await fetchStoreRow(supabase, storeId)
       if (isStale()) return
       if (!storeData) { setOrdersLoading(false); return }
       setOrdersStore(storeData)
@@ -1814,6 +2059,9 @@ function App() {
     return <MetaCallback />
   }
 
+  const LegalPage = LEGAL_ROUTES[location.pathname]
+  if (LegalPage) return <div className="ne-public"><LegalPage /></div>
+
   if (loading) return <SplashScreen />
   if (!session) {
     const PublicPage = PUBLIC_ROUTES[location.pathname]
@@ -1832,12 +2080,26 @@ function App() {
         return <SplashScreen />
       }
     }
-    if (PublicPage) return <PublicPage />
+    if (PublicPage) return <div className="ne-public"><PublicPage /></div>
     return <Login />
   }
   if (!profileLoaded) return <SplashScreen />
   if (!profile) return <PendingApprovalScreen onSignOut={() => supabase.auth.signOut()} t={t} />
   if (profile.role !== 'creator' && !profile.approved) return <PendingApprovalScreen onSignOut={() => supabase.auth.signOut()} t={t} />
+
+  // /accounts is store-independent (account identity, not store access), so it renders here —
+  // behind the session/profile/approval gates above but before the master-view and store gates.
+  if (activeMenu === 'accounts') {
+    return (
+      <Accounts
+        profile={profile}
+        userEmail={session.user.email}
+        emailVerified={!!session.user.email_confirmed_at}
+        onProfileUpdated={(updated) => setProfile(updated)}
+        onExit={() => (location.key !== 'default' ? navigate(-1) : navigate('/home'))}
+      />
+    )
+  }
 
   if (profile.role === 'creator' && isMasterView) {
     return (
@@ -1926,81 +2188,117 @@ function App() {
   // Store-dependent pages sirf ordersStore (store row) chahte hain, jo orders se pehle set hota hai — orders load hone ka intezar nahi.
   const storePending = !ordersStore && !isAdminOnlyPage
   const ORDERS_DEPENDENT_PAGES = ['ads', 'pnl', 'budget']
-  const STORE_DEPENDENT_PAGES = ['orders', 'products', 'product-costing', 'finance-statement', 'courier', 'courier-dashboard', 'courier-dashboard/detailed']
+  const STORE_DEPENDENT_PAGES = ['orders', 'products', 'finance-statement', 'courier', 'courier-dashboard', 'courier-dashboard/detailed', 'returns']
 
   const currentUserStoreEntry = userStoresList.find(us => us.store_id === selectedStoreId)
   const isStaff = profile.role === 'staff'
   const staffPermissions = currentUserStoreEntry?.permissions || []
-  // Sirf explicitly listed modules subscription-gated hain (jaisa Block C mein ask kiya gaya
-  // tha — "Finance/Ads/WhatsApp") — baaki menu items (orders/dashboard/courier waghera) har
-  // plan mein already included hote hain, unhe gate karne ki zaroorat nahi.
-  const SUBSCRIPTION_GATED_MODULES = { ledger: ['finance'], 'finance-statement': ['finance'], ads: ['ads'], whatsapp: ['whatsapp_linked', 'whatsapp_meta'] }
-  const hasSubscriptionAccess = (moduleId) => {
-    const requiredKeys = SUBSCRIPTION_GATED_MODULES[moduleId]
-    return !requiredKeys || requiredKeys.some((k) => accessibleModuleKeys.has(k))
-  }
-  const hasAccess = (moduleId) => (!isStaff || staffPermissions.includes(moduleId)) && hasSubscriptionAccess(moduleId)
+  const hasAccess = (moduleId) => (!isStaff || staffPermissions.includes(moduleId)) && !disabledModuleKeys.has(moduleId)
 
+  // Admin UI overhaul (Part A2): reorganized into a flat/nested structure instead of the
+  // old flat-with-group-label scheme. Items with a `parent` id render as an indented child
+  // under that parent (expanded sidebar) or inside a hover flyout (collapsed sidebar) —
+  // see renderTopLevelEntry below. Only two real group headings remain ("Courier Payments",
+  // "Sales channels"); everything else is ungrouped. whatsapp/courier-connect/meta-connect/
+  // team/activity-log are intentionally NOT listed here any more — Part A4/A5 moved them
+  // into the new Settings sub-nav (Settings.jsx), reusing the exact same hasAccess/role
+  // gating at their unchanged render blocks further down, just reached via a different
+  // entry point.
   const allMenuItems = [
-    { id: 'home', label: t('nav.home'), group: t('nav.group.overview') },
-    { id: 'dashboard', label: t('nav.dashboard'), group: t('nav.group.overview') },
-    { id: 'orders', label: t('nav.orders'), group: t('nav.group.overview') },
-    { id: 'courier', label: t('nav.courier'), group: t('nav.group.operations') },
-    { id: 'returns', label: t('nav.returns'), group: t('nav.group.operations') },
-    { id: 'products', label: t('nav.products'), group: t('nav.group.operations') },
-    { id: 'inventory', label: t('nav.inventory'), group: t('nav.group.operations') },
-    { id: 'product-costing', label: t('nav.product-costing'), group: t('nav.group.operations') },
-    { id: 'finance-statement', label: t('nav.finance-statement'), group: t('nav.group.finance') },
-    { id: 'ads', label: t('nav.ads'), group: t('nav.group.insights') },
-    { id: 'pnl', label: t('nav.pnl'), group: t('nav.group.insights') },
-    { id: 'ledger', label: t('nav.ledger'), group: t('nav.group.insights') },
-    { id: 'cities', label: t('nav.cities'), group: t('nav.group.insights') },
-    { id: 'budget', label: t('nav.budget'), group: t('nav.group.insights') },
-    { id: 'suggestions', label: t('nav.suggestions'), group: t('nav.group.insights') },
-    { id: 'courier-dashboard', label: t('nav.courier-dashboard'), group: t('nav.group.insights') },
-    { id: 'whatsapp', label: t('nav.whatsapp'), group: t('nav.group.channels') },
-    { id: 'store-connect', label: t('nav.store-connect'), group: t('nav.group.channels') },
-    { id: 'meta-connect', label: t('nav.meta-connect'), group: t('nav.group.channels') },
-    { id: 'courier-connect', label: t('nav.courier-connect'), group: t('nav.group.channels') },
-    { id: 'payments', label: t('nav.payments'), group: t('nav.group.channels') },
+    { id: 'home', label: t('nav.home') },
+    { id: 'orders', label: t('nav.orders') },
+    { id: 'courier', label: t('nav.courier'), parent: 'orders' },
+    { id: 'returns', label: t('nav.returns'), parent: 'orders' },
+    { id: 'products', label: t('nav.products') },
+    { id: 'dashboard', label: t('nav.dashboard') },
+    { id: 'courier-dashboard', label: t('nav.courier-dashboard'), parent: 'dashboard' },
+    { id: 'pnl', label: t('nav.pnl') },
+    { id: 'ledger', label: t('nav.ledger'), parent: 'pnl' },
+    { id: 'budget', label: t('nav.budget'), parent: 'pnl' },
+    { id: 'finance-statement', label: t('nav.finance-statement'), group: t('nav.group.courierPayments') },
+    { id: 'online-store', label: t('nav.online-store'), group: t('nav.group.salesChannels') },
+    { id: 'store-connect', label: t('nav.store-connect'), group: t('nav.group.salesChannels') },
+    { id: 'ads', label: t('nav.ads'), group: t('nav.group.salesChannels') },
+    { id: 'suggestions', label: t('nav.suggestions') },
   ]
 
-  const isPrivileged = profile.role === 'admin' || profile.role === 'creator'
-  const menuItemsWithExtras = isPrivileged
-    ? [...allMenuItems,
-        { id: 'team', label: t('nav.team'), group: t('nav.group.channels') },
-        { id: 'activity-log', label: t('nav.activity-log'), group: t('nav.group.channels') },
-        { id: 'settings', label: t('nav.settings'), group: t('nav.group.channels') }]
-    : [...allMenuItems, { id: 'settings', label: t('nav.settings'), group: t('nav.group.channels') }]
-
-  const alwaysVisibleIds = ['home', 'team', 'activity-log', 'settings']
-  const menuItems = menuItemsWithExtras.filter(m => hasAccess(m.id) || alwaysVisibleIds.includes(m.id))
+  const alwaysVisibleIds = ['home']
+  // menuItems only used for the "coming soon" placeholder fallback below — the title-bar
+  // lookup and sidebar rendering use pageTitleLookup/topLevelEntries (defined next), since
+  // whatsapp/courier-connect/meta-connect/team/activity-log/settings are no longer part of
+  // allMenuItems but are still real routable pages.
+  const menuItems = allMenuItems.filter(m => hasAccess(m.id) || alwaysVisibleIds.includes(m.id))
   const fullScreenModules = ['orders', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor']
+  // fullScreenModules hides the topbar; Orders keeps that but still gets the rounded content card.
+  const noCardModules = fullScreenModules.filter(m => m !== 'orders')
   const currentStoreInfo = userStoresList.find(us => us.store_id === selectedStoreId)?.stores
 
-  // Group nav items in original order, preserving group sequence
-  const groupOrder = [t('nav.group.overview'), t('nav.group.operations'), t('nav.group.finance'), t('nav.group.insights'), t('nav.group.channels')]
-  const groupedMenu = groupOrder.map(g => ({ group: g, items: menuItems.filter(m => m.group === g) })).filter(g => g.items.length > 0)
+  // Flat lookup (unlike menuItems) so the page title / "coming soon" fallback still resolve
+  // correctly for pages that moved out of the sidebar entirely (Settings sub-nav items) or
+  // that only ever had a hidden/indirect route (theme-editor, courier-dashboard/detailed).
+  const pageTitleLookup = [
+    ...allMenuItems,
+    { id: 'settings', label: t('nav.settings') },
+    { id: 'whatsapp', label: t('nav.whatsapp') },
+    { id: 'courier-connect', label: t('nav.courier-connect') },
+    { id: 'meta-connect', label: t('nav.meta-connect') },
+    { id: 'team', label: t('nav.team') },
+    { id: 'activity-log', label: t('nav.activity-log') },
+  ]
+
+  // Part A2/B3: build the sidebar's top-level entries with their (optional) children and
+  // (optional) group heading, in original order. A parent's children are resolved
+  // independently of the parent's own hasAccess check, so hiding a parent module never
+  // hides an otherwise-accessible child's visibility logic — though visually a hidden
+  // parent does mean its children have no visible row to nest under, same tradeoff as the
+  // user's explicit request to nest courier/returns under orders, ledger/budget under pnl,
+  // and courier-dashboard under dashboard.
+  let lastGroupHeading = null
+  const topLevelEntries = allMenuItems
+    .filter(m => !m.parent)
+    .filter(m => hasAccess(m.id) || alwaysVisibleIds.includes(m.id))
+    .map(item => {
+      const children = allMenuItems.filter(c => c.parent === item.id && (hasAccess(c.id) || alwaysVisibleIds.includes(c.id)))
+      const groupHeading = item.group && item.group !== lastGroupHeading ? item.group : null
+      lastGroupHeading = item.group || null
+      return { item, children, groupHeading }
+    })
 
   const closeDrawer = () => setMobileDrawerOpen(false)
 
-  const handleClearCache = async () => {
-    if (!window.confirm(t('action.clearCacheConfirm'))) return;
-    await clearCache();
-    await clearViewCache();
-    window.location.reload();
-  };
+  const sidebarExpanded = sidebarOpen || mobileDrawerOpen
+  const openNavHover = (entry, el, kind) => {
+    clearTimeout(navHoverTimer.current)
+    const r = el.getBoundingClientRect()
+    // x comes from the sidebar's own edge (not the row's edge) so the tooltip / flyout always clears the sidebar by the same gap
+    const sb = el.closest('.ne-sidebar')
+    const sr = sb ? sb.getBoundingClientRect() : r
+    setNavHover({ kind, item: entry.item, children: entry.children, rect: { top: r.top, right: sr.right, left: sr.left, height: r.height } })
+  }
+  // Short delay so the pointer can cross the gap between a nav row and its flyout.
+  const closeNavHoverSoon = () => {
+    clearTimeout(navHoverTimer.current)
+    navHoverTimer.current = setTimeout(() => setNavHover(null), 120)
+  }
+  const keepNavHover = () => clearTimeout(navHoverTimer.current)
+  const isRtlUi = () => (document.documentElement.dir || document.body.dir || 'ltr') === 'rtl'
+  const tipX = (r) => placeTip({ edge: { left: r.left, right: r.right }, vp: { w: window.innerWidth, h: window.innerHeight }, rtl: isRtlUi() })
+  const goToMenu = (id) => { setActiveMenu(id); setNavHover(null); closeDrawer() }
 
-  const renderNavItem = (item) => (
+  const renderNavItem = (item, { sub, onHover } = {}) => (
     <div key={item.id}
-      onMouseEnter={() => prefetchPage(item.id)}
+      onMouseEnter={(e) => { prefetchPage(item.id); if (onHover) onHover(e.currentTarget) }}
+      onMouseLeave={onHover ? closeNavHoverSoon : undefined}
       onTouchStart={() => prefetchPage(item.id)}
-      onClick={() => { setActiveMenu(item.id); closeDrawer() }}
-      title={!sidebarOpen ? item.label : ''}
-      className={`ne-navitem${activeMenu === item.id ? ' active' : ''}`}>
+      onClick={() => goToMenu(item.id)}
+      className={`ne-navitem${navMenu === item.id ? ' active' : ''}${sub ? ' ne-navitem-sub' : ''}`}>
       <span className="ne-ic">{NAV_ICONS[item.id]}</span>
-      {(sidebarOpen || mobileDrawerOpen) && <span>{item.label}</span>}
-      {item.id === 'orders' && notifCount > 0 && (
+      {(sidebarOpen || mobileDrawerOpen) && <span className="ne-navtext">{item.label}</span>}
+      {item.id === 'orders' && notifCount > 0 && !(sidebarOpen || mobileDrawerOpen) && (
+        // collapsed: a small dot on the icon's corner, out of the layout, so the icon never moves
+        <span className="ne-navdot" aria-hidden="true" />
+      )}
+      {item.id === 'orders' && notifCount > 0 && (sidebarOpen || mobileDrawerOpen) && (
         <span style={{ marginLeft: 'auto', background: 'var(--ne-danger)', color: '#fff', borderRadius: 10, fontSize: 9, fontWeight: 700, padding: '1px 6px', minWidth: 16, textAlign: 'center', flexShrink: 0 }}>
           {notifCount > 99 ? '99+' : notifCount}
         </span>
@@ -2008,9 +2306,56 @@ function App() {
     </div>
   )
 
+  // Expanded: only the active parent shows its children inline; other parents show a hover
+  // flyout. Collapsed: every parent with children gets a flyout, the rest a one-line tooltip.
+  const renderTopLevelEntry = (entry) => {
+    const hasKids = entry.children.length > 0
+    if (!sidebarExpanded) {
+      return renderNavItem(entry.item, { onHover: (el) => openNavHover(entry, el, hasKids ? 'flyout' : 'label') })
+    }
+    if (!hasKids) return renderNavItem(entry.item)
+    const isActiveParent = navMenu === entry.item.id ||
+      entry.children.some(c => navMenu === c.id || String(navMenu || '').startsWith(`${c.id}/`))
+    if (!isActiveParent) {
+      return renderNavItem(entry.item, { onHover: (el) => openNavHover(entry, el, 'flyout') })
+    }
+    return (
+      <div key={entry.item.id}>
+        {renderNavItem(entry.item)}
+        <div className="ne-navchildren">
+          {entry.children.map(c => renderNavItem(c, { sub: true }))}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="ne-app-shell">
       <div className="ne-app">
+
+        {showQuotaBanner && (
+          <div style={{ position: 'fixed', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 2000000, maxWidth: '92vw', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, background: 'var(--ne-warning-soft)', border: '1px solid var(--ne-warning)', color: 'var(--ne-warning)', fontSize: 12.5, boxShadow: '0 8px 24px rgba(0,0,0,.3)' }}>
+            <Icon name="warning" size={14} />
+            <span>{t('quota.warningTemplate').replace('{remaining}', quotaRemaining)}</span>
+            <button onClick={dismissQuotaBanner} style={{ background: 'transparent', border: 'none', color: 'var(--ne-warning)', cursor: 'pointer', fontWeight: 700, fontSize: 12, flexShrink: 0 }}>
+              {t('common.dismiss')}
+            </button>
+          </div>
+        )}
+
+        {reminderPopupOpen && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000001 }}>
+            <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 16, width: 380, maxWidth: '92vw', padding: '20px' }}>
+              <p style={{ fontSize: 13.5, color: 'var(--ne-text)', margin: '0 0 16px', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                {storeSubscription?.reminder_message || 'Aapki subscription payment pending hai — meherbani karke jald payment complete karein taake service bila rukawat jari rahe.'}
+              </p>
+              <button onClick={() => setReminderPopupOpen(false)}
+                style={{ width: '100%', padding: '10px', borderRadius: 9, border: 'none', background: 'var(--ne-grad)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                {t('common.dismiss')}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Dev Monitor (aur ab Gemini Usage Monitor) apna standalone full-page layout rakhte
             hain (jaisa Master Dashboard) — isliye yahan bhi sidebar/drawer-backdrop hide karte
@@ -2021,71 +2366,86 @@ function App() {
           <>
             {mobileDrawerOpen && <div className="ne-drawer-backdrop open" onClick={closeDrawer} />}
 
-            <div className={`ne-sidebar${sidebarOpen ? '' : ' collapsed'}${mobileDrawerOpen ? ' open' : ''}`}>
-          <div className="ne-brand-row">
-            <Monogram size={22} />
-            {(sidebarOpen || mobileDrawerOpen) && <Wordmark size={18} dark />}
-            <span className="ne-live-dot" title="Realtime connected" />
-            {(sidebarOpen || mobileDrawerOpen) && (
-              <button className="ne-collapse-btn" onClick={() => setSidebarOpen(!sidebarOpen)} style={{ marginLeft: 'auto' }}>◀</button>
-            )}
-            {!sidebarOpen && !mobileDrawerOpen && (
-              <button className="ne-collapse-btn" onClick={() => setSidebarOpen(!sidebarOpen)}>▶</button>
-            )}
+            <div className={`ne-sidebar${sidebarOpen ? '' : ' collapsed'}${mobileDrawerOpen ? ' open' : ''}${activeMenu === 'settings' ? ' ne-sidebar-dimmed' : ''}`}>
+          {/* Part E1 — fixed top region: logo/collapse + search trigger, never scrolls. */}
+          <div className="ne-sidebar-top">
+            <div className="ne-brand-row">
+              {(sidebarOpen || mobileDrawerOpen) ? (
+                <>
+                  <span style={{ display: 'flex' }}><Monogram size={22} /></span>
+                  <SidebarToggleTip label={t('sidebar.collapseTooltip')} placement="bottom" style={{ marginLeft: 'auto' }}>
+                    <button className="ne-collapse-btn" onClick={() => { setSidebarOpen(false); setNavHover(null) }} aria-label={t('sidebar.collapseTooltip')}><Icon name="sidebarToggle" size={18} /></button>
+                  </SidebarToggleTip>
+                </>
+              ) : (
+                <CollapsedLogoToggle label={t('sidebar.expandTooltip')} onExpand={() => { setSidebarOpen(true); setNavHover(null) }} />
+              )}
+            </div>
+
+            <div onClick={() => setSearchOpen(true)} className="ne-navitem ne-search-trigger" title={!sidebarOpen ? t('search.triggerLabel') : ''}>
+              <span className="ne-ic"><Icon name="search" size={14} /></span>
+              {(sidebarOpen || mobileDrawerOpen) && (
+                <>
+                  <span className="ne-navtext">{t('search.triggerLabel')}</span>
+                  <span className="ne-search-kbd">Ctrl K</span>
+                </>
+              )}
+            </div>
           </div>
 
-          <div onClick={handleClearCache} className="ne-navitem">
-            <span className="ne-ic">
-              <RefreshIcon style={{ width: 15, height: 15 }} />
-            </span>
-            {(sidebarOpen || mobileDrawerOpen) && <span>{t('action.clearCache')}</span>}
+          {/* Part E1 — scrollable middle region: nav groups only. */}
+          <div className="ne-sidebar-scroll" onScroll={() => setNavHover(null)}>
+            {topLevelEntries.map(entry => (
+              <div key={entry.item.id}>
+                {entry.groupHeading && (sidebarOpen || mobileDrawerOpen) && <div className="ne-navlabel">{entry.groupHeading}</div>}
+                {renderTopLevelEntry(entry)}
+              </div>
+            ))}
           </div>
 
-          {/* Sidebar hamesha dark hai (light mode mein bhi), isliye yahan theme-var ke bajaye
-              dark-mode ke fixed colors use karte hain — warna light mode mein dark text
-              dark sidebar ke upar illegible ho jata */}
-          {currentStoreInfo && (sidebarOpen || mobileDrawerOpen) && (
-            <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: 8, padding: '8px 10px', fontSize: 11.5, color: '#8C93C4', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Icon name="store" size={12} /> {currentStoreInfo.store_name}
-              {currentStoreInfo.eneezam_id && <span style={{ opacity: 0.7 }}> · {currentStoreInfo.eneezam_id}</span>}
+          {/* Part E1 — fixed bottom region: store/brand identity + bell + Settings, pinned. */}
+          <div className="ne-sidebar-bottom">
+            <div className="ne-sidebar-bottomrow">
+              <div ref={brandBtnRef} onClick={() => setBrandPopupOpen(v => !v)} className="ne-brandname-btn">
+                <Icon name="store" size={13} />
+                {(sidebarOpen || mobileDrawerOpen) && <span>{currentStoreInfo?.store_name || t('master.myBrands')}</span>}
+              </div>
+              {(sidebarOpen || mobileDrawerOpen) && <NotificationBell cfUrl={CF_URL} session={session} storeId={selectedStoreId} t={t} />}
+              {brandPopupOpen && (
+                <BrandSwitcherPopup
+                  currentStoreInfo={currentStoreInfo}
+                  userStoresList={userStoresList}
+                  selectedStoreId={selectedStoreId}
+                  onSwitchStore={(id) => { handleSwitchStore(id); setBrandPopupOpen(false) }}
+                  profile={profile}
+                  userEmail={session.user.email}
+                  onOpenMasterDashboard={() => { navigate('/master-dashboard'); setSelectedStoreId(null); setOrdersLoaded(false); hasStartedLoadRef.current = false; hasStartedBookedLoadRef.current = false; closeDrawer(); setBrandPopupOpen(false) }}
+                  onSignOut={() => supabase.auth.signOut()}
+                  onClose={() => setBrandPopupOpen(false)}
+                  anchorRef={brandBtnRef}
+                  t={t}
+                />
+              )}
             </div>
-          )}
 
-          {/* TASK 14: Brand Switcher — 2+ brands ho tabhi dikhega */}
-          {userStoresList.length > 1 && (sidebarOpen || mobileDrawerOpen) && (
-            <select value={selectedStoreId || ''} onChange={e => handleSwitchStore(e.target.value)}
-              style={{ width: '100%', padding: '7px 8px', borderRadius: 8, border: '1px solid #232A52', background: '#161B45', color: '#EEF0FF', fontSize: 11.5, marginBottom: 8, cursor: 'pointer' }}>
-              {userStoresList.map(us => (
-                <option key={us.store_id} value={us.store_id}>{us.stores?.store_name}</option>
-              ))}
-            </select>
-          )}
+            {profile.role === 'admin' && userStoresList.length > 1 && (sidebarOpen || mobileDrawerOpen) && (
+              <button onClick={() => { setIsAdminMasterView(true); closeDrawer() }}
+                style={{ width: '100%', padding: '7px', borderRadius: 8, border: '1px solid #232A52', background: 'transparent', color: '#8C93C4', fontSize: 11.5, cursor: 'pointer', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <Icon name="store" size={12} /> {t('master.myBrands')}
+              </button>
+            )}
 
-          {profile.role === 'creator' && (sidebarOpen || mobileDrawerOpen) && (
-            <button onClick={() => { navigate('/master-dashboard'); setSelectedStoreId(null); setOrdersLoaded(false); hasStartedLoadRef.current = false; hasStartedBookedLoadRef.current = false; closeDrawer() }}
-              style={{ width: '100%', padding: '7px', borderRadius: 8, border: '1px solid #232A52', background: 'transparent', color: '#8C93C4', fontSize: 11.5, cursor: 'pointer', marginBottom: 8 }}>
-              {t('master.backToMaster')}
-            </button>
-          )}
-
-          {/* TASK 15: admin ke apne 2+ brands hon to mini master dashboard ka rasta */}
-          {profile.role === 'admin' && userStoresList.length > 1 && (sidebarOpen || mobileDrawerOpen) && (
-            <button onClick={() => { setIsAdminMasterView(true); closeDrawer() }}
-              style={{ width: '100%', padding: '7px', borderRadius: 8, border: '1px solid #232A52', background: 'transparent', color: '#8C93C4', fontSize: 11.5, cursor: 'pointer', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-              <Icon name="store" size={12} /> {t('master.myBrands')}
-            </button>
-          )}
-
-          {groupedMenu.map(g => (
-            <div key={g.group}>
-              {(sidebarOpen || mobileDrawerOpen) && <div className="ne-navlabel">{g.group}</div>}
-              {g.items.map(renderNavItem)}
+            <div
+              onClick={() => goToMenu('settings')}
+              onMouseEnter={(e) => { if (!sidebarExpanded) openNavHover({ item: { id: 'settings', label: t('nav.settings') }, children: [] }, e.currentTarget, 'label') }}
+              onMouseLeave={() => { if (!sidebarExpanded) closeNavHoverSoon() }}
+              className={`ne-navitem${activeMenu === 'settings' ? ' active' : ''}`}>
+              <span className="ne-ic">{NAV_ICONS.settings}</span>
+              {(sidebarOpen || mobileDrawerOpen) && <span className="ne-navtext">{t('nav.settings')}</span>}
             </div>
-          ))}
 
-          <div style={{ marginTop: 'auto', paddingTop: 16 }}>
             {(sidebarOpen || mobileDrawerOpen) ? (
-              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, marginBottom: 8 }}>
                 <button onClick={() => setTheme(th => th === 'dark' ? 'light' : 'dark')} title={t('theme.toggle')}
                   style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', height: 34, borderRadius: 9, border: '1px solid #232A52', background: 'rgba(255,255,255,.04)', color: '#EEF0FF', cursor: 'pointer' }}>
                   {theme === 'dark' ? <SunIcon style={{ width: 15, height: 15 }} /> : <MoonIcon style={{ width: 15, height: 15 }} />}
@@ -2097,41 +2457,83 @@ function App() {
               </div>
             ) : (
               <button onClick={() => setTheme(th => th === 'dark' ? 'light' : 'dark')} title={t('theme.toggle')}
-                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', height: 34, borderRadius: 9, border: '1px solid #232A52', background: 'rgba(255,255,255,.04)', color: '#EEF0FF', cursor: 'pointer', marginBottom: 8 }}>
+                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', height: 34, borderRadius: 9, border: '1px solid #232A52', background: 'rgba(255,255,255,.04)', color: '#EEF0FF', cursor: 'pointer', marginTop: 8, marginBottom: 8 }}>
                 {theme === 'dark' ? <SunIcon style={{ width: 15, height: 15 }} /> : <MoonIcon style={{ width: 15, height: 15 }} />}
               </button>
             )}
-            <div onClick={() => supabase.auth.signOut()} className="ne-navitem" style={{ color: '#F26D6D' }}>
-              <span className="ne-ic" style={{ background: 'rgba(242,109,109,.1)' }}>
-                <svg viewBox="0 0 20 20" stroke="#F26D6D"><path d="M7 17H4.5a1.5 1.5 0 0 1-1.5-1.5v-11A1.5 1.5 0 0 1 4.5 3H7"/><path d="M13 14l4-4-4-4"/><path d="M17 10H7"/></svg>
-              </span>
-              {(sidebarOpen || mobileDrawerOpen) && <span>{t('action.logout')}</span>}
-            </div>
           </div>
         </div>
           </>
         )}
 
+        {navHover && navHover.kind === 'flyout' && (
+          <div className="ne-navflyout"
+            style={{ ...tipX(navHover.rect), top: Math.max(8, Math.min(navHover.rect.top, window.innerHeight - (navHover.children.length * 32 + 48))) }}
+            onMouseEnter={keepNavHover} onMouseLeave={closeNavHoverSoon}>
+            <div className="ne-navflyout-title">{navHover.item.label}</div>
+            {navHover.children.map(c => (
+              <div key={c.id}
+                className={`ne-navflyout-item${navMenu === c.id ? ' active' : ''}`}
+                onMouseEnter={() => prefetchPage(c.id)}
+                onClick={() => goToMenu(c.id)}>
+                {c.label}
+              </div>
+            ))}
+          </div>
+        )}
+        {navHover && navHover.kind === 'label' && (
+          <span className="ne-toggle-tip ne-toggle-tip-right" style={{ ...tipX(navHover.rect), top: navHover.rect.top + navHover.rect.height / 2, ...(isRtlUi() ? { transform: 'translateY(-50%)' } : null) }}>
+            {navHover.item.label}
+          </span>
+        )}
+
+        {whatsNewOpen && !showReleasePopup && <WhatsNew onClose={() => setWhatsNewOpen(false)} t={t} />}
+
+        {searchOpen && (
+          <GlobalSearch
+            storeId={selectedStoreId}
+            storeName={currentStoreInfo?.store_name}
+            onNavigate={setActiveMenu}
+            onClose={() => setSearchOpen(false)}
+            settingsSections={[
+              { id: 'accounts-profile', label: t('settings.myProfile'), menu: 'accounts' },
+              { id: 'accounts-password', label: t('settings.changePassword'), menu: 'accounts' },
+              { id: 'whatsapp', label: t('nav.whatsapp'), menu: 'settings?section=whatsapp' },
+              { id: 'courier-connect', label: t('nav.courier-connect'), menu: 'settings?section=courier-connect' },
+              { id: 'meta-connect', label: t('nav.meta-connect'), menu: 'settings?section=meta-connect' },
+              { id: 'general', label: t('settings.general'), menu: 'settings?section=general' },
+              { id: 'payment-settings', label: t('settings.payments'), menu: 'settings?section=payment-settings' },
+              { id: 'tax-settings', label: t('settings.taxes'), menu: 'settings?section=tax-settings' },
+              { id: 'checkout-settings', label: t('settings.checkout'), menu: 'settings?section=checkout-settings' },
+              { id: 'shipping-settings', label: t('settings.shipping'), menu: 'settings?section=shipping-settings' },
+              { id: 'team', label: t('nav.team'), menu: 'settings?section=team' },
+              { id: 'activity-log', label: t('nav.activity-log'), menu: 'settings?section=activity-log' },
+            ]}
+            t={t}
+          />
+        )}
+
         <div className="ne-main">
-          {!fullScreenModules.includes(activeMenu) && (
-            <div className="ne-topbar">
+          {!fullScreenModules.includes(navMenu) && (
+            <div className={`ne-topbar${activeMenu === 'settings' || activeMenu === 'online-store' ? ' ne-topbar-hide-desktop' : ''}`}>
               <button className="ne-hamburger" onClick={() => setMobileDrawerOpen(true)}>☰</button>
               <h1 className="ne-page-title">
-                {menuItems.find(m => m.id === activeMenu)?.label}
+                {pageTitleLookup.find(m => m.id === navMenu)?.label}
                 {syncStatusText && <span className="ne-sync-status" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="pending" size={11} /> {syncStatusText}</span>}
               </h1>
+              <SyncStatusBadge />
               <div className="ne-userchip">
-                <div className="ne-avatar">{session.user.email[0].toUpperCase()}</div>
+                <InitialsAvatar name={profile?.full_name || session.user.email} size={28} />
                 <span>{session.user.email}</span>
               </div>
             </div>
           )}
 
-          {fullScreenModules.includes(activeMenu) && (
+          {fullScreenModules.includes(navMenu) && (
             <button className="ne-hamburger" onClick={() => setMobileDrawerOpen(true)} style={{ position: 'absolute', top: 10, left: 10, zIndex: 50 }}>☰</button>
           )}
 
-          <div className="ne-content">
+          <div className={`ne-content${activeMenu === 'settings' ? ' ne-content-settings' : noCardModules.includes(navMenu) ? ' ne-content-fullscreen' : fullScreenModules.includes(navMenu) ? ' ne-content-notopbar' : ''}`}>
           <ErrorBoundary key={activeMenu}>
             {((ordersPending && ORDERS_DEPENDENT_PAGES.includes(activeMenu)) || (storePending && STORE_DEPENDENT_PAGES.includes(activeMenu))) && hasAccess(activeMenu) && <PageSkeletonFor menu={activeMenu} />}
             {activeMenu === 'orders' && hasAccess('orders') && !storePending && (
@@ -2140,7 +2542,11 @@ function App() {
                 cfUrl={CF_URL}
                 fetcher={monitoredFetch}
                 liveVersion={liveVersion}
+                bumpLive={bumpLive}
               />
+            )}
+            {orderDetailId && hasAccess('orders') && !storePending && selectedStoreId && (
+              <OrderDetail orderId={orderDetailId} storeId={selectedStoreId} cfUrl={CF_URL} />
             )}
             {activeMenu === 'home' && (
               <AppHome storeId={selectedStoreId} storeName={currentStoreInfo?.store_name} apiBase={CF_URL} fetcher={monitoredFetch} onNavigate={setActiveMenu} canOpen={hasAccess} liveVersion={liveVersion} />
@@ -2149,17 +2555,26 @@ function App() {
               <Dashboard storeId={selectedStoreId} apiBase={CF_URL} fetcher={monitoredFetch} liveVersion={liveVersion} />
             )}
             {activeMenu === 'store-connect' && hasAccess('store-connect') && <StoreConnect storeId={selectedStoreId} />}
+            {activeMenu === 'online-store' && hasAccess('online-store') && (
+              <OnlineStore
+                storeId={selectedStoreId}
+                onNavigate={setActiveMenu}
+                onOpenThemeEditor={(themeId) => { setEditingThemeId(themeId); setActiveMenu('theme-editor') }}
+              />
+            )}
+            {activeMenu === 'theme-editor' && hasAccess('online-store') && (
+              <ThemeEditorPage
+                storeId={selectedStoreId}
+                themeId={editingThemeId}
+                onNavigate={setActiveMenu}
+                onOpenThemeEditor={setEditingThemeId}
+              />
+            )}
             {activeMenu === 'products' && hasAccess('products') && !storePending && (
               <ProductsManagement storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
             )}
-            {activeMenu === 'inventory' && hasAccess('inventory') && (
-              <InventoryManagement storeId={selectedStoreId} />
-            )}
-            {activeMenu === 'product-costing' && hasAccess('product-costing') && !storePending && (
-              <ProductCosting storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
-            )}
             {activeMenu === 'finance-statement' && hasAccess('finance-statement') && !storePending && (
-              <FinanceStatement storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
+              <FinanceStatement storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} isCreator={profile.role === 'creator'} />
             )}
             {activeMenu === 'meta-connect' && hasAccess('meta-connect') && <MetaConnect storeId={selectedStoreId} />}
             {activeMenu === 'ads' && hasAccess('ads') && !ordersPending && (
@@ -2171,9 +2586,6 @@ function App() {
             {activeMenu === 'courier-connect' && hasAccess('courier-connect') && (
               <CourierConnect storeId={selectedStoreId} />
             )}
-            {activeMenu === 'payments' && hasAccess('payments') && (
-              <Payments storeId={selectedStoreId} cfUrl={CF_URL} />
-            )}
             {activeMenu === 'whatsapp' && hasAccess('whatsapp') && <WhatsApp />}
             {activeMenu === 'team' && (profile.role === 'admin' || profile.role === 'creator') && (
               <Team storeId={selectedStoreId} storeName={currentStoreInfo?.store_name || ordersStore?.store_name} eneezamId={currentStoreInfo?.eneezam_id || ordersStore?.eneezam_id} cfUrl={CF_URL} />
@@ -2182,13 +2594,28 @@ function App() {
               <ActivityLog storeId={selectedStoreId} />
             )}
             {activeMenu === 'settings' && (
-              <Settings profile={profile} onProfileUpdated={(updated) => setProfile(updated)} />
+              <Settings
+                profile={profile}
+                onBack={() => setActiveMenu(preSettingsRef.current.menu && preSettingsRef.current.menu !== 'settings' ? preSettingsRef.current.menu : 'home')}
+                hasAccess={hasAccess}
+                currentStoreInfo={currentStoreInfo}
+                userEmail={session.user.email}
+                storeId={selectedStoreId}
+                storeName={currentStoreInfo?.store_name || ordersStore?.store_name}
+                eneezamId={currentStoreInfo?.eneezam_id || ordersStore?.eneezam_id}
+                cfUrl={CF_URL}
+                onOpenOnlineStore={() => setActiveMenu('online-store')}
+                onStoreNameChanged={(name) => setUserStoresList((list) => list.map((us) => (us.store_id === selectedStoreId ? { ...us, stores: { ...us.stores, store_name: name } } : us)))}
+              />
             )}
             {activeMenu === 'pnl' && hasAccess('pnl') && !ordersPending && (
-              <ProfitLoss ordersData={ordersData} storeId={selectedStoreId} activePeriod={activePeriod} onPeriodChange={handlePeriodChange} />
+              <ProfitLoss ordersData={ordersData} storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} activePeriod={activePeriod} onPeriodChange={handlePeriodChange} />
             )}
             {activeMenu === 'ledger' && hasAccess('ledger') && (
               <SupplierLedger storeId={selectedStoreId} cfUrl={CF_URL} />
+            )}
+            {activeMenu === 'returns' && hasAccess('returns') && !storePending && (
+              <Returns storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
             )}
             {activeMenu === 'budget' && hasAccess('budget') && !ordersPending && (
               <BudgetCalculator ordersData={ordersData} />
@@ -2205,10 +2632,10 @@ function App() {
             {activeMenu === 'master-dashboard/gemini-monitor' && profile.role === 'creator' && (
               <GeminiUsageMonitor cfUrl={CF_URL} session={session} />
             )}
-            {!['home', 'dashboard', 'store-connect', 'products', 'inventory', 'product-costing', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'payments', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor'].includes(activeMenu) && (
+            {!['home', 'dashboard', 'store-connect', 'online-store', 'theme-editor', 'products', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'returns', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor'].includes(navMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
-                  <h2 style={{ color: '#fff', marginBottom: 8 }}>{menuItems.find(m => m.id === activeMenu)?.label}</h2>
+                  <h2 style={{ color: '#fff', marginBottom: 8 }}>{pageTitleLookup.find(m => m.id === navMenu)?.label}</h2>
                   <p style={{ color: 'var(--ne-muted)', fontSize: 14 }}>{t('common.comingSoon')}</p>
                 </div>
               </div>

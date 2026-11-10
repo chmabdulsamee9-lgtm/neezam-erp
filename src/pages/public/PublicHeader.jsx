@@ -45,7 +45,7 @@ export default function PublicHeader() {
 
   const navLinkStyle = (path) => ({
     background: "none", border: "none", cursor: "pointer", fontSize: 13.5, fontWeight: 600,
-    color: isActive(path) ? "var(--ne-accent)" : "var(--ne-text)", padding: "6px 2px",
+    color: isActive(path) ? "var(--ne-accent)" : "var(--ne-text)", padding: "6px 2px", whiteSpace: "nowrap",
   });
 
   const iconBtnStyle = {
@@ -91,6 +91,7 @@ export default function PublicHeader() {
             <button onClick={() => go("/tracking")} style={navLinkStyle("/tracking")}>{t("mkt.nav.tracking")}</button>
             <button onClick={() => go("/about")} style={navLinkStyle("/about")}>{t("mkt.nav.about")}</button>
             <button onClick={() => go("/contact")} style={navLinkStyle("/contact")}>{t("mkt.nav.contact")}</button>
+            <button onClick={() => go("/terms")} style={navLinkStyle("/terms")}>{t("mkt.nav.terms")}</button>
           </nav>
         )}
 
@@ -156,6 +157,7 @@ export default function PublicHeader() {
           <button onClick={() => go("/tracking")} style={{ ...navLinkStyle("/tracking"), textAlign: "left", padding: "10px 4px" }}>{t("mkt.nav.tracking")}</button>
           <button onClick={() => go("/about")} style={{ ...navLinkStyle("/about"), textAlign: "left", padding: "10px 4px" }}>{t("mkt.nav.about")}</button>
           <button onClick={() => go("/contact")} style={{ ...navLinkStyle("/contact"), textAlign: "left", padding: "10px 4px" }}>{t("mkt.nav.contact")}</button>
+          <button onClick={() => go("/terms")} style={{ ...navLinkStyle("/terms"), textAlign: "left", padding: "10px 4px" }}>{t("mkt.footer.terms")}</button>
 
           <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
             <button onClick={() => {

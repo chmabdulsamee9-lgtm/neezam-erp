@@ -1,131 +1,116 @@
-import { useState, useEffect } from "react";
+import { useState, useMemo, useEffect, lazy, Suspense } from "react";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
+import InitialsAvatar from "../components/InitialsAvatar";
+import { SettingsCard, settingsInputStyle, settingsLabelStyle } from "../components/SettingsUI";
 import { useLanguage, useTranslation } from "../i18n";
+import { workerFetch } from "../lib/storeApi";
 
-const isValidPhone = (p) => /^\d{11}$/.test(String(p || "").trim());
+// Admin UI overhaul, Part C — Settings is now a Shopify-style shell: a client-side-filtered
+// "Search settings" list on the left/top, a store-identity block, and a bottom user row that
+// links to /accounts (profile + password live there now). Every section — Add New Brand,
+// WhatsApp, Courier Connect, Meta Connect, Team, Activity Log — renders inline via
+// `activeSection` without leaving /settings, gated by the same hasAccess/role checks App.jsx
+// uses for their standalone routes.
+const WhatsApp = lazy(() => import("./WhatsApp"));
+const CourierConnect = lazy(() => import("./CourierConnect"));
+const MetaConnect = lazy(() => import("./MetaConnect"));
+const Team = lazy(() => import("./Team"));
+const ActivityLog = lazy(() => import("./ActivityLog"));
+const CheckoutSettings = lazy(() => import("./CheckoutSettings"));
+const ShippingSettings = lazy(() => import("./ShippingSettings"));
+const GeneralSettings = lazy(() => import("./GeneralSettings"));
+const PaymentSettings = lazy(() => import("./PaymentSettings"));
+const TaxSettings = lazy(() => import("./TaxSettings"));
 
-export default function Settings({ profile, onProfileUpdated }) {
+export default function Settings({ profile, onBack, hasAccess, currentStoreInfo, userEmail, storeId, storeName, eneezamId, cfUrl, onOpenOnlineStore, onStoreNameChanged }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
-  // ---- Profile details (TASK 9) ----
-  const [fullName, setFullName] = useState(profile?.full_name || "");
-  const [phone, setPhone] = useState(profile?.phone || "");
-  const [profileSaving, setProfileSaving] = useState(false);
-  const [profileError, setProfileError] = useState("");
-  const [profileSuccess, setProfileSuccess] = useState(false);
+  const [backHover, setBackHover] = useState(false);
+  const [selectedSection, setActiveSection] = useState(null);
+  const [search, setSearch] = useState("");
 
-  // ---- Password change (TASK 9) ----
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [passwordSaving, setPasswordSaving] = useState(false);
-  const [passwordError, setPasswordError] = useState("");
-  const [passwordSuccess, setPasswordSuccess] = useState(false);
+  // brand card (name + primary domain) shown under "Search settings"; refreshed when General is saved
+  const [brand, setBrand] = useState({ name: "", domain: "" });
+  useEffect(() => {
+    let alive = true;
+    if (!storeId || !cfUrl) return undefined;
+    workerFetch(cfUrl, `/get-general-settings?store_id=${storeId}`).then(({ status, data }) => {
+      if (alive && status === 200) setBrand({ name: data.store_name || "", domain: data.primary_domain || "" });
+    });
+    return () => { alive = false; };
+  }, [storeId, cfUrl]);
+  const cardName = brand.name || currentStoreInfo?.store_name || storeName || "";
 
-  // ---- Add new brand (TASK 13) ----
+  // ---- Add new brand ----
   const [brandName, setBrandName] = useState("");
   const [brandSaving, setBrandSaving] = useState(false);
   const [brandError, setBrandError] = useState("");
   const [brandSuccess, setBrandSuccess] = useState(false);
 
-  const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
+  const isPrivileged = profile?.role === "admin" || profile?.role === "creator";
+
+  const localSections = useMemo(() => {
+    const items = [];
+    if (profile?.role === "admin") items.push({ id: "brand", label: t("settings.addNewBrand"), icon: "store" });
+    return items;
+  }, [profile?.role, t]);
+
+  // Rendered inline below; each entry only exists if it passes the same hasAccess/role check
+  // App.jsx applies to the standalone route, and rendering is keyed off this list.
+  const embeddedSections = useMemo(() => {
+    const items = [];
+    items.push({ id: "general", label: t("settings.general"), icon: "settings" }); // every store member; editing is admin/creator only
+    if (hasAccess?.("whatsapp")) items.push({ id: "whatsapp", label: t("nav.whatsapp"), icon: "comment" });
+    if (hasAccess?.("courier-connect")) items.push({ id: "courier-connect", label: t("nav.courier-connect"), icon: "truck" });
+    if (hasAccess?.("meta-connect")) items.push({ id: "meta-connect", label: t("nav.meta-connect"), icon: "chart" });
+    if (isPrivileged) {
+      items.push({ id: "checkout-settings", label: t("settings.checkout"), icon: "card" });
+      items.push({ id: "shipping-settings", label: t("settings.shipping"), icon: "truck" });
+      items.push({ id: "payment-settings", label: t("settings.payments"), icon: "cash" });
+      items.push({ id: "tax-settings", label: t("settings.taxes"), icon: "calculator" });
+      items.push({ id: "team", label: t("nav.team"), icon: "team" });
+      items.push({ id: "activity-log", label: t("nav.activity-log"), icon: "activity-log" });
+    }
+    return items;
+  }, [hasAccess, isPrivileged, t]);
+
+  const allSections = [...localSections, ...embeddedSections];
+  const filteredSections = search.trim()
+    ? allSections.filter((s) => s.label.toLowerCase().includes(search.trim().toLowerCase()))
+    : allSections;
+  const isAllowed = (id) => allSections.some((s) => s.id === id);
+  // Only an allowed section can ever be active; defaults to the first one the user may see.
+  const activeSection = isAllowed(selectedSection) ? selectedSection : (allSections[0]?.id ?? null);
+
+  // ?section=<id> (from global search) picks the section, then is stripped so the URL stays /settings.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const sectionParam = searchParams.get("section");
   useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth <= 760);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  const cardStyle = {
-    background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14,
-    padding: isMobile ? "1rem" : "1.5rem", marginBottom: "1.5rem",
-  };
-  const inputStyle = {
-    width: "100%", padding: "9px 12px", borderRadius: 9, border: "1px solid var(--ne-border)",
-    background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, boxSizing: "border-box", marginBottom: 10,
-  };
-  const labelStyle = { color: "var(--ne-muted)", fontSize: 12, display: "block", marginBottom: 4, fontWeight: 600 };
-
-  const saveProfile = async (e) => {
-    e.preventDefault();
-    setProfileError("");
-    setProfileSuccess(false);
-    if (!fullName.trim()) {
-      setProfileError(t("settings.nameRequired"));
-      return;
-    }
-    if (!isValidPhone(phone)) {
-      setProfileError(t("settings.phoneError"));
-      return;
-    }
-    setProfileSaving(true);
-    const { error } = await supabase.from("profiles").update({
-      full_name: fullName.trim(),
-      phone: phone.trim(),
-    }).eq("id", profile.id);
-    if (error) {
-      setProfileError(error.message);
-      setProfileSaving(false);
-      return;
-    }
-    setProfileSuccess(true);
-    setProfileSaving(false);
-    onProfileUpdated?.({ ...profile, full_name: fullName.trim(), phone: phone.trim() });
-  };
-
-  const changePassword = async (e) => {
-    e.preventDefault();
-    setPasswordError("");
-    setPasswordSuccess(false);
-    if (newPassword.length < 6) {
-      setPasswordError(t("settings.passwordMinError"));
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setPasswordError(t("settings.passwordsDontMatch"));
-      return;
-    }
-    setPasswordSaving(true);
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
-    if (error) {
-      setPasswordError(error.message);
-      setPasswordSaving(false);
-      return;
-    }
-    setPasswordSuccess(true);
-    setNewPassword("");
-    setConfirmPassword("");
-    setPasswordSaving(false);
-  };
+    if (!sectionParam) return;
+    if (isAllowed(sectionParam)) setActiveSection(sectionParam);
+    setSearchParams({}, { replace: true });
+  }, [sectionParam]);
 
   const addBrand = async (e) => {
     e.preventDefault();
     setBrandError("");
     setBrandSuccess(false);
-    if (!brandName.trim()) {
-      setBrandError(t("settings.brandNameRequired"));
-      return;
-    }
+    if (!brandName.trim()) { setBrandError(t("settings.brandNameRequired")); return; }
     setBrandSaving(true);
     try {
       const { data: storeData, error: storeError } = await supabase
         .from("stores")
-        .insert({ store_name: brandName.trim(), shopify_url: null, api_token: null })
-        .select()
+        .insert({ store_name: brandName.trim(), user_id: profile.id })
+        .select("id")
         .single();
-      if (storeError) {
-        setBrandError(storeError.message);
-        setBrandSaving(false);
-        return;
-      }
+      if (storeError) { setBrandError(storeError.message); setBrandSaving(false); return; }
       const { error: linkError } = await supabase.from("user_stores").insert({
         user_id: profile.id,
         store_id: storeData.id,
       });
-      if (linkError) {
-        setBrandError(linkError.message);
-        setBrandSaving(false);
-        return;
-      }
+      if (linkError) { setBrandError(linkError.message); setBrandSaving(false); return; }
       setBrandName("");
       setBrandSuccess(true);
     } catch (err) {
@@ -135,83 +120,98 @@ export default function Settings({ profile, onProfileUpdated }) {
   };
 
   return (
-    <div style={{ padding: isMobile ? "1rem" : "1.5rem", maxWidth: 600, margin: "0 auto" }}>
-      <div style={{ marginBottom: "1.5rem" }}>
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="settings" size={18} /> {t("settings.title")}</h1>
-        <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--ne-muted)" }}>{t("settings.subtitle")}</p>
-      </div>
-
-      {/* ---------- MY PROFILE ---------- */}
-      <div style={cardStyle}>
-        <h2 style={{ margin: "0 0 1rem", fontSize: 15, color: "var(--ne-text)", fontWeight: 700 }}>{t("settings.myProfile")}</h2>
-        <form onSubmit={saveProfile}>
-          <label style={labelStyle}>{t("settings.nameLabel")}</label>
-          <input type="text" value={fullName} onChange={e => setFullName(e.target.value)} style={inputStyle} />
-
-          <label style={labelStyle}>{t("settings.phoneLabel")}</label>
-          <input type="tel" value={phone} maxLength={11}
-            onChange={e => setPhone(e.target.value.replace(/\D/g, "").slice(0, 11))} style={inputStyle} />
-          {phone.length > 0 && !isValidPhone(phone) && (
-            <p style={{ color: "var(--ne-danger)", fontSize: 11, margin: "-6px 0 10px" }}>{t("settings.phoneError")}</p>
-          )}
-
-          <label style={labelStyle}>{t("settings.emailLabel")}</label>
-          <input type="email" value={profile?.email || ""} disabled style={{ ...inputStyle, opacity: 0.6, cursor: "not-allowed" }} />
-
-          {profileError && <p style={{ color: "var(--ne-danger)", fontSize: 12, marginBottom: 10 }}>{profileError}</p>}
-          {profileSuccess && <p style={{ color: "var(--ne-success)", fontSize: 12, marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><Icon name="check" size={11} /> {t("settings.profileUpdated")}</p>}
-
-          <button type="submit" disabled={profileSaving}
-            style={{ padding: "10px 20px", background: profileSaving ? "var(--ne-border)" : "var(--ne-grad)", color: "#fff", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: profileSaving ? "default" : "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
-            {profileSaving ? t("settings.saving") : (<><Icon name="check" size={13} /> {t("settings.saveProfile")}</>)}
-          </button>
-        </form>
-      </div>
-
-      {/* ---------- CHANGE PASSWORD ---------- */}
-      <div style={cardStyle}>
-        <h2 style={{ margin: "0 0 1rem", fontSize: 15, color: "var(--ne-text)", fontWeight: 700 }}>{t("settings.changePassword")}</h2>
-        <form onSubmit={changePassword}>
-          <label style={labelStyle}>{t("settings.newPasswordLabel")}</label>
-          <input type="password" placeholder={t("settings.min6chars")} value={newPassword} onChange={e => setNewPassword(e.target.value)} style={inputStyle} />
-
-          <label style={labelStyle}>{t("settings.confirmPasswordLabel")}</label>
-          <input type="password" placeholder={t("settings.retypePassword")} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} style={inputStyle} />
-          {confirmPassword.length > 0 && newPassword !== confirmPassword && (
-            <p style={{ color: "var(--ne-danger)", fontSize: 11, margin: "-6px 0 10px" }}>{t("settings.passwordMismatch")}</p>
-          )}
-
-          {passwordError && <p style={{ color: "var(--ne-danger)", fontSize: 12, marginBottom: 10 }}>{passwordError}</p>}
-          {passwordSuccess && <p style={{ color: "var(--ne-success)", fontSize: 12, marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><Icon name="check" size={11} /> {t("settings.passwordChanged")}</p>}
-
-          <button type="submit" disabled={passwordSaving}
-            style={{ padding: "10px 20px", background: passwordSaving ? "var(--ne-border)" : "var(--ne-warning)", color: "#1A1300", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: passwordSaving ? "default" : "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
-            {passwordSaving ? t("settings.changing") : (<><Icon name="key" size={13} /> {t("settings.changePasswordButton")}</>)}
-          </button>
-        </form>
-      </div>
-
-      {/* ---------- ADD NEW BRAND (sirf admin) ---------- */}
-      {profile?.role === "admin" && (
-        <div style={cardStyle}>
-          <h2 style={{ margin: "0 0 1rem", fontSize: 15, color: "var(--ne-text)", fontWeight: 700 }}>{t("settings.addNewBrand")}</h2>
-          <p style={{ fontSize: 12, color: "var(--ne-muted)", margin: "0 0 10px" }}>
-            {t("settings.addBrandHint")}
-          </p>
-          <form onSubmit={addBrand}>
-            <label style={labelStyle}>{t("settings.brandNameLabel")}</label>
-            <input type="text" placeholder={t("settings.brandNamePlaceholder")} value={brandName} onChange={e => setBrandName(e.target.value)} style={inputStyle} />
-
-            {brandError && <p style={{ color: "var(--ne-danger)", fontSize: 12, marginBottom: 10 }}>{brandError}</p>}
-            {brandSuccess && <p style={{ color: "var(--ne-success)", fontSize: 12, marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><Icon name="check" size={11} /> {t("settings.brandAdded")}</p>}
-
-            <button type="submit" disabled={brandSaving}
-              style={{ padding: "10px 20px", background: brandSaving ? "var(--ne-border)" : "var(--ne-success)", color: brandSaving ? "var(--ne-muted)" : "#0A2E1A", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: brandSaving ? "default" : "pointer" }}>
-              {brandSaving ? t("settings.addingBrand") : t("settings.addBrandButton")}
-            </button>
-          </form>
+    <div className="ne-settings-shell">
+      <div className="ne-settings-nav">
+        <button className="ne-settings-back" onClick={() => onBack?.()}
+          onMouseEnter={() => setBackHover(true)} onMouseLeave={() => setBackHover(false)}>
+          <Icon name="chevronLeft" size={15} />
+          <span>{backHover ? t("action.back") : t("settings.title")}</span>
+        </button>
+        {currentStoreInfo && (
+          <div className="ne-settings-storeblock">
+            <Icon name="store" size={13} /> {currentStoreInfo.store_name}
+          </div>
+        )}
+        <div className="ne-settings-search">
+          <Icon name="search" size={14} />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("settings.searchPlaceholder")} />
         </div>
-      )}
+        <div role="button" tabIndex={0} title={t("settings.openGeneral")}
+          onClick={() => setActiveSection("general")} onKeyDown={(e) => { if (e.key === "Enter") setActiveSection("general"); }}
+          style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 0 10px", padding: "10px 12px", borderRadius: 11, cursor: "pointer",
+            border: `1px solid ${activeSection === "general" ? "var(--ne-accent)" : "var(--ne-border)"}`, background: "var(--ne-surface-2)" }}>
+          <InitialsAvatar name={cardName || "S"} size={34} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ne-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{cardName || "—"}</div>
+            <div style={{ fontSize: 11, color: "var(--ne-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{brand.domain || t("storeGeneral.domainNone")}</div>
+          </div>
+        </div>
+        <div className="ne-settings-navlist">
+          {filteredSections.map((s) => (
+            <div key={s.id}
+              className={`ne-settings-navitem${activeSection === s.id ? ' active' : ''}`}
+              onClick={() => setActiveSection(s.id)}>
+              <Icon name={s.icon} size={14} /> {s.label}
+            </div>
+          ))}
+          {filteredSections.length === 0 && (
+            <div className="ne-settings-navempty">{t("settings.noMatch")}</div>
+          )}
+        </div>
+        <a className="ne-settings-userrow ne-settings-userrow-link" href="/accounts" target="_blank" rel="noopener noreferrer" title={t("accounts.title")}>
+          <InitialsAvatar name={profile?.full_name || userEmail} size={30} />
+          <div className="ne-settings-userrow-text">
+            <div className="ne-settings-userrow-name">{profile?.full_name || "—"}</div>
+            <div className="ne-settings-userrow-email">{userEmail}</div>
+          </div>
+          <Icon name="chevronRight" size={13} style={{ marginLeft: "auto", opacity: 0.6 }} />
+        </a>
+      </div>
+
+      <div className="ne-settings-body">
+        {embeddedSections.some((s) => s.id === activeSection) && (
+          <Suspense fallback={<p style={{ padding: "1.5rem", margin: 0, fontSize: 13, color: "var(--ne-muted)" }}>{t("common.loading")}</p>}>
+            {activeSection === "whatsapp" && <WhatsApp />}
+            {activeSection === "courier-connect" && <CourierConnect storeId={storeId} />}
+            {activeSection === "meta-connect" && <MetaConnect storeId={storeId} />}
+            {activeSection === "general" && (
+              <GeneralSettings storeId={storeId} cfUrl={cfUrl} canEdit={isPrivileged} onOpenOnlineStore={onOpenOnlineStore}
+                onSaved={({ storeName: n }) => { setBrand((b) => ({ ...b, name: n })); onStoreNameChanged?.(n); }} />
+            )}
+            {activeSection === "payment-settings" && <PaymentSettings storeId={storeId} cfUrl={cfUrl} />}
+            {activeSection === "tax-settings" && <TaxSettings storeId={storeId} cfUrl={cfUrl} />}
+            {activeSection === "checkout-settings" && <CheckoutSettings storeId={storeId} cfUrl={cfUrl} />}
+            {activeSection === "shipping-settings" && <ShippingSettings storeId={storeId} cfUrl={cfUrl} />}
+            {activeSection === "team" && <Team storeId={storeId} storeName={storeName} eneezamId={eneezamId} cfUrl={cfUrl} />}
+            {activeSection === "activity-log" && <ActivityLog storeId={storeId} />}
+          </Suspense>
+        )}
+
+        {!activeSection && (
+          <SettingsCard>
+            <p style={{ margin: 0, fontSize: 13, color: "var(--ne-muted)" }}>{t("settings.pickSection")}</p>
+          </SettingsCard>
+        )}
+
+        {activeSection === "brand" && profile?.role === "admin" && (
+          <SettingsCard>
+            <h2 style={{ margin: "0 0 1rem", fontSize: 15, color: "var(--ne-text)", fontWeight: 700 }}>{t("settings.addNewBrand")}</h2>
+            <p style={{ fontSize: 12, color: "var(--ne-muted)", margin: "0 0 10px" }}>{t("settings.addBrandHint")}</p>
+            <form onSubmit={addBrand}>
+              <label style={settingsLabelStyle}>{t("settings.brandNameLabel")}</label>
+              <input type="text" placeholder={t("settings.brandNamePlaceholder")} value={brandName} onChange={e => setBrandName(e.target.value)} style={settingsInputStyle} />
+
+              {brandError && <p style={{ color: "var(--ne-danger)", fontSize: 12, marginBottom: 10 }}>{brandError}</p>}
+              {brandSuccess && <p style={{ color: "var(--ne-success)", fontSize: 12, marginBottom: 10, display: "flex", alignItems: "center", gap: 5 }}><Icon name="check" size={11} /> {t("settings.brandAdded")}</p>}
+
+              <button type="submit" disabled={brandSaving}
+                style={{ padding: "10px 20px", background: brandSaving ? "var(--ne-border)" : "var(--ne-success)", color: brandSaving ? "var(--ne-muted)" : "#0A2E1A", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: brandSaving ? "default" : "pointer" }}>
+                {brandSaving ? t("settings.addingBrand") : t("settings.addBrandButton")}
+              </button>
+            </form>
+          </SettingsCard>
+        )}
+      </div>
     </div>
   );
 }

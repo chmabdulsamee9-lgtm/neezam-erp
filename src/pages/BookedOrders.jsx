@@ -10,10 +10,26 @@ import Icon from "../components/Icon";
 import { BookedSkeleton } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 import { AUTO_REMARK_VARIATIONS } from "../shipperRemarksConstants";
+import { csvEscapeCell, downloadCsv, sanitizeFilenamePart, buildCsvFromRows } from "../utils/csvExport";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 
 const PER_PAGE_OPTIONS = [20, 50, 100];
+
+// Booked Orders CSV export — fixed column order (mirrors Dex's own logistics-export header
+// vocabulary so the file is directly comparable to Dex's statements).
+const BOOKED_EXPORT_HEADERS = [
+  "externalOrderId", "omsOrderId", "trackingNo", "Original Tracking No", "Package type", "Delivery Option",
+  "platform", "omsOrderStatus", "totalPrice", "paymentMethod", "orderCreatedTime", "productList", "quantity",
+  "estimatedShippingFee", "dimWeight", "receiver", "receiverPhone", "receiverAddress", "receiverLevel4Address",
+  "receiverLevel3Address", "receiverLevel2Address", "Receiver Original Address", "warehouseName", "warehouseAddress",
+  "Warehouse Original Address", "deliveryNote", "firstMileShippingProvider", "lastMileShippingProvider",
+  "packageCreatedTime", "logisticsCurrentStatus", "logisticsCurrentStatusTime", "failedPickupReason",
+  "pickupSuccessTime", "firstFailDeliveryAttemptTime", "First failed delivery attempt reason",
+  "Second failed delivery attempt reason", "Third failed delivery attempt reason", "Fourth failed delivery attempt reason",
+  "deliveryAttemptCount", "deliveredTime", "failedReturnTime", "returnSuccessTime",
+];
+const BOOKED_TERMINAL_STATUSES = new Set(["Delivered", "Returned", "Canceled", "Cancelled"]);
 
 const FAIL_REASON_LABELS = {
   "customer reject at doorstep": "Customer ne delivery lene se inkar kiya",
@@ -509,7 +525,7 @@ function CourierFeedbackHistory({ orderId }) {
   if (history !== null && history.length === 0 && !expanded) return null;
 
   return (
-    <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, padding: "14px 16px", boxShadow: "0 2px 8px rgba(0,0,0,.18)" }}>
+    <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, padding: "14px 16px", boxShadow: "var(--ne-shadow-card, 0 2px 8px rgba(0,0,0,.18))" }}>
       <button type="button" onClick={toggle}
         style={{ background: "none", border: "none", color: "var(--ne-text)", fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, padding: 0 }}>
         <Icon name="truck" size={14} /> {t("booked.courierFeedbackHistory")} {history && <span style={{ fontSize: 10.5, background: "var(--ne-accent)", color: "#fff", padding: "1px 8px", borderRadius: 10 }}>{history.length}</span>}
@@ -658,11 +674,109 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
   });
 
   const applyBooked = (json) => {
-    setOrders(json.rows || []);
+    // Quota-hidden orders staff/owner view se chhup jaayen — defensive client-side filter,
+    // ideal fix /booked-page RPC mein hona chahiye (yahan edit nahi ho sakta is session mein).
+    setOrders((json.rows || []).filter((o) => !(o.agent_data?.quota_hidden || o.quota_hidden)));
     setServerTotal(json.total || 0);
     setServerCounts(json.counts || { tabs: {}, subs: {}, couriers: [] });
     setError("");
     bookedLoadedRef.current = true;
+  };
+
+  // ---------- CSV Export ("Export All" / "Export Current Filter") ----------
+  const [bookingExporting, setBookingExporting] = useState(false);
+  const bookingFilterActive = activeTab !== "All" || !!activeSubTab || !!debouncedSearch || courierFilter !== "All" || !!dateFrom || !!dateTo;
+
+  const exportBookedOrders = async () => {
+    setBookingExporting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const qs = new URLSearchParams({
+        store: storeId,
+        tab: activeTab === "Ready for Booking" ? "All" : activeTab,
+        sub: activeTab === "Ready for Booking" ? "" : (activeSubTab || ""),
+        search: debouncedSearch,
+        courier: courierFilter,
+        from: dateFromIso || "",
+        to: dateToIso || "",
+      });
+      const res = await fetcher(`${CF_URL}/booked-page-export?${qs.toString()}`, {
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error || "Export fail hui");
+
+      const rows = Array.isArray(json.rows) ? json.rows : [];
+      const warehouse = json.warehouse || {};
+      const dimDefaults = json.dimDefaults || {};
+      const dimWeightStr = `${dimDefaults.length}x${dimDefaults.width}x${dimDefaults.height} - ${dimDefaults.weight}`;
+
+      let totalReceived = 0;
+      let totalExpected = 0;
+      let totalShippingFee = 0;
+
+      const csvRows = rows.map((o) => {
+        const ad = o.agent_data || {};
+        const status = ad.courier_order_status || "";
+        const totalPrice = Number(o.total_price) || 0;
+        const shippingFee = Number(o.estimated_shipping_fee) || 0;
+        totalShippingFee += shippingFee;
+        if (status === "Delivered") totalReceived += totalPrice;
+        else if (!BOOKED_TERMINAL_STATUSES.has(status)) totalExpected += totalPrice;
+
+        const lineItems = o.line_items || [];
+        const productList = lineItems.map((li) => `${li.quantity || 1} x ${li.title || li.name || "Item"}`).join("; ");
+        const quantity = lineItems.reduce((sum, li) => sum + (Number(li.quantity) || 0), 0);
+
+        const address1 = o.shipping_address?.address1 || "";
+        const address2 = o.shipping_address?.address2 || "";
+        const receiverAddress = [address1, address2].filter(Boolean).join(", ");
+        const receiverOriginalAddress = [address1, address2, o.shipping_address?.city, o.shipping_address?.province].filter(Boolean).join(", ");
+
+        const attemptCount = Number(ad.delivery_attempt_count) || 0;
+        const attemptReasons = ["", "", "", ""];
+        if (attemptCount >= 1 && ad.latest_fail_reason) {
+          attemptReasons[Math.min(attemptCount, 4) - 1] = ad.latest_fail_reason;
+        }
+
+        return [
+          o.id, o.name || ad.manual_order_number || "", ad.dex_tracking_number || "", "", "Sales order", "Standard",
+          "eNeezam", status, totalPrice, "COD", o.created_at || "", productList, quantity,
+          shippingFee, dimWeightStr,
+          `${o.customer?.first_name || ""} ${o.customer?.last_name || ""}`.trim(),
+          o.customer?.phone || o.shipping_address?.phone || "",
+          receiverAddress, ad.matched_subarea || "", ad.matched_area || "", ad.matched_city || "", receiverOriginalAddress,
+          warehouse.name || "", warehouse.address || "", warehouse.address || "",
+          "", "", ad.courier_name || "",
+          ad.package_created_at || "", ad.dex_status || "", ad.logistics_status_at || "",
+          "", ad.pickup_success_at || "", "",
+          attemptReasons[0], attemptReasons[1], attemptReasons[2], attemptReasons[3],
+          ad.delivery_attempt_count || 0, ad.delivered_at || "", "", ad.return_success_at || "",
+        ];
+      });
+
+      const summaryRows = [
+        ["Total Amount Received", totalReceived],
+        ["Total Amount Expected (Pending Orders)", totalExpected],
+        ["Total Estimated Shipping Fee", totalShippingFee],
+      ];
+      const csv = [
+        summaryRows.map((row) => row.map(csvEscapeCell).join(",")).join("\r\n"),
+        "",
+        buildCsvFromRows(BOOKED_EXPORT_HEADERS, csvRows),
+      ].join("\r\n");
+
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const storeName = sanitizeFilenamePart(ordersStore?.store_name);
+      const filename = bookingFilterActive
+        ? `BookedOrders_${storeName}_Filtered_${dateStr}.csv`
+        : `BookedOrders_${storeName}_${dateStr}.csv`;
+      downloadCsv(filename, csv);
+    } catch (err) {
+      alert(`${t("booked.exportFailed")}: ${err.message}`);
+    } finally {
+      setBookingExporting(false);
+    }
   };
 
   useEffect(() => {
@@ -819,7 +933,7 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
     if (!storeId) return;
     supabase.from("products_cache").select("shopify_product_id, raw_data->variants").eq("store_id", storeId)
       .then(({ data, error }) => { if (!error) setVariantSkuRows(data || []); });
-  }, [storeId]);
+  }, [storeId, liveVersion]);
 
   const variantSkuMap = useMemo(() => {
     const map = new Map();
@@ -1637,7 +1751,7 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
           <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><Icon name="truck" size={17} /> {t("booked.title")}</h1>
           <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{ordersStore?.store_name} — {serverTotal} {t("booked.shipments")}</p>
         </div>
-        <select value={perPage} onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); }}
+        <select className="ne-filter" value={perPage} onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); }}
           style={{ padding: "5px 8px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
           {PER_PAGE_OPTIONS.map((n) => <option key={n} value={n}>{n} / page</option>)}
         </select>
@@ -1647,10 +1761,10 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
       <div style={{ display: "flex", gap: 6, marginBottom: "0.6rem", flexWrap: "wrap" }}>
         <div style={{ position: "relative", flex: 1, minWidth: 160 }}>
           <Icon name="search" size={13} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--ne-muted-2)" }} />
-          <input type="text" placeholder={t("booked.searchPlaceholder")} value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          <input className="ne-filter ne-filter-input" type="text" placeholder={t("booked.searchPlaceholder")} value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             style={{ width: "100%", padding: "7px 10px 7px 30px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5, boxSizing: "border-box" }} />
         </div>
-        <select value={courierFilter} onChange={(e) => { setCourierFilter(e.target.value); setPage(1); }}
+        <select className="ne-filter" value={courierFilter} onChange={(e) => { setCourierFilter(e.target.value); setPage(1); }}
           style={{ padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }}>
           {availableCouriers.map((c) => <option key={c} value={c}>{c === "All" ? t("booked.allCouriers") : c}</option>)}
         </select>
@@ -1690,6 +1804,15 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
             </button>
           )}
         </div>
+        <button onClick={exportBookedOrders} disabled={bookingExporting}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 9,
+            border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)",
+            fontSize: 11.5, fontWeight: 700, cursor: bookingExporting ? "default" : "pointer", opacity: bookingExporting ? 0.6 : 1,
+          }}>
+          <Icon name="download" size={13} />
+          {bookingExporting ? t("booked.exporting") : (bookingFilterActive ? t("booked.exportFiltered") : t("booked.exportAll"))}
+        </button>
       </div>
 
       {/* Top-level Tabs — "To Ship"/"Shipped" ke apne nested sub-buckets hain, baaki
@@ -1774,7 +1897,7 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
               const cityLabel = o.shipping_address?.city || o.billing_address?.city || "";
               const createdDate = o.created_at ? new Date(o.created_at).toLocaleDateString("en-GB") : "";
               return (
-                <div key={o.id} style={{ display: "flex", alignItems: "stretch", gap: 0, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, marginBottom: 6, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "hidden" }}>
+                <div key={o.id} style={{ display: "flex", alignItems: "stretch", gap: 0, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, marginBottom: 6, boxShadow: "var(--ne-shadow-card, 0 2px 8px rgba(0,0,0,.18))", overflow: "hidden" }}>
                   <div style={{ display: "flex", alignItems: "flex-start", gap: 6, padding: "8px 6px 8px 10px", flexShrink: 0, width: 116, boxSizing: "border-box" }}>
                     <input type="checkbox" checked={selectedIds.has(o.id)} onChange={() => toggleSelect(o.id)} style={{ cursor: "pointer", flexShrink: 0, marginTop: 2 }} />
                     <div style={{ width: 84, minWidth: 84 }}>
@@ -2134,7 +2257,7 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
                 {/* Remarks box — YEH pura block hamesha visible hai, sirf iske andar ki
                     .remarks-list collapse/expand hoti hai jab header-button click ho.
                     Background/shadow Orders.jsx ke card-style se exact match (dono modes mein). */}
-                <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, padding: "14px 16px", boxShadow: "0 2px 8px rgba(0,0,0,.18)" }}>
+                <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, padding: "14px 16px", boxShadow: "var(--ne-shadow-card, 0 2px 8px rgba(0,0,0,.18))" }}>
                   <button onClick={() => toggleRemarks(o.id)}
                     style={{ background: "none", border: "none", color: "var(--ne-text)", fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, padding: 0 }}>
                     <Icon name="comment" size={14} /> {t("booked.remarks")} <span style={{ fontSize: 10.5, background: "var(--ne-accent)", color: "#fff", padding: "1px 8px", borderRadius: 10 }}>{remarksLog.length}</span>

@@ -37,6 +37,8 @@ export default function PublicFooter() {
           <button onClick={() => navigate("/contact")} style={linkStyle}>{t("mkt.nav.contact")}</button>
           <button onClick={() => navigate("/pricing")} style={linkStyle}>{t("mkt.nav.pricing")}</button>
           <button onClick={() => navigate("/terms")} style={linkStyle}>{t("mkt.footer.terms")}</button>
+          <button onClick={() => navigate("/privacy")} style={linkStyle}>{t("mkt.footer.privacy")}</button>
+          <button onClick={() => navigate("/data-deletion")} style={linkStyle}>{t("mkt.footer.dataDeletion")}</button>
         </div>
 
         <div>
@@ -52,9 +54,13 @@ export default function PublicFooter() {
 
       <div style={{ borderTop: "1px solid var(--ne-border)", padding: "1rem 1.25rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, maxWidth: 1200, margin: "0 auto" }}>
         <span style={{ fontSize: 11.5, color: "var(--ne-muted-2)" }}>© {year} eNeezam. {t("mkt.footer.copyright")}</span>
-        <button onClick={() => navigate("/terms")} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11.5, color: "var(--ne-muted-2)", textDecoration: "underline" }}>
-          {t("mkt.footer.terms")}
-        </button>
+        <span style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+          {[["/terms", "mkt.footer.terms"], ["/privacy", "mkt.footer.privacy"], ["/data-deletion", "mkt.footer.dataDeletion"]].map(([path, key]) => (
+            <button key={path} onClick={() => navigate(path)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11.5, color: "var(--ne-muted-2)", textDecoration: "underline", padding: 0 }}>
+              {t(key)}
+            </button>
+          ))}
+        </span>
       </div>
     </footer>
   );

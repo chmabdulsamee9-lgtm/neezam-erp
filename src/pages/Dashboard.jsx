@@ -399,6 +399,9 @@ export default function Dashboard({ storeId, apiBase, fetcher, liveVersion }) {
   };
 
   // Server-side stats + persistent cache: filter change par foran, live event par kam az kam 4s ke gap se
+  // KNOWN GAP: /dashboard-stats pre-aggregated totals/counts deta hai, individual rows nahi — quota_hidden
+  // orders ko yahan client-side exclude karne ka koi tareeqa nahi (ideal fix: /dashboard-stats RPC khud
+  // quota_hidden=false filter lagaye; is session mein RPC source edit nahi ho sakta).
   useEffect(() => {
     if (!storeId) return;
     if (dateFilter === "custom" && !(customFrom && customTo)) return;
