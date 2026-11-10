@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import './theme.css'
 import { supabase } from './supabase'
+import { SOLUTIONS_LINKS } from './pages/public/solutionsLinks'
 import { getCachedOrders, saveOrdersBulk, upsertOrder, getMeta, setMeta, clearCache, getCachedPeriod, setCachedPeriod, clearStoreOrders } from './ordersCache'
 import { clearViewCache } from './viewCache'
 // import { syncBookedOrdersCache } from './bookedOrdersData' // DISABLED with the Fix 1F block below
@@ -64,6 +65,11 @@ const PublicTracking = lazyPage(() => import('./pages/public/Tracking'), null)
 const PublicAbout = lazyPage(() => import('./pages/public/About'), null)
 const PublicContact = lazyPage(() => import('./pages/public/Contact'), null)
 const PublicTerms = lazyPage(() => import('./pages/public/Terms'), null)
+const PublicPrivacy = lazyPage(() => import('./pages/public/Privacy'), null)
+const PublicDataDeletion = lazyPage(() => import('./pages/public/DataDeletion'), null)
+const DataSolution = lazyPage(() => import('./pages/public/solutions/DataSolution'), null)
+// Legal pages that Meta (and everybody else) must be able to open without logging in, on any host, with or without a session
+const LEGAL_ROUTES = { '/privacy': PublicPrivacy, '/terms': PublicTerms, '/data-deletion': PublicDataDeletion }
 
 // Public marketing-site routes — sirf logged-out visitors ke liye (jaisa
 // pehle sirf "/" ke liye Homepage tha, ab poori 12-page site isi pattern
@@ -77,6 +83,8 @@ const PUBLIC_ROUTES = {
   '/solutions/analytics': AnalyticsSolution,
   '/solutions/products': ProductsInventorySolution,
   '/solutions/ads': AIAdsSolution,
+  // solutions described only as data in solutionsLinks.js (the `page` field) share one component
+  ...Object.fromEntries(SOLUTIONS_LINKS.filter((s) => s.page).map((s) => [s.path, DataSolution])),
   '/pricing': PublicPricing,
   '/tracking': PublicTracking,
   '/about': PublicAbout,
@@ -1813,6 +1821,9 @@ function App() {
   if (location.pathname === '/auth/meta-callback') {
     return <MetaCallback />
   }
+
+  const LegalPage = LEGAL_ROUTES[location.pathname]
+  if (LegalPage) return <LegalPage />
 
   if (loading) return <SplashScreen />
   if (!session) {

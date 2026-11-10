@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../supabase'
 import Logo, { Monogram, Wordmark } from '../components/Logo'
+import { useLanguage, useTranslation } from '../i18n'
 
 const CF_URL = 'https://neezam-erp.chmabdulsamee9.workers.dev'
 const isValidPhone = (p) => /^\d{11}$/.test(p.trim())
@@ -46,6 +47,8 @@ function Shell({ children, isMobile }) {
 }
 
 export default function Login() {
+  const [lang] = useLanguage()
+  const tl = useTranslation(lang)
   const navigate = useNavigate()
   const location = useLocation()
   // "login" | "signup" | "signup-otp" | "forgot" | "forgot-otp" | "forgot-reset" — initial
@@ -693,6 +696,12 @@ export default function Login() {
           </button>
         </form>
       )}
+
+      <p style={{ textAlign: 'center', margin: '1.5rem 0 0', fontSize: '11.5px', display: 'flex', justifyContent: 'center', gap: '14px', flexWrap: 'wrap' }}>
+        <a href="/terms" style={{ color: 'var(--ne-muted-2)' }}>{tl('mkt.footer.terms')}</a>
+        <a href="/privacy" style={{ color: 'var(--ne-muted-2)' }}>{tl('mkt.footer.privacy')}</a>
+        <a href="/data-deletion" style={{ color: 'var(--ne-muted-2)' }}>{tl('mkt.footer.dataDeletion')}</a>
+      </p>
     </Shell>
   )
 }
