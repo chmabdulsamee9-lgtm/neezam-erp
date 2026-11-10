@@ -52,6 +52,9 @@ Run by the owner, ONE file at a time, in the Supabase SQL editor. Claude never r
 | 26 | `stage5b-storage-courier-exports.sql` | low-med | 1, production redeployed; Q6 returns 0 | Booked export upload + download | its ROLLBACK |
 | 27 | `stage5c-whatsapp.sql` **BLOCKED** | unknown | the WhatsApp answer above | TEST WhatsApp message (if a server exists) | its ROLLBACK |
 
+## Service-role grants (ALREADY APPLIED, plus one pending block)
+`stage-service-role-grants.sql` records the `grant all ... to service_role` statements already run on the live database (store_subscriptions and 18 more tables) and holds the separate deployment_log block to run after the creator-only /log-deployment worker is live. **Rule: every new table must get an explicit service_role GRANT in the same migration**, otherwise the worker fails with 42501 (this is what broke sign-up).
+
 ## Rotation (after steps 19 and 20)
 Counts from your results: 1 Meta token, 0 DEX tokens, 4 Shopify client secrets, 5 Shopify api_tokens (of 9 stores).
 1. **Meta:** the one token disappears with the new Meta app (disable the old app; each store reconnects once).
