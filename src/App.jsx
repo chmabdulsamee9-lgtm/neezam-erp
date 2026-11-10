@@ -1,3 +1,6 @@
+import WhatsNew from './components/WhatsNew'
+import { hasSeenWhatsNew } from './lib/whatsNew'
+import { readSidebarOpen, writeSidebarOpen, clearSidebarOpen, createIdleCollapse } from './lib/sidebarState'
 import { placeTip } from './lib/popoverPosition'
 import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
@@ -990,6 +993,7 @@ function App() {
 
   const [releaseNotes, setReleaseNotes] = useState([])
   const [showReleasePopup, setShowReleasePopup] = useState(false)
+  const [whatsNewOpen, setWhatsNewOpen] = useState(() => !hasSeenWhatsNew())
 
   useEffect(() => {
     if (!session) return
@@ -1124,7 +1128,34 @@ function App() {
     if (location.pathname === '/' && session) navigate('/home', { replace: true })
   }, [location.pathname, session])
 
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  // collapsed by default; a manual toggle is kept for this browser session only (see lib/sidebarState.js)
+  const [sidebarOpen, setSidebarOpen] = useState(() => readSidebarOpen())
+  useEffect(() => { writeSidebarOpen(sidebarOpen) }, [sidebarOpen])
+  // an expanded sidebar folds itself after 2 minutes without the pointer on it; popups and focused inputs keep it open
+  useEffect(() => {
+    if (!sidebarOpen) return undefined
+    const sb = () => document.querySelector('.ne-sidebar')
+    const idle = createIdleCollapse({
+      onIdle: () => { setSidebarOpen(false); setNavHover(null) },
+      canCollapse: () => {
+        const el = sb()
+        if (el && el.matches(':hover')) return false
+        if (document.querySelector('.ne-notif-dropdown, .ne-brand-popover')) return false
+        const a = document.activeElement
+        return !(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.closest('.ne-sidebar, .ne-settings-nav'))
+      },
+    })
+    // listen on the document (the sidebar may mount after this effect) and only count pointer activity over the sidebar
+    const touch = (e) => { if (e.target && e.target.closest && e.target.closest('.ne-sidebar')) idle.touch() }
+    document.addEventListener('pointermove', touch)
+    document.addEventListener('pointerdown', touch)
+    idle.touch()
+    return () => {
+      idle.stop()
+      document.removeEventListener('pointermove', touch)
+      document.removeEventListener('pointerdown', touch)
+    }
+  }, [sidebarOpen])
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
   // Admin UI overhaul: D1 global search modal + D3 brand/profile popup — both are plain
   // top-level toggles, same pattern as sidebarOpen/mobileDrawerOpen above.
@@ -1371,6 +1402,7 @@ function App() {
       if (!baselineSet) return
       const newUserId = newSession?.user?.id || null
       if (newUserId !== lastUserIdRef.current) {
+        if (newUserId) { clearSidebarOpen(); setSidebarOpen(false) } // every fresh login starts with the sidebar collapsed
         resetUserState()
         lastUserIdRef.current = newUserId
       }
@@ -2454,6 +2486,8 @@ function App() {
             {navHover.item.label}
           </span>
         )}
+
+        {whatsNewOpen && !showReleasePopup && <WhatsNew onClose={() => setWhatsNewOpen(false)} t={t} />}
 
         {searchOpen && (
           <GlobalSearch

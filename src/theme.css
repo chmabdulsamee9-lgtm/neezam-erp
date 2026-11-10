@@ -290,10 +290,10 @@ html, body {
 /* ===== LIGHT MODE ===== */
 :root[data-theme="light"]{
   /* Shopify-admin surfaces (neutral grey page, white cards). Tune the look by changing these values only. */
-  --ne-bg:#f1f1f1;
+  --ne-bg:#f7f7f7;
   --ne-bg-glow: linear-gradient(transparent, transparent);
-  --ne-sidebar-bg:#0A0E26; --ne-surface:#f1f1f1; --ne-surface-2:#ffffff; --ne-border:#e3e3e3;
-  --ne-surface-sub:#f7f7f7; --ne-surface-sub-hover:#f3f3f3; --ne-border-inner:#ebebeb;
+  --ne-sidebar-bg:#0A0E26; --ne-surface:#f7f7f7; --ne-surface-2:#ffffff; --ne-border:#e3e3e3;
+  --ne-surface-sub:#ffffff; --ne-surface-sub-hover:#f3f3f3; --ne-border-inner:#ebebeb;
   --ne-shadow-card:0 1px 0 rgba(26,26,26,.05); --ne-shadow-strip:none; --ne-shadow-pop:0 8px 24px rgba(26,26,26,.12); --ne-border-pop:rgba(26,26,26,.06);
   --ne-text:#303030; --ne-muted:#616161; --ne-muted-2:#9CA3AF;
   --ne-accent:#5C7CFA; --ne-accent2:#A855F7; --ne-accent-soft:#EDEFFE; --ne-accent2-soft:#F3E8FF;
