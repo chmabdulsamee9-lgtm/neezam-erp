@@ -50,6 +50,8 @@ export default function Login() {
   const [lang] = useLanguage()
   const tl = useTranslation(lang)
   // friendly text for the OTP limits of the worker (rate_limited / too_many_attempts); every other error text is shown as before
+  // the worker answers { error: 'signup_failed', step } with no database text; field mistakes still come back as a readable text
+  const signupError = (d) => (d.error === 'signup_failed' ? (tl(`login.signup.${d.step}`) !== `login.signup.${d.step}` ? tl(`login.signup.${d.step}`) : tl('login.signup.generic')) : d.error || tl('login.signup.generic'))
   const otpError = (d) => (d.error === 'rate_limited' ? tl('login.otpRateLimited').replace('{seconds}', String(d.retry_after || 30)) : d.error === 'too_many_attempts' ? tl('login.otpTooMany') : d.error)
   const navigate = useNavigate()
   const location = useLocation()
@@ -189,7 +191,7 @@ export default function Login() {
         body: JSON.stringify({ email, code: signupOtp.trim(), password, brand_name: brandName.trim(), full_name: fullName.trim(), phone: phone.trim() }),
       })
       const createData = await createRes.json().catch(() => ({}))
-      if (!createRes.ok || !createData.success) { setError(createData.error || 'Signup mein masla hua, dobara try karo'); setLoading(false); return }
+      if (!createRes.ok || !createData.success) { setError(signupError(createData)); setLoading(false); return }
 
       // Welcome email best-effort hai — fail ho to bhi signup complete maana jayega
       fetch(`${CF_URL}/send-welcome-email`, {
