@@ -2028,7 +2028,7 @@ function App() {
   }
 
   const LegalPage = LEGAL_ROUTES[location.pathname]
-  if (LegalPage) return <LegalPage />
+  if (LegalPage) return <div className="ne-public"><LegalPage /></div>
 
   if (loading) return <SplashScreen />
   if (!session) {
@@ -2048,7 +2048,7 @@ function App() {
         return <SplashScreen />
       }
     }
-    if (PublicPage) return <PublicPage />
+    if (PublicPage) return <div className="ne-public"><PublicPage /></div>
     return <Login />
   }
   if (!profileLoaded) return <SplashScreen />

@@ -289,10 +289,12 @@ html, body {
 
 /* ===== LIGHT MODE ===== */
 :root[data-theme="light"]{
-  --ne-bg:#F4F5FB;
-  --ne-bg-glow: radial-gradient(60% 50% at 85% -10%, rgba(92,124,250,.08), transparent 60%),
-                radial-gradient(50% 40% at 0% 100%, rgba(168,85,247,.06), transparent 60%);
-  --ne-sidebar-bg:#0A0E26; --ne-surface:#F4F5FB; --ne-surface-2:#FFFFFF; --ne-border:#E1E4F0;
+  /* Shopify-admin surfaces (neutral grey page, white cards). Tune the look by changing these values only. */
+  --ne-bg:#f1f1f1;
+  --ne-bg-glow: linear-gradient(transparent, transparent);
+  --ne-sidebar-bg:#0A0E26; --ne-surface:#f1f1f1; --ne-surface-2:#ffffff; --ne-border:#e3e3e3;
+  --ne-surface-sub:#f7f7f7; --ne-surface-sub-hover:#f3f3f3; --ne-border-inner:#ebebeb;
+  --ne-shadow-card:0 1px 2px rgba(26,26,26,.07); --ne-shadow-pop:0 8px 24px rgba(26,26,26,.12); --ne-border-pop:rgba(26,26,26,.06);
   --ne-text:#1A1F36; --ne-muted:#6B7280; --ne-muted-2:#9CA3AF;
   --ne-accent:#5C7CFA; --ne-accent2:#A855F7; --ne-accent-soft:#EDEFFE; --ne-accent2-soft:#F3E8FF;
   --ne-grad: linear-gradient(120deg, #5C7CFA 0%, #A855F7 100%);
@@ -301,7 +303,7 @@ html, body {
   --ne-danger:#DC2626; --ne-danger-soft:#FEE2E2;
   --ne-pink:#DB2777; --ne-pink-soft:#FCE7F3;
   --ne-orange:#EA580C; --ne-orange-soft:#FFEDD5;
-  --ne-muted-soft:#F1F2F6;
+  --ne-muted-soft:#f3f3f3;
 }
 
 /* ===== BRANDING (eNeezam) — wordmark ===== */
@@ -309,7 +311,7 @@ html, body {
 
 /* ===== LOADING SKELETON (SplashScreen) ===== */
 .ne-skel{ background:#222A5C; border-radius:8px; animation:ne-skel-pulse 1.4s ease-in-out infinite; }
-:root[data-theme="light"] .ne-skel{ background:#D3D8EA; }
+:root[data-theme="light"] .ne-skel{ background:#e3e3e3; }
 @keyframes ne-skel-pulse{ 0%,100%{ opacity:.6; } 50%{ opacity:1; } }
 .ne-skel-shell{ display:flex; width:100%; height:100vh; }
 .ne-skel-side{ width:215px; flex-shrink:0; background:var(--ne-sidebar-bg); }
@@ -328,3 +330,35 @@ html, body {
 .ne-notif-markread{white-space:nowrap; flex-shrink:0;}
 .ne-notif-list{min-height:0; flex:1 1 auto;}
 .ne-notif-item-title,.ne-notif-item-body{overflow-wrap:anywhere;}
+
+
+/* ===== LIGHT MODE: Shopify-admin surface rules (token driven; dark mode has none of these) ===== */
+/* card: white block with a 1px border gets the resting shadow */
+:root[data-theme="light"] [style*="background: var(--ne-surface-2)"][style*="border: 1px solid var(--ne-border)"]{box-shadow:var(--ne-shadow-card);}
+/* inputs that were filled with the page colour get the neutral subtle fill */
+:root[data-theme="light"] :is(input, select, textarea)[style*="background: var(--ne-surface)"],
+:root[data-theme="light"] :is(input, select, textarea)[style*="background: var(--ne-bg)"]{background:var(--ne-surface-sub) !important;}
+/* inner row dividers inside cards */
+:root[data-theme="light"] [style*="border-bottom: 1px solid var(--ne-border)"]{border-bottom-color:var(--ne-border-inner) !important;}
+:root[data-theme="light"] [style*="border-top: 1px solid var(--ne-border)"]{border-top-color:var(--ne-border-inner) !important;}
+/* hover rows */
+:root[data-theme="light"] .ne-search-result:hover,
+:root[data-theme="light"] .ne-settings-navitem:hover,
+:root[data-theme="light"] .ne-settings-back:hover,
+:root[data-theme="light"] .ne-settings-userrow-link:hover{background:var(--ne-surface-sub-hover);}
+/* popups, menus, dropdowns, modal */
+:root[data-theme="light"] .ne-popover,
+:root[data-theme="light"] .ne-notif-dropdown,
+:root[data-theme="light"] .ne-navflyout,
+:root[data-theme="light"] .ne-toggle-tip{box-shadow:var(--ne-shadow-pop);}
+:root[data-theme="light"] .ne-search-modal{box-shadow:var(--ne-shadow-pop); border-color:var(--ne-border-pop);}
+
+/* ===== Public marketing and legal pages keep their original light look: the old token values are restored inside .ne-public ===== */
+:root[data-theme="light"] .ne-public{
+  --ne-bg:#F4F5FB; --ne-surface:#F4F5FB; --ne-surface-2:#FFFFFF; --ne-border:#E1E4F0; --ne-muted-soft:#F1F2F6;
+  --ne-bg-glow: radial-gradient(60% 50% at 85% -10%, rgba(92,124,250,.08), transparent 60%), radial-gradient(50% 40% at 0% 100%, rgba(168,85,247,.06), transparent 60%);
+  --ne-surface-sub:#F4F5FB; --ne-surface-sub-hover:#F4F5FB; --ne-border-inner:#E1E4F0; --ne-shadow-card:none; --ne-shadow-pop:none; --ne-border-pop:#E1E4F0;
+  background:var(--ne-bg-glow), var(--ne-bg);
+}
+:root[data-theme="light"] .ne-public [style*="background: var(--ne-surface-2)"][style*="border: 1px solid var(--ne-border)"]{box-shadow:none;}
+
