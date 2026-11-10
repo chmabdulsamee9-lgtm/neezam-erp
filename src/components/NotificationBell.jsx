@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import Icon from './Icon'
+import FloatingPanel from './FloatingPanel'
 
 // Admin UI overhaul, Part D2. Diagnose confirmed no merchant-facing notification/alert
 // backend exists anywhere — this is new storage+display+read-tracking plumbing only.
@@ -22,7 +23,8 @@ export default function NotificationBell({ cfUrl, session, storeId, t }) {
   const [notifications, setNotifications] = useState([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [loading, setLoading] = useState(false)
-  const boxRef = useRef(null)
+  const btnRef = useRef(null)
+  const closeBell = useCallback(() => setOpen(false), [])
 
   const load = async () => {
     if (!storeId) return
@@ -46,13 +48,6 @@ export default function NotificationBell({ cfUrl, session, storeId, t }) {
     return () => clearInterval(iv)
   }, [storeId])
 
-  useEffect(() => {
-    if (!open) return
-    const onDocClick = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false) }
-    document.addEventListener('mousedown', onDocClick)
-    return () => document.removeEventListener('mousedown', onDocClick)
-  }, [open])
-
   const markAllRead = async () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read_at: n.read_at || new Date().toISOString() })))
     setUnreadCount(0)
@@ -66,13 +61,13 @@ export default function NotificationBell({ cfUrl, session, storeId, t }) {
   }
 
   return (
-    <div className="ne-bell-wrap" ref={boxRef}>
-      <button className="ne-bell-btn" onClick={() => setOpen((v) => !v)} title={t('notif.bellTitle')}>
+    <div className="ne-bell-wrap">
+      <button className="ne-bell-btn" ref={btnRef} onClick={() => setOpen((v) => !v)} title={t('notif.bellTitle')}>
         <Icon name="bell" size={16} />
         {unreadCount > 0 && <span className="ne-bell-badge">{unreadCount > 9 ? '9+' : unreadCount}</span>}
       </button>
       {open && (
-        <div className="ne-notif-dropdown">
+        <FloatingPanel anchorRef={btnRef} onClose={closeBell} width={320} maxHeightCap={420} className="ne-notif-dropdown">
           <div className="ne-notif-header">
             <span>{t('notif.title')}</span>
             {unreadCount > 0 && (
@@ -90,7 +85,7 @@ export default function NotificationBell({ cfUrl, session, storeId, t }) {
               </div>
             ))}
           </div>
-        </div>
+        </FloatingPanel>
       )}
     </div>
   )

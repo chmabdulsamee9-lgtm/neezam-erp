@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
 import Icon from './Icon'
+import FloatingPanel from './FloatingPanel'
 import InitialsAvatar from './InitialsAvatar'
 
 // Admin UI overhaul, Part D3 — clicking the sidebar's store/brand name opens this popup
@@ -9,17 +9,10 @@ import InitialsAvatar from './InitialsAvatar'
 // only its container changed.
 export default function BrandSwitcherPopup({
   currentStoreInfo, userStoresList, selectedStoreId, onSwitchStore,
-  profile, userEmail, onOpenMasterDashboard, onSignOut, onClose, t,
+  profile, userEmail, onOpenMasterDashboard, onSignOut, onClose, anchorRef, t,
 }) {
-  const boxRef = useRef(null)
-  useEffect(() => {
-    const onDocClick = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) onClose() }
-    document.addEventListener('mousedown', onDocClick)
-    return () => document.removeEventListener('mousedown', onDocClick)
-  }, [onClose])
-
   return (
-    <div className="ne-popover ne-brand-popover" ref={boxRef}>
+    <FloatingPanel anchorRef={anchorRef} onClose={onClose} width={230} className="ne-popover ne-brand-popover">
       {userStoresList.length > 1 ? (
         <>
           <div className="ne-popover-label">{t('brandPopup.switchStore')}</div>
@@ -55,6 +48,6 @@ export default function BrandSwitcherPopup({
       <button className="ne-popover-link ne-popover-logout" onClick={onSignOut}>
         <Icon name="logout" size={13} /> {t('action.logout')}
       </button>
-    </div>
+    </FloatingPanel>
   )
 }

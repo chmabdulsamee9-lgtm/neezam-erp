@@ -1,3 +1,4 @@
+import { placeTip } from './lib/popoverPosition'
 import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import './theme.css'
@@ -1129,6 +1130,7 @@ function App() {
   // top-level toggles, same pattern as sidebarOpen/mobileDrawerOpen above.
   const [searchOpen, setSearchOpen] = useState(false)
   const [brandPopupOpen, setBrandPopupOpen] = useState(false)
+  const brandBtnRef = useRef(null)
   const [navHover, setNavHover] = useState(null)
   const navHoverTimer = useRef(null)
   useEffect(() => () => clearTimeout(navHoverTimer.current), [])
@@ -2236,7 +2238,10 @@ function App() {
   const openNavHover = (entry, el, kind) => {
     clearTimeout(navHoverTimer.current)
     const r = el.getBoundingClientRect()
-    setNavHover({ kind, item: entry.item, children: entry.children, rect: { top: r.top, right: r.right, height: r.height } })
+    // x comes from the sidebar's own edge (not the row's edge) so the tooltip / flyout always clears the sidebar by the same gap
+    const sb = el.closest('.ne-sidebar')
+    const sr = sb ? sb.getBoundingClientRect() : r
+    setNavHover({ kind, item: entry.item, children: entry.children, rect: { top: r.top, right: sr.right, left: sr.left, height: r.height } })
   }
   // Short delay so the pointer can cross the gap between a nav row and its flyout.
   const closeNavHoverSoon = () => {
@@ -2244,6 +2249,8 @@ function App() {
     navHoverTimer.current = setTimeout(() => setNavHover(null), 120)
   }
   const keepNavHover = () => clearTimeout(navHoverTimer.current)
+  const isRtlUi = () => (document.documentElement.dir || document.body.dir || 'ltr') === 'rtl'
+  const tipX = (r) => placeTip({ edge: { left: r.left, right: r.right }, vp: { w: window.innerWidth, h: window.innerHeight }, rtl: isRtlUi() })
   const goToMenu = (id) => { setActiveMenu(id); setNavHover(null); closeDrawer() }
 
   const renderNavItem = (item, { sub, onHover } = {}) => (
@@ -2255,7 +2262,11 @@ function App() {
       className={`ne-navitem${navMenu === item.id ? ' active' : ''}${sub ? ' ne-navitem-sub' : ''}`}>
       <span className="ne-ic">{NAV_ICONS[item.id]}</span>
       {(sidebarOpen || mobileDrawerOpen) && <span className="ne-navtext">{item.label}</span>}
-      {item.id === 'orders' && notifCount > 0 && (
+      {item.id === 'orders' && notifCount > 0 && !(sidebarOpen || mobileDrawerOpen) && (
+        // collapsed: a small dot on the icon's corner, out of the layout, so the icon never moves
+        <span className="ne-navdot" aria-hidden="true" />
+      )}
+      {item.id === 'orders' && notifCount > 0 && (sidebarOpen || mobileDrawerOpen) && (
         <span style={{ marginLeft: 'auto', background: 'var(--ne-danger)', color: '#fff', borderRadius: 10, fontSize: 9, fontWeight: 700, padding: '1px 6px', minWidth: 16, textAlign: 'center', flexShrink: 0 }}>
           {notifCount > 99 ? '99+' : notifCount}
         </span>
@@ -2363,7 +2374,7 @@ function App() {
           {/* Part E1 — fixed bottom region: store/brand identity + bell + Settings, pinned. */}
           <div className="ne-sidebar-bottom">
             <div className="ne-sidebar-bottomrow">
-              <div onClick={() => setBrandPopupOpen(v => !v)} className="ne-brandname-btn">
+              <div ref={brandBtnRef} onClick={() => setBrandPopupOpen(v => !v)} className="ne-brandname-btn">
                 <Icon name="store" size={13} />
                 {(sidebarOpen || mobileDrawerOpen) && <span>{currentStoreInfo?.store_name || t('master.myBrands')}</span>}
               </div>
@@ -2379,6 +2390,7 @@ function App() {
                   onOpenMasterDashboard={() => { navigate('/master-dashboard'); setSelectedStoreId(null); setOrdersLoaded(false); hasStartedLoadRef.current = false; hasStartedBookedLoadRef.current = false; closeDrawer(); setBrandPopupOpen(false) }}
                   onSignOut={() => supabase.auth.signOut()}
                   onClose={() => setBrandPopupOpen(false)}
+                  anchorRef={brandBtnRef}
                   t={t}
                 />
               )}
@@ -2424,7 +2436,7 @@ function App() {
 
         {navHover && navHover.kind === 'flyout' && (
           <div className="ne-navflyout"
-            style={{ left: navHover.rect.right + 8, top: Math.max(8, Math.min(navHover.rect.top, window.innerHeight - (navHover.children.length * 32 + 48))) }}
+            style={{ ...tipX(navHover.rect), top: Math.max(8, Math.min(navHover.rect.top, window.innerHeight - (navHover.children.length * 32 + 48))) }}
             onMouseEnter={keepNavHover} onMouseLeave={closeNavHoverSoon}>
             <div className="ne-navflyout-title">{navHover.item.label}</div>
             {navHover.children.map(c => (
@@ -2438,7 +2450,7 @@ function App() {
           </div>
         )}
         {navHover && navHover.kind === 'label' && (
-          <span className="ne-toggle-tip ne-toggle-tip-right" style={{ left: navHover.rect.right + 10, top: navHover.rect.top + navHover.rect.height / 2 }}>
+          <span className="ne-toggle-tip ne-toggle-tip-right" style={{ ...tipX(navHover.rect), top: navHover.rect.top + navHover.rect.height / 2, ...(isRtlUi() ? { transform: 'translateY(-50%)' } : null) }}>
             {navHover.item.label}
           </span>
         )}

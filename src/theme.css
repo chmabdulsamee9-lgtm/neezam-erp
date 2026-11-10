@@ -319,3 +319,12 @@ html, body {
 /* Minimal fade: data aane par sirf halka opacity fade, koi slide/blur nahi, data pehle se DOM mein hota hai */
 .ne-fade-in{ animation:ne-fade-in .15s ease-out; }
 @keyframes ne-fade-in{ from{ opacity:0; } to{ opacity:1; } }
+
+/* Sidebar popups render in a portal (FloatingPanel); unread dot for the collapsed Orders item */
+.ne-navdot{position:absolute; top:3px; inset-inline-end:8px; width:9px; height:9px; border-radius:50%; background:var(--ne-danger); border:2px solid var(--ne-sidebar-bg); box-sizing:content-box; pointer-events:none;}
+.ne-notif-dropdown{overflow:hidden;}
+.ne-notif-header{gap:12px; flex-shrink:0;}
+.ne-notif-header span{min-width:0; overflow-wrap:anywhere;}
+.ne-notif-markread{white-space:nowrap; flex-shrink:0;}
+.ne-notif-list{min-height:0; flex:1 1 auto;}
+.ne-notif-item-title,.ne-notif-item-body{overflow-wrap:anywhere;}
