@@ -35,6 +35,7 @@ export default function MetaConnect({ storeId }) {
   const [pixelsState, setPixelsState] = useState("idle"); // idle | ok | unavailable
   const [pixelChoice, setPixelChoice] = useState("");
   const [manualPixel, setManualPixel] = useState("");
+  const [testCodeEdit, setTestCodeEdit] = useState(null); // null = show the saved code
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
 
   useEffect(() => {
@@ -67,6 +68,21 @@ export default function MetaConnect({ storeId }) {
 
   const needsReconnect = !!status?.needs_reconnect;
   const connected = !!status?.connected;
+  const level = status?.data_sharing || "standard";
+  const testCode = testCodeEdit ?? status?.capi_test_code ?? "";
+
+  // Standard / Enhanced / Maximum. The worker checks the token, the pixel and the staff permission; this only asks and shows the answer.
+  const saveSharing = async (next) => {
+    if (next === level && next !== "maximum") return;
+    const code = next === "maximum" ? testCode.trim() : "";
+    if (code && !/^[A-Za-z0-9]{3,30}$/.test(code)) { setBanner({ kind: "error", text: t("metaConnect.sharingBadTestCode") }); return; }
+    setBusy("sharing");
+    const { data } = await call("/meta-set-sharing", { level: next, ...(code ? { test_code: code } : {}) });
+    setBusy("");
+    if (data?.success) { setTestCodeEdit(null); setBanner({ kind: "success", text: t("metaConnect.sharingSaved") }); await loadStatus(); return; }
+    const errs = { sharing_unavailable: "sharingUnavailable", maximum_needs_connection: "sharingNeedsConnection", meta_token_expired: "sharingTokenExpired", maximum_needs_pixel: "sharingNeedsPixel", invalid_test_code: "sharingBadTestCode" };
+    setBanner({ kind: "error", text: t(`metaConnect.${errs[data?.error] || "sharingFailed"}`) });
+  };
 
   const handleConnect = async () => {
     setBusy("connect");
@@ -173,6 +189,7 @@ export default function MetaConnect({ storeId }) {
             <div role="alert" style={{ ...card, border: "1px solid var(--ne-warning)", background: "var(--ne-warning-soft)" }}>
               <p style={{ margin: "0 0 4px", fontWeight: 700, color: "var(--ne-warning)", display: "flex", alignItems: "center", gap: 6 }}><Icon name="warning" size={14} /> {t("metaConnect.needsReconnectTitle")}</p>
               <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "var(--ne-text)" }}>{t("metaConnect.needsReconnectBody")}</p>
+              {level === "maximum" && <p style={{ margin: "0 0 10px", fontSize: 12.5, fontWeight: 600, color: "var(--ne-text)" }}>{t("metaConnect.serverPaused")}</p>}
               <button onClick={handleConnect} disabled={!!busy} style={btnPrimary(!!busy)}><Icon name="refresh" size={14} /> {busy === "connect" ? t("metaConnect.connecting") : t("metaConnect.reconnectButton")}</button>
             </div>
           )}
@@ -248,6 +265,44 @@ export default function MetaConnect({ storeId }) {
                 <button onClick={() => savePixel(manualPixel)} disabled={!!busy || !PIXEL_RE.test(manualPixel)} style={btnGhost(!!busy || !PIXEL_RE.test(manualPixel))}>{t("metaConnect.pixelSave")}</button>
               </div>
               <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--ne-muted-2)" }}>{t("metaConnect.pixelManualHelp")}</p>
+            </div>
+          )}
+
+          {connected && status.pixel_id && (
+            <div style={card}>
+              <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: 14 }}>{t("metaConnect.sharingTitle")}</p>
+              <p style={{ margin: "0 0 10px", fontSize: 12, color: "var(--ne-muted)" }}>{t("metaConnect.sharingHelp")}</p>
+              {status.sharing_available === false && <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "var(--ne-warning)" }}>{t("metaConnect.sharingUnavailable")}</p>}
+              {level === "maximum" && days !== null && days !== undefined && days >= 0 && days <= 7 && !needsReconnect && (
+                <div role="alert" style={{ marginBottom: 10, padding: "9px 12px", borderRadius: 9, background: "var(--ne-warning-soft)", color: "var(--ne-warning)", fontSize: 12.5, fontWeight: 600 }}>{t("metaConnect.sharingExpiring").replace("{days}", String(days))}</div>
+              )}
+              <div role="radiogroup" aria-label={t("metaConnect.sharingTitle")} style={{ display: "grid", gap: 8 }}>
+                {["standard", "enhanced", "maximum"].map((key) => {
+                  const blocked = key === "maximum" && needsReconnect;
+                  const off = !!busy || status.sharing_available === false || blocked;
+                  const on = level === key;
+                  return (
+                    <button key={key} role="radio" aria-checked={on} onClick={() => saveSharing(key)} disabled={off && !on} style={{ textAlign: "start", display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 12px", borderRadius: 10, border: `1px solid ${on ? "var(--ne-success)" : "var(--ne-border)"}`, background: on ? "var(--ne-success-soft)" : "var(--ne-surface)", color: "var(--ne-text)", cursor: off ? "default" : "pointer", opacity: off && !on ? 0.55 : 1 }}>
+                      <span style={{ marginTop: 2, width: 14 }}>{on ? <Icon name="check" size={13} /> : null}</span>
+                      <span style={{ flex: 1 }}>
+                        <span style={{ display: "block", fontWeight: 700, fontSize: 13 }}>{t(`metaConnect.sharing_${key}`)}</span>
+                        <span style={{ display: "block", fontSize: 12, color: "var(--ne-muted)", marginTop: 2 }}>{t(`metaConnect.sharing_${key}_desc`)}</span>
+                        {blocked && <span style={{ display: "block", fontSize: 11.5, color: "var(--ne-warning)", marginTop: 4 }}>{t("metaConnect.sharingMaxBlocked")}</span>}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              {level === "maximum" && (
+                <div style={{ marginTop: 12 }}>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 6 }}>{t("metaConnect.sharingTestCode")}</label>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <input dir="ltr" value={testCode} onChange={(e) => setTestCodeEdit(e.target.value.replace(/[^A-Za-z0-9]/g, "").slice(0, 30))} placeholder="TEST12345" style={{ ...input, flex: 1, minWidth: 200 }} />
+                    <button onClick={() => saveSharing("maximum")} disabled={!!busy || needsReconnect} style={btnGhost(!!busy || needsReconnect)}>{busy === "sharing" ? t("metaConnect.saving") : t("metaConnect.pixelSave")}</button>
+                  </div>
+                  <p style={{ margin: "6px 0 0", fontSize: 11.5, color: "var(--ne-muted-2)" }}>{t("metaConnect.sharingTestCodeHelp")}</p>
+                </div>
+              )}
             </div>
           )}
         </>
