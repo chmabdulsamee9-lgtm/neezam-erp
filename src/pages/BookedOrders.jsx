@@ -525,7 +525,7 @@ function CourierFeedbackHistory({ orderId }) {
   if (history !== null && history.length === 0 && !expanded) return null;
 
   return (
-    <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, padding: "14px 16px", boxShadow: "0 2px 8px rgba(0,0,0,.18)" }}>
+    <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, padding: "14px 16px", boxShadow: "var(--ne-shadow-card, 0 2px 8px rgba(0,0,0,.18))" }}>
       <button type="button" onClick={toggle}
         style={{ background: "none", border: "none", color: "var(--ne-text)", fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, padding: 0 }}>
         <Icon name="truck" size={14} /> {t("booked.courierFeedbackHistory")} {history && <span style={{ fontSize: 10.5, background: "var(--ne-accent)", color: "#fff", padding: "1px 8px", borderRadius: 10 }}>{history.length}</span>}
@@ -1751,7 +1751,7 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
           <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><Icon name="truck" size={17} /> {t("booked.title")}</h1>
           <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{ordersStore?.store_name} — {serverTotal} {t("booked.shipments")}</p>
         </div>
-        <select value={perPage} onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); }}
+        <select className="ne-filter" value={perPage} onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); }}
           style={{ padding: "5px 8px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
           {PER_PAGE_OPTIONS.map((n) => <option key={n} value={n}>{n} / page</option>)}
         </select>
@@ -1761,10 +1761,10 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
       <div style={{ display: "flex", gap: 6, marginBottom: "0.6rem", flexWrap: "wrap" }}>
         <div style={{ position: "relative", flex: 1, minWidth: 160 }}>
           <Icon name="search" size={13} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--ne-muted-2)" }} />
-          <input type="text" placeholder={t("booked.searchPlaceholder")} value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          <input className="ne-filter ne-filter-input" type="text" placeholder={t("booked.searchPlaceholder")} value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             style={{ width: "100%", padding: "7px 10px 7px 30px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5, boxSizing: "border-box" }} />
         </div>
-        <select value={courierFilter} onChange={(e) => { setCourierFilter(e.target.value); setPage(1); }}
+        <select className="ne-filter" value={courierFilter} onChange={(e) => { setCourierFilter(e.target.value); setPage(1); }}
           style={{ padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }}>
           {availableCouriers.map((c) => <option key={c} value={c}>{c === "All" ? t("booked.allCouriers") : c}</option>)}
         </select>
@@ -1897,7 +1897,7 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
               const cityLabel = o.shipping_address?.city || o.billing_address?.city || "";
               const createdDate = o.created_at ? new Date(o.created_at).toLocaleDateString("en-GB") : "";
               return (
-                <div key={o.id} style={{ display: "flex", alignItems: "stretch", gap: 0, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, marginBottom: 6, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "hidden" }}>
+                <div key={o.id} style={{ display: "flex", alignItems: "stretch", gap: 0, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, marginBottom: 6, boxShadow: "var(--ne-shadow-card, 0 2px 8px rgba(0,0,0,.18))", overflow: "hidden" }}>
                   <div style={{ display: "flex", alignItems: "flex-start", gap: 6, padding: "8px 6px 8px 10px", flexShrink: 0, width: 116, boxSizing: "border-box" }}>
                     <input type="checkbox" checked={selectedIds.has(o.id)} onChange={() => toggleSelect(o.id)} style={{ cursor: "pointer", flexShrink: 0, marginTop: 2 }} />
                     <div style={{ width: 84, minWidth: 84 }}>
@@ -2257,7 +2257,7 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
                 {/* Remarks box — YEH pura block hamesha visible hai, sirf iske andar ki
                     .remarks-list collapse/expand hoti hai jab header-button click ho.
                     Background/shadow Orders.jsx ke card-style se exact match (dono modes mein). */}
-                <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, padding: "14px 16px", boxShadow: "0 2px 8px rgba(0,0,0,.18)" }}>
+                <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, padding: "14px 16px", boxShadow: "var(--ne-shadow-card, 0 2px 8px rgba(0,0,0,.18))" }}>
                   <button onClick={() => toggleRemarks(o.id)}
                     style={{ background: "none", border: "none", color: "var(--ne-text)", fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, padding: 0 }}>
                     <Icon name="comment" size={14} /> {t("booked.remarks")} <span style={{ fontSize: 10.5, background: "var(--ne-accent)", color: "#fff", padding: "1px 8px", borderRadius: 10 }}>{remarksLog.length}</span>

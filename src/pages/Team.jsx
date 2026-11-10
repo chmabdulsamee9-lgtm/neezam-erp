@@ -294,7 +294,7 @@ export default function Team({ storeId, storeName, eneezamId, cfUrl }) {
       ) : (
         <div style={{ display: "grid", gap: 10 }}>
           {members.map(m => (
-            <div key={m.profiles.id} style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, padding: "14px 16px", boxShadow: "0 2px 8px rgba(0,0,0,.18)" }}>
+            <div key={m.profiles.id} style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, padding: "14px 16px", boxShadow: "var(--ne-shadow-card, 0 2px 8px rgba(0,0,0,.18))" }}>
               <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 10 }}>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 14, color: "var(--ne-text)" }}>{m.profiles.full_name || "—"}</div>

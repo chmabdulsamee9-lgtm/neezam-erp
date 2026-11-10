@@ -820,7 +820,7 @@ export default function StoreConnect({ storeId }) {
               border: "1px solid var(--ne-border)",
               borderRadius: 14,
               padding: "1rem 1.25rem",
-              boxShadow: "0 2px 8px rgba(0,0,0,.18)",
+              boxShadow: "var(--ne-shadow-card, 0 2px 8px rgba(0,0,0,.18))",
             }}>
               <div style={{
                 display: "flex",

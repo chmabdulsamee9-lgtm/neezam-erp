@@ -294,8 +294,8 @@ html, body {
   --ne-bg-glow: linear-gradient(transparent, transparent);
   --ne-sidebar-bg:#0A0E26; --ne-surface:#f1f1f1; --ne-surface-2:#ffffff; --ne-border:#e3e3e3;
   --ne-surface-sub:#f7f7f7; --ne-surface-sub-hover:#f3f3f3; --ne-border-inner:#ebebeb;
-  --ne-shadow-card:0 1px 2px rgba(26,26,26,.07); --ne-shadow-pop:0 8px 24px rgba(26,26,26,.12); --ne-border-pop:rgba(26,26,26,.06);
-  --ne-text:#1A1F36; --ne-muted:#6B7280; --ne-muted-2:#9CA3AF;
+  --ne-shadow-card:0 1px 0 rgba(26,26,26,.05); --ne-shadow-strip:none; --ne-shadow-pop:0 8px 24px rgba(26,26,26,.12); --ne-border-pop:rgba(26,26,26,.06);
+  --ne-text:#303030; --ne-muted:#616161; --ne-muted-2:#9CA3AF;
   --ne-accent:#5C7CFA; --ne-accent2:#A855F7; --ne-accent-soft:#EDEFFE; --ne-accent2-soft:#F3E8FF;
   --ne-grad: linear-gradient(120deg, #5C7CFA 0%, #A855F7 100%);
   --ne-success:#16A34A; --ne-success-soft:#DCFCE7;
@@ -334,7 +334,9 @@ html, body {
 
 /* ===== LIGHT MODE: Shopify-admin surface rules (token driven; dark mode has none of these) ===== */
 /* card: white block with a 1px border gets the resting shadow */
-:root[data-theme="light"] [style*="background: var(--ne-surface-2)"][style*="border: 1px solid var(--ne-border)"]{box-shadow:var(--ne-shadow-card);}
+:root[data-theme="light"] :is(div, section, article)[style*="background: var(--ne-surface-2)"][style*="border: 1px solid var(--ne-border)"]:is([style*="border-radius: 12px"], [style*="border-radius: 14px"], [style*="border-radius: 16px"]):not([style*="position: sticky"], [style*="position: absolute"], [style*="position: fixed"]){box-shadow:var(--ne-shadow-card);}
+/* a card inside a card (and anything inside a card: pills, buttons, headers) never gets the resting shadow */
+:root[data-theme="light"] :is(div, section, article)[style*="background: var(--ne-surface-2)"][style*="border: 1px solid var(--ne-border)"] :is(div, section, article, button, input, select, th, td, span)[style*="background: var(--ne-surface-2)"][style*="border: 1px solid var(--ne-border)"]{box-shadow:none;}
 /* inputs that were filled with the page colour get the neutral subtle fill */
 :root[data-theme="light"] :is(input, select, textarea)[style*="background: var(--ne-surface)"],
 :root[data-theme="light"] :is(input, select, textarea)[style*="background: var(--ne-bg)"]{background:var(--ne-surface-sub) !important;}
@@ -361,4 +363,12 @@ html, body {
   background:var(--ne-bg-glow), var(--ne-bg);
 }
 :root[data-theme="light"] .ne-public [style*="background: var(--ne-surface-2)"][style*="border: 1px solid var(--ne-border)"]{box-shadow:none;}
+:root[data-theme="light"] .ne-public{--ne-shadow-strip:none;}
+
+/* ===== LIGHT MODE: one filter / select / search control style on the list pages (Orders, Booked Orders, Products) ===== */
+:root[data-theme="light"] .ne-filter{box-sizing:border-box; height:34px; border-radius:10px !important; border:1px solid var(--ne-border) !important; background-color:var(--ne-surface-2) !important; color:var(--ne-text); font-size:12px !important; line-height:1.2; padding-top:0 !important; padding-bottom:0 !important;}
+:root[data-theme="light"] .ne-filter:is(select, .ne-filter-btn){-webkit-appearance:none; appearance:none; padding-left:10px !important; padding-right:30px !important; background-repeat:no-repeat; background-position:right 10px center; background-size:12px 12px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5l3 3 3-3' fill='none' stroke='%23616161' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");}
+:root[data-theme="light"] .ne-filter-btn{display:inline-flex; align-items:center;}
+:root[data-theme="light"] .ne-filter .ne-glyph{display:none;}
 

@@ -745,7 +745,7 @@ export default function SupplierLedger({ storeId, cfUrl = CF_URL }) {
           {suppliers.map(s => {
             const balance = balanceOf(s.id);
             return (
-              <div key={s.id} style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "14px 16px", boxShadow: "0 2px 8px rgba(0,0,0,.18)", display: "flex", flexDirection: "column", gap: 10 }}>
+              <div key={s.id} style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "14px 16px", boxShadow: "var(--ne-shadow-card, 0 2px 8px rgba(0,0,0,.18))", display: "flex", flexDirection: "column", gap: 10 }}>
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                     <div style={{ fontWeight: 700, fontSize: 14, color: "var(--ne-text)" }}>{s.name}</div>

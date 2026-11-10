@@ -2145,7 +2145,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
             style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 5 }}>
             <Icon name="upload" size={12} /> {t("orders.bulkUpload")}
           </button>
-          <select value={perPage} onChange={e => { setPerPage(Number(e.target.value)); setPage(1); }}
+          <select className="ne-filter" value={perPage} onChange={e => { setPerPage(Number(e.target.value)); setPage(1); }}
             style={{ padding: "5px 8px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
             {PER_PAGE_OPTIONS.map(n => <option key={n} value={n}>{n} / page</option>)}
           </select>
@@ -2180,21 +2180,21 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
       <div style={{ display: "flex", gap: 6, marginBottom: "6px", flexWrap: "wrap" }}>
         <div style={{ position: "relative", flex: 1, minWidth: 130 }}>
           <Icon name="search" size={12} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: "var(--ne-muted-2)" }} />
-          <input type="text" placeholder={t("orders.searchPlaceholder")} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
+          <input className="ne-filter ne-filter-input" type="text" placeholder={t("orders.searchPlaceholder")} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
             style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px 7px 27px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
         </div>
-        <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setActiveDateBtn(null); setPage(1); }}
+        <input className="ne-filter ne-filter-input" type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setActiveDateBtn(null); setPage(1); }}
           style={{ padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
-        <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setActiveDateBtn(null); setPage(1); }}
+        <input className="ne-filter ne-filter-input" type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setActiveDateBtn(null); setPage(1); }}
           style={{ padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
       </div>
 
       {/* Filters + Bulk Actions */}
       <div style={{ display: "flex", gap: 6, marginBottom: "0.6rem", flexWrap: "wrap", alignItems: "center" }}>
         <div style={{ position: "relative" }} data-status-multi>
-          <button onClick={() => setStatusMultiOpen(!statusMultiOpen)}
+          <button className="ne-filter ne-filter-btn" onClick={() => setStatusMultiOpen(!statusMultiOpen)}
             style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap", fontWeight: 500 }}>
-            {statusFilters.length === 0 ? `${t("orders.allStatus")} ▼` : `${statusFilters.length} ${t("orders.selectedSuffix")} ▼`}
+            {statusFilters.length === 0 ? t("orders.allStatus") : `${statusFilters.length} ${t("orders.selectedSuffix")}`} <span className="ne-glyph"> ▼</span>
           </button>
           {statusMultiOpen && (
             <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 9999, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "6px", minWidth: 180, marginTop: 4, boxShadow: "0 8px 30px rgba(0,0,0,.5)" }}>
@@ -2211,16 +2211,16 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
             </div>
           )}
         </div>
-        <select value={sourceFilter} onChange={e => { setSourceFilter(e.target.value); setPage(1); }}
+        <select className="ne-filter" value={sourceFilter} onChange={e => { setSourceFilter(e.target.value); setPage(1); }}
           style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
           <option value="All">{t("orders.allSource")}</option>
           {["Meta", "TikTok", "Snapchat", "Google", "Direct"].map(s => <option key={s}>{s}</option>)}
         </select>
-        <select value={availableCities.includes(cityFilter) ? cityFilter : "All"} onChange={e => { setCityFilter(e.target.value); setPage(1); }}
+        <select className="ne-filter" value={availableCities.includes(cityFilter) ? cityFilter : "All"} onChange={e => { setCityFilter(e.target.value); setPage(1); }}
           style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
           {availableCities.map(c => <option key={c}>{c}</option>)}
         </select>
-        <select value={availableSKUs.includes(skuFilter) ? skuFilter : "All"} onChange={e => { setSkuFilter(e.target.value); setPage(1); }}
+        <select className="ne-filter" value={availableSKUs.includes(skuFilter) ? skuFilter : "All"} onChange={e => { setSkuFilter(e.target.value); setPage(1); }}
           style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
           <option value="All">{t("orders.allSku")}</option>
           {availableSKUs.map(s => <option key={s}>{s}</option>)}
@@ -2381,7 +2381,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
           <div ref={tableRef} style={{ flex: 1, overflowY: "auto" }}>
 
             {/* Header row — visibility ab sirf manual Hide/Show Header toggle se control hoti hai (0% ya 100%), scroll se nahi */}
-            <div style={{ display: "flex", alignItems: "center", gap: 0, position: "sticky", top: 0, zIndex: 5, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "hidden",
+            <div style={{ display: "flex", alignItems: "center", gap: 0, position: "sticky", top: 0, zIndex: 5, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, boxShadow: "var(--ne-shadow-strip, 0 2px 8px rgba(0,0,0,.18))", overflow: "hidden",
               maxHeight: (effectiveHeaderReveal / 100) * 44, opacity: effectiveHeaderReveal / 100, marginBottom: (effectiveHeaderReveal / 100) * 8, padding: `${(effectiveHeaderReveal / 100) * 10}px 0`, borderWidth: effectiveHeaderReveal / 100,
               transition: "max-height .1s linear, opacity .1s linear, margin-bottom .1s linear, padding .1s linear" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, width: 136, padding: "0 8px 0 12px", boxSizing: "border-box" }}>
@@ -2407,7 +2407,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
             </div>
 
             {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isNative, isSelected, isCancelled, statusBtn, syncRow, isDexServiceable, isDuplicateOrder, duplicateOtherNames, isRepeatCustomer, repeatCustomerOrderName }) => (
-              <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, marginBottom: 6, boxShadow: "0 2px 8px rgba(0,0,0,.18)", overflow: "visible" }}>
+              <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, marginBottom: 6, boxShadow: "var(--ne-shadow-card, 0 2px 8px rgba(0,0,0,.18))", overflow: "visible" }}>
               <div style={{ display: "flex", alignItems: "stretch", gap: 0 }}>
 
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 8px 8px 12px", flexShrink: 0, width: 136, boxSizing: "border-box" }}>

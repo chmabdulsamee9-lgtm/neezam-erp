@@ -253,7 +253,7 @@ export default function AdsAnalytics({ ordersData, storeId, ordersStore, cfUrl }
     setCreating(false);
   };
 
-  const cardStyle = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, padding: "12px 14px", boxShadow: "0 2px 8px rgba(0,0,0,.18)" };
+  const cardStyle = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 12, padding: "12px 14px", boxShadow: "var(--ne-shadow-card, 0 2px 8px rgba(0,0,0,.18))" };
   const inputStyle = { width: "100%", padding: "9px 12px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, boxSizing: "border-box", marginBottom: 10 };
   const dateBtnStyle = (type) => ({
     padding: "6px 14px", borderRadius: 20, fontSize: 11, cursor: "pointer", fontWeight: 700, border: "1px solid",

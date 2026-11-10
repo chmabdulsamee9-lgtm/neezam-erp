@@ -1137,17 +1137,17 @@ function ShopifyProductsPanel({ storeId, ordersStore, cfUrl = CF_URL }) {
       <div style={{ display: "flex", gap: 6, marginBottom: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
         <div style={{ position: "relative", flex: 1, minWidth: 180 }}>
           <Icon name="search" size={12} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: "var(--ne-muted-2)" }} />
-          <input type="text" placeholder={t("products.searchPlaceholder")} value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          <input className="ne-filter ne-filter-input" type="text" placeholder={t("products.searchPlaceholder")} value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px 7px 27px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
         </div>
-        <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+        <select className="ne-filter" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
           style={{ padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }}>
           <option value="All">{t("products.allStatus")}</option>
           <option value="active">{t("products.status.active")}</option>
           <option value="draft">{t("products.status.draft")}</option>
           <option value="archived">{t("products.status.archived")}</option>
         </select>
-        <select value={perPage} onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); }}
+        <select className="ne-filter" value={perPage} onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); }}
           style={{ padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }}>
           {PER_PAGE_OPTIONS.map((n) => <option key={n} value={n}>{n} / page</option>)}
         </select>
