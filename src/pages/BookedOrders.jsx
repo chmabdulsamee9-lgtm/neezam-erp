@@ -2085,7 +2085,8 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
             return (
               <div key={o.id} style={{ ...cardStyle, display: "flex", gap: 10 }}>
                 <input type="checkbox" checked={selectedIds.has(o.id)} onChange={() => toggleSelect(o.id)} style={{ accentColor: "#5C7CFA", marginTop: 4 }} />
-                <div style={{ flex: 1 }}>
+                {/* minWidth 0: without it the wide timeline pushed the whole card past the right edge on phones */}
+                <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>

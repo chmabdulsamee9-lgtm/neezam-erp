@@ -146,6 +146,40 @@
 /* inputs and textareas in cards: Shopify field look */
 :root[data-theme="light"] .ne-content :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]), textarea, select){border-color:#8a8a8a33;}
 
+/* page header actions: one height, one line (the ^ toggle, New Order, Bulk Upload and per-page used to differ) */
+.ne-page-actions{flex-wrap:wrap;}
+.ne-page-actions > :is(button, select, a){height:30px; box-sizing:border-box; display:inline-flex; align-items:center; justify-content:center; padding-top:0 !important; padding-bottom:0 !important;}
+.ne-page-actions > select{padding-right:22px !important;}
+
+/* "Search and filter" bar (Shopify) */
+.ne-searchfilter{position:relative; display:flex; gap:6px; align-items:center; margin-bottom:8px;}
+.ne-searchfilter-field{flex:1; min-width:0; display:flex; align-items:center; gap:7px; height:34px; padding:0 10px; border-radius:10px; background:var(--ne-surface-2); border:1px solid var(--ne-border); color:var(--ne-muted-2); transition:border-color var(--ne-motion-fast) ease, box-shadow var(--ne-motion-fast) ease;}
+:root[data-theme="light"] .ne-searchfilter-field{border-color:transparent; box-shadow:var(--ne-shadow-card);}
+.ne-searchfilter-field:focus-within{box-shadow:0 0 0 2px var(--ne-accent) !important;}
+.ne-searchfilter-field input{flex:1; min-width:0; border:none !important; outline:none; background:none; color:var(--ne-text); font-size:12.5px; box-shadow:none !important;}
+.ne-searchfilter-clear{border:none; background:var(--ne-surface); color:var(--ne-muted); width:20px; height:20px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; cursor:pointer;}
+.ne-searchfilter-btn{display:inline-flex; align-items:center; gap:6px; height:34px; padding:0 14px; border-radius:var(--ne-radius-button); border:1px solid var(--ne-border); background:var(--ne-surface-2); color:var(--ne-text); font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap;}
+:root[data-theme="light"] .ne-searchfilter-btn{border-color:transparent; box-shadow:var(--ne-button-bevel);}
+.ne-searchfilter-btn.open{background:var(--ne-accent-soft); color:var(--ne-accent);}
+.ne-filterpanel{position:absolute; top:calc(100% + 6px); right:0; z-index:60; width:min(560px, 92vw); background:var(--ne-surface-2); border:1px solid var(--ne-border); border-radius:14px; box-shadow:var(--ne-shadow-pop); padding:14px; animation:ne-pop-in .18s var(--ne-ease); transform-origin:top right;}
+:root[data-theme="light"] .ne-filterpanel{border-color:transparent;}
+.ne-filterpanel-row{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px;}
+.ne-filterpanel-row label{font-size:12px; font-weight:700; color:var(--ne-text);}
+.ne-filterpanel-row input{height:32px; padding:0 8px; border-radius:8px; border:1px solid var(--ne-border); background:var(--ne-surface-2); color:var(--ne-text); font-size:12px;}
+.ne-filterpanel-fields{display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px;}
+.ne-filterpanel-fields > *, .ne-filterpanel-fields select, .ne-filterpanel-fields [data-status-multi] > button{width:100%; min-height:32px;}
+.ne-filterpanel-foot{display:flex; justify-content:flex-end; gap:8px; margin-top:14px; padding-top:12px; border-top:1px solid var(--ne-border-inner, var(--ne-border));}
+.ne-filterpanel-foot button{height:30px; padding:0 14px; border-radius:var(--ne-radius-button); border:1px solid var(--ne-border); background:var(--ne-surface-2); color:var(--ne-text); font-size:12px; font-weight:600; cursor:pointer;}
+.ne-filterpanel-foot button.primary{background:var(--ne-grad); color:#fff; border:none;}
+.ne-filterchips{display:flex; flex-wrap:wrap; gap:6px; margin:0 0 8px;}
+.ne-filterchip{display:inline-flex; align-items:center; gap:6px; height:26px; padding:0 4px 0 10px; border-radius:var(--ne-radius-button); background:var(--ne-surface); border:1px solid var(--ne-border); font-size:11.5px; font-weight:600; color:var(--ne-text); animation:ne-pop-in .15s var(--ne-ease);}
+.ne-filterchip button{width:18px; height:18px; border:none; border-radius:50%; background:transparent; color:var(--ne-muted); display:inline-flex; align-items:center; justify-content:center; cursor:pointer;}
+.ne-filterchip button:hover{background:var(--ne-border);}
+
+/* expanding details inside a card */
+.ne-expand-in{animation:ne-expand-in var(--ne-motion) var(--ne-ease); overflow:hidden;}
+@keyframes ne-expand-in{from{opacity:0; max-height:0;} to{opacity:1; max-height:1200px;}}
+
 /* page change: the new page fades up a little (each route remounts .ne-content's child) */
 .ne-content > :not(.ne-skel):not([style*="position: fixed"]){animation:ne-page-in var(--ne-motion) var(--ne-ease);}
 @keyframes ne-page-in{from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:none;}}

@@ -700,6 +700,13 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
   const [undoingId, setUndoingId] = useState(null);
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
   const [expandedIds, setExpandedIds] = useState(new Set());
+  // desktop filter popover closes on a click outside it (the phone sheet has its own backdrop)
+  useEffect(() => {
+    if (isMobile || !filterSheetOpen) return undefined;
+    const onDown = (e) => { if (!e.target.closest?.("[data-filter-panel]")) setFilterSheetOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [isMobile, filterSheetOpen]);
   const middleRefs = useRef({});
   const isSyncingScroll = useRef(false);
   const undoInFlightRef = useRef(new Set()); // order ids jinke liye undo abhi process ho raha hai — double-click race guard
@@ -2188,7 +2195,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
           <h1 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="package" size={15} /> {t("orders.title")}</h1>
           <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{currentStore?.store_name} — {serverTotal} {t("orders.ordersSuffix")}</p>
         </div>
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <div className="ne-page-actions" style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <button onClick={toggleHeaderForced} title={headerForcedHidden ? t("orders.showHeader") : t("orders.hideHeader")}
             style={{ padding: "6px 9px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center" }}>
             <Icon name={headerForcedHidden ? "chevronDown" : "chevronDown"} size={11} style={{ transform: headerForcedHidden ? "rotate(0deg)" : "rotate(180deg)", transition: "transform .15s" }} />
@@ -2232,26 +2239,47 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
         )}
       </div>
 
-      {/* Search + Date Range */}
-      <div style={{ display: "flex", gap: 6, marginBottom: "6px", flexWrap: "wrap" }}>
-        <div style={{ position: "relative", flex: 1, minWidth: 130 }}>
-          <Icon name="search" size={12} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: "var(--ne-muted-2)" }} />
-          <input className="ne-filter ne-filter-input" type="text" placeholder={t("orders.searchPlaceholder")} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
-            style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px 7px 27px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
+      {/* One "Search and filter" bar (Shopify): search + a Filters button whose panel holds the date range and every list
+          filter (popover on desktop, bottom sheet on phones); active filters show as removable chips underneath. */}
+      <div className="ne-searchfilter" data-filter-panel>
+        <div className="ne-searchfilter-field">
+          <Icon name="search" size={13} />
+          <input type="text" placeholder={t("orders.searchPlaceholder")} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
+          {search && <button type="button" className="ne-searchfilter-clear" onClick={() => { setSearch(""); setPage(1); }} aria-label={t("orders.clear")}><Icon name="close" size={10} /></button>}
         </div>
-        <input className="ne-filter ne-filter-input" type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setActiveDateBtn(null); setPage(1); }}
-          style={{ padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
-        <input className="ne-filter ne-filter-input" type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setActiveDateBtn(null); setPage(1); }}
-          style={{ padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
+        <button type="button" className={`ne-searchfilter-btn${filterSheetOpen ? " open" : ""}`} onClick={() => setFilterSheetOpen((v) => !v)} aria-expanded={filterSheetOpen}>
+          <Icon name="filter" size={13} /> {t("mobile.filters")}
+          {(activeFilterCount + (dateFrom || dateTo ? 1 : 0)) > 0 && <span className="ne-mfilter-count">{activeFilterCount + (dateFrom || dateTo ? 1 : 0)}</span>}
+        </button>
+        {!isMobile && filterSheetOpen && (
+          <div className="ne-filterpanel">
+            <div className="ne-filterpanel-row">
+              <label>{t("orders.dateRange")}</label>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setActiveDateBtn(null); setPage(1); }} />
+                <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setActiveDateBtn(null); setPage(1); }} />
+              </div>
+            </div>
+            <div className="ne-filterpanel-fields">{filterFields}</div>
+            <div className="ne-filterpanel-foot">
+              <button type="button" onClick={() => { clearListFilters(); setDateFrom(""); setDateTo(""); setActiveDateBtn(null); }}>{t("mobile.clear")}</button>
+              <button type="button" className="primary" onClick={() => setFilterSheetOpen(false)}>{t("mobile.apply")}</button>
+            </div>
+          </div>
+        )}
       </div>
+      {(activeFilterCount > 0 || dateFrom || dateTo) && (
+        <div className="ne-filterchips">
+          {(dateFrom || dateTo) && <span className="ne-filterchip">{dateFrom || "…"} → {dateTo || "…"}<button type="button" onClick={() => { setDateFrom(""); setDateTo(""); setActiveDateBtn(null); setPage(1); }}><Icon name="close" size={9} /></button></span>}
+          {statusFilters.map((s) => <span key={s} className="ne-filterchip">{s}<button type="button" onClick={() => { setStatusFilters((p) => p.filter((x) => x !== s)); setPage(1); }}><Icon name="close" size={9} /></button></span>)}
+          {sourceFilter !== "All" && <span className="ne-filterchip">{sourceFilter}<button type="button" onClick={() => { setSourceFilter("All"); setPage(1); }}><Icon name="close" size={9} /></button></span>}
+          {cityFilter !== "All" && <span className="ne-filterchip">{cityFilter}<button type="button" onClick={() => { setCityFilter("All"); setPage(1); }}><Icon name="close" size={9} /></button></span>}
+          {skuFilter !== "All" && <span className="ne-filterchip">{skuFilter}<button type="button" onClick={() => { setSkuFilter("All"); setPage(1); }}><Icon name="close" size={9} /></button></span>}
+        </div>
+      )}
 
-      {/* Filters + Bulk Actions */}
-      <div style={{ display: "flex", gap: 6, marginBottom: "0.6rem", flexWrap: "wrap", alignItems: "center" }}>
-        {isMobile ? (
-          <button className="ne-filter ne-mfilter-btn" onClick={() => setFilterSheetOpen(true)}>
-            <Icon name="filter" size={14} /> {t("mobile.filters")}{activeFilterCount > 0 && <span className="ne-mfilter-count">{activeFilterCount}</span>}
-          </button>
-        ) : filterFields}
+      {/* Bulk Actions */}
+      <div style={{ display: "flex", gap: 6, marginBottom: selectedIds.size > 0 ? "0.6rem" : 0, flexWrap: "wrap", alignItems: "center" }}>
 
         {/* Bulk Actions */}
         {selectedIds.size > 0 && (
@@ -2287,7 +2315,13 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
             <button className="ne-sheet-btn" onClick={clearListFilters}>{t("mobile.clear")}</button>
             <button className="ne-sheet-btn ne-sheet-btn-primary" onClick={() => setFilterSheetOpen(false)}>{t("mobile.apply")}</button>
           </>}>
-          <div className="ne-mfilter-fields">{filterFields}</div>
+          <div className="ne-mfilter-fields">
+            <div style={{ display: "flex", gap: 8 }}>
+              <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setActiveDateBtn(null); setPage(1); }} style={{ flex: 1, minHeight: 44, padding: "0 10px", borderRadius: 10, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)" }} />
+              <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setActiveDateBtn(null); setPage(1); }} style={{ flex: 1, minHeight: 44, padding: "0 10px", borderRadius: 10, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)" }} />
+            </div>
+            {filterFields}
+          </div>
         </BottomSheet>
       )}
 
@@ -2360,15 +2394,11 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
                 <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ne-success)" }}>Rs. {displayTotal.toLocaleString()}</div>
               </div>
 
-              <button onClick={() => toggleExpand(order.id)}
-                style={{ width: "100%", marginTop: 8, padding: "6px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-muted)", fontSize: 10.5, cursor: "pointer", fontWeight: 600 }}>
-                {isExpanded ? t("orders.showLess") : t("orders.showMore")}
-              </button>
-
               <AddressMatchBlock order={order} storeId={currentStore?.id} cfUrl={cfUrl} t={t} onUpdateAgentData={updateAgentDataPatch} onAddressConfirmed={handleAddressConfirmed} />
 
+              {/* details open right above the toggle, which stays at the bottom of the card (it used to sit in the middle) */}
               {isExpanded && (
-                <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--ne-border)", display: "flex", flexDirection: "column", gap: 6 }}>
+                <div className="ne-expand-in" style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--ne-border)", display: "flex", flexDirection: "column", gap: 6 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{t("orders.phonePlaceholder")}: </span><EditableCell orderId={order.id} field="phone" value={phone} width={140} />
                     {phone && (
@@ -2405,6 +2435,12 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
                   {syncRow}
                 </div>
               )}
+
+              <button onClick={() => toggleExpand(order.id)} aria-expanded={isExpanded}
+                style={{ width: "100%", marginTop: 8, padding: "7px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-muted)", fontSize: 11, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                {isExpanded ? t("orders.showLess") : t("orders.showMore")}
+                <span style={{ display: "inline-flex", transition: "transform .2s ease", transform: isExpanded ? "rotate(-90deg)" : "rotate(90deg)" }}><Icon name="chevronRight" size={11} /></span>
+              </button>
             </div>
           ))}
           {orderRows.length === 0 && (
