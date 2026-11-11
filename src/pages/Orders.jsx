@@ -13,6 +13,8 @@ import { Link } from "react-router-dom";
 import { getOrderSource } from "../lib/orderSource";
 import OrderSourceIcon from "../components/OrderSourceIcon";
 import { STATUSES, isNativeOrderId } from "../lib/orderStatuses";
+import BottomSheet from "../components/BottomSheet";
+import { countActiveFilters } from "../lib/mobile";
 
 const TAB_KEYS = {
   All: "orders.tab.all",
@@ -636,6 +638,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
   const [sourceFilter, setSourceFilter] = useState("All");
   const [cityFilter, setCityFilter] = useState("All");
   const [skuFilter, setSkuFilter] = useState("All");
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false); // phones only
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [activeDateBtn, setActiveDateBtn] = useState(null);
@@ -2122,6 +2125,48 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
     return { order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride: !!order.agent_data?.product, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isNative, isSelected, isCancelled, hasValidHistory, isUndoing, isExpanded, statusBtn, syncRow, isDexServiceable, isDuplicateOrder, duplicateOtherNames, isRepeatCustomer, repeatCustomerOrderName };
   });
 
+  // the four list filters; inline on desktop, inside the Filters sheet on phones (same controls, same state)
+  const filterFields = (
+    <>
+      <div style={{ position: "relative" }} data-status-multi>
+        <button className="ne-filter ne-filter-btn" onClick={() => setStatusMultiOpen(!statusMultiOpen)}
+          style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap", fontWeight: 500 }}>
+          {statusFilters.length === 0 ? t("orders.allStatus") : `${statusFilters.length} ${t("orders.selectedSuffix")}`} <span className="ne-glyph"> ▼</span>
+        </button>
+        {statusMultiOpen && (
+          <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 9999, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "6px", minWidth: 180, marginTop: 4, boxShadow: "0 8px 30px rgba(0,0,0,.5)" }}>
+            <div onClick={() => { setStatusFilters([]); setStatusMultiOpen(false); }}
+              style={{ padding: "6px 10px", borderRadius: 7, cursor: "pointer", color: "var(--ne-muted)", fontSize: 11, display: "flex", alignItems: "center", gap: 5 }}><Icon name="close" size={9} /> {t("orders.clearAll")}</div>
+            {STATUSES.map(s => (
+              <div key={s.label} onClick={() => { setStatusFilters(prev => prev.includes(s.label) ? prev.filter(x => x !== s.label) : [...prev, s.label]); setPage(1); }}
+                style={{ padding: "6px 10px", borderRadius: 7, cursor: "pointer", color: s.color, fontSize: 11, fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}
+                onMouseEnter={e => e.currentTarget.style.background = s.bg}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <span style={{ display: "flex", alignItems: "center" }}>{statusFilters.includes(s.label) ? <Icon name="check" size={10} /> : <span style={{ width: 10, height: 10, border: "1px solid currentColor", borderRadius: 2, display: "inline-block" }} />}</span>{s.label}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <select className="ne-filter" value={sourceFilter} onChange={e => { setSourceFilter(e.target.value); setPage(1); }}
+        style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
+        <option value="All">{t("orders.allSource")}</option>
+        {["Meta", "TikTok", "Snapchat", "Google", "Direct"].map(s => <option key={s}>{s}</option>)}
+      </select>
+      <select className="ne-filter" value={availableCities.includes(cityFilter) ? cityFilter : "All"} onChange={e => { setCityFilter(e.target.value); setPage(1); }}
+        style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
+        {availableCities.map(c => <option key={c}>{c}</option>)}
+      </select>
+      <select className="ne-filter" value={availableSKUs.includes(skuFilter) ? skuFilter : "All"} onChange={e => { setSkuFilter(e.target.value); setPage(1); }}
+        style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
+        <option value="All">{t("orders.allSku")}</option>
+        {availableSKUs.map(s => <option key={s}>{s}</option>)}
+      </select>
+    </>
+  );
+  const activeFilterCount = countActiveFilters({ status: statusFilters, source: sourceFilter, city: cityFilter, sku: skuFilter }, { source: "All", city: "All", sku: "All" });
+  const clearListFilters = () => { setStatusFilters([]); setSourceFilter("All"); setCityFilter("All"); setSkuFilter("All"); setPage(1); };
+
   return (
     <div style={{ padding: "0.75rem", height: "100%", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
       <style>{`@keyframes ne-address-flash { 0% { background-color: var(--ne-success-soft); } 100% { background-color: transparent; } } .ne-address-flash { animation: ne-address-flash 1.5s ease-out; border-radius: 6px; }`}</style>
@@ -2191,44 +2236,15 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
 
       {/* Filters + Bulk Actions */}
       <div style={{ display: "flex", gap: 6, marginBottom: "0.6rem", flexWrap: "wrap", alignItems: "center" }}>
-        <div style={{ position: "relative" }} data-status-multi>
-          <button className="ne-filter ne-filter-btn" onClick={() => setStatusMultiOpen(!statusMultiOpen)}
-            style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap", fontWeight: 500 }}>
-            {statusFilters.length === 0 ? t("orders.allStatus") : `${statusFilters.length} ${t("orders.selectedSuffix")}`} <span className="ne-glyph"> ▼</span>
+        {isMobile ? (
+          <button className="ne-filter ne-mfilter-btn" onClick={() => setFilterSheetOpen(true)}>
+            <Icon name="filter" size={14} /> {t("mobile.filters")}{activeFilterCount > 0 && <span className="ne-mfilter-count">{activeFilterCount}</span>}
           </button>
-          {statusMultiOpen && (
-            <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 9999, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "6px", minWidth: 180, marginTop: 4, boxShadow: "0 8px 30px rgba(0,0,0,.5)" }}>
-              <div onClick={() => { setStatusFilters([]); setStatusMultiOpen(false); }}
-                style={{ padding: "6px 10px", borderRadius: 7, cursor: "pointer", color: "var(--ne-muted)", fontSize: 11, display: "flex", alignItems: "center", gap: 5 }}><Icon name="close" size={9} /> {t("orders.clearAll")}</div>
-              {STATUSES.map(s => (
-                <div key={s.label} onClick={() => { setStatusFilters(prev => prev.includes(s.label) ? prev.filter(x => x !== s.label) : [...prev, s.label]); setPage(1); }}
-                  style={{ padding: "6px 10px", borderRadius: 7, cursor: "pointer", color: s.color, fontSize: 11, fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}
-                  onMouseEnter={e => e.currentTarget.style.background = s.bg}
-                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  <span style={{ display: "flex", alignItems: "center" }}>{statusFilters.includes(s.label) ? <Icon name="check" size={10} /> : <span style={{ width: 10, height: 10, border: "1px solid currentColor", borderRadius: 2, display: "inline-block" }} />}</span>{s.label}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        <select className="ne-filter" value={sourceFilter} onChange={e => { setSourceFilter(e.target.value); setPage(1); }}
-          style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
-          <option value="All">{t("orders.allSource")}</option>
-          {["Meta", "TikTok", "Snapchat", "Google", "Direct"].map(s => <option key={s}>{s}</option>)}
-        </select>
-        <select className="ne-filter" value={availableCities.includes(cityFilter) ? cityFilter : "All"} onChange={e => { setCityFilter(e.target.value); setPage(1); }}
-          style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
-          {availableCities.map(c => <option key={c}>{c}</option>)}
-        </select>
-        <select className="ne-filter" value={availableSKUs.includes(skuFilter) ? skuFilter : "All"} onChange={e => { setSkuFilter(e.target.value); setPage(1); }}
-          style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
-          <option value="All">{t("orders.allSku")}</option>
-          {availableSKUs.map(s => <option key={s}>{s}</option>)}
-        </select>
+        ) : filterFields}
 
         {/* Bulk Actions */}
         {selectedIds.size > 0 && (
-          <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: "auto", flexWrap: "wrap" }}>
+          <div data-bulkbar style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: "auto", flexWrap: "wrap" }}>
             <span style={{ fontSize: 11, color: "var(--ne-muted)", fontWeight: 600 }}>{selectedIds.size} {t("orders.selectedSuffix")}</span>
             <div style={{ position: "relative" }}>
               <button data-bulk-status-btn onClick={handleBulkStatusBtnClick}
@@ -2253,6 +2269,16 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
           </div>
         )}
       </div>
+
+      {isMobile && (
+        <BottomSheet open={filterSheetOpen} onClose={() => setFilterSheetOpen(false)} title={t("mobile.filters")} closeLabel={t("mobile.close")}
+          footer={<>
+            <button className="ne-sheet-btn" onClick={clearListFilters}>{t("mobile.clear")}</button>
+            <button className="ne-sheet-btn ne-sheet-btn-primary" onClick={() => setFilterSheetOpen(false)}>{t("mobile.apply")}</button>
+          </>}>
+          <div className="ne-mfilter-fields">{filterFields}</div>
+        </BottomSheet>
+      )}
 
       {/* Tab Navigation — har tab apni alag pill hai (theme reference jaisa), shared box nahi */}
       <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: "0.6rem" }}>
