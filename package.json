@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "test": "node --test src/lib/themeV2/themeV2.test.mjs src/lib/storeSecrets.test.mjs src/lib/popoverPosition.test.mjs src/lib/sidebarState.test.mjs src/lib/whatsNew.test.mjs src/lib/mobile.test.mjs src/lib/shopifyImage.test.mjs src/lib/loadingBar.test.mjs",
+    "test": "node --test src/lib/themeV2/themeV2.test.mjs src/lib/storeSecrets.test.mjs src/lib/popoverPosition.test.mjs src/lib/sidebarState.test.mjs src/lib/whatsNew.test.mjs src/lib/mobile.test.mjs src/lib/shopifyImage.test.mjs src/lib/loadingBar.test.mjs src/lib/themeTokens.test.mjs",
     "sync:theme-v2": "node scripts/sync-theme-v2.mjs",
     "preview": "vite preview"
   },

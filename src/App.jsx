@@ -12,6 +12,7 @@ import './look.css'
 import { supabase } from './supabase'
 import LoadingBar from './components/LoadingBar'
 import { installFetchTracking, startLoading, armLoading } from './lib/loadingBar'
+import { applyTheme } from './lib/themeTokens'
 import { SOLUTIONS_LINKS } from './pages/public/solutionsLinks'
 import { fetchStoreRow, fetchStoreRows } from './lib/storeColumns'
 import { getCachedOrders, saveOrdersBulk, upsertOrder, getMeta, setMeta, clearCache, getCachedPeriod, setCachedPeriod, clearStoreOrders } from './ordersCache'
@@ -123,6 +124,7 @@ const ProductsManagement = lazyPage(() => import('./pages/ProductsManagement'), 
 const FinanceStatement = lazyPage(() => import('./pages/FinanceStatement'), 'finance-statement')
 const DevMonitorDetailed = lazyPage(() => import('./pages/DevMonitorDetailed'), 'master-dashboard/dev-monitor')
 const GeminiUsageMonitor = lazyPage(() => import('./pages/GeminiUsageMonitor'), 'master-dashboard/gemini-monitor')
+const UiEditor = lazyPage(() => import('./pages/UiEditor'), 'master-dashboard/ui-editor', { skeleton: false })
 const ShopifyCallback = lazyPage(() => import('./pages/ShopifyCallback'), null)
 const Orders = lazyPage(() => import('./pages/Orders'), 'orders')
 const OrderDetail = lazyPage(() => import('./pages/OrderDetail'), 'orders')
@@ -775,6 +777,10 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
           <button onClick={() => navigate('/master-dashboard/gemini-monitor')}
             style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Icon name="zap" size={13} /> {t('nav.gemini-monitor')}
+          </button>
+          <button onClick={() => navigate('/master-dashboard/ui-editor')}
+            style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="palette" size={13} /> UI Editor
           </button>
         </div>
 
@@ -1468,6 +1474,13 @@ function App() {
       loadProfileAndStores()
     }
   }, [session])
+
+  // the look published from Master Dashboard > UI Editor (only changed tokens are stored; nothing stored = shipped look)
+  useEffect(() => {
+    if (!session) return
+    supabase.from('app_theme_settings').select('live').eq('id', 'global').maybeSingle()
+      .then(({ data }) => { if (data?.live) applyTheme(data.live) })
+  }, [session?.user?.id])
 
   useEffect(() => {
     if (session && profile?.approved && selectedStoreId && !hasStartedLoadRef.current) {
@@ -2220,7 +2233,7 @@ function App() {
 
   if (!selectedStoreId) return <SplashScreen />
   const isAdminOnlyPage = activeMenu === 'master-dashboard/dev-monitor' ||
-    activeMenu === 'master-dashboard/gemini-monitor'
+    activeMenu === 'master-dashboard/gemini-monitor' || activeMenu === 'master-dashboard/ui-editor'
   // Orders load hone tak poori app block nahi hoti: shell (sidebar/topbar) foran dikhta hai, aur sirf
   // orders-dependent pages ke content area mein PageSkeleton dikhta hai.
   const ordersPending = !ordersLoaded && !isAdminOnlyPage
@@ -2270,7 +2283,7 @@ function App() {
   // whatsapp/courier-connect/meta-connect/team/activity-log/settings are no longer part of
   // allMenuItems but are still real routable pages.
   const menuItems = allMenuItems.filter(m => hasAccess(m.id) || alwaysVisibleIds.includes(m.id))
-  const fullScreenModules = ['orders', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor']
+  const fullScreenModules = ['orders', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor', 'master-dashboard/ui-editor']
   // fullScreenModules hides the topbar; Orders keeps that but still gets the rounded content card.
   const noCardModules = fullScreenModules.filter(m => m !== 'orders')
   const currentStoreInfo = userStoresList.find(us => us.store_id === selectedStoreId)?.stores
@@ -2744,7 +2757,8 @@ function App() {
             {activeMenu === 'master-dashboard/gemini-monitor' && profile.role === 'creator' && (
               <GeminiUsageMonitor cfUrl={CF_URL} session={session} />
             )}
-            {!['home', 'dashboard', 'store-connect', 'online-store', 'theme-editor', 'products', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'returns', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor'].includes(navMenu) && (
+            {activeMenu === 'master-dashboard/ui-editor' && profile.role === 'creator' && <UiEditor />}
+            {!['home', 'dashboard', 'store-connect', 'online-store', 'theme-editor', 'products', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'returns', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor', 'master-dashboard/ui-editor'].includes(navMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{pageTitleLookup.find(m => m.id === navMenu)?.label}</h2>
