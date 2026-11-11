@@ -1927,14 +1927,21 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
     let cancelled = false;
     const body = { storeId: storeIdForApi, from: dateFromIso, to: dateToIso };
     const cacheKey = `orders-opts|${JSON.stringify(body)}`;
-    getView(cacheKey).then((hit) => { if (hit && !cancelled) setFilterOptions({ cities: hit.json.cities || [], skus: hit.json.skus || [] }); });
-    callOrdersApi("/orders-filter-options", body)
-      .then((j) => {
-        if (cancelled) return;
-        setView(cacheKey, j).catch(() => {});
-        setFilterOptions({ cities: j.cities || [], skus: j.skus || [] });
-      })
-      .catch(() => {});
+    // City/SKU list database ki sab se bhari query hai (store ke saare orders padhti hai, ~0.5-1.4 s),
+    // aur list kam hi badalti hai: 10 minute tak cache hi kaafi hai, us ke baad server se taaza.
+    const FILTER_OPTIONS_TTL_MS = 10 * 60 * 1000;
+    getView(cacheKey).then((hit) => {
+      if (cancelled) return;
+      if (hit) setFilterOptions({ cities: hit.json.cities || [], skus: hit.json.skus || [] });
+      if (hit && Date.now() - (hit.at || 0) < FILTER_OPTIONS_TTL_MS) return;
+      callOrdersApi("/orders-filter-options", body)
+        .then((j) => {
+          if (cancelled) return;
+          setView(cacheKey, j).catch(() => {});
+          setFilterOptions({ cities: j.cities || [], skus: j.skus || [] });
+        })
+        .catch(() => {});
+    });
     return () => { cancelled = true; };
   }, [storeIdForApi, loading, dateFromIso, dateToIso]);
 
