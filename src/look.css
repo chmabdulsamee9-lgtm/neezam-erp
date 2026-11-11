@@ -105,5 +105,51 @@
 @keyframes ne-loadbar-shine{from{transform:translateX(-120px);} to{transform:translateX(100vw);}}
 @media (prefers-reduced-motion:reduce){ .ne-loadbar-shine, .ne-navtext, .ne-navchildren, .ne-toggle-tip, .ne-navflyout{animation:none;} .ne-sidebar{transition:none;} }
 
-/* ---------- boot: just the frame, no second skeleton ---------- */
-.ne-boot{min-height:100vh; min-height:100dvh; background:var(--ne-bg);}
+/* ---------- boot: a plain neutral screen like Shopify's start (no blue frame, no skeleton) ---------- */
+.ne-app-shell.ne-boot{min-height:100vh; min-height:100dvh; background:var(--ne-bg);}
+:root[data-theme="light"] .ne-app-shell.ne-boot{background:#f1f2f4;}
+
+/* ==========================================================================================
+   v2.1: Shopify cards, buttons and motion
+   ========================================================================================== */
+:root{
+  --ne-motion-fast:.15s;
+  --ne-motion:.25s;
+  --ne-ease:cubic-bezier(.2,.8,0,1); /* Shopify's sidebar curve */
+  --ne-radius-button:999px;
+}
+:root[data-theme="light"]{
+  /* card = white, no hard border: a 1px ring + a soft drop (Polaris bevel look) */
+  --ne-shadow-card:0 0 0 1px rgba(0,0,0,.07), 0 1px 0 0 rgba(0,0,0,.07), 0 2px 6px rgba(0,0,0,.03);
+  --ne-shadow-card-hover:0 0 0 1px rgba(0,0,0,.12), 0 1px 0 0 rgba(0,0,0,.08), 0 4px 12px rgba(0,0,0,.06);
+  --ne-button-bevel:inset 0 -1px 0 0 #b5b5b5, inset 0 0 0 1px rgba(0,0,0,.1), 0 1px 0 rgba(0,0,0,.04);
+  --ne-button-primary-bevel:inset 0 1px 0 rgba(255,255,255,.28), inset 0 -1px 0 rgba(0,0,0,.22), 0 1px 2px rgba(0,0,0,.12);
+}
+.ne-sidebar{transition:width var(--ne-motion) var(--ne-ease), padding var(--ne-motion) var(--ne-ease);}
+
+/* cards: the ring replaces the grey border (light), the 3 colours are white card / #f7f7f7 strip / #ebebeb dividers */
+:root[data-theme="light"] .ne-content :is(div, section, article)[style*="background: var(--ne-surface-2)"][style*="border: 1px solid var(--ne-border)"]:is([style*="border-radius: 10px"], [style*="border-radius: 12px"], [style*="border-radius: 14px"], [style*="border-radius: 16px"]):not([style*="position: sticky"], [style*="position: absolute"], [style*="position: fixed"]){border-color:transparent !important; box-shadow:var(--ne-shadow-card);}
+:root[data-theme="light"] .ne-content :is(div, section, article)[style*="background: var(--ne-surface)"][style*="border: 1px solid var(--ne-border)"]{border-color:var(--ne-border-inner) !important;}
+
+/* buttons: fully round like Shopify's (only small control buttons; card-sized buttons keep their corners) */
+.ne-content button:is([style*="border-radius: 5px"], [style*="border-radius: 6px"], [style*="border-radius: 7px"], [style*="border-radius: 8px"], [style*="border-radius: 9px"], [style*="border-radius: 10px"], [style*="border-radius: 20px"]),
+.ne-content [role="button"]:is([style*="border-radius: 8px"], [style*="border-radius: 9px"], [style*="border-radius: 10px"]){border-radius:var(--ne-radius-button) !important;}
+/* secondary buttons get Shopify's bevel instead of a flat grey border; primary (brand gradient) gets a soft highlight */
+:root[data-theme="light"] .ne-content button:not(:disabled)[style*="border: 1px solid var(--ne-border)"]{border-color:transparent !important; box-shadow:var(--ne-button-bevel);}
+:root[data-theme="light"] .ne-content button:not(:disabled)[style*="background: var(--ne-grad)"]{box-shadow:var(--ne-button-primary-bevel);}
+.ne-content button:not(:disabled):active{transform:translateY(.5px); filter:brightness(.94);}
+
+/* editable text in order cards: shows it can be clicked and edited */
+.ne-editable{border-radius:6px; padding:1px 4px; margin:-1px -4px; transition:background-color var(--ne-motion-fast) ease, box-shadow var(--ne-motion-fast) ease; cursor:text !important;}
+.ne-editable:hover{background:rgba(92,124,250,.09); box-shadow:inset 0 0 0 1px rgba(92,124,250,.25);}
+:root[data-theme="light"] .ne-editable:hover{background:#f1f1f1; box-shadow:inset 0 0 0 1px #d4d4d4;}
+/* inputs and textareas in cards: Shopify field look */
+:root[data-theme="light"] .ne-content :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]), textarea, select){border-color:#8a8a8a33;}
+
+/* page change: the new page fades up a little (each route remounts .ne-content's child) */
+.ne-content > :not(.ne-skel):not([style*="position: fixed"]){animation:ne-page-in var(--ne-motion) var(--ne-ease);}
+@keyframes ne-page-in{from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:none;}}
+/* popovers, menus and modals scale in */
+.ne-popover, .ne-notif-dropdown, .ne-search-modal{animation:ne-pop-in .18s var(--ne-ease); transform-origin:top left;}
+@keyframes ne-pop-in{from{opacity:0; transform:scale(.97);} to{opacity:1; transform:none;}}
+@media (prefers-reduced-motion:reduce){ .ne-content > *, .ne-popover, .ne-notif-dropdown, .ne-search-modal{animation:none !important;} }

@@ -1991,7 +1991,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
     );
 
     return (
-      <span onClick={() => setEditingCell(cellKey)} title={value || ""}
+      <span className="ne-editable" onClick={() => setEditingCell(cellKey)} title={value || ""}
         style={{ cursor: "pointer", color: value ? "var(--ne-text)" : "var(--ne-muted-2)", fontSize: 11, display: "-webkit-box", WebkitLineClamp: clampLines, WebkitBoxOrient: "vertical", overflow: "hidden", textOverflow: "ellipsis", wordBreak: "break-word", lineHeight: 1.35, maxWidth: width, ...displayStyle }}>
         {value || "—"}
       </span>

@@ -11,7 +11,7 @@ import './theme.css'
 import './look.css'
 import { supabase } from './supabase'
 import LoadingBar from './components/LoadingBar'
-import { installFetchTracking, startLoading } from './lib/loadingBar'
+import { installFetchTracking, startLoading, armLoading } from './lib/loadingBar'
 import { SOLUTIONS_LINKS } from './pages/public/solutionsLinks'
 import { fetchStoreRow, fetchStoreRows } from './lib/storeColumns'
 import { getCachedOrders, saveOrdersBulk, upsertOrder, getMeta, setMeta, clearCache, getCachedPeriod, setCachedPeriod, clearStoreOrders } from './ordersCache'
@@ -1135,6 +1135,8 @@ function App() {
   const isMobile = useIsMobile()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   useEffect(() => { writeSidebarOpen(sidebarOpen) }, [sidebarOpen])
+  // a page change (also one made in code, e.g. after login) is something the user waits for: the loading bar may show
+  useEffect(() => { armLoading(2000) }, [location.pathname])
   // Settings opens with no loading state: its code is fetched while the app is idle after start-up
   useEffect(() => {
     const ric = window.requestIdleCallback || ((fn) => setTimeout(fn, 1500))
