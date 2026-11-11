@@ -1325,6 +1325,12 @@ function App() {
   // subscription kisi wajah se reject ho (jaise Supabase publication mein add na ho), to
   // sirf yeh channel affect ho, naye-order-live-dikhna wala channel bilkul nahi.
   const realtimeStatusChannelRef = useRef(null)
+  // Har setupRealtime/teardown par generation badhti hai. supabase.removeChannel() purane channel
+  // ke subscribe callback ko khud "CLOSED" bhejta hai; agar wo callback reconnect schedule kare to
+  // har round mein channels double hote hain (memory 1 GB+, tab freeze). Is liye sirf current
+  // generation ke callbacks reconnect kar sakte hain, aur ek waqt mein sirf ek retry timer.
+  const realtimeGenRef = useRef(0)
+  const realtimeRetryTimerRef = useRef(null)
   const rawOrdersRef = useRef([])
   const hasStartedLoadRef = useRef(false)
   const hasStartedBookedLoadRef = useRef(false)
@@ -1354,9 +1360,15 @@ function App() {
   useEffect(() => { if (activeMenu === 'orders') setNotifCount(0) }, [activeMenu])
 
   // TASK 17: naya order aane par simple beep (Web Audio API — koi asset file ki zaroorat nahi)
+  // Ek hi AudioContext dobara use hota hai (pehle har naye order par naya banta tha aur kabhi band nahi hota tha)
+  const audioCtxRef = useRef(null)
   const playNotifSound = () => {
     try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)()
+      if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
+        audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)()
+      }
+      const ctx = audioCtxRef.current
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {})
       const osc = ctx.createOscillator()
       const gain = ctx.createGain()
       osc.type = 'sine'
@@ -1372,7 +1384,12 @@ function App() {
     }
   }
 
-  const resetUserState = () => {
+  // Dono realtime channels band karo. Generation pehle badhti hai, taake removeChannel se aane wala
+  // CLOSED purane callbacks mein ignore ho aur koi reconnect schedule na ho.
+  const teardownRealtime = () => {
+    realtimeGenRef.current += 1
+    clearTimeout(realtimeRetryTimerRef.current)
+    realtimeRetryTimerRef.current = null
     if (realtimeChannelRef.current) {
       supabase.removeChannel(realtimeChannelRef.current)
       realtimeChannelRef.current = null
@@ -1381,6 +1398,10 @@ function App() {
       supabase.removeChannel(realtimeStatusChannelRef.current)
       realtimeStatusChannelRef.current = null
     }
+  }
+
+  const resetUserState = () => {
+    teardownRealtime()
     setProfile(null)
     setProfileLoaded(false)
     setOrdersData([])
@@ -1489,16 +1510,7 @@ function App() {
   // }, [session, profile, selectedStoreId])
 
   useEffect(() => {
-    return () => {
-      if (realtimeChannelRef.current) {
-        supabase.removeChannel(realtimeChannelRef.current)
-        realtimeChannelRef.current = null
-      }
-      if (realtimeStatusChannelRef.current) {
-        supabase.removeChannel(realtimeStatusChannelRef.current)
-        realtimeStatusChannelRef.current = null
-      }
-    }
+    return () => teardownRealtime()
   }, [])
 
   // TASK 15: admin ke apne brands ka stats — sirf jab mini master view khula ho
@@ -1774,13 +1786,24 @@ function App() {
   // naye orders bhi live dikhna band ho gaye the, sirf address-match-status update nahi.
   // Ab dono alag channels hain — ek ke fail hone se doosra bilkul unaffected rehta hai.
   const setupRealtime = (storeId, cacheId) => {
-    if (realtimeChannelRef.current) {
-      supabase.removeChannel(realtimeChannelRef.current)
-      realtimeChannelRef.current = null
-    }
-    if (realtimeStatusChannelRef.current) {
-      supabase.removeChannel(realtimeStatusChannelRef.current)
-      realtimeStatusChannelRef.current = null
+    teardownRealtime()
+    const gen = realtimeGenRef.current
+    // Dono channels ka ek hi status handler: sirf current generation reconnect karti hai, aur
+    // dono channels ek saath fail hon tab bhi sirf ek retry timer chalta hai.
+    const onStatus = (status) => {
+      if (gen !== realtimeGenRef.current) return
+      if (status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        needCatchUpRef.current = true
+        if (realtimeRetryTimerRef.current) return
+        realtimeRetryTimerRef.current = setTimeout(() => {
+          realtimeRetryTimerRef.current = null
+          if (gen !== realtimeGenRef.current) return
+          setupRealtime(storeId, cacheId)
+        }, 3000)
+      } else if (status === "SUBSCRIBED" && needCatchUpRef.current) {
+        needCatchUpRef.current = false
+        bumpLive()
+      }
     }
 
     const channel = supabase
@@ -1835,17 +1858,7 @@ function App() {
           })
         }
       )
-      .subscribe((status) => {
-        if (status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          needCatchUpRef.current = true
-          setTimeout(() => {
-            setupRealtime(storeId, cacheId)
-          }, 3000)
-        } else if (status === "SUBSCRIBED" && needCatchUpRef.current) {
-          needCatchUpRef.current = false
-          bumpLive()
-        }
-      })
+      .subscribe(onStatus)
     realtimeChannelRef.current = channel
 
     // Address-match results (matched_province, address_match_source, waghera) order_statuses
@@ -1880,17 +1893,7 @@ function App() {
           })
         }
       )
-      .subscribe((status) => {
-        if (status === "CLOSED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          needCatchUpRef.current = true
-          setTimeout(() => {
-            setupRealtime(storeId, cacheId)
-          }, 3000)
-        } else if (status === "SUBSCRIBED" && needCatchUpRef.current) {
-          needCatchUpRef.current = false
-          bumpLive()
-        }
-      })
+      .subscribe(onStatus)
     realtimeStatusChannelRef.current = statusChannel
   }
 

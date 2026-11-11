@@ -13,7 +13,25 @@ const ORDERS_STORE = "orders";
 const META_STORE = "meta";
 const BOOKED_STORE = "booked_orders";
 
+// Ek hi connection poore session mein dobara use hota hai. Pehle har call (har realtime order update
+// par bhi) naya indexedDB.open hota tha aur kabhi close nahi hota tha, is liye connections memory mein
+// jama hote rehte the.
+let dbPromise = null;
+
 function openDB() {
+  if (!dbPromise) {
+    dbPromise = openFreshDB().then((db) => {
+      const forget = () => { if (dbPromise) dbPromise = null; };
+      // doosra tab naya DB_VERSION khole to apna connection chhor do, warna uska upgrade ruk jata hai
+      db.onversionchange = () => { db.close(); forget(); };
+      db.onclose = forget;
+      return db;
+    }, (err) => { dbPromise = null; throw err; });
+  }
+  return dbPromise;
+}
+
+function openFreshDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
@@ -168,27 +186,23 @@ export async function setCachedPeriod(storeId, period) {
 }
 
 export async function clearStoreOrders(storeId) {
+  const db = await openDB()
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME)
-    request.onsuccess = (e) => {
-      const db = e.target.result
-      const tx = db.transaction(
-        [ORDERS_STORE, META_STORE], 'readwrite'
-      )
-      const store = tx.objectStore(ORDERS_STORE)
-      const index = store.index('by_store')
-      const req = index.getAll(storeId)
-      req.onsuccess = (e2) => {
-        const records = e2.target.result || []
-        records.forEach(r => store.delete(r._cacheKey))
-        tx.objectStore(META_STORE)
-          .delete(`lastSyncedAt-${storeId}`)
-        tx.objectStore(META_STORE)
-          .delete(`cachedPeriod-${storeId}`)
-        tx.oncomplete = () => resolve(true)
-        tx.onerror = () => reject(tx.error)
-      }
+    const tx = db.transaction(
+      [ORDERS_STORE, META_STORE], 'readwrite'
+    )
+    const store = tx.objectStore(ORDERS_STORE)
+    const index = store.index('by_store')
+    const req = index.getAll(storeId)
+    req.onsuccess = (e2) => {
+      const records = e2.target.result || []
+      records.forEach(r => store.delete(r._cacheKey))
+      tx.objectStore(META_STORE)
+        .delete(`lastSyncedAt-${storeId}`)
+      tx.objectStore(META_STORE)
+        .delete(`cachedPeriod-${storeId}`)
+      tx.oncomplete = () => resolve(true)
+      tx.onerror = () => reject(tx.error)
     }
-    request.onerror = () => reject(request.error)
   })
 }
