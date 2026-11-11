@@ -1,3 +1,6 @@
+import useIsMobile from './hooks/useIsMobile'
+import { MobileBottomNav, MobileTopBar, MobileMenuSheet } from './components/MobileNav'
+import { pickBottomTabs, activeTabFor } from './lib/mobile'
 import WhatsNew from './components/WhatsNew'
 import { hasSeenWhatsNew } from './lib/whatsNew'
 import { readSidebarOpen, writeSidebarOpen, clearSidebarOpen, createIdleCollapse } from './lib/sidebarState'
@@ -1130,6 +1133,9 @@ function App() {
 
   // collapsed by default; a manual toggle is kept for this browser session only (see lib/sidebarState.js)
   const [sidebarOpen, setSidebarOpen] = useState(() => readSidebarOpen())
+  // phones (below the one breakpoint in lib/mobile.js): bottom tab bar + Menu sheet instead of the sidebar
+  const isMobile = useIsMobile()
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   useEffect(() => { writeSidebarOpen(sidebarOpen) }, [sidebarOpen])
   // an expanded sidebar folds itself after 2 minutes without the pointer on it; popups and focused inputs keep it open
   useEffect(() => {
@@ -2282,6 +2288,7 @@ function App() {
 
   const sidebarExpanded = sidebarOpen || mobileDrawerOpen
   const openNavHover = (entry, el, kind) => {
+    if (isMobile) return // touch: no hover tooltips or flyouts
     clearTimeout(navHoverTimer.current)
     const r = el.getBoundingClientRect()
     // x comes from the sidebar's own edge (not the row's edge) so the tooltip / flyout always clears the sidebar by the same gap
@@ -2299,6 +2306,11 @@ function App() {
   const isRtlUi = () => (document.documentElement.dir || document.body.dir || 'ltr') === 'rtl'
   const tipX = (r) => placeTip({ edge: { left: r.left, right: r.right }, vp: { w: window.innerWidth, h: window.innerHeight }, rtl: isRtlUi() })
   const goToMenu = (id) => { setActiveMenu(id); setNavHover(null); closeDrawer() }
+  // Menu sheet / bottom bar: the sheet's own history entry is replaced by the page, so Back from the page does not reopen the sheet
+  const goFromSheet = (id) => { setMobileMenuOpen(false); navigate(`/${id}`, { replace: true }) }
+  const mobileTabIds = pickBottomTabs(hasAccess)
+  const mobileTabs = mobileTabIds.map((id) => ({ id, label: allMenuItems.find((m) => m.id === id)?.label || id, icon: NAV_ICONS[id] }))
+  const mobileDots = notifCount > 0 ? ['orders'] : []
 
   const renderNavItem = (item, { sub, onHover } = {}) => (
     <div key={item.id}
@@ -2504,6 +2516,54 @@ function App() {
 
         {whatsNewOpen && !showReleasePopup && <WhatsNew onClose={() => setWhatsNewOpen(false)} t={t} />}
 
+        {isMobile && activeMenu !== 'master-dashboard/dev-monitor' && activeMenu !== 'master-dashboard/gemini-monitor' && (
+          <>
+            <MobileBottomNav tabs={mobileTabs} activeId={activeTabFor(navMenu, mobileTabIds)} onSelect={(id) => { setMobileMenuOpen(false); setActiveMenu(id) }}
+              onMenu={() => setMobileMenuOpen((v) => !v)} menuOpen={mobileMenuOpen} menuLabel={t('mobile.menu')} dotIds={mobileDots} />
+            <MobileMenuSheet open={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} entries={topLevelEntries} icons={NAV_ICONS}
+              activeId={navMenu} onGo={goFromSheet} title={t('mobile.menu')} closeLabel={t('mobile.close')} dotIds={mobileDots}>
+              <div className="ne-mmenu-group">{t('mobile.account')}</div>
+              {userStoresList.length > 1 && (
+                <label className="ne-mmenu-field">
+                  <span>{t('brandPopup.switchStore')}</span>
+                  <select value={selectedStoreId || ''} onChange={(e) => { handleSwitchStore(e.target.value); setMobileMenuOpen(false) }}>
+                    {userStoresList.map((us) => <option key={us.store_id} value={us.store_id}>{us.stores?.store_name}</option>)}
+                  </select>
+                </label>
+              )}
+              <button className={`ne-mmenu-row${activeMenu === 'settings' ? ' active' : ''}`} onClick={() => goFromSheet('settings')}>
+                <span className="ne-mmenu-ic">{NAV_ICONS.settings}</span><span className="ne-mmenu-label">{t('nav.settings')}</span><Icon name="chevronRight" size={14} style={{ opacity: 0.45 }} />
+              </button>
+              {profile.role === 'admin' && userStoresList.length > 1 && (
+                <button className="ne-mmenu-row" onClick={() => { setMobileMenuOpen(false); setIsAdminMasterView(true) }}>
+                  <span className="ne-mmenu-ic"><Icon name="store" size={15} /></span><span className="ne-mmenu-label">{t('master.myBrands')}</span><Icon name="chevronRight" size={14} style={{ opacity: 0.45 }} />
+                </button>
+              )}
+              {profile.role === 'creator' && (
+                <button className="ne-mmenu-row" onClick={() => { setMobileMenuOpen(false); navigate('/master-dashboard'); setSelectedStoreId(null); setOrdersLoaded(false); hasStartedLoadRef.current = false; hasStartedBookedLoadRef.current = false }}>
+                  <span className="ne-mmenu-ic"><Icon name="building" size={15} /></span><span className="ne-mmenu-label">{t('brandPopup.masterDashboard')}</span><Icon name="chevronRight" size={14} style={{ opacity: 0.45 }} />
+                </button>
+              )}
+              <a className="ne-mmenu-row" href="/accounts">
+                <span className="ne-mmenu-ic"><InitialsAvatar name={profile?.full_name || session.user.email} size={24} /></span>
+                <span className="ne-mmenu-label"><span style={{ display: 'block' }}>{profile?.full_name || t('accounts.title')}</span><span className="ne-mmenu-sub-text">{session.user.email}</span></span>
+                <Icon name="chevronRight" size={14} style={{ opacity: 0.45 }} />
+              </a>
+              <div className="ne-mmenu-toggles">
+                <button onClick={() => setTheme(th => th === 'dark' ? 'light' : 'dark')}>
+                  {theme === 'dark' ? <SunIcon style={{ width: 16, height: 16 }} /> : <MoonIcon style={{ width: 16, height: 16 }} />} {t('theme.toggle')}
+                </button>
+                <button onClick={() => setLang(lang === 'ur' ? 'en' : 'ur')}>
+                  <GlobeIcon style={{ width: 16, height: 16 }} /> {lang.toUpperCase()}
+                </button>
+              </div>
+              <button className="ne-mmenu-row ne-mmenu-logout" onClick={() => supabase.auth.signOut()}>
+                <span className="ne-mmenu-ic"><Icon name="logout" size={15} /></span><span className="ne-mmenu-label">{t('action.logout')}</span>
+              </button>
+            </MobileMenuSheet>
+          </>
+        )}
+
         {searchOpen && (
           <GlobalSearch
             storeId={selectedStoreId}
@@ -2529,7 +2589,13 @@ function App() {
         )}
 
         <div className="ne-main">
-          {!fullScreenModules.includes(navMenu) && (
+          {isMobile && (
+            <MobileTopBar title={pageTitleLookup.find(m => m.id === navMenu)?.label || t('nav.home')}
+              storeName={currentStoreInfo?.store_name || t('master.myBrands')} storeLabel={t('mobile.openMenu')}
+              onStore={() => setMobileMenuOpen(true)}
+              bell={<NotificationBell cfUrl={CF_URL} session={session} storeId={selectedStoreId} t={t} />} />
+          )}
+          {!isMobile && !fullScreenModules.includes(navMenu) && (
             <div className={`ne-topbar${activeMenu === 'settings' || activeMenu === 'online-store' ? ' ne-topbar-hide-desktop' : ''}`}>
               <button className="ne-hamburger" onClick={() => setMobileDrawerOpen(true)}>☰</button>
               <h1 className="ne-page-title">
@@ -2544,7 +2610,7 @@ function App() {
             </div>
           )}
 
-          {fullScreenModules.includes(navMenu) && (
+          {!isMobile && fullScreenModules.includes(navMenu) && (
             <button className="ne-hamburger" onClick={() => setMobileDrawerOpen(true)} style={{ position: 'absolute', top: 10, left: 10, zIndex: 50 }}>☰</button>
           )}
 
