@@ -6,6 +6,7 @@ import InitialsAvatar from "../components/InitialsAvatar";
 import { SettingsCard, settingsInputStyle, settingsLabelStyle } from "../components/SettingsUI";
 import { useLanguage, useTranslation } from "../i18n";
 import { workerFetch } from "../lib/storeApi";
+import useIsMobile from "../hooks/useIsMobile";
 
 // Admin UI overhaul, Part C — Settings is now a Shopify-style shell: a client-side-filtered
 // "Search settings" list on the left/top, a store-identity block, and a bottom user row that
@@ -30,6 +31,10 @@ export default function Settings({ profile, onBack, hasAccess, currentStoreInfo,
   const [backHover, setBackHover] = useState(false);
   const [selectedSection, setActiveSection] = useState(null);
   const [search, setSearch] = useState("");
+  // phones: Settings is a drill-down (list screen, then the section with a back bar); desktop keeps the side-by-side panel
+  const isMobile = useIsMobile();
+  const [mobileDetail, setMobileDetail] = useState(false);
+  const openSection = (id) => { setActiveSection(id); setMobileDetail(true); };
 
   // brand card (name + primary domain) shown under "Search settings"; refreshed when General is saved
   const [brand, setBrand] = useState({ name: "", domain: "" });
@@ -89,7 +94,7 @@ export default function Settings({ profile, onBack, hasAccess, currentStoreInfo,
   const sectionParam = searchParams.get("section");
   useEffect(() => {
     if (!sectionParam) return;
-    if (isAllowed(sectionParam)) setActiveSection(sectionParam);
+    if (isAllowed(sectionParam)) { setActiveSection(sectionParam); setMobileDetail(true); }
     setSearchParams({}, { replace: true });
   }, [sectionParam]);
 
@@ -121,6 +126,7 @@ export default function Settings({ profile, onBack, hasAccess, currentStoreInfo,
 
   return (
     <div className="ne-settings-shell">
+      {(!isMobile || !mobileDetail) && (
       <div className="ne-settings-nav">
         <button className="ne-settings-back" onClick={() => onBack?.()}
           onMouseEnter={() => setBackHover(true)} onMouseLeave={() => setBackHover(false)}>
@@ -137,7 +143,7 @@ export default function Settings({ profile, onBack, hasAccess, currentStoreInfo,
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("settings.searchPlaceholder")} />
         </div>
         <div role="button" tabIndex={0} title={t("settings.openGeneral")} className={`ne-settings-storecard${activeSection === "general" ? " active" : ""}`}
-          onClick={() => setActiveSection("general")} onKeyDown={(e) => { if (e.key === "Enter") setActiveSection("general"); }}>
+          onClick={() => openSection("general")} onKeyDown={(e) => { if (e.key === "Enter") openSection("general"); }}>
           <InitialsAvatar name={cardName || "S"} size={34} />
           <div style={{ minWidth: 0 }}>
             <div className="ne-settings-storecard-name">{cardName || "—"}</div>
@@ -147,8 +153,8 @@ export default function Settings({ profile, onBack, hasAccess, currentStoreInfo,
         <div className="ne-settings-navlist">
           {filteredSections.map((s) => (
             <div key={s.id}
-              className={`ne-settings-navitem${activeSection === s.id ? ' active' : ''}`}
-              onClick={() => setActiveSection(s.id)}>
+              className={`ne-settings-navitem${activeSection === s.id && !isMobile ? ' active' : ''}`}
+              onClick={() => openSection(s.id)}>
               <Icon name={s.icon} size={14} /> {s.label}
             </div>
           ))}
@@ -165,8 +171,16 @@ export default function Settings({ profile, onBack, hasAccess, currentStoreInfo,
           <Icon name="chevronRight" size={13} style={{ marginLeft: "auto", opacity: 0.6 }} />
         </a>
       </div>
+      )}
 
+      {(!isMobile || mobileDetail) && (
       <div className="ne-settings-body">
+        {isMobile && (
+          <button className="ne-settings-mback" onClick={() => setMobileDetail(false)}>
+            <Icon name="chevronLeft" size={16} /> <span>{t("nav.settings")}</span>
+            <span className="ne-settings-mback-current">{allSections.find((x) => x.id === activeSection)?.label || ""}</span>
+          </button>
+        )}
         {embeddedSections.some((s) => s.id === activeSection) && (
           <Suspense fallback={<p style={{ padding: "1.5rem", margin: 0, fontSize: 13, color: "var(--ne-muted)" }}>{t("common.loading")}</p>}>
             {activeSection === "whatsapp" && <WhatsApp />}
@@ -210,6 +224,7 @@ export default function Settings({ profile, onBack, hasAccess, currentStoreInfo,
           </SettingsCard>
         )}
       </div>
+      )}
     </div>
   );
 }
