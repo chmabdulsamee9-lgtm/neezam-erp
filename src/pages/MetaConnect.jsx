@@ -298,7 +298,7 @@ export default function MetaConnect({ storeId }) {
                   <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 6 }}>{t("metaConnect.sharingTestCode")}</label>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <input dir="ltr" value={testCode} onChange={(e) => setTestCodeEdit(e.target.value.replace(/[^A-Za-z0-9]/g, "").slice(0, 30))} placeholder="TEST12345" style={{ ...input, flex: 1, minWidth: 200 }} />
-                    <button onClick={() => saveSharing("maximum")} disabled={!!busy || needsReconnect} style={btnGhost(!!busy || needsReconnect)}>{busy === "sharing" ? t("metaConnect.saving") : t("metaConnect.pixelSave")}</button>
+                    <button onClick={() => saveSharing("maximum")} disabled={!!busy || needsReconnect} style={btnGhost(!!busy || needsReconnect)}>{busy === "sharing" ? t("metaConnect.saving") : t("action.save")}</button>
                   </div>
                   <p style={{ margin: "6px 0 0", fontSize: 11.5, color: "var(--ne-muted-2)" }}>{t("metaConnect.sharingTestCodeHelp")}</p>
                 </div>

@@ -20,7 +20,15 @@ Status words: ALREADY APPLIED (you ran it), NOT APPLIED (still to do).
 | `stage-service-role-grants.sql`, deployment_log block | ALREADY APPLIED | Lets the creator-only deployment log be written. |
 | `stage-meta-capi.sql` | ALREADY APPLIED | Adds `meta_data_sharing` and `meta_capi_test_code`, so the Standard / Enhanced / Maximum choice can be saved. |
 
-## 1. GROUP 1: NOT APPLIED. Safe before or after the deploy. Paste each file to the assistant for review FIRST, then run it
+## 1. GROUP 1: ALREADY APPLIED (2026-11-11, run by Claude in the SQL editor with the owner's go-ahead)
+All 9 files below were applied and verified: anon can execute none of the listed functions, authenticated keeps the trigger chains, the
+4b wrappers refuse another store's order (tested in a rolled-back transaction: 42501 forbidden) and are a silent no-op for an order with
+no status row, all 7 tables have RLS on with only the ne_ policies, anon has no SELECT. Smoke test on production after each step: Home,
+Orders, Booked, Returns, Finance Statement, P&L, Online Store, Store Connect (TEST32 and Doctor Rubina), drglow storefront: no 4xx/5xx.
+Not tested: a staff login and adding a Booked remark on a real order (no test orders with a tracking number exist).
+Also applied the same day: `perf-orders-filter-options.sql`.
+
+Original instructions (kept for the rollback blocks):
 Order (each needs stage 0, which is applied):
 
 | # | File | Risk | What it changes for users or security | After deploy only? |
