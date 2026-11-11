@@ -8,7 +8,10 @@ import { placeTip } from './lib/popoverPosition'
 import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import './theme.css'
+import './look.css'
 import { supabase } from './supabase'
+import LoadingBar from './components/LoadingBar'
+import { installFetchTracking, startLoading } from './lib/loadingBar'
 import { SOLUTIONS_LINKS } from './pages/public/solutionsLinks'
 import { fetchStoreRow, fetchStoreRows } from './lib/storeColumns'
 import { getCachedOrders, saveOrdersBulk, upsertOrder, getMeta, setMeta, clearCache, getCachedPeriod, setCachedPeriod, clearStoreOrders } from './ordersCache'
@@ -31,8 +34,12 @@ import SyncStatusBadge from './components/SyncStatusBadge'
 // Page-level lazy loading: har page apna alag chunk, pehli baar khulne par download hota hai.
 // Suspense wrapper ke andar hi hai, isliye call sites (<Orders ... />) bilkul nahi badle.
 const CHUNK_RELOAD_KEY = 'neezam_chunk_reload'
-const loadWithRetry = (loader) => () =>
-  loader()
+// the top loading bar follows every backend call, and page chunk downloads below
+installFetchTracking()
+const loadWithRetry = (loader) => () => {
+  const done = startLoading()
+  return loader()
+    .finally(done)
     .then((m) => { try { sessionStorage.removeItem(CHUNK_RELOAD_KEY) } catch (e) {} return m })
     .catch((err) => {
       // Naya deploy hone par purana chunk server se gum ho sakta hai: ek baar khud reload (loop se bachne ke liye sirf ek baar).
@@ -45,6 +52,7 @@ const loadWithRetry = (loader) => () =>
       } catch (e) {}
       throw err
     })
+}
 // Sidebar hover/touch par page ka chunk pehle se download (dynamic import cached rehta hai, baad mein click par foran khulta hai).
 // Slow/2G ya Data Saver mode mein prefetch band, taake zaroori downloads ke saath bandwidth na lade.
 const PAGE_PREFETCH = {}
@@ -54,12 +62,13 @@ const prefetchPage = (id) => {
   const f = PAGE_PREFETCH[id]
   if (f) f()
 }
-function lazyPage(loader, menu) {
+// skeleton: false for pages that should show nothing (only the top loading bar) while their code loads
+function lazyPage(loader, menu, { skeleton = true } = {}) {
   if (menu) PAGE_PREFETCH[menu] = () => { loader().catch(() => {}) }
   const Lazy = lazy(loadWithRetry(loader))
   return function LazyPage(props) {
     return (
-      <Suspense fallback={menu ? <PageSkeletonFor menu={menu} /> : null}>
+      <Suspense fallback={menu && skeleton ? <PageSkeletonFor menu={menu} /> : null}>
         <Lazy {...props} />
       </Suspense>
     )
@@ -120,7 +129,8 @@ const OrderDetail = lazyPage(() => import('./pages/OrderDetail'), 'orders')
 const Dashboard = lazyPage(() => import('./pages/Dashboard'), 'dashboard')
 const WhatsApp = lazyPage(() => import('./pages/WhatsApp'), 'whatsapp')
 const Team = lazyPage(() => import('./pages/Team'), 'team')
-const Settings = lazyPage(() => import('./pages/Settings'), 'settings')
+// no skeleton: the dark Settings panel used to flash a generic skeleton before it appeared
+const Settings = lazyPage(() => import('./pages/Settings'), 'settings', { skeleton: false })
 const Accounts = lazyPage(() => import('./pages/Accounts'), null)
 const ActivityLog = lazyPage(() => import('./pages/ActivityLog'), 'activity-log')
 const ProfitLoss = lazyPage(() => import('./pages/ProfitLoss'), 'pnl')
@@ -243,6 +253,8 @@ const NAV_ICONS = {
   settings: <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.5v2M10 15.5v2M17.5 10h-2M4.5 10h-2M15.1 4.9l-1.4 1.4M6.3 13.7l-1.4 1.4M15.1 15.1l-1.4-1.4M6.3 6.3 4.9 4.9"/></svg>,
   inventory: <svg viewBox="0 0 20 20"><rect x="2.5" y="4" width="15" height="4" rx="1"/><rect x="3.5" y="9" width="13" height="7" rx="1"/><path d="M8 12.5h4"/></svg>,
   'dev-monitor': <svg viewBox="0 0 20 20"><rect x="2" y="3.5" width="16" height="10.5" rx="1.5"/><path d="M7 17h6M10 14v3"/><path d="M5 8l2.5 2.5L10 7l2 2 3-3"/></svg>,
+  'group:sales-channels': <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><path d="M3 10h14"/><path d="M10 3c2.2 2 2.2 12 0 14"/><path d="M10 3c-2.2 2-2.2 12 0 14"/></svg>,
+  'group:courier-payments': <svg viewBox="0 0 20 20"><rect x="2.5" y="5" width="15" height="10.5" rx="2"/><path d="M2.5 8.5h15"/><path d="M6 12.5h3"/></svg>,
   'finance-statement': <svg viewBox="0 0 20 20"><rect x="4" y="2" width="12" height="16" rx="2"/><rect x="6" y="4.3" width="8" height="3" rx="0.5"/><circle cx="6.8" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="10" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="13.2" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="6.8" cy="14.5" r=".9" fill="currentColor" stroke="none"/><circle cx="10" cy="14.5" r=".9" fill="currentColor" stroke="none"/><circle cx="13.2" cy="14.5" r=".9" fill="currentColor" stroke="none"/></svg>,
 }
 
@@ -282,24 +294,10 @@ function CollapsedLogoToggle({ label, onExpand }) {
 
 // Loading skeleton (Meta Ads app jaisa) — logo/animation nahi, sirf UI ka dhancha.
 // Function ka naam SplashScreen isliye wahi rakha gaya ke 6 call sites (auth/profile/store/orders gates) na badalne paren.
+// Boot: only the empty frame and the top loading bar (no full-page skeleton), so the app does not
+// show one skeleton for the shell and then a second one for the page. Pages show their own content as it arrives.
 function SplashScreen() {
-  return (
-    <div className="ne-app-shell" style={{ display: 'block' }} aria-busy="true">
-      <div className="ne-skel-shell">
-        <div className="ne-skel-side" />
-        <div className="ne-skel-main">
-          <div className="ne-skel" style={{ height: 36, width: '40%' }} />
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="ne-skel" style={{ height: 80, flex: '1 1 160px' }} />
-            ))}
-          </div>
-          <div className="ne-skel" style={{ height: 240 }} />
-          <div className="ne-skel" style={{ height: 160 }} />
-        </div>
-      </div>
-    </div>
-  )
+  return <div className="ne-app-shell ne-boot" aria-busy="true"><LoadingBar /></div>
 }
 
 
@@ -1137,6 +1135,12 @@ function App() {
   const isMobile = useIsMobile()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   useEffect(() => { writeSidebarOpen(sidebarOpen) }, [sidebarOpen])
+  // Settings opens with no loading state: its code is fetched while the app is idle after start-up
+  useEffect(() => {
+    const ric = window.requestIdleCallback || ((fn) => setTimeout(fn, 1500))
+    const id = ric(() => prefetchPage('settings'))
+    return () => (window.cancelIdleCallback || clearTimeout)(id)
+  }, [])
   // an expanded sidebar folds itself after 2 minutes without the pointer on it; popups and focused inputs keep it open
   useEffect(() => {
     if (!sidebarOpen) return undefined
@@ -1179,7 +1183,10 @@ function App() {
     const onMove = (e) => {
       const el = e.target
       const ok = el && el.closest && (kind === 'label' ? el.closest('.ne-navitem') : el.closest('.ne-sidebar, .ne-navflyout'))
-      if (!ok) setNavHover(null)
+      if (ok) { clearTimeout(navHoverTimer.current); return }
+      // a short grace period instead of closing on the first pixel outside the row
+      clearTimeout(navHoverTimer.current)
+      navHoverTimer.current = setTimeout(() => setNavHover(null), 220)
     }
     document.addEventListener('pointermove', onMove)
     return () => document.removeEventListener('pointermove', onMove)
@@ -2245,10 +2252,13 @@ function App() {
     { id: 'pnl', label: t('nav.pnl') },
     { id: 'ledger', label: t('nav.ledger'), parent: 'pnl' },
     { id: 'budget', label: t('nav.budget'), parent: 'pnl' },
-    { id: 'finance-statement', label: t('nav.finance-statement'), group: t('nav.group.courierPayments') },
-    { id: 'online-store', label: t('nav.online-store'), group: t('nav.group.salesChannels') },
-    { id: 'store-connect', label: t('nav.store-connect'), group: t('nav.group.salesChannels') },
-    { id: 'ads', label: t('nav.ads'), group: t('nav.group.salesChannels') },
+    // Shopify-style sections: a group is not a page, it opens its pages (inline when one of them is open, flyout otherwise)
+    { id: 'group:courier-payments', label: t('nav.group.courierPayments'), isGroup: true },
+    { id: 'finance-statement', label: t('nav.finance-statement'), parent: 'group:courier-payments' },
+    { id: 'group:sales-channels', label: t('nav.group.salesChannels'), isGroup: true },
+    { id: 'online-store', label: t('nav.online-store'), parent: 'group:sales-channels' },
+    { id: 'store-connect', label: t('nav.store-connect'), parent: 'group:sales-channels' },
+    { id: 'ads', label: t('nav.ads'), parent: 'group:sales-channels' },
     { id: 'suggestions', label: t('nav.suggestions') },
   ]
 
@@ -2286,13 +2296,19 @@ function App() {
   let lastGroupHeading = null
   const topLevelEntries = allMenuItems
     .filter(m => !m.parent)
-    .filter(m => hasAccess(m.id) || alwaysVisibleIds.includes(m.id))
     .map(item => {
       const children = allMenuItems.filter(c => c.parent === item.id && (hasAccess(c.id) || alwaysVisibleIds.includes(c.id)))
       const groupHeading = item.group && item.group !== lastGroupHeading ? item.group : null
       lastGroupHeading = item.group || null
       return { item, children, groupHeading }
     })
+    // a group (not a page) shows when at least one of its pages may be opened
+    .filter(e => e.item.isGroup ? e.children.length > 0 : (hasAccess(e.item.id) || alwaysVisibleIds.includes(e.item.id)))
+  // a group id opens its first page
+  const resolveMenuId = (id) => {
+    if (!String(id).startsWith('group:')) return id
+    return topLevelEntries.find(e => e.item.id === id)?.children[0]?.id || 'home'
+  }
 
   const closeDrawer = () => setMobileDrawerOpen(false)
 
@@ -2307,30 +2323,32 @@ function App() {
     setNavHover({ kind, item: entry.item, children: entry.children, rect: { top: r.top, right: sr.right, left: sr.left, height: r.height } })
   }
   // Short delay so the pointer can cross the gap between a nav row and its flyout.
+  // A tooltip/flyout waits a moment before closing: a tip that vanished the instant the pointer left made the
+  // labels feel like they flashed; moving to the next icon still replaces it at once (openNavHover).
   const closeNavHoverSoon = () => {
     clearTimeout(navHoverTimer.current)
-    setNavHover((cur) => (cur && cur.kind === 'label' ? null : cur)) // a one-line tip goes at once; only a flyout waits so the pointer can reach it
-    navHoverTimer.current = setTimeout(() => setNavHover(null), 120)
+    navHoverTimer.current = setTimeout(() => setNavHover(null), 220)
   }
   const keepNavHover = () => clearTimeout(navHoverTimer.current)
   const isRtlUi = () => (document.documentElement.dir || document.body.dir || 'ltr') === 'rtl'
   const tipX = (r) => placeTip({ edge: { left: r.left, right: r.right }, vp: { w: window.innerWidth, h: window.innerHeight }, rtl: isRtlUi() })
-  const goToMenu = (id) => { setActiveMenu(id); setNavHover(null); closeDrawer() }
+  const goToMenu = (id) => { setActiveMenu(resolveMenuId(id)); setNavHover(null); closeDrawer() }
   // Menu sheet / bottom bar: the sheet's own history entry is replaced by the page, so Back from the page does not reopen the sheet
-  const goFromSheet = (id) => { setMobileMenuOpen(false); navigate(`/${id}`, { replace: true }) }
+  const goFromSheet = (id) => { setMobileMenuOpen(false); navigate(`/${resolveMenuId(id)}`, { replace: true }) }
   const mobileTabIds = pickBottomTabs(hasAccess)
   const mobileTabs = mobileTabIds.map((id) => ({ id, label: allMenuItems.find((m) => m.id === id)?.label || id, icon: NAV_ICONS[id] }))
   const mobileDots = notifCount > 0 ? ['orders'] : []
 
-  const renderNavItem = (item, { sub, onHover } = {}) => (
+  const renderNavItem = (item, { sub, onHover, openGroup } = {}) => (
     <div key={item.id}
       onMouseEnter={(e) => { prefetchPage(item.id); if (onHover) onHover(e.currentTarget) }}
       onMouseLeave={onHover ? closeNavHoverSoon : undefined}
       onTouchStart={() => prefetchPage(item.id)}
       onClick={() => goToMenu(item.id)}
-      className={`ne-navitem${navMenu === item.id ? ' active' : ''}${sub ? ' ne-navitem-sub' : ''}`}>
+      className={`ne-navitem${navMenu === item.id ? ' active' : ''}${sub ? ' ne-navitem-sub' : ''}${item.isGroup && openGroup ? ' ne-navgroup-open' : ''}`}>
       <span className="ne-ic">{NAV_ICONS[item.id]}</span>
       {(sidebarOpen || mobileDrawerOpen) && <span className="ne-navtext">{item.label}</span>}
+      {item.isGroup && (sidebarOpen || mobileDrawerOpen) && <span className="ne-navgroup-chev"><Icon name="chevronRight" size={12} /></span>}
       {item.id === 'orders' && notifCount > 0 && !(sidebarOpen || mobileDrawerOpen) && (
         // collapsed: a small dot on the icon's corner, out of the layout, so the icon never moves
         <span className="ne-navdot" aria-hidden="true" />
@@ -2358,7 +2376,7 @@ function App() {
     }
     return (
       <div key={entry.item.id}>
-        {renderNavItem(entry.item)}
+        {renderNavItem(entry.item, { openGroup: true })}
         <div className="ne-navchildren">
           {entry.children.map(c => renderNavItem(c, { sub: true }))}
         </div>
@@ -2368,6 +2386,7 @@ function App() {
 
   return (
     <div className="ne-app-shell">
+      <LoadingBar />
       <div className="ne-app">
 
         {showQuotaBanner && (

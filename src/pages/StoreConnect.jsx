@@ -58,7 +58,7 @@ const SCOPES = [
   "read_legal_policies",
 ].join(",");
 
-export default function StoreConnect({ storeId }) {
+export default function StoreConnect({ storeId, mode = "shopify" }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const [currentProfile, setCurrentProfile] = useState(null);
@@ -541,17 +541,17 @@ export default function StoreConnect({ storeId }) {
       {/* Header */}
       <div style={{ marginBottom: "2rem" }}>
         <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 10 }}>
-          <Icon name="link" size={19} /> {t("store.title")}
+          <Icon name="link" size={19} /> {mode === "domains" ? t("settings.domains") : t("store.title")}
         </h1>
         <p style={{ margin: "4px 0 0", fontSize: 14, color: "var(--ne-muted)" }}>
-          {t("store.subtitle")}
+          {mode === "domains" ? t("settings.domainsSubtitle") : t("store.subtitle")}
         </p>
       </div>
 
       {/* Add New Store Button - sirf tab dikhana jab abhi tak Shopify connect nahi hua,
           ya jab existing (abhi-tak-not-connected) store-card ke "Connect Shopify"
           button se showInput explicitly true kiya gaya ho */}
-      {(stores.length === 0 || showInput) && !loading && (
+      {mode !== "domains" && (stores.length === 0 || showInput) && !loading && (
         !showInput ? (
           <button
             onClick={() => setShowInput(true)}
@@ -652,7 +652,7 @@ export default function StoreConnect({ storeId }) {
       )}
 
       {/* Create Native Store — additive alongside Connect Shopify, never replacing it */}
-      {!loading && !showNativeInput && (
+      {mode !== "shopify" && !loading && !showNativeInput && (
         <button
           onClick={() => setShowNativeInput(true)}
           style={{
@@ -677,7 +677,7 @@ export default function StoreConnect({ storeId }) {
         </button>
       )}
 
-      {showNativeInput && (
+      {mode !== "shopify" && showNativeInput && (
         <div style={{
           background: "var(--ne-surface-2)",
           border: "1px solid var(--ne-border)",
@@ -939,7 +939,7 @@ export default function StoreConnect({ storeId }) {
 
               {/* CARD A — Shopify Connection: shown whenever shopify_url exists, regardless
                   of which platform is currently active */}
-              {store.shopify_url && (
+              {mode !== "domains" && store.shopify_url && (
                 <div style={{
                   background: "var(--ne-surface)",
                   border: "1px solid var(--ne-border)",
@@ -1020,6 +1020,7 @@ export default function StoreConnect({ storeId }) {
                   subdomain yet, or the subdomain + custom-domain UI once one exists. Always
                   rendered when there's a native-capable context — i.e. whenever shopify_url
                   is missing (pure/native-created store) or a subdomain can still be added. */}
+              {mode !== "shopify" && (
               <div style={{
                 background: "var(--ne-surface)",
                 border: "1px solid var(--ne-border)",
@@ -1298,6 +1299,7 @@ export default function StoreConnect({ storeId }) {
                   </div>
                 )}
               </div>
+              )}
             </div>
           );})}
         </div>

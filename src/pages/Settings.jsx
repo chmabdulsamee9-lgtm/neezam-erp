@@ -24,6 +24,8 @@ const ShippingSettings = lazy(() => import("./ShippingSettings"));
 const GeneralSettings = lazy(() => import("./GeneralSettings"));
 const PaymentSettings = lazy(() => import("./PaymentSettings"));
 const TaxSettings = lazy(() => import("./TaxSettings"));
+// Domains: the native store, its subdomain and custom domains (moved here from Store Connect, which now only connects Shopify)
+const StoreConnect = lazy(() => import("./StoreConnect"));
 
 export default function Settings({ profile, onBack, hasAccess, currentStoreInfo, userEmail, storeId, storeName, eneezamId, cfUrl, onOpenOnlineStore, onStoreNameChanged }) {
   const [lang] = useLanguage();
@@ -67,6 +69,7 @@ export default function Settings({ profile, onBack, hasAccess, currentStoreInfo,
   const embeddedSections = useMemo(() => {
     const items = [];
     items.push({ id: "general", label: t("settings.general"), icon: "settings" }); // every store member; editing is admin/creator only
+    if (hasAccess?.("store-connect")) items.push({ id: "domains", label: t("settings.domains"), icon: "link" });
     if (hasAccess?.("whatsapp")) items.push({ id: "whatsapp", label: t("nav.whatsapp"), icon: "comment" });
     if (hasAccess?.("courier-connect")) items.push({ id: "courier-connect", label: t("nav.courier-connect"), icon: "truck" });
     if (hasAccess?.("meta-connect")) items.push({ id: "meta-connect", label: t("nav.meta-connect"), icon: "chart" });
@@ -181,8 +184,10 @@ export default function Settings({ profile, onBack, hasAccess, currentStoreInfo,
             <span className="ne-settings-mback-current">{allSections.find((x) => x.id === activeSection)?.label || ""}</span>
           </button>
         )}
+        <div className="ne-settings-column" key={activeSection}>
         {embeddedSections.some((s) => s.id === activeSection) && (
-          <Suspense fallback={<p style={{ padding: "1.5rem", margin: 0, fontSize: 13, color: "var(--ne-muted)" }}>{t("common.loading")}</p>}>
+          <Suspense fallback={null}>
+            {activeSection === "domains" && <StoreConnect storeId={storeId} mode="domains" />}
             {activeSection === "whatsapp" && <WhatsApp />}
             {activeSection === "courier-connect" && <CourierConnect storeId={storeId} />}
             {activeSection === "meta-connect" && <MetaConnect storeId={storeId} />}
@@ -223,6 +228,7 @@ export default function Settings({ profile, onBack, hasAccess, currentStoreInfo,
             </form>
           </SettingsCard>
         )}
+        </div>
       </div>
       )}
     </div>
