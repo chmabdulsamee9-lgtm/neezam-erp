@@ -12,6 +12,7 @@ import { getOrderSource } from "../lib/orderSource";
 import OrderSourceIcon from "../components/OrderSourceIcon";
 import { money } from "../lib/orderUi";
 import { STATUSES } from "../lib/orderStatuses";
+import { thumbUrl } from "../lib/shopifyImage";
 
 // Order detail for orders placed on the eNeezam storefront, at the real route /orders/:id.
 // Every change goes through POST /update-store-order with the updated_at this screen last saw; the server
@@ -341,7 +342,7 @@ function ItemsCard({ order, items, editMode, busy, t, storeId, cfUrl, onSave, on
       <h3 style={h3}><span>{t("orderDetail.items")}</span>{editMode && <span style={{ fontSize: 11, color: "var(--ne-warning)" }}>{t("orderDetail.editingItems")}</span>}</h3>
       {lines.map((l) => (
         <div key={l.key} style={{ display: "flex", gap: 12, alignItems: "center", padding: "10px 0", borderTop: "1px solid var(--ne-border)", flexWrap: "wrap" }}>
-          {l.image_url ? <img src={l.image_url} alt="" width={48} height={48} style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} loading="lazy" /> : <div style={{ width: 48, height: 48, borderRadius: 8, background: "var(--ne-surface)", flexShrink: 0 }} />}
+          {l.image_url ? <img src={thumbUrl(l.image_url, 48)} alt="" width={48} height={48} style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} loading="lazy" /> : <div style={{ width: 48, height: 48, borderRadius: 8, background: "var(--ne-surface)", flexShrink: 0 }} />}
           <div style={{ flex: "1 1 180px", minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ne-text)", overflowWrap: "anywhere" }}>{l.title}</div>
             <div style={{ fontSize: 11.5, color: "var(--ne-muted)" }}>{[l.variant_title && l.variant_title !== "Default Title" ? l.variant_title : "", l.sku ? `SKU ${l.sku}` : ""].filter(Boolean).join(" · ")}</div>

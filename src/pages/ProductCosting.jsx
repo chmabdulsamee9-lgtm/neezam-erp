@@ -5,6 +5,7 @@ import Icon from "../components/Icon";
 import { TableSkeleton } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 import { getCachedProducts, upsertProduct } from "../productsCache";
+import { thumbUrl } from "../lib/shopifyImage";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 const PER_PAGE_OPTIONS = [10, 20, 50];
@@ -919,7 +920,7 @@ export default function ProductCosting({ storeId, ordersStore, cfUrl = CF_URL })
                       </td>
                       <td style={{ padding: "7px 8px" }}>
                         {image ? (
-                          <img src={image} alt="" style={{ width: 30, height: 30, borderRadius: 6, objectFit: "cover", display: "block", cursor: "zoom-in", transition: "transform .15s ease" }}
+                          <img src={thumbUrl(image, 90)} alt="" loading="lazy" style={{ width: 30, height: 30, borderRadius: 6, objectFit: "cover", display: "block", cursor: "zoom-in", transition: "transform .15s ease" }}
                             onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(3)"; e.currentTarget.style.position = "relative"; e.currentTarget.style.zIndex = "50"; e.currentTarget.style.boxShadow = "0 8px 24px rgba(0,0,0,.4)"; }}
                             onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "none"; }} />
                         ) : (

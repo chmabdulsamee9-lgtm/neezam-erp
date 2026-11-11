@@ -1538,17 +1538,53 @@ function App() {
     setProfile(profileData || null)
 
     if (profileData?.role === 'creator') {
-      const { data: plansData } = await supabase.from('plans').select('id, name, rate_per_order').order('rate_per_order', { ascending: false })
+      // Ye sab queries ek doosre par depend nahi karti: pehle ek ke baad ek chalti theen (~2-3 sec
+      // tak Orders/Home ruke rehte the), ab ek saath.
+      const [{ data: plansData }, { data: addonsData }, { data: stores }, { data: adminLinks }, { data: pending }] = await Promise.all([
+        supabase.from('plans').select('id, name, rate_per_order').order('rate_per_order', { ascending: false }),
+        supabase.from('addons').select('id, name, monthly_price'),
+        fetchStoreRows(supabase),
+        supabase
+          .from('user_stores')
+          .select('store_id, profiles!inner(id, email, full_name, phone, role, approved)')
+          .in('profiles.role', ['admin', 'creator']),
+        supabase.from('profiles').select('*').eq('approved', false).neq('role', 'creator'),
+      ])
       setAllPlansList(plansData || [])
-      const { data: addonsData } = await supabase.from('addons').select('id, name, monthly_price')
       setAllAddonsList(addonsData || [])
-      const { data: stores } = await fetchStoreRows(supabase)
-      const { data: adminLinks } = await supabase
-        .from('user_stores')
-        .select('store_id, profiles!inner(id, email, full_name, phone, role, approved)')
-        .in('profiles.role', ['admin', 'creator'])
       const adminByStore = {}
       ;(adminLinks || []).forEach(l => { adminByStore[l.store_id] = l.profiles })
+
+      // Store chunna sirf store ids par depend karta hai, stats par nahi: pehle select karo taake
+      // store ka data foran load hona shuru ho; Master Dashboard ke stats neeche background mein aate hain.
+      const storeIds = (stores || []).map(s => s.id)
+      const persistedId = getPersistedStoreId()
+      const persistedStoreValid = persistedId && storeIds.includes(persistedId)
+      if (persistedStoreValid) {
+        setSelectedStoreId(persistedId)
+      } else {
+        // Nothing valid persisted — fall back to the first store so AppHome (and any other
+        // storeId-dependent page reachable from here) doesn't get stuck with storeId=undefined
+        // forever. Persisted too (not just set in state), so the NEXT login treats this store
+        // as the valid persisted one instead of re-hitting this fallback every time.
+        const fallbackStoreId = storeIds[0] || null
+        if (fallbackStoreId) {
+          setSelectedStoreId(fallbackStoreId)
+          persistStoreId(fallbackStoreId)
+        }
+        const isProductionDomain = window.location.hostname.includes('portal.eneezam.com')
+        if (location.pathname === '/accounts') {
+          // store-independent page — don't bounce a direct load of it
+        } else if (isProductionDomain) {
+          if (location.pathname !== '/home') {
+            navigate('/home', { replace: true })
+          }
+        } else if (location.pathname !== '/master-dashboard') {
+          navigate('/master-dashboard', { replace: true })
+        }
+      }
+      setProfileLoaded(true)
+
       const storesWithStats = await Promise.all((stores || []).map(async (s) => {
         const { data: statsRows } = await supabase.rpc('get_store_stats', { p_store_id: s.id })
         const stats = statsRows && statsRows[0] ? statsRows[0] : {}
@@ -1563,7 +1599,6 @@ function App() {
       }))
       const approvedStoresOnly = storesWithStats.filter(s => s.admin?.approved !== false)
       setAllStores(approvedStoresOnly)
-      const { data: pending } = await supabase.from('profiles').select('*').eq('approved', false).neq('role', 'creator')
       // Har pending admin ki apni store + us store ki pending subscription (plan+addons) bhi
       // attach karte hain, taake Approval-Review mein plan/add-ons dikh sakein (Block C)
       const pendingWithSubs = await Promise.all((pending || []).map(async (p) => {
@@ -1591,35 +1626,7 @@ function App() {
         return { ...p, storeName: us.stores.store_name, storeId: us.stores.id, eneezamId, subscription: sub, addonDetails }
       }))
       setPendingProfiles(pendingWithSubs)
-
-      // Reload pe pichli baar wali store restore karo (agar abhi bhi accessible hai) —
-      // warna hi Master Dashboard pe fallback karo (creator har store access kar sakta hai,
-      // isliye "accessible" yahan sirf "abhi bhi exist karti hai" maana ja raha hai)
-      const persistedId = getPersistedStoreId()
-      const persistedStoreValid = persistedId && storesWithStats.some(s => s.id === persistedId)
-      if (persistedStoreValid) {
-        setSelectedStoreId(persistedId)
-      } else {
-        // Nothing valid persisted — fall back to the first store so AppHome (and any other
-        // storeId-dependent page reachable from here) doesn't get stuck with storeId=undefined
-        // forever. Persisted too (not just set in state), so the NEXT login treats this store
-        // as the valid persisted one instead of re-hitting this fallback every time.
-        const fallbackStoreId = storesWithStats[0]?.id || null
-        if (fallbackStoreId) {
-          setSelectedStoreId(fallbackStoreId)
-          persistStoreId(fallbackStoreId)
-        }
-        const isProductionDomain = window.location.hostname.includes('portal.eneezam.com')
-        if (location.pathname === '/accounts') {
-          // store-independent page — don't bounce a direct load of it
-        } else if (isProductionDomain) {
-          if (location.pathname !== '/home') {
-            navigate('/home', { replace: true })
-          }
-        } else if (location.pathname !== '/master-dashboard') {
-          navigate('/master-dashboard', { replace: true })
-        }
-      }
+      return
     } else if (profileData?.approved) {
       const us = usPrefetched
       setUserStoresList(us || [])

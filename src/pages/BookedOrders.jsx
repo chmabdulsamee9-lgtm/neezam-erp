@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useId, useRef } from "react";
-import { PDFDocument } from "pdf-lib";
 import { supabase } from "../supabase";
 import { bucketFinalStatus } from "../bookedOrdersData";
 import { getView, setView } from "../viewCache";
@@ -1273,6 +1272,8 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
       if (successUrls.length > 0) {
         setMergingPdf(true);
         try {
+          // pdf-lib (~400 KB) sirf bulk print par load hota hai, Booked Orders page khulne par nahi
+          const { PDFDocument } = await import("pdf-lib");
           const merged = await PDFDocument.create();
           for (const url of successUrls) {
             const bytes = await fetch(`${CF_URL}/proxy-pdf?url=${encodeURIComponent(url)}`, {

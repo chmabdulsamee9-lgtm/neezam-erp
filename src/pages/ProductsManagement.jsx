@@ -6,6 +6,7 @@ import { useLanguage, useTranslation } from "../i18n";
 import { getCachedProducts, saveProductsBulk, upsertProduct, getProductsMeta, setProductsMeta } from "../productsCache";
 import { generateSku, isDuplicateSku } from "../utils/skuGenerator";
 import EneezamProducts from "../components/EneezamProducts";
+import { thumbUrl } from "../lib/shopifyImage";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 const PAGE_SIZE = 500;
@@ -1229,7 +1230,7 @@ function ShopifyProductsPanel({ storeId, ordersStore, cfUrl = CF_URL }) {
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
                   <input type="checkbox" checked={selectedIds.has(productId)} onChange={() => toggleSelect(productId)} style={{ cursor: "pointer", marginTop: 4, flexShrink: 0 }} />
                   {image ? (
-                    <img src={image} alt="" style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
+                    <img src={thumbUrl(image, 44)} alt="" loading="lazy" style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
                   ) : (
                     <div style={{ width: 44, height: 44, borderRadius: 8, background: "var(--ne-surface)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                       <Icon name="package" size={16} style={{ color: "var(--ne-muted-2)" }} />
@@ -1617,7 +1618,7 @@ function ShopifyProductsPanel({ storeId, ordersStore, cfUrl = CF_URL }) {
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
                 {editForm.images.map((img, idx) => (
                   <div key={img.id || img.src} style={{ position: "relative" }}>
-                    <img src={img.src} alt="" style={{ width: 56, height: 56, borderRadius: 8, objectFit: "cover", border: "1px solid var(--ne-border)" }} />
+                    <img src={thumbUrl(img.src, 56)} alt="" loading="lazy" style={{ width: 56, height: 56, borderRadius: 8, objectFit: "cover", border: "1px solid var(--ne-border)" }} />
                     <button type="button" onClick={() => removeEditImage(idx)} title={t("products.removeImage")}
                       style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: "50%", border: "none", background: "var(--ne-danger)", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
                       <Icon name="close" size={9} />
