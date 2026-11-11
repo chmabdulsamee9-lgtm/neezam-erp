@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import Papa from "papaparse";
 import { supabase } from "../supabase";
 import dexLogo from "../assets/couriers/dex.png";
 import { bucketFinalStatus } from "../bookedOrdersData";
@@ -13,6 +12,7 @@ import { Link } from "react-router-dom";
 import { getOrderSource } from "../lib/orderSource";
 import OrderSourceIcon from "../components/OrderSourceIcon";
 import { STATUSES, isNativeOrderId } from "../lib/orderStatuses";
+import { thumbUrl } from "../lib/shopifyImage";
 
 const TAB_KEYS = {
   All: "orders.tab.all",
@@ -36,7 +36,17 @@ const PERIOD_OPTIONS = [
   { value: "all", labelKey: "orders.periodAll" },
 ]
 const CANCEL_REASONS = ["Not Interested", "Wrong Number", "Duplicate Order", "Customer Cancelled", "Out of Stock", "Other"];
-const PAGE_SIZE = 1000;
+// Undo Sync history sirf diye gaye orders ki: order_id ki list 150-150 ke tukron mein (URL lambi na ho), sab tukre ek saath
+async function fetchSyncHistoryFor(orderIds) {
+  const chunks = [];
+  for (let i = 0; i < orderIds.length; i += 150) chunks.push(orderIds.slice(i, i + 150));
+  const results = await Promise.all(chunks.map(async (ids) => {
+    const { data, error } = await supabase.from("order_sync_history").select("*").in("order_id", ids);
+    if (error) throw error;
+    return data || [];
+  }));
+  return results.flat();
+}
 const MIDDLE_CONTENT_WIDTH = 925; // Customer(140)+Address(190)+Items(160)+Pricing(115)+Source(75)+Courier(90)+Remarks(95) + 6*10 gaps — single source of truth so header/rows/scrollbar always match; MUST equal the sum of each column's actual width below (header widths and row-cell widths are declared separately and can drift out of sync — that's what caused the earlier header/cell column-misalignment bug)
 const SYNC_CONFIRM_PER_PAGE = 20;
 const HISTORY_VALID_MS = 2 * 24 * 60 * 60 * 1000; // 2 din
@@ -762,16 +772,24 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
   // Undo Sync feature ke liye order_sync_history — pehle sirf loadStore()'s dangerous
   // unscoped-platform-wide fallback path se load hota tha (jo hata diya gaya hai), ab
   // apna alag chhota effect hai taake historyMap/isHistoryValid (Undo Sync) kaam karta rahe.
+  // Sirf is page par dikhne wale orders ki history laate hain. Pehle poora table (sab stores ka,
+  // 1000-1000 rows ki 10+ calls) har dafa page khulne par aata tha, jo Orders ko slow karta tha.
+  const pageOrderIdsKey = orders.filter((o) => !isNativeOrderId(o.id)).map((o) => String(o.id)).join(",");
   useEffect(() => {
-    if (!ordersStore?.id) return;
-    fetchAllSyncHistory()
+    if (!ordersStore?.id || !pageOrderIdsKey) return;
+    let cancelled = false;
+    fetchSyncHistoryFor(pageOrderIdsKey.split(","))
       .then(history => {
-        const hMap = {};
-        history.forEach(h => { hMap[h.order_id] = h; });
-        setHistoryMap(hMap);
+        if (cancelled) return;
+        setHistoryMap(prev => {
+          const next = { ...prev };
+          history.forEach(h => { next[h.order_id] = h; });
+          return next;
+        });
       })
       .catch(err => console.log("Sync history load error:", err.message));
-  }, [ordersStore?.id]);
+    return () => { cancelled = true; };
+  }, [ordersStore?.id, pageOrderIdsKey]);
 
   // Activity log entries ke liye current user ka naam/id ek dafa fetch kar lo
   useEffect(() => {
@@ -836,22 +854,6 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  const fetchAllSyncHistory = async () => {
-    let allRows = [];
-    let from = 0;
-    while (true) {
-      const { data, error } = await supabase
-        .from("order_sync_history")
-        .select("*")
-        .range(from, from + PAGE_SIZE - 1);
-      if (error) throw error;
-      if (!data || data.length === 0) break;
-      allRows = allRows.concat(data);
-      if (data.length < PAGE_SIZE) break;
-      from += PAGE_SIZE;
-    }
-    return allRows;
-  };
 
   // referring_site akela unreliable hai — TikTok/Instagram ke in-app browsers
   // referrer header strip kar dete hain (order.referring_site null aa jata hai),
@@ -1335,9 +1337,11 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
     URL.revokeObjectURL(url);
   };
 
-  const handleCsvUpload = (e) => {
+  const handleCsvUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    // papaparse sirf CSV upload par load hota hai
+    const { default: Papa } = await import("papaparse");
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
@@ -2908,7 +2912,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
               {skuPopup.items.map((item) => (
                 <div key={item.variantId} style={{ display: "flex", gap: 10, alignItems: "flex-start", background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "10px" }}>
                   {item.image ? (
-                    <img src={item.image} alt="" style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover", flexShrink: 0, background: "var(--ne-bg)" }} />
+                    <img src={thumbUrl(item.image, 44)} alt="" loading="lazy" style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover", flexShrink: 0, background: "var(--ne-bg)" }} />
                   ) : (
                     <div style={{ width: 44, height: 44, borderRadius: 8, background: "var(--ne-bg)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--ne-muted-2)" }}>
                       <Icon name="products" size={16} />

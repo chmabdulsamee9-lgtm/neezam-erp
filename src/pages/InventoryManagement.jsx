@@ -3,6 +3,7 @@ import { supabase } from "../supabase";
 import Icon from "../components/Icon";
 import { TableSkeleton } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
+import { thumbUrl } from "../lib/shopifyImage";
 
 const PAGE_SIZE = 500;
 const PER_PAGE_OPTIONS = [20, 50, 100];
@@ -236,7 +237,7 @@ export default function InventoryManagement({ storeId }) {
                     <td style={{ padding: "7px 8px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         {image ? (
-                          <img src={image} alt="" style={{ width: 28, height: 28, borderRadius: 6, objectFit: "cover", flexShrink: 0 }} />
+                          <img src={thumbUrl(image, 28)} alt="" loading="lazy" style={{ width: 28, height: 28, borderRadius: 6, objectFit: "cover", flexShrink: 0 }} />
                         ) : (
                           <div style={{ width: 28, height: 28, borderRadius: 6, background: "var(--ne-surface)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                             <Icon name="package" size={12} style={{ color: "var(--ne-muted-2)" }} />
