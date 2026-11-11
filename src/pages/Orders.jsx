@@ -2220,7 +2220,8 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
           CSS-grid Nfr/0fr trick (not a fixed maxHeight) so it animates to the exact content
           height regardless of how many rows this wraps into on narrow viewports or whether
           the bulk-actions bar is showing. */}
-      <div style={{ display: "grid", gridTemplateRows: `${effectiveHeaderReveal / 100}fr`, transition: "grid-template-rows .1s linear", overflow: "hidden" }}>
+      {/* overflow is opened while the filter popover is up, otherwise this collapsing wrapper clipped the panel */}
+      <div style={{ display: "grid", gridTemplateRows: `${effectiveHeaderReveal / 100}fr`, transition: "grid-template-rows .1s linear", overflow: filterSheetOpen && !isMobile ? "visible" : "hidden", position: "relative", zIndex: filterSheetOpen ? 40 : "auto" }}>
       <div style={{ minHeight: 0 }}>
       {/* Date Quick Buttons */}
       <div style={{ display: "flex", gap: 6, marginBottom: "8px", alignItems: "center", flexWrap: "wrap" }}>
