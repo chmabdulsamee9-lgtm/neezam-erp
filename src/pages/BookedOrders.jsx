@@ -568,6 +568,14 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
   const [activeTab, setActiveTab] = useState(__deepLink?.tab || "All");
   const [activeSubTab, setActiveSubTab] = useState(__deepLink?.sub || null);
   const [courierFilter, setCourierFilter] = useState("All");
+  const [bookedFilterOpen, setBookedFilterOpen] = useState(false);
+  // the filter popover closes on a click outside it
+  useEffect(() => {
+    if (!bookedFilterOpen) return undefined;
+    const onDown = (e) => { if (!e.target.closest?.("[data-filter-panel]")) setBookedFilterOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [bookedFilterOpen]);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
@@ -1059,6 +1067,17 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
       from += 1000;
     }
     return all.map((r) => ({ id: r.order_id, agent_data: { dex_tracking_number: r.dex_tracking_number } }));
+  };
+
+  // select / unselect every order on this page (any tab, desktop and phone)
+  const pageAllSelected = orders.length > 0 && orders.every((o) => selectedIds.has(o.id));
+  const togglePageSelect = () => {
+    if (pageAllSelected) {
+      setSelectedIds((prev) => { const n = new Set(prev); orders.forEach((o) => n.delete(o.id)); return n; });
+    } else {
+      orders.forEach((o) => selectedRowsRef.current.set(o.id, o));
+      setSelectedIds((prev) => { const n = new Set(prev); orders.forEach((o) => n.add(o.id)); return n; });
+    }
   };
 
   const toggleSelect = (id) => {
@@ -1758,53 +1777,47 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
         </select>
       </div>
 
-      {/* Search + Courier Filter */}
-      <div style={{ display: "flex", gap: 6, marginBottom: "0.6rem", flexWrap: "wrap" }}>
-        <div style={{ position: "relative", flex: 1, minWidth: 160 }}>
-          <Icon name="search" size={13} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--ne-muted-2)" }} />
-          <input className="ne-filter ne-filter-input" type="text" placeholder={t("booked.searchPlaceholder")} value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            style={{ width: "100%", padding: "7px 10px 7px 30px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5, boxSizing: "border-box" }} />
+      {/* One "Search and filter" bar (same as Orders): courier and date range live in the Filters panel */}
+      <div className="ne-searchfilter" data-filter-panel>
+        <div className="ne-searchfilter-field">
+          <Icon name="search" size={13} />
+          <input type="text" placeholder={t("booked.searchPlaceholder")} value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+          {search && <button type="button" className="ne-searchfilter-clear" onClick={() => { setSearch(""); setPage(1); }} aria-label={t("booked.clear")}><Icon name="close" size={10} /></button>}
         </div>
-        <select className="ne-filter" value={courierFilter} onChange={(e) => { setCourierFilter(e.target.value); setPage(1); }}
-          style={{ padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }}>
-          {availableCouriers.map((c) => <option key={c} value={c}>{c === "All" ? t("booked.allCouriers") : c}</option>)}
-        </select>
-        <div style={{
-          display: 'flex', gap: 8, alignItems: 'center'
-        }}>
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={e => { setDateFrom(e.target.value); setPage(1); }}
-            style={{ padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }}
-          />
-          <span style={{
-            color: 'var(--ne-muted)', fontSize: 11
-          }}>{t("booked.dateRangeTo")}</span>
-          <input
-            type="date"
-            value={dateTo}
-            onChange={e => { setDateTo(e.target.value); setPage(1); }}
-            style={{ padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }}
-          />
-          {(dateFrom || dateTo) && (
-            <button
-              onClick={() => {
-                setDateFrom(''); setDateTo(''); setPage(1)
-              }}
-              style={{
-                fontSize: 11, padding: '4px 10px',
-                borderRadius: 6,
-                border: '1px solid var(--ne-border)',
-                background: 'transparent',
-                color: 'var(--ne-muted)',
-                cursor: 'pointer'
-              }}
-            >
-              {t("booked.clear")}
-            </button>
-          )}
+        <button type="button" className={`ne-searchfilter-btn${bookedFilterOpen ? " open" : ""}`} onClick={() => setBookedFilterOpen((v) => !v)} aria-expanded={bookedFilterOpen}>
+          <Icon name="filter" size={13} /> {t("mobile.filters")}
+          {((courierFilter !== "All" ? 1 : 0) + (dateFrom || dateTo ? 1 : 0)) > 0 && <span className="ne-mfilter-count">{(courierFilter !== "All" ? 1 : 0) + (dateFrom || dateTo ? 1 : 0)}</span>}
+        </button>
+        {bookedFilterOpen && (
+          <div className="ne-filterpanel">
+            <div className="ne-filterpanel-row">
+              <label>{t("orders.dateRange")}</label>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }} />
+                <span style={{ color: "var(--ne-muted)", fontSize: 11 }}>{t("booked.dateRangeTo")}</span>
+                <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} />
+              </div>
+            </div>
+            <div className="ne-filterpanel-fields">
+              <select value={courierFilter} onChange={(e) => { setCourierFilter(e.target.value); setPage(1); }}
+                style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 12 }}>
+                {availableCouriers.map((c) => <option key={c} value={c}>{c === "All" ? t("booked.allCouriers") : c}</option>)}
+              </select>
+            </div>
+            <div className="ne-filterpanel-foot">
+              <button type="button" onClick={() => { setCourierFilter("All"); setDateFrom(""); setDateTo(""); setPage(1); }}>{t("booked.clear")}</button>
+              <button type="button" className="primary" onClick={() => setBookedFilterOpen(false)}>{t("mobile.apply")}</button>
+            </div>
+          </div>
+        )}
+      </div>
+      {(courierFilter !== "All" || dateFrom || dateTo) && (
+        <div className="ne-filterchips">
+          {(dateFrom || dateTo) && <span className="ne-filterchip">{dateFrom || "…"} → {dateTo || "…"}<button type="button" onClick={() => { setDateFrom(""); setDateTo(""); setPage(1); }}><Icon name="close" size={9} /></button></span>}
+          {courierFilter !== "All" && <span className="ne-filterchip">{courierFilter}<button type="button" onClick={() => { setCourierFilter("All"); setPage(1); }}><Icon name="close" size={9} /></button></span>}
         </div>
+      )}
+      <div style={{ display: "flex", gap: 6, marginBottom: "0.6rem", flexWrap: "wrap", justifyContent: "flex-end" }}>
         <button onClick={exportBookedOrders} disabled={bookingExporting}
           style={{
             display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 9,
@@ -1818,7 +1831,7 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
 
       {/* Top-level Tabs — "To Ship"/"Shipped" ke apne nested sub-buckets hain, baaki
           (Delivered/Pending Return/Returned/Lost & Damage/Cancel) standalone hain */}
-      <div style={{ display: "flex", gap: 7, marginBottom: activeTabDef?.subs ? 6 : "0.75rem", flexWrap: "wrap" }}>
+      <div className="ne-scrollrow" style={{ display: "flex", gap: 7, marginBottom: activeTabDef?.subs ? 6 : "0.75rem", flexWrap: "wrap" }}>
         {TAB_STRUCTURE.map((tab) => (
           <button key={tab.key} onClick={() => { setActiveTab(tab.key); setActiveSubTab(null); setPage(1); }}
             style={{ padding: "7px 14px", borderRadius: 20, fontSize: 11.5, cursor: "pointer", fontWeight: 700, border: "1px solid",
@@ -2066,6 +2079,13 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
               </button>
             </div>
           )}
+          {/* select all on this page for every tab (To Ship keeps its own "all matching" select above) */}
+          {activeTab !== "To Ship" && pagedFiltered.length > 0 && (
+            <label className="ne-mselectall ne-selectall-row">
+              <input type="checkbox" checked={pageAllSelected} onChange={togglePageSelect} />
+              <span>{selectedIds.size > 0 ? `${selectedIds.size} ${t("orders.selectedSuffix")}` : t("booked.selectAll")}</span>
+            </label>
+          )}
           {pagedFiltered.map((o) => {
             const ad = o.agent_data;
             const bucket = bucketCourierStatus(ad.courier_order_status);
@@ -2085,7 +2105,8 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
             return (
               <div key={o.id} style={{ ...cardStyle, display: "flex", gap: 10 }}>
                 <input type="checkbox" checked={selectedIds.has(o.id)} onChange={() => toggleSelect(o.id)} style={{ accentColor: "#5C7CFA", marginTop: 4 }} />
-                <div style={{ flex: 1 }}>
+                {/* minWidth 0: without it the wide timeline pushed the whole card past the right edge on phones */}
+                <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>

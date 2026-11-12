@@ -12,6 +12,8 @@ import { Link } from "react-router-dom";
 import { getOrderSource } from "../lib/orderSource";
 import OrderSourceIcon from "../components/OrderSourceIcon";
 import { STATUSES, isNativeOrderId } from "../lib/orderStatuses";
+import BottomSheet from "../components/BottomSheet";
+import { countActiveFilters } from "../lib/mobile";
 import { thumbUrl } from "../lib/shopifyImage";
 
 const TAB_KEYS = {
@@ -646,6 +648,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
   const [sourceFilter, setSourceFilter] = useState("All");
   const [cityFilter, setCityFilter] = useState("All");
   const [skuFilter, setSkuFilter] = useState("All");
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false); // phones only
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [activeDateBtn, setActiveDateBtn] = useState(null);
@@ -697,6 +700,13 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
   const [undoingId, setUndoingId] = useState(null);
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
   const [expandedIds, setExpandedIds] = useState(new Set());
+  // desktop filter popover closes on a click outside it (the phone sheet has its own backdrop)
+  useEffect(() => {
+    if (isMobile || !filterSheetOpen) return undefined;
+    const onDown = (e) => { if (!e.target.closest?.("[data-filter-panel]")) setFilterSheetOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [isMobile, filterSheetOpen]);
   const middleRefs = useRef({});
   const isSyncingScroll = useRef(false);
   const undoInFlightRef = useRef(new Set()); // order ids jinke liye undo abhi process ho raha hai — double-click race guard
@@ -1988,7 +1998,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
     );
 
     return (
-      <span onClick={() => setEditingCell(cellKey)} title={value || ""}
+      <span className="ne-editable" onClick={() => setEditingCell(cellKey)} title={value || ""}
         style={{ cursor: "pointer", color: value ? "var(--ne-text)" : "var(--ne-muted-2)", fontSize: 11, display: "-webkit-box", WebkitLineClamp: clampLines, WebkitBoxOrient: "vertical", overflow: "hidden", textOverflow: "ellipsis", wordBreak: "break-word", lineHeight: 1.35, maxWidth: width, ...displayStyle }}>
         {value || "—"}
       </span>
@@ -2133,8 +2143,50 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
     return { order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride: !!order.agent_data?.product, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isNative, isSelected, isCancelled, hasValidHistory, isUndoing, isExpanded, statusBtn, syncRow, isDexServiceable, isDuplicateOrder, duplicateOtherNames, isRepeatCustomer, repeatCustomerOrderName };
   });
 
+  // the four list filters; inline on desktop, inside the Filters sheet on phones (same controls, same state)
+  const filterFields = (
+    <>
+      <div style={{ position: "relative" }} data-status-multi>
+        <button className="ne-filter ne-filter-btn" onClick={() => setStatusMultiOpen(!statusMultiOpen)}
+          style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap", fontWeight: 500 }}>
+          {statusFilters.length === 0 ? t("orders.allStatus") : `${statusFilters.length} ${t("orders.selectedSuffix")}`} <span className="ne-glyph"> ▼</span>
+        </button>
+        {statusMultiOpen && (
+          <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 9999, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "6px", minWidth: 180, marginTop: 4, boxShadow: "0 8px 30px rgba(0,0,0,.5)" }}>
+            <div onClick={() => { setStatusFilters([]); setStatusMultiOpen(false); }}
+              style={{ padding: "6px 10px", borderRadius: 7, cursor: "pointer", color: "var(--ne-muted)", fontSize: 11, display: "flex", alignItems: "center", gap: 5 }}><Icon name="close" size={9} /> {t("orders.clearAll")}</div>
+            {STATUSES.map(s => (
+              <div key={s.label} onClick={() => { setStatusFilters(prev => prev.includes(s.label) ? prev.filter(x => x !== s.label) : [...prev, s.label]); setPage(1); }}
+                style={{ padding: "6px 10px", borderRadius: 7, cursor: "pointer", color: s.color, fontSize: 11, fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}
+                onMouseEnter={e => e.currentTarget.style.background = s.bg}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <span style={{ display: "flex", alignItems: "center" }}>{statusFilters.includes(s.label) ? <Icon name="check" size={10} /> : <span style={{ width: 10, height: 10, border: "1px solid currentColor", borderRadius: 2, display: "inline-block" }} />}</span>{s.label}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <select className="ne-filter" value={sourceFilter} onChange={e => { setSourceFilter(e.target.value); setPage(1); }}
+        style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
+        <option value="All">{t("orders.allSource")}</option>
+        {["Meta", "TikTok", "Snapchat", "Google", "Direct"].map(s => <option key={s}>{s}</option>)}
+      </select>
+      <select className="ne-filter" value={availableCities.includes(cityFilter) ? cityFilter : "All"} onChange={e => { setCityFilter(e.target.value); setPage(1); }}
+        style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
+        {availableCities.map(c => <option key={c}>{c}</option>)}
+      </select>
+      <select className="ne-filter" value={availableSKUs.includes(skuFilter) ? skuFilter : "All"} onChange={e => { setSkuFilter(e.target.value); setPage(1); }}
+        style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
+        <option value="All">{t("orders.allSku")}</option>
+        {availableSKUs.map(s => <option key={s}>{s}</option>)}
+      </select>
+    </>
+  );
+  const activeFilterCount = countActiveFilters({ status: statusFilters, source: sourceFilter, city: cityFilter, sku: skuFilter }, { source: "All", city: "All", sku: "All" });
+  const clearListFilters = () => { setStatusFilters([]); setSourceFilter("All"); setCityFilter("All"); setSkuFilter("All"); setPage(1); };
+
   return (
-    <div style={{ padding: "0.75rem", height: "100%", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+    <div className="ne-orders-root" style={{ padding: "0.75rem", height: "100%", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
       <style>{`@keyframes ne-address-flash { 0% { background-color: var(--ne-success-soft); } 100% { background-color: transparent; } } .ne-address-flash { animation: ne-address-flash 1.5s ease-out; border-radius: 6px; }`}</style>
 
       {/* Header */}
@@ -2143,8 +2195,8 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
           <h1 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="package" size={15} /> {t("orders.title")}</h1>
           <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{currentStore?.store_name} — {serverTotal} {t("orders.ordersSuffix")}</p>
         </div>
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <button onClick={toggleHeaderForced} title={headerForcedHidden ? t("orders.showHeader") : t("orders.hideHeader")}
+        <div className="ne-page-actions" style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <button className="ne-hide-mobile" onClick={toggleHeaderForced} title={headerForcedHidden ? t("orders.showHeader") : t("orders.hideHeader")}
             style={{ padding: "6px 9px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center" }}>
             <Icon name={headerForcedHidden ? "chevronDown" : "chevronDown"} size={11} style={{ transform: headerForcedHidden ? "rotate(0deg)" : "rotate(180deg)", transition: "transform .15s" }} />
           </button>
@@ -2156,7 +2208,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
             style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 5 }}>
             <Icon name="upload" size={12} /> {t("orders.bulkUpload")}
           </button>
-          <select className="ne-filter" value={perPage} onChange={e => { setPerPage(Number(e.target.value)); setPage(1); }}
+          <select className="ne-filter ne-hide-mobile" value={perPage} onChange={e => { setPerPage(Number(e.target.value)); setPage(1); }}
             style={{ padding: "5px 8px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
             {PER_PAGE_OPTIONS.map(n => <option key={n} value={n}>{n} / page</option>)}
           </select>
@@ -2168,10 +2220,11 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
           CSS-grid Nfr/0fr trick (not a fixed maxHeight) so it animates to the exact content
           height regardless of how many rows this wraps into on narrow viewports or whether
           the bulk-actions bar is showing. */}
-      <div style={{ display: "grid", gridTemplateRows: `${effectiveHeaderReveal / 100}fr`, transition: "grid-template-rows .1s linear", overflow: "hidden" }}>
+      {/* overflow is opened while the filter popover is up, otherwise this collapsing wrapper clipped the panel */}
+      <div style={{ display: "grid", gridTemplateRows: `${effectiveHeaderReveal / 100}fr`, transition: "grid-template-rows .1s linear", overflow: filterSheetOpen && !isMobile ? "visible" : "hidden", position: "relative", zIndex: filterSheetOpen ? 40 : "auto" }}>
       <div style={{ minHeight: 0 }}>
       {/* Date Quick Buttons */}
-      <div style={{ display: "flex", gap: 6, marginBottom: "8px", alignItems: "center", flexWrap: "wrap" }}>
+      <div className="ne-scrollrow" style={{ display: "flex", gap: 6, marginBottom: "8px", alignItems: "center", flexWrap: "wrap" }}>
         <button style={dateBtnStyle("today")} onClick={() => handleDateBtn("today")}>
           {t("orders.today")} <span style={{ opacity: 0.85, fontWeight: 500 }}>({todayCount})</span>
         </button>
@@ -2187,59 +2240,51 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
         )}
       </div>
 
-      {/* Search + Date Range */}
-      <div style={{ display: "flex", gap: 6, marginBottom: "6px", flexWrap: "wrap" }}>
-        <div style={{ position: "relative", flex: 1, minWidth: 130 }}>
-          <Icon name="search" size={12} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: "var(--ne-muted-2)" }} />
-          <input className="ne-filter ne-filter-input" type="text" placeholder={t("orders.searchPlaceholder")} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
-            style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px 7px 27px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
+      {/* One "Search and filter" bar (Shopify): search + a Filters button whose panel holds the date range and every list
+          filter (popover on desktop, bottom sheet on phones); active filters show as removable chips underneath. */}
+      <div className="ne-searchfilter" data-filter-panel>
+        <div className="ne-searchfilter-field">
+          <Icon name="search" size={13} />
+          <input type="text" placeholder={t("orders.searchPlaceholder")} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
+          {search && <button type="button" className="ne-searchfilter-clear" onClick={() => { setSearch(""); setPage(1); }} aria-label={t("orders.clear")}><Icon name="close" size={10} /></button>}
         </div>
-        <input className="ne-filter ne-filter-input" type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setActiveDateBtn(null); setPage(1); }}
-          style={{ padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
-        <input className="ne-filter ne-filter-input" type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setActiveDateBtn(null); setPage(1); }}
-          style={{ padding: "7px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11.5 }} />
-      </div>
-
-      {/* Filters + Bulk Actions */}
-      <div style={{ display: "flex", gap: 6, marginBottom: "0.6rem", flexWrap: "wrap", alignItems: "center" }}>
-        <div style={{ position: "relative" }} data-status-multi>
-          <button className="ne-filter ne-filter-btn" onClick={() => setStatusMultiOpen(!statusMultiOpen)}
-            style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap", fontWeight: 500 }}>
-            {statusFilters.length === 0 ? t("orders.allStatus") : `${statusFilters.length} ${t("orders.selectedSuffix")}`} <span className="ne-glyph"> ▼</span>
-          </button>
-          {statusMultiOpen && (
-            <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 9999, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "6px", minWidth: 180, marginTop: 4, boxShadow: "0 8px 30px rgba(0,0,0,.5)" }}>
-              <div onClick={() => { setStatusFilters([]); setStatusMultiOpen(false); }}
-                style={{ padding: "6px 10px", borderRadius: 7, cursor: "pointer", color: "var(--ne-muted)", fontSize: 11, display: "flex", alignItems: "center", gap: 5 }}><Icon name="close" size={9} /> {t("orders.clearAll")}</div>
-              {STATUSES.map(s => (
-                <div key={s.label} onClick={() => { setStatusFilters(prev => prev.includes(s.label) ? prev.filter(x => x !== s.label) : [...prev, s.label]); setPage(1); }}
-                  style={{ padding: "6px 10px", borderRadius: 7, cursor: "pointer", color: s.color, fontSize: 11, fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}
-                  onMouseEnter={e => e.currentTarget.style.background = s.bg}
-                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  <span style={{ display: "flex", alignItems: "center" }}>{statusFilters.includes(s.label) ? <Icon name="check" size={10} /> : <span style={{ width: 10, height: 10, border: "1px solid currentColor", borderRadius: 2, display: "inline-block" }} />}</span>{s.label}
-                </div>
-              ))}
+        <button type="button" className={`ne-searchfilter-btn${filterSheetOpen ? " open" : ""}`} onClick={() => setFilterSheetOpen((v) => !v)} aria-expanded={filterSheetOpen}>
+          <Icon name="filter" size={13} /> {t("mobile.filters")}
+          {(activeFilterCount + (dateFrom || dateTo ? 1 : 0)) > 0 && <span className="ne-mfilter-count">{activeFilterCount + (dateFrom || dateTo ? 1 : 0)}</span>}
+        </button>
+        {!isMobile && filterSheetOpen && (
+          <div className="ne-filterpanel">
+            <div className="ne-filterpanel-row">
+              <label>{t("orders.dateRange")}</label>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setActiveDateBtn(null); setPage(1); }} />
+                <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setActiveDateBtn(null); setPage(1); }} />
+              </div>
             </div>
-          )}
+            <div className="ne-filterpanel-fields">{filterFields}</div>
+            <div className="ne-filterpanel-foot">
+              <button type="button" onClick={() => { clearListFilters(); setDateFrom(""); setDateTo(""); setActiveDateBtn(null); }}>{t("mobile.clear")}</button>
+              <button type="button" className="primary" onClick={() => setFilterSheetOpen(false)}>{t("mobile.apply")}</button>
+            </div>
+          </div>
+        )}
+      </div>
+      {(activeFilterCount > 0 || dateFrom || dateTo) && (
+        <div className="ne-filterchips">
+          {(dateFrom || dateTo) && <span className="ne-filterchip">{dateFrom || "…"} → {dateTo || "…"}<button type="button" onClick={() => { setDateFrom(""); setDateTo(""); setActiveDateBtn(null); setPage(1); }}><Icon name="close" size={9} /></button></span>}
+          {statusFilters.map((s) => <span key={s} className="ne-filterchip">{s}<button type="button" onClick={() => { setStatusFilters((p) => p.filter((x) => x !== s)); setPage(1); }}><Icon name="close" size={9} /></button></span>)}
+          {sourceFilter !== "All" && <span className="ne-filterchip">{sourceFilter}<button type="button" onClick={() => { setSourceFilter("All"); setPage(1); }}><Icon name="close" size={9} /></button></span>}
+          {cityFilter !== "All" && <span className="ne-filterchip">{cityFilter}<button type="button" onClick={() => { setCityFilter("All"); setPage(1); }}><Icon name="close" size={9} /></button></span>}
+          {skuFilter !== "All" && <span className="ne-filterchip">{skuFilter}<button type="button" onClick={() => { setSkuFilter("All"); setPage(1); }}><Icon name="close" size={9} /></button></span>}
         </div>
-        <select className="ne-filter" value={sourceFilter} onChange={e => { setSourceFilter(e.target.value); setPage(1); }}
-          style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
-          <option value="All">{t("orders.allSource")}</option>
-          {["Meta", "TikTok", "Snapchat", "Google", "Direct"].map(s => <option key={s}>{s}</option>)}
-        </select>
-        <select className="ne-filter" value={availableCities.includes(cityFilter) ? cityFilter : "All"} onChange={e => { setCityFilter(e.target.value); setPage(1); }}
-          style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
-          {availableCities.map(c => <option key={c}>{c}</option>)}
-        </select>
-        <select className="ne-filter" value={availableSKUs.includes(skuFilter) ? skuFilter : "All"} onChange={e => { setSkuFilter(e.target.value); setPage(1); }}
-          style={{ padding: "6px 10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
-          <option value="All">{t("orders.allSku")}</option>
-          {availableSKUs.map(s => <option key={s}>{s}</option>)}
-        </select>
+      )}
+
+      {/* Bulk Actions */}
+      <div style={{ display: "flex", gap: 6, marginBottom: selectedIds.size > 0 ? "0.6rem" : 0, flexWrap: "wrap", alignItems: "center" }}>
 
         {/* Bulk Actions */}
         {selectedIds.size > 0 && (
-          <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: "auto", flexWrap: "wrap" }}>
+          <div data-bulkbar style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: "auto", flexWrap: "wrap" }}>
             <span style={{ fontSize: 11, color: "var(--ne-muted)", fontWeight: 600 }}>{selectedIds.size} {t("orders.selectedSuffix")}</span>
             <div style={{ position: "relative" }}>
               <button data-bulk-status-btn onClick={handleBulkStatusBtnClick}
@@ -2265,8 +2310,24 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
         )}
       </div>
 
+      {isMobile && (
+        <BottomSheet open={filterSheetOpen} onClose={() => setFilterSheetOpen(false)} title={t("mobile.filters")} closeLabel={t("mobile.close")}
+          footer={<>
+            <button className="ne-sheet-btn" onClick={clearListFilters}>{t("mobile.clear")}</button>
+            <button className="ne-sheet-btn ne-sheet-btn-primary" onClick={() => setFilterSheetOpen(false)}>{t("mobile.apply")}</button>
+          </>}>
+          <div className="ne-mfilter-fields">
+            <div style={{ display: "flex", gap: 8 }}>
+              <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setActiveDateBtn(null); setPage(1); }} style={{ flex: 1, minHeight: 44, padding: "0 10px", borderRadius: 10, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)" }} />
+              <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setActiveDateBtn(null); setPage(1); }} style={{ flex: 1, minHeight: 44, padding: "0 10px", borderRadius: 10, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)" }} />
+            </div>
+            {filterFields}
+          </div>
+        </BottomSheet>
+      )}
+
       {/* Tab Navigation — har tab apni alag pill hai (theme reference jaisa), shared box nahi */}
-      <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: "0.6rem" }}>
+      <div className="ne-scrollrow" style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: "0.6rem" }}>
         {TABS.map(tab => (
           <button key={tab} onClick={() => { setActiveTab(tab); setPage(1); }}
             style={{ padding: "7px 14px", borderRadius: 20, fontSize: 11.5, cursor: "pointer", fontWeight: 700, border: "1px solid",
@@ -2288,7 +2349,14 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
       {loading ? (
         <OrdersSkeleton />
       ) : isMobile ? (
-        <div ref={tableRef} style={{ flex: 1, overflowY: "auto" }}>
+        <div ref={tableRef} className="ne-orders-mlist" style={{ flex: 1, overflowY: "auto" }}>
+          {/* phones had no "select all" (it lived only in the desktop table header) */}
+          {orderRows.length > 0 && (
+            <label className="ne-mselectall">
+              <input type="checkbox" checked={selectedIds.size === pagedOrders.length && pagedOrders.length > 0} onChange={toggleSelectAll} />
+              <span>{selectedIds.size > 0 ? `${selectedIds.size} ${t("orders.selectedSuffix")}` : t("booked.selectAll")}</span>
+            </label>
+          )}
           {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isNative, isSelected, isCancelled, isExpanded, statusBtn, syncRow, isDuplicateOrder, duplicateOtherNames, isRepeatCustomer, repeatCustomerOrderName }) => (
             <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "8px 12px", marginBottom: 6 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -2334,15 +2402,11 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
                 <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ne-success)" }}>Rs. {displayTotal.toLocaleString()}</div>
               </div>
 
-              <button onClick={() => toggleExpand(order.id)}
-                style={{ width: "100%", marginTop: 8, padding: "6px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-muted)", fontSize: 10.5, cursor: "pointer", fontWeight: 600 }}>
-                {isExpanded ? t("orders.showLess") : t("orders.showMore")}
-              </button>
-
               <AddressMatchBlock order={order} storeId={currentStore?.id} cfUrl={cfUrl} t={t} onUpdateAgentData={updateAgentDataPatch} onAddressConfirmed={handleAddressConfirmed} />
 
+              {/* details open right above the toggle, which stays at the bottom of the card (it used to sit in the middle) */}
               {isExpanded && (
-                <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--ne-border)", display: "flex", flexDirection: "column", gap: 6 }}>
+                <div className="ne-expand-in" style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--ne-border)", display: "flex", flexDirection: "column", gap: 6 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <span style={{ fontSize: 10, color: "var(--ne-muted-2)" }}>{t("orders.phonePlaceholder")}: </span><EditableCell orderId={order.id} field="phone" value={phone} width={140} />
                     {phone && (
@@ -2379,6 +2443,12 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
                   {syncRow}
                 </div>
               )}
+
+              <button onClick={() => toggleExpand(order.id)} aria-expanded={isExpanded}
+                style={{ width: "100%", marginTop: 8, padding: "7px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-muted)", fontSize: 11, cursor: "pointer", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                {isExpanded ? t("orders.showLess") : t("orders.showMore")}
+                <span style={{ display: "inline-flex", transition: "transform .2s ease", transform: isExpanded ? "rotate(-90deg)" : "rotate(90deg)" }}><Icon name="chevronRight" size={11} /></span>
+              </button>
             </div>
           ))}
           {orderRows.length === 0 && (
@@ -2389,7 +2459,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
           <style>{`.ne-hide-scroll::-webkit-scrollbar{display:none} .ne-hide-scroll{scrollbar-width:none; -ms-overflow-style:none;}`}</style>
 
-          <div ref={tableRef} style={{ flex: 1, overflowY: "auto" }}>
+          <div ref={tableRef} className="ne-orders-list" style={{ flex: 1, overflowY: "auto" }}>
 
             {/* Header row — visibility ab sirf manual Hide/Show Header toggle se control hoti hai (0% ya 100%), scroll se nahi */}
             <div style={{ display: "flex", alignItems: "center", gap: 0, position: "sticky", top: 0, zIndex: 5, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, boxShadow: "var(--ne-shadow-strip, 0 2px 8px rgba(0,0,0,.18))", overflow: "hidden",

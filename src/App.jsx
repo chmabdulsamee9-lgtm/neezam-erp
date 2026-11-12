@@ -1,3 +1,6 @@
+import useIsMobile from './hooks/useIsMobile'
+import { MobileBottomNav, MobileTopBar, MobileMenuSheet } from './components/MobileNav'
+import { pickBottomTabs, activeTabFor } from './lib/mobile'
 import WhatsNew from './components/WhatsNew'
 import { hasSeenWhatsNew } from './lib/whatsNew'
 import { readSidebarOpen, writeSidebarOpen, clearSidebarOpen, createIdleCollapse } from './lib/sidebarState'
@@ -5,7 +8,13 @@ import { placeTip } from './lib/popoverPosition'
 import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import './theme.css'
+import './look.css'
 import { supabase } from './supabase'
+import LoadingBar from './components/LoadingBar'
+import PullToRefresh from './components/PullToRefresh'
+import { installFetchTracking, startLoading, armLoading } from './lib/loadingBar'
+import { applyTheme } from './lib/themeTokens'
+import { installEditMode } from './lib/editMode'
 import { SOLUTIONS_LINKS } from './pages/public/solutionsLinks'
 import { fetchStoreRow, fetchStoreRows } from './lib/storeColumns'
 import { getCachedOrders, saveOrdersBulk, upsertOrder, getMeta, setMeta, clearCache, getCachedPeriod, setCachedPeriod, clearStoreOrders } from './ordersCache'
@@ -28,8 +37,14 @@ import SyncStatusBadge from './components/SyncStatusBadge'
 // Page-level lazy loading: har page apna alag chunk, pehli baar khulne par download hota hai.
 // Suspense wrapper ke andar hi hai, isliye call sites (<Orders ... />) bilkul nahi badle.
 const CHUNK_RELOAD_KEY = 'neezam_chunk_reload'
-const loadWithRetry = (loader) => () =>
-  loader()
+// the top loading bar follows every backend call, and page chunk downloads below
+installFetchTracking()
+// inside the UI Editor's preview frame only: pick elements and preview the draft live
+installEditMode()
+const loadWithRetry = (loader) => () => {
+  const done = startLoading()
+  return loader()
+    .finally(done)
     .then((m) => { try { sessionStorage.removeItem(CHUNK_RELOAD_KEY) } catch (e) {} return m })
     .catch((err) => {
       // Naya deploy hone par purana chunk server se gum ho sakta hai: ek baar khud reload (loop se bachne ke liye sirf ek baar).
@@ -42,6 +57,7 @@ const loadWithRetry = (loader) => () =>
       } catch (e) {}
       throw err
     })
+}
 // Sidebar hover/touch par page ka chunk pehle se download (dynamic import cached rehta hai, baad mein click par foran khulta hai).
 // Slow/2G ya Data Saver mode mein prefetch band, taake zaroori downloads ke saath bandwidth na lade.
 const PAGE_PREFETCH = {}
@@ -51,12 +67,13 @@ const prefetchPage = (id) => {
   const f = PAGE_PREFETCH[id]
   if (f) f()
 }
-function lazyPage(loader, menu) {
+// skeleton: false for pages that should show nothing (only the top loading bar) while their code loads
+function lazyPage(loader, menu, { skeleton = true } = {}) {
   if (menu) PAGE_PREFETCH[menu] = () => { loader().catch(() => {}) }
   const Lazy = lazy(loadWithRetry(loader))
   return function LazyPage(props) {
     return (
-      <Suspense fallback={menu ? <PageSkeletonFor menu={menu} /> : null}>
+      <Suspense fallback={menu && skeleton ? <PageSkeletonFor menu={menu} /> : null}>
         <Lazy {...props} />
       </Suspense>
     )
@@ -111,13 +128,15 @@ const ProductsManagement = lazyPage(() => import('./pages/ProductsManagement'), 
 const FinanceStatement = lazyPage(() => import('./pages/FinanceStatement'), 'finance-statement')
 const DevMonitorDetailed = lazyPage(() => import('./pages/DevMonitorDetailed'), 'master-dashboard/dev-monitor')
 const GeminiUsageMonitor = lazyPage(() => import('./pages/GeminiUsageMonitor'), 'master-dashboard/gemini-monitor')
+const UiEditor = lazyPage(() => import('./pages/UiEditor'), 'master-dashboard/ui-editor', { skeleton: false })
 const ShopifyCallback = lazyPage(() => import('./pages/ShopifyCallback'), null)
 const Orders = lazyPage(() => import('./pages/Orders'), 'orders')
 const OrderDetail = lazyPage(() => import('./pages/OrderDetail'), 'orders')
 const Dashboard = lazyPage(() => import('./pages/Dashboard'), 'dashboard')
 const WhatsApp = lazyPage(() => import('./pages/WhatsApp'), 'whatsapp')
 const Team = lazyPage(() => import('./pages/Team'), 'team')
-const Settings = lazyPage(() => import('./pages/Settings'), 'settings')
+// no skeleton: the dark Settings panel used to flash a generic skeleton before it appeared
+const Settings = lazyPage(() => import('./pages/Settings'), 'settings', { skeleton: false })
 const Accounts = lazyPage(() => import('./pages/Accounts'), null)
 const ActivityLog = lazyPage(() => import('./pages/ActivityLog'), 'activity-log')
 const ProfitLoss = lazyPage(() => import('./pages/ProfitLoss'), 'pnl')
@@ -237,9 +256,11 @@ const NAV_ICONS = {
   'courier-connect': <svg viewBox="0 0 20 20"><rect x="2" y="6" width="9" height="7" rx="1"/><path d="M11 9h3.5L17 11.5V13h-6"/><circle cx="6" cy="15.5" r="1.6"/><circle cx="14.5" cy="15.5" r="1.6"/><path d="M2 3.5h6" opacity=".6"/></svg>,
   team: <svg viewBox="0 0 20 20"><circle cx="7" cy="7" r="2.6"/><circle cx="14" cy="8" r="2"/><path d="M2.5 17c.5-3 2.2-4.5 4.5-4.5s4 1.5 4.5 4.5"/><path d="M12 17c.4-2.3 1.6-3.7 3.5-3.7s2.7 1.1 3 3.2"/></svg>,
   'activity-log': <svg viewBox="0 0 20 20"><rect x="3" y="2.5" width="14" height="15" rx="2"/><path d="M6.5 7h7M6.5 10.5h7M6.5 14h4"/></svg>,
-  settings: <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.5v2M10 15.5v2M17.5 10h-2M4.5 10h-2M15.1 4.9l-1.4 1.4M6.3 13.7l-1.4 1.4M15.1 15.1l-1.4-1.4M6.3 6.3 4.9 4.9"/></svg>,
+  settings: <svg viewBox="0 0 20 20"><g transform="scale(.8333)"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></g></svg>,
   inventory: <svg viewBox="0 0 20 20"><rect x="2.5" y="4" width="15" height="4" rx="1"/><rect x="3.5" y="9" width="13" height="7" rx="1"/><path d="M8 12.5h4"/></svg>,
   'dev-monitor': <svg viewBox="0 0 20 20"><rect x="2" y="3.5" width="16" height="10.5" rx="1.5"/><path d="M7 17h6M10 14v3"/><path d="M5 8l2.5 2.5L10 7l2 2 3-3"/></svg>,
+  'group:sales-channels': <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><path d="M3 10h14"/><path d="M10 3c2.2 2 2.2 12 0 14"/><path d="M10 3c-2.2 2-2.2 12 0 14"/></svg>,
+  'group:courier-payments': <svg viewBox="0 0 20 20"><rect x="2.5" y="5" width="15" height="10.5" rx="2"/><path d="M2.5 8.5h15"/><path d="M6 12.5h3"/></svg>,
   'finance-statement': <svg viewBox="0 0 20 20"><rect x="4" y="2" width="12" height="16" rx="2"/><rect x="6" y="4.3" width="8" height="3" rx="0.5"/><circle cx="6.8" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="10" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="13.2" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="6.8" cy="14.5" r=".9" fill="currentColor" stroke="none"/><circle cx="10" cy="14.5" r=".9" fill="currentColor" stroke="none"/><circle cx="13.2" cy="14.5" r=".9" fill="currentColor" stroke="none"/></svg>,
 }
 
@@ -279,24 +300,10 @@ function CollapsedLogoToggle({ label, onExpand }) {
 
 // Loading skeleton (Meta Ads app jaisa) — logo/animation nahi, sirf UI ka dhancha.
 // Function ka naam SplashScreen isliye wahi rakha gaya ke 6 call sites (auth/profile/store/orders gates) na badalne paren.
+// Boot: only the empty frame and the top loading bar (no full-page skeleton), so the app does not
+// show one skeleton for the shell and then a second one for the page. Pages show their own content as it arrives.
 function SplashScreen() {
-  return (
-    <div className="ne-app-shell" style={{ display: 'block' }} aria-busy="true">
-      <div className="ne-skel-shell">
-        <div className="ne-skel-side" />
-        <div className="ne-skel-main">
-          <div className="ne-skel" style={{ height: 36, width: '40%' }} />
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="ne-skel" style={{ height: 80, flex: '1 1 160px' }} />
-            ))}
-          </div>
-          <div className="ne-skel" style={{ height: 240 }} />
-          <div className="ne-skel" style={{ height: 160 }} />
-        </div>
-      </div>
-    </div>
-  )
+  return <div className="ne-app-shell ne-boot" aria-busy="true"><LoadingBar /></div>
 }
 
 
@@ -640,7 +647,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
   }
 
   return (
-    <div className="ne-app-shell" style={{ height: '100%', overflow: 'auto' }}>
+    <div className="ne-app-shell ne-master" style={{ height: '100%', overflow: 'auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: '1px solid var(--ne-border)' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -662,7 +669,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
       <div style={{ padding: '1.5rem' }}>
         {pendingProfiles.length > 0 && (
           <div style={{ marginBottom: '2rem' }}>
-            <h2 style={{ fontSize: 14, color: '#F2A83E', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="pending" size={14} /> {t('master.pendingApprovals')} ({pendingProfiles.length})</h2>
+            <h2 style={{ fontSize: 14, color: 'var(--ne-warning)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="pending" size={14} /> {t('master.pendingApprovals')} ({pendingProfiles.length})</h2>
             <div style={{ display: 'grid', gap: 8 }}>
               {pendingProfiles.map(p => {
                 const defaultAddonIds = p.subscription?.selected_addon_ids || []
@@ -774,6 +781,10 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
           <button onClick={() => navigate('/master-dashboard/gemini-monitor')}
             style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Icon name="zap" size={13} /> {t('nav.gemini-monitor')}
+          </button>
+          <button onClick={() => navigate('/master-dashboard/ui-editor')}
+            style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="palette" size={13} /> UI Editor
           </button>
         </div>
 
@@ -1130,7 +1141,18 @@ function App() {
 
   // collapsed by default; a manual toggle is kept for this browser session only (see lib/sidebarState.js)
   const [sidebarOpen, setSidebarOpen] = useState(() => readSidebarOpen())
+  // phones (below the one breakpoint in lib/mobile.js): bottom tab bar + Menu sheet instead of the sidebar
+  const isMobile = useIsMobile()
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   useEffect(() => { writeSidebarOpen(sidebarOpen) }, [sidebarOpen])
+  // a page change (also one made in code, e.g. after login) is something the user waits for: the loading bar may show
+  useEffect(() => { armLoading(2000) }, [location.pathname])
+  // Settings opens with no loading state: its code is fetched while the app is idle after start-up
+  useEffect(() => {
+    const ric = window.requestIdleCallback || ((fn) => setTimeout(fn, 1500))
+    const id = ric(() => prefetchPage('settings'))
+    return () => (window.cancelIdleCallback || clearTimeout)(id)
+  }, [])
   // an expanded sidebar folds itself after 2 minutes without the pointer on it; popups and focused inputs keep it open
   useEffect(() => {
     if (!sidebarOpen) return undefined
@@ -1162,6 +1184,7 @@ function App() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [brandPopupOpen, setBrandPopupOpen] = useState(false)
   const brandBtnRef = useRef(null)
+  const mobileBrandRef = useRef(null) // phone top bar "My Brands" button: opens the same account popup
   const [navHover, setNavHover] = useState(null)
   const navHoverTimer = useRef(null)
   useEffect(() => () => clearTimeout(navHoverTimer.current), [])
@@ -1173,7 +1196,10 @@ function App() {
     const onMove = (e) => {
       const el = e.target
       const ok = el && el.closest && (kind === 'label' ? el.closest('.ne-navitem') : el.closest('.ne-sidebar, .ne-navflyout'))
-      if (!ok) setNavHover(null)
+      if (ok) { clearTimeout(navHoverTimer.current); return }
+      // a short grace period instead of closing on the first pixel outside the row
+      clearTimeout(navHoverTimer.current)
+      navHoverTimer.current = setTimeout(() => setNavHover(null), 220)
     }
     document.addEventListener('pointermove', onMove)
     return () => document.removeEventListener('pointermove', onMove)
@@ -1453,6 +1479,13 @@ function App() {
       loadProfileAndStores()
     }
   }, [session])
+
+  // the look published from Master Dashboard > UI Editor (only changed tokens are stored; nothing stored = shipped look)
+  useEffect(() => {
+    if (!session || window.name === 'ne-edit') return // the editor's preview frame shows the draft instead
+    supabase.from('app_theme_settings').select('live').eq('id', 'global').maybeSingle()
+      .then(({ data }) => { if (data?.live) applyTheme(data.live) })
+  }, [session?.user?.id])
 
   useEffect(() => {
     if (session && profile?.approved && selectedStoreId && !hasStartedLoadRef.current) {
@@ -2149,7 +2182,7 @@ function App() {
   // TASK 15: admin ka apna mini master dashboard (2+ brands ho tabhi sidebar se pohonch sakta hai)
   if (profile.role === 'admin' && isAdminMasterView) {
     return (
-      <div className="ne-app-shell" style={{ height: '100%', overflow: 'auto' }}>
+      <div className="ne-app-shell ne-master" style={{ height: '100%', overflow: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: '1px solid var(--ne-border)' }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{t('master.miniHeaderTitle')}</h1>
@@ -2205,7 +2238,7 @@ function App() {
 
   if (!selectedStoreId) return <SplashScreen />
   const isAdminOnlyPage = activeMenu === 'master-dashboard/dev-monitor' ||
-    activeMenu === 'master-dashboard/gemini-monitor'
+    activeMenu === 'master-dashboard/gemini-monitor' || activeMenu === 'master-dashboard/ui-editor'
   // Orders load hone tak poori app block nahi hoti: shell (sidebar/topbar) foran dikhta hai, aur sirf
   // orders-dependent pages ke content area mein PageSkeleton dikhta hai.
   const ordersPending = !ordersLoaded && !isAdminOnlyPage
@@ -2239,10 +2272,13 @@ function App() {
     { id: 'pnl', label: t('nav.pnl') },
     { id: 'ledger', label: t('nav.ledger'), parent: 'pnl' },
     { id: 'budget', label: t('nav.budget'), parent: 'pnl' },
-    { id: 'finance-statement', label: t('nav.finance-statement'), group: t('nav.group.courierPayments') },
-    { id: 'online-store', label: t('nav.online-store'), group: t('nav.group.salesChannels') },
-    { id: 'store-connect', label: t('nav.store-connect'), group: t('nav.group.salesChannels') },
-    { id: 'ads', label: t('nav.ads'), group: t('nav.group.salesChannels') },
+    // Shopify-style sections: a group is not a page, it opens its pages (inline when one of them is open, flyout otherwise)
+    { id: 'group:courier-payments', label: t('nav.group.courierPayments'), isGroup: true },
+    { id: 'finance-statement', label: t('nav.finance-statement'), parent: 'group:courier-payments' },
+    { id: 'group:sales-channels', label: t('nav.group.salesChannels'), isGroup: true },
+    { id: 'online-store', label: t('nav.online-store'), parent: 'group:sales-channels' },
+    { id: 'store-connect', label: t('nav.store-connect'), parent: 'group:sales-channels' },
+    { id: 'ads', label: t('nav.ads'), parent: 'group:sales-channels' },
     { id: 'suggestions', label: t('nav.suggestions') },
   ]
 
@@ -2252,7 +2288,7 @@ function App() {
   // whatsapp/courier-connect/meta-connect/team/activity-log/settings are no longer part of
   // allMenuItems but are still real routable pages.
   const menuItems = allMenuItems.filter(m => hasAccess(m.id) || alwaysVisibleIds.includes(m.id))
-  const fullScreenModules = ['orders', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor']
+  const fullScreenModules = ['orders', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor', 'master-dashboard/ui-editor']
   // fullScreenModules hides the topbar; Orders keeps that but still gets the rounded content card.
   const noCardModules = fullScreenModules.filter(m => m !== 'orders')
   const currentStoreInfo = userStoresList.find(us => us.store_id === selectedStoreId)?.stores
@@ -2280,18 +2316,25 @@ function App() {
   let lastGroupHeading = null
   const topLevelEntries = allMenuItems
     .filter(m => !m.parent)
-    .filter(m => hasAccess(m.id) || alwaysVisibleIds.includes(m.id))
     .map(item => {
       const children = allMenuItems.filter(c => c.parent === item.id && (hasAccess(c.id) || alwaysVisibleIds.includes(c.id)))
       const groupHeading = item.group && item.group !== lastGroupHeading ? item.group : null
       lastGroupHeading = item.group || null
       return { item, children, groupHeading }
     })
+    // a group (not a page) shows when at least one of its pages may be opened
+    .filter(e => e.item.isGroup ? e.children.length > 0 : (hasAccess(e.item.id) || alwaysVisibleIds.includes(e.item.id)))
+  // a group id opens its first page
+  const resolveMenuId = (id) => {
+    if (!String(id).startsWith('group:')) return id
+    return topLevelEntries.find(e => e.item.id === id)?.children[0]?.id || 'home'
+  }
 
   const closeDrawer = () => setMobileDrawerOpen(false)
 
   const sidebarExpanded = sidebarOpen || mobileDrawerOpen
   const openNavHover = (entry, el, kind) => {
+    if (isMobile) return // touch: no hover tooltips or flyouts
     clearTimeout(navHoverTimer.current)
     const r = el.getBoundingClientRect()
     // x comes from the sidebar's own edge (not the row's edge) so the tooltip / flyout always clears the sidebar by the same gap
@@ -2300,25 +2343,32 @@ function App() {
     setNavHover({ kind, item: entry.item, children: entry.children, rect: { top: r.top, right: sr.right, left: sr.left, height: r.height } })
   }
   // Short delay so the pointer can cross the gap between a nav row and its flyout.
+  // A tooltip/flyout waits a moment before closing: a tip that vanished the instant the pointer left made the
+  // labels feel like they flashed; moving to the next icon still replaces it at once (openNavHover).
   const closeNavHoverSoon = () => {
     clearTimeout(navHoverTimer.current)
-    setNavHover((cur) => (cur && cur.kind === 'label' ? null : cur)) // a one-line tip goes at once; only a flyout waits so the pointer can reach it
-    navHoverTimer.current = setTimeout(() => setNavHover(null), 120)
+    navHoverTimer.current = setTimeout(() => setNavHover(null), 220)
   }
   const keepNavHover = () => clearTimeout(navHoverTimer.current)
   const isRtlUi = () => (document.documentElement.dir || document.body.dir || 'ltr') === 'rtl'
   const tipX = (r) => placeTip({ edge: { left: r.left, right: r.right }, vp: { w: window.innerWidth, h: window.innerHeight }, rtl: isRtlUi() })
-  const goToMenu = (id) => { setActiveMenu(id); setNavHover(null); closeDrawer() }
+  const goToMenu = (id) => { setActiveMenu(resolveMenuId(id)); setNavHover(null); closeDrawer() }
+  // Menu sheet / bottom bar: the sheet's own history entry is replaced by the page, so Back from the page does not reopen the sheet
+  const goFromSheet = (id) => { setMobileMenuOpen(false); navigate(`/${resolveMenuId(id)}`, { replace: true }) }
+  const mobileTabIds = pickBottomTabs(hasAccess)
+  const mobileTabs = mobileTabIds.map((id) => ({ id, label: allMenuItems.find((m) => m.id === id)?.label || id, icon: NAV_ICONS[id] }))
+  const mobileDots = notifCount > 0 ? ['orders'] : []
 
-  const renderNavItem = (item, { sub, onHover } = {}) => (
+  const renderNavItem = (item, { sub, onHover, openGroup } = {}) => (
     <div key={item.id}
       onMouseEnter={(e) => { prefetchPage(item.id); if (onHover) onHover(e.currentTarget) }}
       onMouseLeave={onHover ? closeNavHoverSoon : undefined}
       onTouchStart={() => prefetchPage(item.id)}
       onClick={() => goToMenu(item.id)}
-      className={`ne-navitem${navMenu === item.id ? ' active' : ''}${sub ? ' ne-navitem-sub' : ''}`}>
+      className={`ne-navitem${navMenu === item.id ? ' active' : ''}${sub ? ' ne-navitem-sub' : ''}${item.isGroup && openGroup ? ' ne-navgroup-open' : ''}`}>
       <span className="ne-ic">{NAV_ICONS[item.id]}</span>
       {(sidebarOpen || mobileDrawerOpen) && <span className="ne-navtext">{item.label}</span>}
+      {item.isGroup && (sidebarOpen || mobileDrawerOpen) && <span className="ne-navgroup-chev"><Icon name="chevronRight" size={12} /></span>}
       {item.id === 'orders' && notifCount > 0 && !(sidebarOpen || mobileDrawerOpen) && (
         // collapsed: a small dot on the icon's corner, out of the layout, so the icon never moves
         <span className="ne-navdot" aria-hidden="true" />
@@ -2346,7 +2396,7 @@ function App() {
     }
     return (
       <div key={entry.item.id}>
-        {renderNavItem(entry.item)}
+        {renderNavItem(entry.item, { openGroup: true })}
         <div className="ne-navchildren">
           {entry.children.map(c => renderNavItem(c, { sub: true }))}
         </div>
@@ -2356,6 +2406,8 @@ function App() {
 
   return (
     <div className="ne-app-shell">
+      <LoadingBar />
+      {isMobile && <PullToRefresh />}
       <div className="ne-app">
 
         {showQuotaBanner && (
@@ -2436,7 +2488,7 @@ function App() {
                 {(sidebarOpen || mobileDrawerOpen) && <span>{currentStoreInfo?.store_name || t('master.myBrands')}</span>}
               </div>
               {(sidebarOpen || mobileDrawerOpen) && <NotificationBell cfUrl={CF_URL} session={session} storeId={selectedStoreId} t={t} />}
-              {brandPopupOpen && (
+              {brandPopupOpen && !isMobile && (
                 <BrandSwitcherPopup
                   currentStoreInfo={currentStoreInfo}
                   userStoresList={userStoresList}
@@ -2514,6 +2566,26 @@ function App() {
 
         {whatsNewOpen && !showReleasePopup && <WhatsNew onClose={() => setWhatsNewOpen(false)} t={t} />}
 
+        {isMobile && activeMenu !== 'master-dashboard/dev-monitor' && activeMenu !== 'master-dashboard/gemini-monitor' && (
+          <>
+            <MobileBottomNav tabs={mobileTabs} activeId={activeTabFor(navMenu, mobileTabIds)} onSelect={(id) => { setMobileMenuOpen(false); setActiveMenu(id) }}
+              onMenu={() => setMobileMenuOpen((v) => !v)} menuOpen={mobileMenuOpen} menuLabel={t('mobile.menu')} dotIds={mobileDots}
+              onSearch={() => setSearchOpen(true)} searchLabel={t('search.triggerLabel')} />
+            <MobileMenuSheet open={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} entries={topLevelEntries} icons={NAV_ICONS}
+              activeId={navMenu} onGo={goFromSheet} title={t('mobile.menu')} closeLabel={t('mobile.close')} dotIds={mobileDots}
+              onSettings={() => goFromSheet('settings')} settingsLabel={t('nav.settings')}>
+              <div className="ne-mmenu-toggles">
+                <button onClick={() => setTheme(th => th === 'dark' ? 'light' : 'dark')}>
+                  {theme === 'dark' ? <SunIcon style={{ width: 16, height: 16 }} /> : <MoonIcon style={{ width: 16, height: 16 }} />} {t('theme.toggle')}
+                </button>
+                <button onClick={() => setLang(lang === 'ur' ? 'en' : 'ur')}>
+                  <GlobeIcon style={{ width: 16, height: 16 }} /> {lang.toUpperCase()}
+                </button>
+              </div>
+            </MobileMenuSheet>
+          </>
+        )}
+
         {searchOpen && (
           <GlobalSearch
             storeId={selectedStoreId}
@@ -2539,7 +2611,28 @@ function App() {
         )}
 
         <div className="ne-main">
-          {!fullScreenModules.includes(navMenu) && (
+          {isMobile && (
+            <MobileTopBar title={pageTitleLookup.find(m => m.id === navMenu)?.label || t('nav.home')}
+              storeName={currentStoreInfo?.store_name || t('master.myBrands')} storeLabel={t('master.myBrands')}
+              storeRef={mobileBrandRef} onStore={() => setBrandPopupOpen((v) => !v)}
+              bell={<NotificationBell cfUrl={CF_URL} session={session} storeId={selectedStoreId} t={t} />} />
+          )}
+          {isMobile && brandPopupOpen && (
+            <BrandSwitcherPopup
+              currentStoreInfo={currentStoreInfo}
+              userStoresList={userStoresList}
+              selectedStoreId={selectedStoreId}
+              onSwitchStore={(id) => { handleSwitchStore(id); setBrandPopupOpen(false) }}
+              profile={profile}
+              userEmail={session.user.email}
+              onOpenMasterDashboard={() => { navigate('/master-dashboard'); setSelectedStoreId(null); setOrdersLoaded(false); hasStartedLoadRef.current = false; hasStartedBookedLoadRef.current = false; setBrandPopupOpen(false) }}
+              onSignOut={() => supabase.auth.signOut()}
+              onClose={() => setBrandPopupOpen(false)}
+              anchorRef={mobileBrandRef}
+              t={t}
+            />
+          )}
+          {!isMobile && !fullScreenModules.includes(navMenu) && (
             <div className={`ne-topbar${activeMenu === 'settings' || activeMenu === 'online-store' ? ' ne-topbar-hide-desktop' : ''}`}>
               <button className="ne-hamburger" onClick={() => setMobileDrawerOpen(true)}>☰</button>
               <h1 className="ne-page-title">
@@ -2554,11 +2647,11 @@ function App() {
             </div>
           )}
 
-          {fullScreenModules.includes(navMenu) && (
+          {!isMobile && fullScreenModules.includes(navMenu) && (
             <button className="ne-hamburger" onClick={() => setMobileDrawerOpen(true)} style={{ position: 'absolute', top: 10, left: 10, zIndex: 50 }}>☰</button>
           )}
 
-          <div className={`ne-content${activeMenu === 'settings' ? ' ne-content-settings' : noCardModules.includes(navMenu) ? ' ne-content-fullscreen' : fullScreenModules.includes(navMenu) ? ' ne-content-notopbar' : ''}`}>
+          <div data-ne-page={navMenu} className={`ne-content${activeMenu === 'settings' ? ' ne-content-settings' : noCardModules.includes(navMenu) ? ' ne-content-fullscreen' : fullScreenModules.includes(navMenu) ? ' ne-content-notopbar' : ''}`}>
           <ErrorBoundary key={activeMenu}>
             {((ordersPending && ORDERS_DEPENDENT_PAGES.includes(activeMenu)) || (storePending && STORE_DEPENDENT_PAGES.includes(activeMenu))) && hasAccess(activeMenu) && <PageSkeletonFor menu={activeMenu} />}
             {activeMenu === 'orders' && hasAccess('orders') && !storePending && (
@@ -2657,7 +2750,8 @@ function App() {
             {activeMenu === 'master-dashboard/gemini-monitor' && profile.role === 'creator' && (
               <GeminiUsageMonitor cfUrl={CF_URL} session={session} />
             )}
-            {!['home', 'dashboard', 'store-connect', 'online-store', 'theme-editor', 'products', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'returns', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor'].includes(navMenu) && (
+            {activeMenu === 'master-dashboard/ui-editor' && profile.role === 'creator' && <UiEditor />}
+            {!['home', 'dashboard', 'store-connect', 'online-store', 'theme-editor', 'products', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'returns', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor', 'master-dashboard/ui-editor'].includes(navMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{pageTitleLookup.find(m => m.id === navMenu)?.label}</h2>

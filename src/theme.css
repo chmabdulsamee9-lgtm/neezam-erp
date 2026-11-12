@@ -389,3 +389,89 @@ html, body {
 :root[data-theme="light"] .ne-filter-btn{display:inline-flex; align-items:center;}
 :root[data-theme="light"] .ne-filter .ne-glyph{display:none;}
 
+/* ===== PHONES: everything below applies only at max-width 760px (the one breakpoint, MOBILE_MAX_PX in src/lib/mobile.js). Desktop is untouched. ===== */
+@media (max-width:760px){
+  html, body{overflow-x:hidden;}
+  .ne-app-shell{overflow-x:hidden;}
+  .ne-app{height:100dvh;}
+  .ne-main{background:var(--ne-bg);}
+  /* the desktop sidebar / drawer is replaced by the bottom tab bar and the Menu sheet */
+  .ne-sidebar, .ne-drawer-backdrop, .ne-hamburger{display:none !important;}
+  .ne-content{margin:0 !important; border-radius:0 !important; overflow-wrap:anywhere; padding-bottom:calc(76px + env(safe-area-inset-bottom)) !important;}
+
+  /* top bar */
+  .ne-mtop{display:flex; align-items:center; gap:8px; min-height:52px; padding:env(safe-area-inset-top) 12px 0; background:var(--ne-surface-2); border-bottom:1px solid var(--ne-border); flex-shrink:0; box-sizing:border-box;}
+  .ne-mtop-title{flex:1; min-width:0; margin:0; font-size:17px; font-weight:700; color:var(--ne-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .ne-mtop-store{display:inline-flex; align-items:center; gap:6px; max-width:40vw; min-height:40px; padding:0 10px; border-radius:10px; border:1px solid var(--ne-border); background:var(--ne-surface); color:var(--ne-text); font-size:13px; font-weight:600; cursor:pointer;}
+  .ne-mtop-store span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .ne-mtop .ne-bell-btn{width:44px; height:44px; border-radius:10px; background:var(--ne-surface); border:1px solid var(--ne-border); color:var(--ne-text);}
+
+  /* bottom tab bar */
+  .ne-mnav{position:fixed; left:0; right:0; bottom:0; z-index:990; display:flex; background:var(--ne-surface-2); border-top:1px solid var(--ne-border); padding-bottom:env(safe-area-inset-bottom);}
+  .ne-mnav-item{flex:1; min-width:0; min-height:58px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; background:none; border:none; color:var(--ne-muted); font-size:11px; font-weight:600; cursor:pointer; -webkit-tap-highlight-color:transparent;}
+  .ne-mnav-item.active{color:var(--ne-accent);}
+  .ne-mnav-item.active .ne-mnav-ic{background:var(--ne-accent-soft);}
+  .ne-mnav-ic{position:relative; display:flex; align-items:center; justify-content:center; width:44px; height:28px; border-radius:14px;}
+  .ne-mnav-ic svg{width:21px; height:21px; stroke:currentColor; fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round;}
+  .ne-mnav-label{max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 2px;}
+  .ne-mnav-dot{position:absolute; top:1px; right:8px; width:8px; height:8px; border-radius:50%; background:var(--ne-danger); border:2px solid var(--ne-surface-2);}
+
+  /* bottom sheets (Menu, Filters) */
+  .ne-sheet-backdrop{position:fixed; inset:0; background:rgba(10,14,38,.5); display:flex; align-items:flex-end; animation:ne-fade .18s ease;}
+  .ne-sheet{width:100%; max-height:88dvh; display:flex; flex-direction:column; background:var(--ne-surface-2); color:var(--ne-text); border-radius:14px 14px 0 0; box-shadow:0 -8px 30px rgba(0,0,0,.25); animation:ne-sheet-up .22s ease; padding-bottom:env(safe-area-inset-bottom); box-sizing:border-box;}
+  .ne-sheet-full{height:calc(100dvh - env(safe-area-inset-top) - 12px); max-height:none;}
+  .ne-sheet-head{position:relative; display:flex; align-items:center; gap:8px; padding:16px 8px 8px 18px; border-bottom:1px solid var(--ne-border); flex-shrink:0;}
+  .ne-sheet-grip{position:absolute; top:6px; left:50%; width:36px; height:4px; margin-left:-18px; border-radius:2px; background:var(--ne-border);}
+  .ne-sheet-title{flex:1; margin:0; font-size:17px; font-weight:700;}
+  .ne-sheet-close{width:44px; height:44px; display:flex; align-items:center; justify-content:center; border:none; background:none; color:var(--ne-muted); border-radius:10px; cursor:pointer;}
+  .ne-sheet-body{flex:1; min-height:0; overflow-y:auto; padding:12px 14px 16px; overscroll-behavior:contain;}
+  .ne-sheet-foot{display:flex; gap:10px; padding:12px 14px; border-top:1px solid var(--ne-border); flex-shrink:0;}
+  .ne-sheet-btn{flex:1; min-height:48px; border-radius:12px; border:1px solid var(--ne-border); background:var(--ne-surface-2); color:var(--ne-text); font-size:15px; font-weight:700; cursor:pointer;}
+  .ne-sheet-btn-primary{border:none; background:var(--ne-grad); color:#fff;}
+  @keyframes ne-sheet-up{from{transform:translateY(28px); opacity:.6} to{transform:none; opacity:1}}
+  @keyframes ne-fade{from{opacity:0} to{opacity:1}}
+
+  /* Menu sheet */
+  .ne-mmenu{display:flex; flex-direction:column; gap:2px;}
+  .ne-mmenu-group{font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--ne-muted); padding:14px 8px 6px;}
+  .ne-mmenu-row{display:flex; align-items:center; gap:12px; width:100%; min-height:50px; padding:6px 8px; border:none; background:none; border-radius:12px; color:var(--ne-text); font-size:15px; font-weight:600; text-align:left; text-decoration:none; cursor:pointer; box-sizing:border-box;}
+  .ne-mmenu-row.active{background:var(--ne-accent-soft); color:var(--ne-accent);}
+  .ne-mmenu-sub{padding-left:26px; font-weight:500;}
+  .ne-mmenu-ic{width:34px; height:34px; border-radius:10px; background:var(--ne-surface); display:flex; align-items:center; justify-content:center; flex-shrink:0; color:inherit;}
+  .ne-mmenu-ic svg{width:17px; height:17px; stroke:currentColor; fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round;}
+  .ne-mmenu-label{flex:1; min-width:0;}
+  .ne-mmenu-sub-text{display:block; font-size:12px; font-weight:400; color:var(--ne-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .ne-mmenu-dot{position:static; border:none; flex-shrink:0;}
+  .ne-mmenu-field{display:flex; flex-direction:column; gap:6px; padding:4px 8px 10px; font-size:13px; color:var(--ne-muted);}
+  .ne-mmenu-field select{min-height:48px; padding:0 12px; border-radius:12px; border:1px solid var(--ne-border); background:var(--ne-surface-2); color:var(--ne-text);}
+  .ne-mmenu-toggles{display:flex; gap:10px; padding:10px 8px;}
+  .ne-mmenu-toggles button{flex:1; min-height:48px; display:flex; align-items:center; justify-content:center; gap:8px; border-radius:12px; border:1px solid var(--ne-border); background:var(--ne-surface); color:var(--ne-text); font-size:14px; font-weight:600; cursor:pointer;}
+  .ne-mmenu-logout{color:var(--ne-danger);}
+
+  /* popups from the top bar (notifications) arrive as bottom sheets */
+  .ne-float-sheet{border-radius:14px 14px 0 0 !important; padding-bottom:env(safe-area-inset-bottom);}
+
+  /* Orders: Filters button + sheet, bulk bar above the tab bar */
+  .ne-mfilter-btn{display:inline-flex; align-items:center; gap:7px; min-height:40px; padding:0 14px; border-radius:10px; border:1px solid var(--ne-border); background:var(--ne-surface-2); color:var(--ne-text); font-size:14px; font-weight:600; cursor:pointer;}
+  .ne-mfilter-count{min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--ne-accent); color:#fff; font-size:11px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box;}
+  .ne-mfilter-fields{display:flex; flex-direction:column; gap:12px; min-height:45dvh;}
+  .ne-mfilter-fields > *{width:100%;}
+  .ne-mfilter-fields select, .ne-mfilter-fields [data-status-multi] > button{width:100%; min-height:48px; text-align:left;}
+  [data-bulkbar]{position:fixed; left:8px; right:8px; bottom:calc(66px + env(safe-area-inset-bottom)); z-index:980; margin:0 !important; padding:8px; justify-content:center; background:var(--ne-surface-2); border:1px solid var(--ne-border); border-radius:14px; box-shadow:0 8px 24px rgba(0,0,0,.18);}
+
+  /* Settings drill-down */
+  .ne-settings-navitem{min-height:48px; font-size:15px;}
+  .ne-settings-mback{display:flex; align-items:center; gap:8px; width:100%; min-height:48px; padding:0 12px; border:none; border-bottom:1px solid var(--ne-border); background:var(--ne-surface-2); color:var(--ne-text); font-size:15px; font-weight:700; cursor:pointer; position:sticky; top:0; z-index:5; box-sizing:border-box;}
+  .ne-settings-mback-current{margin-left:auto; max-width:50%; color:var(--ne-muted); font-size:13px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+
+  /* forms: 16px fields so the phone does not zoom in on focus */
+  .ne-app-shell input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]),
+  .ne-app-shell select, .ne-app-shell textarea{font-size:16px !important;}
+
+  /* centred dialogs inside the app open as bottom sheets */
+  .ne-app-shell [style*="position: fixed"][style*="inset: 0px"][style*="align-items: center"]{align-items:flex-end !important; padding:0 !important;}
+  .ne-app-shell [style*="position: fixed"][style*="inset: 0px"][style*="align-items: center"] > div{width:100% !important; max-width:100% !important; max-height:92dvh !important; border-radius:14px 14px 0 0 !important; box-sizing:border-box;}
+
+  /* wide tables scroll inside their own box, never the page */
+  .ne-content table{display:block; max-width:100%; overflow-x:auto;}
+}
