@@ -2186,7 +2186,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
   const clearListFilters = () => { setStatusFilters([]); setSourceFilter("All"); setCityFilter("All"); setSkuFilter("All"); setPage(1); };
 
   return (
-    <div style={{ padding: "0.75rem", height: "100%", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+    <div className="ne-orders-root" style={{ padding: "0.75rem", height: "100%", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
       <style>{`@keyframes ne-address-flash { 0% { background-color: var(--ne-success-soft); } 100% { background-color: transparent; } } .ne-address-flash { animation: ne-address-flash 1.5s ease-out; border-radius: 6px; }`}</style>
 
       {/* Header */}
@@ -2196,7 +2196,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
           <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{currentStore?.store_name} — {serverTotal} {t("orders.ordersSuffix")}</p>
         </div>
         <div className="ne-page-actions" style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <button onClick={toggleHeaderForced} title={headerForcedHidden ? t("orders.showHeader") : t("orders.hideHeader")}
+          <button className="ne-hide-mobile" onClick={toggleHeaderForced} title={headerForcedHidden ? t("orders.showHeader") : t("orders.hideHeader")}
             style={{ padding: "6px 9px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center" }}>
             <Icon name={headerForcedHidden ? "chevronDown" : "chevronDown"} size={11} style={{ transform: headerForcedHidden ? "rotate(0deg)" : "rotate(180deg)", transition: "transform .15s" }} />
           </button>
@@ -2208,7 +2208,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
             style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 5 }}>
             <Icon name="upload" size={12} /> {t("orders.bulkUpload")}
           </button>
-          <select className="ne-filter" value={perPage} onChange={e => { setPerPage(Number(e.target.value)); setPage(1); }}
+          <select className="ne-filter ne-hide-mobile" value={perPage} onChange={e => { setPerPage(Number(e.target.value)); setPage(1); }}
             style={{ padding: "5px 8px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface-2)", color: "var(--ne-text)", fontSize: 11 }}>
             {PER_PAGE_OPTIONS.map(n => <option key={n} value={n}>{n} / page</option>)}
           </select>
@@ -2224,7 +2224,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
       <div style={{ display: "grid", gridTemplateRows: `${effectiveHeaderReveal / 100}fr`, transition: "grid-template-rows .1s linear", overflow: filterSheetOpen && !isMobile ? "visible" : "hidden", position: "relative", zIndex: filterSheetOpen ? 40 : "auto" }}>
       <div style={{ minHeight: 0 }}>
       {/* Date Quick Buttons */}
-      <div style={{ display: "flex", gap: 6, marginBottom: "8px", alignItems: "center", flexWrap: "wrap" }}>
+      <div className="ne-scrollrow" style={{ display: "flex", gap: 6, marginBottom: "8px", alignItems: "center", flexWrap: "wrap" }}>
         <button style={dateBtnStyle("today")} onClick={() => handleDateBtn("today")}>
           {t("orders.today")} <span style={{ opacity: 0.85, fontWeight: 500 }}>({todayCount})</span>
         </button>
@@ -2327,7 +2327,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
       )}
 
       {/* Tab Navigation — har tab apni alag pill hai (theme reference jaisa), shared box nahi */}
-      <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: "0.6rem" }}>
+      <div className="ne-scrollrow" style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: "0.6rem" }}>
         {TABS.map(tab => (
           <button key={tab} onClick={() => { setActiveTab(tab); setPage(1); }}
             style={{ padding: "7px 14px", borderRadius: 20, fontSize: 11.5, cursor: "pointer", fontWeight: 700, border: "1px solid",
@@ -2349,7 +2349,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
       {loading ? (
         <OrdersSkeleton />
       ) : isMobile ? (
-        <div ref={tableRef} style={{ flex: 1, overflowY: "auto" }}>
+        <div ref={tableRef} className="ne-orders-mlist" style={{ flex: 1, overflowY: "auto" }}>
           {/* phones had no "select all" (it lived only in the desktop table header) */}
           {orderRows.length > 0 && (
             <label className="ne-mselectall">

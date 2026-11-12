@@ -1820,7 +1820,7 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
 
       {/* Top-level Tabs — "To Ship"/"Shipped" ke apne nested sub-buckets hain, baaki
           (Delivered/Pending Return/Returned/Lost & Damage/Cancel) standalone hain */}
-      <div style={{ display: "flex", gap: 7, marginBottom: activeTabDef?.subs ? 6 : "0.75rem", flexWrap: "wrap" }}>
+      <div className="ne-scrollrow" style={{ display: "flex", gap: 7, marginBottom: activeTabDef?.subs ? 6 : "0.75rem", flexWrap: "wrap" }}>
         {TAB_STRUCTURE.map((tab) => (
           <button key={tab.key} onClick={() => { setActiveTab(tab.key); setActiveSubTab(null); setPage(1); }}
             style={{ padding: "7px 14px", borderRadius: 20, fontSize: 11.5, cursor: "pointer", fontWeight: 700, border: "1px solid",

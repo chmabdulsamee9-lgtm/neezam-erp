@@ -262,8 +262,16 @@
   .ne-searchfilter{gap:6px;}
   .ne-searchfilter-field, .ne-searchfilter-btn{height:40px;}
   .ne-filterchips{overflow-x:auto; flex-wrap:nowrap; scrollbar-width:none;}
-  .ne-page-actions{width:100%;}
+  .ne-page-actions{width:100%; flex-wrap:nowrap;}
   .ne-page-actions > :is(button, select, a){height:36px; flex:1 1 auto;}
+  .ne-hide-mobile{display:none !important;}
+  /* Shopify mobile: the whole page scrolls (the list used to get zero height under the header) */
+  .ne-orders-root{height:auto !important; min-height:100%; padding:10px 10px 90px !important;}
+  .ne-orders-mlist{flex:none !important; overflow:visible !important;}
+  /* tabs and date chips: one line that scrolls sideways */
+  .ne-scrollrow{flex-wrap:nowrap !important; overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; padding-bottom:2px;}
+  .ne-scrollrow::-webkit-scrollbar{display:none;}
+  .ne-scrollrow > *{flex-shrink:0;}
 }
 
 /* expanding details inside a card */
