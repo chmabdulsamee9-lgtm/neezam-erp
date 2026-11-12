@@ -2459,7 +2459,7 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
           <style>{`.ne-hide-scroll::-webkit-scrollbar{display:none} .ne-hide-scroll{scrollbar-width:none; -ms-overflow-style:none;}`}</style>
 
-          <div ref={tableRef} style={{ flex: 1, overflowY: "auto" }}>
+          <div ref={tableRef} className="ne-orders-list" style={{ flex: 1, overflowY: "auto" }}>
 
             {/* Header row — visibility ab sirf manual Hide/Show Header toggle se control hoti hai (0% ya 100%), scroll se nahi */}
             <div style={{ display: "flex", alignItems: "center", gap: 0, position: "sticky", top: 0, zIndex: 5, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, boxShadow: "var(--ne-shadow-strip, 0 2px 8px rgba(0,0,0,.18))", overflow: "hidden",

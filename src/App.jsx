@@ -11,6 +11,7 @@ import './theme.css'
 import './look.css'
 import { supabase } from './supabase'
 import LoadingBar from './components/LoadingBar'
+import PullToRefresh from './components/PullToRefresh'
 import { installFetchTracking, startLoading, armLoading } from './lib/loadingBar'
 import { applyTheme } from './lib/themeTokens'
 import { installEditMode } from './lib/editMode'
@@ -255,7 +256,7 @@ const NAV_ICONS = {
   'courier-connect': <svg viewBox="0 0 20 20"><rect x="2" y="6" width="9" height="7" rx="1"/><path d="M11 9h3.5L17 11.5V13h-6"/><circle cx="6" cy="15.5" r="1.6"/><circle cx="14.5" cy="15.5" r="1.6"/><path d="M2 3.5h6" opacity=".6"/></svg>,
   team: <svg viewBox="0 0 20 20"><circle cx="7" cy="7" r="2.6"/><circle cx="14" cy="8" r="2"/><path d="M2.5 17c.5-3 2.2-4.5 4.5-4.5s4 1.5 4.5 4.5"/><path d="M12 17c.4-2.3 1.6-3.7 3.5-3.7s2.7 1.1 3 3.2"/></svg>,
   'activity-log': <svg viewBox="0 0 20 20"><rect x="3" y="2.5" width="14" height="15" rx="2"/><path d="M6.5 7h7M6.5 10.5h7M6.5 14h4"/></svg>,
-  settings: <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.5v2M10 15.5v2M17.5 10h-2M4.5 10h-2M15.1 4.9l-1.4 1.4M6.3 13.7l-1.4 1.4M15.1 15.1l-1.4-1.4M6.3 6.3 4.9 4.9"/></svg>,
+  settings: <svg viewBox="0 0 20 20"><g transform="scale(.8333)"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></g></svg>,
   inventory: <svg viewBox="0 0 20 20"><rect x="2.5" y="4" width="15" height="4" rx="1"/><rect x="3.5" y="9" width="13" height="7" rx="1"/><path d="M8 12.5h4"/></svg>,
   'dev-monitor': <svg viewBox="0 0 20 20"><rect x="2" y="3.5" width="16" height="10.5" rx="1.5"/><path d="M7 17h6M10 14v3"/><path d="M5 8l2.5 2.5L10 7l2 2 3-3"/></svg>,
   'group:sales-channels': <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><path d="M3 10h14"/><path d="M10 3c2.2 2 2.2 12 0 14"/><path d="M10 3c-2.2 2-2.2 12 0 14"/></svg>,
@@ -2405,6 +2406,7 @@ function App() {
   return (
     <div className="ne-app-shell">
       <LoadingBar />
+      {isMobile && <PullToRefresh />}
       <div className="ne-app">
 
         {showQuotaBanner && (
@@ -2566,9 +2568,11 @@ function App() {
         {isMobile && activeMenu !== 'master-dashboard/dev-monitor' && activeMenu !== 'master-dashboard/gemini-monitor' && (
           <>
             <MobileBottomNav tabs={mobileTabs} activeId={activeTabFor(navMenu, mobileTabIds)} onSelect={(id) => { setMobileMenuOpen(false); setActiveMenu(id) }}
-              onMenu={() => setMobileMenuOpen((v) => !v)} menuOpen={mobileMenuOpen} menuLabel={t('mobile.menu')} dotIds={mobileDots} />
+              onMenu={() => setMobileMenuOpen((v) => !v)} menuOpen={mobileMenuOpen} menuLabel={t('mobile.menu')} dotIds={mobileDots}
+              onSearch={() => setSearchOpen(true)} searchLabel={t('search.triggerLabel')} />
             <MobileMenuSheet open={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} entries={topLevelEntries} icons={NAV_ICONS}
-              activeId={navMenu} onGo={goFromSheet} title={t('mobile.menu')} closeLabel={t('mobile.close')} dotIds={mobileDots}>
+              activeId={navMenu} onGo={goFromSheet} title={t('mobile.menu')} closeLabel={t('mobile.close')} dotIds={mobileDots}
+              onSettings={() => goFromSheet('settings')} settingsLabel={t('nav.settings')}>
               <div className="ne-mmenu-group">{t('mobile.account')}</div>
               {userStoresList.length > 1 && (
                 <label className="ne-mmenu-field">

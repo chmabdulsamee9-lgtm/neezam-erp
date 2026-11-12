@@ -50,7 +50,8 @@ const PATHS = {
   map: <><path d="M7 4 2.5 5.5v10L7 14l6 2 4.5-1.5v-10L13 6l-6-2Z" /><path d="M7 4v10M13 6v10" /></>,
   tag: <><path d="M3 3h6l8 8-6 6-8-8Z" /><circle cx="7" cy="7" r="1.3" fill="currentColor" stroke="none" /></>,
   team: <><circle cx="7" cy="7" r="2.6" /><circle cx="14" cy="8" r="2" /><path d="M2.5 17c.5-3 2.2-4.5 4.5-4.5s4 1.5 4.5 4.5" /><path d="M12 17c.4-2.3 1.6-3.7 3.5-3.7s2.7 1.1 3 3.2" /></>,
-  settings: <><circle cx="10" cy="10" r="2.6" /><path d="M10 2.5v2M10 15.5v2M17.5 10h-2M4.5 10h-2M15.1 4.9l-1.4 1.4M6.3 13.7l-1.4 1.4M15.1 15.1l-1.4-1.4M6.3 6.3 4.9 4.9" /></>,
+  // a real cog (the old one with rays read as a "sun" / light-mode icon)
+  settings: <><g transform="scale(.8333)"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></g></>,
   card: <><rect x="2.5" y="4.5" width="15" height="11" rx="2" /><path d="M2.5 8.5h15" /><path d="M5.5 12.5h3" /></>,
   products: <><path d="M3 3h6l8 8-6 6-8-8Z" /><circle cx="7" cy="7" r="1.3" fill="currentColor" stroke="none" /></>,
   inventory: <><rect x="2.5" y="4" width="15" height="4" rx="1" /><rect x="3.5" y="9" width="13" height="7" rx="1" /><path d="M8 12.5h4" /></>,

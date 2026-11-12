@@ -1069,6 +1069,17 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
     return all.map((r) => ({ id: r.order_id, agent_data: { dex_tracking_number: r.dex_tracking_number } }));
   };
 
+  // select / unselect every order on this page (any tab, desktop and phone)
+  const pageAllSelected = orders.length > 0 && orders.every((o) => selectedIds.has(o.id));
+  const togglePageSelect = () => {
+    if (pageAllSelected) {
+      setSelectedIds((prev) => { const n = new Set(prev); orders.forEach((o) => n.delete(o.id)); return n; });
+    } else {
+      orders.forEach((o) => selectedRowsRef.current.set(o.id, o));
+      setSelectedIds((prev) => { const n = new Set(prev); orders.forEach((o) => n.add(o.id)); return n; });
+    }
+  };
+
   const toggleSelect = (id) => {
     const __row = orders.find((o) => o.id === id);
     if (__row) selectedRowsRef.current.set(id, __row);
@@ -2067,6 +2078,13 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
                 {t("booked.clear")}
               </button>
             </div>
+          )}
+          {/* select all on this page for every tab (To Ship keeps its own "all matching" select above) */}
+          {activeTab !== "To Ship" && pagedFiltered.length > 0 && (
+            <label className="ne-mselectall ne-selectall-row">
+              <input type="checkbox" checked={pageAllSelected} onChange={togglePageSelect} />
+              <span>{selectedIds.size > 0 ? `${selectedIds.size} ${t("orders.selectedSuffix")}` : t("booked.selectAll")}</span>
+            </label>
           )}
           {pagedFiltered.map((o) => {
             const ad = o.agent_data;

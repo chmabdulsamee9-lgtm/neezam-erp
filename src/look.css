@@ -253,6 +253,21 @@
 .ne-pe-color input[type="text"]{flex:1; min-width:0; height:28px; padding:0 8px; border:1px solid var(--ne-border); border-radius:8px; background:var(--ne-surface-2); color:var(--ne-text); font-size:12px;}
 @media (max-width:1100px){ .ne-pe{flex-direction:column;} .ne-pe-panel{width:auto;} }
 
+/* lists inside their own scroll box: room for the card ring, or the box clips the card's left/right edge */
+.ne-orders-list, .ne-orders-mlist{padding:2px 3px 6px; box-sizing:border-box;}
+
+/* Shopify card feel: rounder, softer ring, more air between cards */
+:root[data-theme="light"]{
+  --ne-radius-card:16px;
+  /* Shopify's card exactly (measured): a soft dark 2px edge + three very light drops */
+  --ne-shadow-card:0 0 2px rgba(0,0,0,.24), 0 2px 12px rgba(0,0,0,.02), 0 4px 16px rgba(0,0,0,.02), 0 4px 48px rgba(0,0,0,.02);
+  --ne-shadow-card-hover:0 0 2px rgba(0,0,0,.32), 0 2px 12px rgba(0,0,0,.05), 0 6px 20px rgba(0,0,0,.05), 0 4px 48px rgba(0,0,0,.03);
+}
+.ne-orders-list > div[style*="border-radius: 14px"], .ne-orders-mlist > div[style*="border-radius: 14px"]{margin-bottom:10px !important; transition:box-shadow var(--ne-motion-fast) ease;}
+:root[data-theme="light"] .ne-orders-list > div[style*="border-radius: 14px"]:hover{box-shadow:var(--ne-shadow-card-hover) !important;}
+.ne-selectall-row{display:inline-flex; width:auto; padding:0 14px;}
+@media (max-width:760px){ .ne-selectall-row{display:flex; width:100%;} }
+
 /* phones: select-all row above lists, tighter spacing so more details fit (Shopify mobile density) */
 .ne-mselectall{display:flex; align-items:center; gap:10px; min-height:40px; padding:0 12px; margin-bottom:8px; border-radius:12px; background:var(--ne-surface-2); box-shadow:var(--ne-shadow-card); font-size:13px; font-weight:600; color:var(--ne-text); cursor:pointer;}
 .ne-mselectall input{width:18px; height:18px; accent-color:var(--ne-accent);}
@@ -273,6 +288,101 @@
   .ne-scrollrow::-webkit-scrollbar{display:none;}
   .ne-scrollrow > *{flex-shrink:0;}
 }
+
+/* ==========================================================================================
+   Glass (Shopify mobile footer / menu dock / buttons) and desktop sidebar glass highlight
+   ========================================================================================== */
+:root{
+  --ne-glass-bg:rgba(22,27,69,.55);
+  --ne-glass-ring:0 0 0 1px rgba(255,255,255,.12);
+  --ne-glass-shadow:inset 0 1px 0 rgba(255,255,255,.18), inset 0 -1px 0 rgba(0,0,0,.25), 0 0 0 1px rgba(255,255,255,.10), 0 10px 30px rgba(0,0,0,.35);
+  --ne-glass-blur:blur(18px) saturate(1.6);
+}
+:root[data-theme="light"]{
+  --ne-glass-bg:rgba(255,255,255,.72);
+  --ne-glass-shadow:inset 0 1px 0 rgba(255,255,255,.95), inset 0 -1px 0 rgba(0,0,0,.06), 0 0 0 1px rgba(0,0,0,.07), 0 10px 28px rgba(0,0,0,.14);
+}
+.ne-glass-circle{width:48px; height:48px; flex-shrink:0; border-radius:50%; border:none; display:inline-flex; align-items:center; justify-content:center; color:var(--ne-text); cursor:pointer;
+  background:var(--ne-glass-bg); -webkit-backdrop-filter:var(--ne-glass-blur); backdrop-filter:var(--ne-glass-blur); box-shadow:var(--ne-glass-shadow); transition:transform .15s var(--ne-ease), background-color .15s ease;}
+.ne-glass-circle:active{transform:scale(.92);}
+
+@media (max-width:760px){
+  /* floating footer: a search circle + a pill of pages, inset from the screen edges */
+  .ne-mnav.ne-glass-bar{left:10px; right:10px; bottom:calc(10px + env(safe-area-inset-bottom)); padding:0; gap:8px; align-items:center; background:none; border:none; box-shadow:none;
+    transition:opacity .16s ease, transform .2s var(--ne-ease);}
+  .ne-mnav.ne-mnav-away{opacity:0; transform:translateY(6px) scale(.97); pointer-events:none;}
+  .ne-mnav-pill{flex:1; min-width:0; display:flex; align-items:center; height:52px; padding:0 4px; border-radius:999px;
+    background:var(--ne-glass-bg); -webkit-backdrop-filter:var(--ne-glass-blur); backdrop-filter:var(--ne-glass-blur); box-shadow:var(--ne-glass-shadow);}
+  .ne-mnav-search{width:52px; height:52px;}
+  .ne-mnav-pill .ne-mnav-item{min-height:44px; gap:0; border-radius:999px; color:var(--ne-text);}
+  .ne-mnav-pill .ne-mnav-label{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0);}
+  .ne-mnav-pill .ne-mnav-ic{width:44px; height:36px; border-radius:999px; transition:background-color .18s ease, transform .18s var(--ne-ease);}
+  .ne-mnav-pill .ne-mnav-item.active .ne-mnav-ic{background:color-mix(in srgb, var(--ne-text) 12%, transparent);}
+  .ne-mnav-pill .ne-mnav-item:active .ne-mnav-ic{transform:scale(.9);}
+  .ne-mnav-pill .ne-mnav-ic svg{width:22px; height:22px;}
+  .ne-orders-root, .ne-content{padding-bottom:calc(80px + env(safe-area-inset-bottom));}
+
+  /* the menu: full screen, fades in; the footer morphs into a floating Settings / Close dock at the same spot */
+  .ne-sheet-backdrop:has(.ne-sheet-full){background:transparent; animation:none;}
+  .ne-sheet-full{height:100dvh; border-radius:0; box-shadow:none; animation:ne-menu-in .24s var(--ne-ease); padding-bottom:calc(84px + env(safe-area-inset-bottom));}
+  .ne-sheet-full .ne-sheet-head{display:none;}
+  .ne-mmenu-dock{position:fixed; left:0; right:0; bottom:calc(12px + env(safe-area-inset-bottom)); display:flex; justify-content:center; gap:12px; z-index:3; animation:ne-dock-in .22s var(--ne-ease);}
+}
+@keyframes ne-menu-in{from{opacity:0; transform:scale(.985);} to{opacity:1; transform:none;}}
+@keyframes ne-dock-in{from{opacity:0; transform:translateY(8px) scale(.9);} to{opacity:1; transform:none;}}
+@media (min-width:761px){ .ne-mmenu-dock{display:none;} }
+
+/* 3D glass secondary buttons, desktop and phone (primary brand buttons keep their gradient) */
+:root[data-theme="light"] .ne-content button:not(:disabled)[style*="border: 1px solid var(--ne-border)"]:not([style*="border-radius: 14px"]):not([style*="border-radius: 16px"]){
+  background:linear-gradient(180deg, rgba(255,255,255,.95), rgba(246,246,247,.9)) !important;
+  box-shadow:inset 0 1px 0 #fff, inset 0 -1px 0 rgba(0,0,0,.08), 0 0 0 1px rgba(0,0,0,.09), 0 1px 2px rgba(0,0,0,.08) !important;}
+:root[data-theme="light"] .ne-content button:not(:disabled)[style*="border: 1px solid var(--ne-border)"]:not([style*="border-radius: 14px"]):not([style*="border-radius: 16px"]):hover{
+  box-shadow:inset 0 1px 0 #fff, inset 0 -1px 0 rgba(0,0,0,.1), 0 0 0 1px rgba(0,0,0,.14), 0 2px 6px rgba(0,0,0,.1) !important;}
+
+/* desktop sidebar: glass highlight on hover and on the open page (instead of a flat tint) */
+@media (min-width:761px){
+  .ne-navitem{transition:background-color .18s ease, box-shadow .18s ease, color .18s ease;}
+  .ne-navitem:hover:not(.active){background:linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.04)); box-shadow:inset 0 1px 0 rgba(255,255,255,.08), 0 0 0 1px rgba(255,255,255,.05);}
+  .ne-navitem.active{background:linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.07)); box-shadow:inset 0 1px 0 rgba(255,255,255,.22), inset 0 -1px 0 rgba(0,0,0,.25), 0 0 0 1px rgba(255,255,255,.08), 0 4px 12px rgba(0,0,0,.25);}
+  .ne-navitem.active::before{display:none;}
+  .ne-navitem.active .ne-ic{background:var(--ne-grad); box-shadow:inset 0 1px 0 rgba(255,255,255,.35);}
+}
+
+/* pull to refresh (phones): indicator under the top bar */
+.ne-ptr{position:fixed; left:50%; top:calc(env(safe-area-inset-top) + 58px); width:36px; height:36px; margin-left:-18px; border-radius:50%; z-index:3000; display:flex; align-items:center; justify-content:center; color:var(--ne-accent);
+  background:var(--ne-glass-bg); -webkit-backdrop-filter:var(--ne-glass-blur); backdrop-filter:var(--ne-glass-blur); box-shadow:var(--ne-glass-shadow); pointer-events:none; transition:opacity .15s ease;}
+.ne-ptr.spin svg{animation:spin .8s linear infinite;}
+@keyframes spin{from{transform:rotate(0)} to{transform:rotate(360deg)}}
+
+/* ==========================================================================================
+   Motion v3, measured from Shopify admin with document.getAnimations() frame by frame:
+   - new content: opacity 0->1 + blur(2px)->0 + 4px slide, 400 ms, cubic-bezier(.2,.8,0,1)
+   - Settings: the side list opens (main panel margin 60->300 px) in 250 ms on the same curve; old content fades in 50 ms
+   ========================================================================================== */
+:root{ --ne-ease:cubic-bezier(.2,.8,0,1); --ne-reveal:.4s; }
+@keyframes ne-reveal{from{opacity:0; filter:blur(2px); transform:translateY(4px);} to{opacity:1; filter:none; transform:none;}}
+@keyframes ne-reveal-x{from{opacity:0; filter:blur(2px); transform:translateX(-4px);} to{opacity:1; filter:none; transform:none;}}
+.ne-content > :not(.ne-skel):not([style*="position: fixed"]){animation:ne-reveal var(--ne-reveal) var(--ne-ease) both;}
+.ne-navtext, .ne-navchildren .ne-navitem{animation:ne-reveal-x var(--ne-reveal) var(--ne-ease) both;}
+/* list cards come in one after another (first ten only, so long lists never feel slow) */
+.ne-orders-list > div[style*="border-radius: 14px"], .ne-orders-mlist > div[style*="border-radius: 14px"], .ne-content [style*="border-radius: 14px"][style*="display: flex; gap: 10px"]{animation:ne-reveal var(--ne-reveal) var(--ne-ease) both;}
+.ne-orders-list > div:nth-child(2){animation-delay:.03s} .ne-orders-list > div:nth-child(3){animation-delay:.06s} .ne-orders-list > div:nth-child(4){animation-delay:.09s}
+.ne-orders-list > div:nth-child(5){animation-delay:.12s} .ne-orders-list > div:nth-child(6){animation-delay:.15s} .ne-orders-list > div:nth-child(n+7){animation-delay:.18s}
+.ne-orders-mlist > div:nth-child(3){animation-delay:.04s} .ne-orders-mlist > div:nth-child(4){animation-delay:.08s} .ne-orders-mlist > div:nth-child(n+5){animation-delay:.12s}
+/* Settings: the side list opens like Shopify's, then its rows reveal one after another */
+@media (min-width:761px){
+  .ne-content-settings .ne-settings-nav{animation:ne-settings-open .25s var(--ne-ease) both; overflow:hidden;}
+  .ne-content-settings .ne-settings-body{animation:ne-reveal var(--ne-reveal) var(--ne-ease) .05s both;}
+}
+@keyframes ne-settings-open{from{width:0; padding-left:0; padding-right:0; opacity:.4;} to{width:230px; opacity:1;}}
+.ne-settings-navitem{animation:ne-reveal-x var(--ne-reveal) var(--ne-ease) both;}
+.ne-settings-navlist > .ne-settings-navitem:nth-child(2){animation-delay:.02s} .ne-settings-navlist > .ne-settings-navitem:nth-child(3){animation-delay:.04s}
+.ne-settings-navlist > .ne-settings-navitem:nth-child(4){animation-delay:.06s} .ne-settings-navlist > .ne-settings-navitem:nth-child(5){animation-delay:.08s}
+.ne-settings-navlist > .ne-settings-navitem:nth-child(n+6){animation-delay:.1s}
+/* phone menu rows reveal in order */
+.ne-mmenu > div, .ne-mmenu > button{animation:ne-reveal var(--ne-reveal) var(--ne-ease) both;}
+.ne-mmenu > :nth-child(2){animation-delay:.02s} .ne-mmenu > :nth-child(3){animation-delay:.04s} .ne-mmenu > :nth-child(4){animation-delay:.06s} .ne-mmenu > :nth-child(n+5){animation-delay:.08s}
+@media (prefers-reduced-motion:reduce){ .ne-content > *, .ne-navtext, .ne-settings-navitem, .ne-mmenu > *, .ne-orders-list > div, .ne-orders-mlist > div, .ne-content-settings .ne-settings-nav{animation:none !important;} }
 
 /* expanding details inside a card */
 .ne-expand-in{animation:ne-expand-in var(--ne-motion) var(--ne-ease); overflow:hidden;}
