@@ -411,6 +411,12 @@
 }
 @keyframes ne-menu-frost{from{opacity:0; -webkit-backdrop-filter:blur(0); backdrop-filter:blur(0);} to{opacity:1; -webkit-backdrop-filter:blur(20px); backdrop-filter:blur(20px);}}
 
+/* ---------- Master Dashboard in light mode: its own light page (it was sitting on the navy app frame with dark text) ---------- */
+:root[data-theme="light"] .ne-master{background:var(--ne-surface) !important; color:var(--ne-text);}
+:root[data-theme="light"] .ne-master > div:first-child{background:var(--ne-bg); border-bottom-color:var(--ne-border) !important;}
+:root[data-theme="light"] .ne-master div[style*="box-shadow"]:not([style*="position: fixed"]){box-shadow:var(--ne-shadow-card) !important; border-color:transparent !important;}
+:root[data-theme="light"] .ne-master input[type="checkbox"]{accent-color:var(--ne-accent);}
+
 /* expanding details inside a card */
 .ne-expand-in{animation:ne-expand-in var(--ne-motion) var(--ne-ease); overflow:hidden;}
 @keyframes ne-expand-in{from{opacity:0; max-height:0;} to{opacity:1; max-height:1200px;}}

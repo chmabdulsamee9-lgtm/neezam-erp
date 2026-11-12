@@ -647,7 +647,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
   }
 
   return (
-    <div className="ne-app-shell" style={{ height: '100%', overflow: 'auto' }}>
+    <div className="ne-app-shell ne-master" style={{ height: '100%', overflow: 'auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: '1px solid var(--ne-border)' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -669,7 +669,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
       <div style={{ padding: '1.5rem' }}>
         {pendingProfiles.length > 0 && (
           <div style={{ marginBottom: '2rem' }}>
-            <h2 style={{ fontSize: 14, color: '#F2A83E', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="pending" size={14} /> {t('master.pendingApprovals')} ({pendingProfiles.length})</h2>
+            <h2 style={{ fontSize: 14, color: 'var(--ne-warning)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="pending" size={14} /> {t('master.pendingApprovals')} ({pendingProfiles.length})</h2>
             <div style={{ display: 'grid', gap: 8 }}>
               {pendingProfiles.map(p => {
                 const defaultAddonIds = p.subscription?.selected_addon_ids || []
@@ -2182,7 +2182,7 @@ function App() {
   // TASK 15: admin ka apna mini master dashboard (2+ brands ho tabhi sidebar se pohonch sakta hai)
   if (profile.role === 'admin' && isAdminMasterView) {
     return (
-      <div className="ne-app-shell" style={{ height: '100%', overflow: 'auto' }}>
+      <div className="ne-app-shell ne-master" style={{ height: '100%', overflow: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', borderBottom: '1px solid var(--ne-border)' }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{t('master.miniHeaderTitle')}</h1>
