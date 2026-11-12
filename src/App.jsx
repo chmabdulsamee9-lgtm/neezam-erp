@@ -1184,6 +1184,7 @@ function App() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [brandPopupOpen, setBrandPopupOpen] = useState(false)
   const brandBtnRef = useRef(null)
+  const mobileBrandRef = useRef(null) // phone top bar "My Brands" button: opens the same account popup
   const [navHover, setNavHover] = useState(null)
   const navHoverTimer = useRef(null)
   useEffect(() => () => clearTimeout(navHoverTimer.current), [])
@@ -2487,7 +2488,7 @@ function App() {
                 {(sidebarOpen || mobileDrawerOpen) && <span>{currentStoreInfo?.store_name || t('master.myBrands')}</span>}
               </div>
               {(sidebarOpen || mobileDrawerOpen) && <NotificationBell cfUrl={CF_URL} session={session} storeId={selectedStoreId} t={t} />}
-              {brandPopupOpen && (
+              {brandPopupOpen && !isMobile && (
                 <BrandSwitcherPopup
                   currentStoreInfo={currentStoreInfo}
                   userStoresList={userStoresList}
@@ -2573,33 +2574,6 @@ function App() {
             <MobileMenuSheet open={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} entries={topLevelEntries} icons={NAV_ICONS}
               activeId={navMenu} onGo={goFromSheet} title={t('mobile.menu')} closeLabel={t('mobile.close')} dotIds={mobileDots}
               onSettings={() => goFromSheet('settings')} settingsLabel={t('nav.settings')}>
-              <div className="ne-mmenu-group">{t('mobile.account')}</div>
-              {userStoresList.length > 1 && (
-                <label className="ne-mmenu-field">
-                  <span>{t('brandPopup.switchStore')}</span>
-                  <select value={selectedStoreId || ''} onChange={(e) => { handleSwitchStore(e.target.value); setMobileMenuOpen(false) }}>
-                    {userStoresList.map((us) => <option key={us.store_id} value={us.store_id}>{us.stores?.store_name}</option>)}
-                  </select>
-                </label>
-              )}
-              <button className={`ne-mmenu-row${activeMenu === 'settings' ? ' active' : ''}`} onClick={() => goFromSheet('settings')}>
-                <span className="ne-mmenu-ic">{NAV_ICONS.settings}</span><span className="ne-mmenu-label">{t('nav.settings')}</span><Icon name="chevronRight" size={14} style={{ opacity: 0.45 }} />
-              </button>
-              {profile.role === 'admin' && userStoresList.length > 1 && (
-                <button className="ne-mmenu-row" onClick={() => { setMobileMenuOpen(false); setIsAdminMasterView(true) }}>
-                  <span className="ne-mmenu-ic"><Icon name="store" size={15} /></span><span className="ne-mmenu-label">{t('master.myBrands')}</span><Icon name="chevronRight" size={14} style={{ opacity: 0.45 }} />
-                </button>
-              )}
-              {profile.role === 'creator' && (
-                <button className="ne-mmenu-row" onClick={() => { setMobileMenuOpen(false); navigate('/master-dashboard'); setSelectedStoreId(null); setOrdersLoaded(false); hasStartedLoadRef.current = false; hasStartedBookedLoadRef.current = false }}>
-                  <span className="ne-mmenu-ic"><Icon name="building" size={15} /></span><span className="ne-mmenu-label">{t('brandPopup.masterDashboard')}</span><Icon name="chevronRight" size={14} style={{ opacity: 0.45 }} />
-                </button>
-              )}
-              <a className="ne-mmenu-row" href="/accounts">
-                <span className="ne-mmenu-ic"><InitialsAvatar name={profile?.full_name || session.user.email} size={24} /></span>
-                <span className="ne-mmenu-label"><span style={{ display: 'block' }}>{profile?.full_name || t('accounts.title')}</span><span className="ne-mmenu-sub-text">{session.user.email}</span></span>
-                <Icon name="chevronRight" size={14} style={{ opacity: 0.45 }} />
-              </a>
               <div className="ne-mmenu-toggles">
                 <button onClick={() => setTheme(th => th === 'dark' ? 'light' : 'dark')}>
                   {theme === 'dark' ? <SunIcon style={{ width: 16, height: 16 }} /> : <MoonIcon style={{ width: 16, height: 16 }} />} {t('theme.toggle')}
@@ -2608,9 +2582,6 @@ function App() {
                   <GlobeIcon style={{ width: 16, height: 16 }} /> {lang.toUpperCase()}
                 </button>
               </div>
-              <button className="ne-mmenu-row ne-mmenu-logout" onClick={() => supabase.auth.signOut()}>
-                <span className="ne-mmenu-ic"><Icon name="logout" size={15} /></span><span className="ne-mmenu-label">{t('action.logout')}</span>
-              </button>
             </MobileMenuSheet>
           </>
         )}
@@ -2642,9 +2613,24 @@ function App() {
         <div className="ne-main">
           {isMobile && (
             <MobileTopBar title={pageTitleLookup.find(m => m.id === navMenu)?.label || t('nav.home')}
-              storeName={currentStoreInfo?.store_name || t('master.myBrands')} storeLabel={t('mobile.openMenu')}
-              onStore={() => setMobileMenuOpen(true)}
+              storeName={currentStoreInfo?.store_name || t('master.myBrands')} storeLabel={t('master.myBrands')}
+              storeRef={mobileBrandRef} onStore={() => setBrandPopupOpen((v) => !v)}
               bell={<NotificationBell cfUrl={CF_URL} session={session} storeId={selectedStoreId} t={t} />} />
+          )}
+          {isMobile && brandPopupOpen && (
+            <BrandSwitcherPopup
+              currentStoreInfo={currentStoreInfo}
+              userStoresList={userStoresList}
+              selectedStoreId={selectedStoreId}
+              onSwitchStore={(id) => { handleSwitchStore(id); setBrandPopupOpen(false) }}
+              profile={profile}
+              userEmail={session.user.email}
+              onOpenMasterDashboard={() => { navigate('/master-dashboard'); setSelectedStoreId(null); setOrdersLoaded(false); hasStartedLoadRef.current = false; hasStartedBookedLoadRef.current = false; setBrandPopupOpen(false) }}
+              onSignOut={() => supabase.auth.signOut()}
+              onClose={() => setBrandPopupOpen(false)}
+              anchorRef={mobileBrandRef}
+              t={t}
+            />
           )}
           {!isMobile && !fullScreenModules.includes(navMenu) && (
             <div className={`ne-topbar${activeMenu === 'settings' || activeMenu === 'online-store' ? ' ne-topbar-hide-desktop' : ''}`}>

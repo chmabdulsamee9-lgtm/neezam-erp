@@ -30,11 +30,11 @@ export function MobileBottomNav({ tabs, activeId, onSelect, onMenu, menuOpen, me
 }
 
 /** compact top bar for phones: page title, store name (opens the Menu), bell */
-export function MobileTopBar({ title, storeName, onStore, bell, storeLabel }) {
+export function MobileTopBar({ title, storeName, onStore, bell, storeLabel, storeRef }) {
   return (
     <header className="ne-mtop">
       <h1 className="ne-mtop-title">{title}</h1>
-      <button className="ne-mtop-store" onClick={onStore} aria-label={storeLabel}>
+      <button ref={storeRef} className="ne-mtop-store" onClick={onStore} aria-label={storeLabel}>
         <Icon name="store" size={14} /><span>{storeName}</span>
       </button>
       {bell}

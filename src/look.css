@@ -384,6 +384,33 @@
 .ne-mmenu > :nth-child(2){animation-delay:.02s} .ne-mmenu > :nth-child(3){animation-delay:.04s} .ne-mmenu > :nth-child(4){animation-delay:.06s} .ne-mmenu > :nth-child(n+5){animation-delay:.08s}
 @media (prefers-reduced-motion:reduce){ .ne-content > *, .ne-navtext, .ne-settings-navitem, .ne-mmenu > *, .ne-orders-list > div, .ne-orders-mlist > div, .ne-content-settings .ne-settings-nav{animation:none !important;} }
 
+/* ---------- fields like Shopify's (the "Pakistan" select): a firmer grey edge + a soft drop ---------- */
+:root[data-theme="light"] .ne-content :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]), textarea, select){
+  border-color:#cfcfcf !important; box-shadow:0 1px 2px rgba(0,0,0,.07), inset 0 1px 0 rgba(255,255,255,.7); background-color:#fff;}
+:root[data-theme="light"] .ne-content :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]), textarea, select):not(:disabled):hover{border-color:#a8a8a8 !important;}
+:root[data-theme="light"] .ne-content :is(input, textarea, select):focus{border-color:var(--ne-accent) !important; box-shadow:0 0 0 3px color-mix(in srgb, var(--ne-accent) 22%, transparent) !important;}
+.ne-searchfilter-field input{box-shadow:none !important; border:none !important;}
+/* the Orders column header strip gets the card edge too */
+:root[data-theme="light"] .ne-orders-list > div[style*="position: sticky"]{border-color:transparent !important; box-shadow:var(--ne-shadow-card) !important;}
+
+/* ---------- phone menu: dark (same contrast as the desktop popup), frosted fade-in like Shopify (~140 ms) ---------- */
+@media (max-width:760px){
+  .ne-sheet-full{background:var(--ne-sidebar-bg) !important; color:#EEF0FF; animation:ne-menu-frost .16s ease-out both;}
+  .ne-sheet-full .ne-mmenu-row{color:#EEF0FF; background:transparent;}
+  .ne-sheet-full .ne-mmenu-row:active{background:rgba(255,255,255,.06);}
+  .ne-sheet-full .ne-mmenu-row.active{color:#fff; background:linear-gradient(180deg, rgba(255,255,255,.14), rgba(255,255,255,.06)); box-shadow:inset 0 1px 0 rgba(255,255,255,.18), 0 0 0 1px rgba(255,255,255,.06);}
+  .ne-sheet-full .ne-mmenu-ic{background:rgba(255,255,255,.07); color:#EEF0FF;}
+  .ne-sheet-full .ne-mmenu-row.active .ne-mmenu-ic{background:var(--ne-grad); color:#fff;}
+  .ne-sheet-full .ne-mmenu-group{color:rgba(255,255,255,.45);}
+  .ne-sheet-full .ne-mmenu-field{color:rgba(255,255,255,.55);}
+  .ne-sheet-full .ne-mmenu-field select, .ne-sheet-full .ne-mmenu-toggles button{background:rgba(255,255,255,.06); border-color:rgba(255,255,255,.12); color:#EEF0FF;}
+  .ne-sheet-full .ne-mmenu-row svg{opacity:.85;}
+  .ne-mmenu-dock .ne-glass-circle{--ne-glass-bg:rgba(255,255,255,.1); --ne-glass-shadow:inset 0 1px 0 rgba(255,255,255,.25), inset 0 -1px 0 rgba(0,0,0,.3), 0 0 0 1px rgba(255,255,255,.12), 0 8px 24px rgba(0,0,0,.4); color:#EEF0FF;}
+  /* the account popup from the top bar's "My Brands" button */
+  .ne-brand-popover{width:min(260px, 86vw) !important;}
+}
+@keyframes ne-menu-frost{from{opacity:0; -webkit-backdrop-filter:blur(0); backdrop-filter:blur(0);} to{opacity:1; -webkit-backdrop-filter:blur(20px); backdrop-filter:blur(20px);}}
+
 /* expanding details inside a card */
 .ne-expand-in{animation:ne-expand-in var(--ne-motion) var(--ne-ease); overflow:hidden;}
 @keyframes ne-expand-in{from{opacity:0; max-height:0;} to{opacity:1; max-height:1200px;}}
