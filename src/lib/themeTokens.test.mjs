@@ -1,6 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { TOKENS, cleanTheme, cssValue, themeToCss, defaultValue } from "./themeTokens.js";
+import { TOKENS, cleanTheme, cssValue, themeToCss, defaultValue, pageValue, isSafeSelector, pageRulesCss } from "./themeTokens.js";
+
+test("page rules: safe selectors and values only, palette becomes variables, rules are scoped to their page", () => {
+  assert.equal(isSafeSelector("> div:nth-child(2) > span"), true);
+  assert.equal(isSafeSelector("div{} body{color:red"), false);
+  assert.equal(isSafeSelector("a[style*=url(x)]"), false);
+  assert.equal(pageValue("font-size", 100), "40px");
+  assert.equal(pageValue("color", "var(--ne-c-brand-blue)"), "var(--ne-c-brand-blue)");
+  assert.equal(pageValue("color", "red;x:1"), null);
+  assert.equal(pageValue("position", "fixed"), null);
+  const css = pageRulesCss({
+    palette: [{ name: "Brand Blue", value: "#1e40af" }, { name: "bad", value: "nope" }],
+    pages: { orders: [{ selector: "> div > h1", styles: { color: "var(--ne-c-brand-blue)", "font-size": 22, evil: "x" } }], "bad page!": [{ selector: "div", styles: { color: "#000" } }] },
+  });
+  assert.equal(css, ':root{--ne-c-brand-blue:#1e40af;}\n.ne-content[data-ne-page="orders"] > div > h1{color:var(--ne-c-brand-blue) !important;font-size:22px !important;}');
+  const t = cleanTheme({ pages: { orders: [{ selector: "> div", styles: { display: "none" } }] } });
+  assert.deepEqual(t.pages, { orders: [{ selector: "> div", label: "", styles: { display: "none" } }] });
+});
 
 const tok = (k) => TOKENS.find((t) => t.key === k);
 

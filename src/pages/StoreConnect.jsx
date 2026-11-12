@@ -887,7 +887,7 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
                     }}>
                       <Icon name="shop" size={10} /> {t("store.platformNative")}
                     </span>
-                  ) : store.shopify_url ? (
+                  ) : mode === "domains" ? null : store.shopify_url ? (
                     <>
                       <span style={{
                         fontSize: 11, padding: "4px 12px",

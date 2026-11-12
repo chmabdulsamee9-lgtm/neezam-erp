@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
 import { TOKENS, TOKEN_GROUPS, MODES, cleanTheme, cssValue, applyTheme } from "../lib/themeTokens";
+import PageEditor from "./PageEditor";
 
 // Master Dashboard > UI Editor (creator only). Edits the app's look tokens for light and dark, previews every
 // block on desktop or phone width, saves a draft and publishes it live for everybody (table app_theme_settings,
@@ -74,6 +75,7 @@ export default function UiEditor() {
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState(null);
   const [loaded, setLoaded] = useState(false);
+  const [tab, setTab] = useState("page");
   const controlRefs = useRef({});
 
   useEffect(() => {
@@ -155,7 +157,11 @@ export default function UiEditor() {
       <div className="ne-uie-top">
         <div>
           <h1>UI Editor</h1>
-          <p>Colours, corners, size and motion for the whole ERP. Draft first, then publish live.</p>
+          <p>Edit any page live (Page editor) or the whole look (Global theme). Draft first, then publish live.</p>
+          <div className="ne-uie-seg" style={{ marginTop: 8 }}>
+            <button type="button" className={tab === "page" ? "on" : ""} onClick={() => setTab("page")}>Page editor</button>
+            <button type="button" className={tab === "global" ? "on" : ""} onClick={() => setTab("global")}>Global theme</button>
+          </div>
         </div>
         <div className="ne-uie-actions">
           <label className="ne-uie-toggle"><input type="checkbox" checked={tryOnApp} onChange={(e) => setTryOnApp(e.target.checked)} /> Try on the whole app</label>
@@ -166,7 +172,8 @@ export default function UiEditor() {
         </div>
       </div>
       {msg && <div className={`ne-uie-msg ${msg.kind}`}>{msg.text}</div>}
-      <div className="ne-uie-body">
+      {tab === "page" && <div className="ne-uie-body"><PageEditor theme={theme} setTheme={setTheme} /></div>}
+      {tab === "global" && <div className="ne-uie-body">
         <aside className="ne-uie-panel">
           <div className="ne-uie-seg ne-uie-modes">
             {MODES.map((m) => <button key={m} type="button" className={mode === m ? "on" : ""} onClick={() => setMode(m)}>{m === "light" ? "Light theme" : "Dark theme"}</button>)}
@@ -205,7 +212,7 @@ export default function UiEditor() {
             </div>
           )}
         </main>
-      </div>
+      </div>}
     </div>
   );
 }

@@ -61,9 +61,110 @@ export function cssValue(token, value) {
   return null;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Page editor: per-page element rules + named colours.
+// theme.palette = [{ name, slug, value }]  -> :root{--ne-c-<slug>: value}
+// theme.pages   = { <pageKey>: [{ selector, label, styles: { <prop>: value } }] }
+//   -> .ne-content[data-ne-page="<pageKey>"] <selector> { prop: value !important }
+// Everything is validated: unknown properties, odd selectors and unsafe values are dropped.
+// ---------------------------------------------------------------------------------------------
+export const PAGE_PROPS = [
+  { prop: "color", label: "Text colour", kind: "color" },
+  { prop: "background-color", label: "Background", kind: "color" },
+  { prop: "border-color", label: "Border colour", kind: "color" },
+  { prop: "font-size", label: "Text size", kind: "px", min: 8, max: 40 },
+  { prop: "font-weight", label: "Text weight", kind: "enum", options: ["400", "500", "600", "700", "800"] },
+  { prop: "letter-spacing", label: "Letter spacing", kind: "px", min: -2, max: 6, step: 0.1 },
+  { prop: "line-height", label: "Line height", kind: "num", min: 0.8, max: 2.4, step: 0.05 },
+  { prop: "padding", label: "Inner space (padding)", kind: "px", min: 0, max: 64 },
+  { prop: "margin-bottom", label: "Space below", kind: "px", min: 0, max: 64 },
+  { prop: "gap", label: "Space between items (gap)", kind: "px", min: 0, max: 48 },
+  { prop: "border-radius", label: "Corners", kind: "px", min: 0, max: 40 },
+  { prop: "border-width", label: "Border width", kind: "px", min: 0, max: 6 },
+  { prop: "opacity", label: "Opacity", kind: "num", min: 0.1, max: 1, step: 0.05 },
+  { prop: "text-transform", label: "Letters", kind: "enum", options: ["none", "uppercase", "capitalize"] },
+  { prop: "display", label: "Show / hide", kind: "enum", options: ["", "none"] },
+];
+const propByName = Object.fromEntries(PAGE_PROPS.map((p) => [p.prop, p]));
+
+export const slugify = (name) => String(name || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
+const SAFE_SELECTOR = /^[a-zA-Z0-9_\-\s>:.()[\]="'#*+~]+$/;
+const SAFE_PAGE = /^[a-z0-9\-/]{1,60}$/;
+export function isSafeSelector(sel) {
+  return typeof sel === "string" && sel.length > 0 && sel.length <= 400 && SAFE_SELECTOR.test(sel) && !/url\s*\(|expression|@import|\/\*/i.test(sel);
+}
+
+/** a page-rule value -> CSS (colours may be hex or a palette/var reference) */
+export function pageValue(prop, value) {
+  const p = propByName[prop];
+  if (!p || value === undefined || value === null || value === "") return null;
+  const v = String(value).trim();
+  if (p.kind === "color") {
+    if (/^#[0-9a-f]{3,8}$/i.test(v)) return v;
+    if (/^var\(--ne-[a-z0-9-]{1,40}\)$/i.test(v)) return v;
+    return null;
+  }
+  if (p.kind === "px" || p.kind === "num") {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return null;
+    const c = Math.max(p.min, Math.min(p.max, n));
+    return p.kind === "px" ? `${c}px` : String(c);
+  }
+  if (p.kind === "enum") return p.options.includes(v) && v !== "" ? v : null;
+  return null;
+}
+
+function cleanPalette(list) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const c of list.slice(0, 60)) {
+    const name = String(c?.name || "").trim().slice(0, 40);
+    const slug = slugify(c?.slug || name);
+    if (!name || !slug || seen.has(slug) || !/^#[0-9a-f]{3,8}$/i.test(String(c?.value || ""))) continue;
+    seen.add(slug);
+    out.push({ name, slug, value: String(c.value) });
+  }
+  return out;
+}
+
+function cleanPages(pages) {
+  const out = {};
+  if (!pages || typeof pages !== "object") return out;
+  for (const [page, rules] of Object.entries(pages)) {
+    if (!SAFE_PAGE.test(page) || !Array.isArray(rules)) continue;
+    const kept = [];
+    for (const r of rules.slice(0, 300)) {
+      if (!isSafeSelector(r?.selector)) continue;
+      const styles = {};
+      for (const [prop, value] of Object.entries(r.styles || {})) if (pageValue(prop, value)) styles[prop] = String(value);
+      if (Object.keys(styles).length) kept.push({ selector: r.selector, label: String(r.label || "").slice(0, 60), styles });
+    }
+    if (kept.length) out[page] = kept;
+  }
+  return out;
+}
+
+export function pageRulesCss(theme) {
+  const lines = [];
+  const palette = cleanPalette(theme?.palette);
+  if (palette.length) lines.push(`:root{${palette.map((c) => `--ne-c-${c.slug}:${c.value};`).join("")}}`);
+  for (const [page, rules] of Object.entries(cleanPages(theme?.pages))) {
+    for (const r of rules) {
+      const decl = Object.entries(r.styles).map(([prop, v]) => `${prop}:${pageValue(prop, v)} !important;`).join("");
+      lines.push(`.ne-content[data-ne-page="${page}"] ${r.selector}{${decl}}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 /** keep only known keys whose value differs from the default and is valid */
 export function cleanTheme(theme) {
   const out = { light: {}, dark: {} };
+  const palette = cleanPalette(theme?.palette);
+  const pages = cleanPages(theme?.pages);
+  if (palette.length) out.palette = palette;
+  if (Object.keys(pages).length) out.pages = pages;
   for (const mode of MODES) {
     const src = (theme && theme[mode]) || {};
     for (const [key, value] of Object.entries(src)) {
@@ -103,6 +204,8 @@ export function themeToCss(theme, scope = "") {
   } else {
     if (light) css.push(`:root[data-theme="light"]{${light}}`);
     if (dark) css.push(`:root:not([data-theme="light"]){${dark}}`);
+    const pageCss = pageRulesCss(t);
+    if (pageCss) css.push(pageCss);
   }
   return css.join("\n");
 }

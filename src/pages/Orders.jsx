@@ -2350,6 +2350,13 @@ export default function Orders({ ordersStore, setOrdersStore, cfUrl, fetcher, li
         <OrdersSkeleton />
       ) : isMobile ? (
         <div ref={tableRef} style={{ flex: 1, overflowY: "auto" }}>
+          {/* phones had no "select all" (it lived only in the desktop table header) */}
+          {orderRows.length > 0 && (
+            <label className="ne-mselectall">
+              <input type="checkbox" checked={selectedIds.size === pagedOrders.length && pagedOrders.length > 0} onChange={toggleSelectAll} />
+              <span>{selectedIds.size > 0 ? `${selectedIds.size} ${t("orders.selectedSuffix")}` : t("booked.selectAll")}</span>
+            </label>
+          )}
           {orderRows.map(({ order, source, phone, waPhone, waMessage, fullName, city, address, productsEditable, productVariantNote, items, hasManualOverride, wasAddress, displayTotal, skus, unitPrices, shipping, discount, remarks, cancellationReason, date, time, shopifyUrl, isNative, isSelected, isCancelled, isExpanded, statusBtn, syncRow, isDuplicateOrder, duplicateOtherNames, isRepeatCustomer, repeatCustomerOrderName }) => (
             <div key={order.id} style={{ background: isSelected ? "var(--ne-accent-soft)" : "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "8px 12px", marginBottom: 6 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

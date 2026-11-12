@@ -13,6 +13,7 @@ import { supabase } from './supabase'
 import LoadingBar from './components/LoadingBar'
 import { installFetchTracking, startLoading, armLoading } from './lib/loadingBar'
 import { applyTheme } from './lib/themeTokens'
+import { installEditMode } from './lib/editMode'
 import { SOLUTIONS_LINKS } from './pages/public/solutionsLinks'
 import { fetchStoreRow, fetchStoreRows } from './lib/storeColumns'
 import { getCachedOrders, saveOrdersBulk, upsertOrder, getMeta, setMeta, clearCache, getCachedPeriod, setCachedPeriod, clearStoreOrders } from './ordersCache'
@@ -37,6 +38,8 @@ import SyncStatusBadge from './components/SyncStatusBadge'
 const CHUNK_RELOAD_KEY = 'neezam_chunk_reload'
 // the top loading bar follows every backend call, and page chunk downloads below
 installFetchTracking()
+// inside the UI Editor's preview frame only: pick elements and preview the draft live
+installEditMode()
 const loadWithRetry = (loader) => () => {
   const done = startLoading()
   return loader()
@@ -1477,7 +1480,7 @@ function App() {
 
   // the look published from Master Dashboard > UI Editor (only changed tokens are stored; nothing stored = shipped look)
   useEffect(() => {
-    if (!session) return
+    if (!session || window.name === 'ne-edit') return // the editor's preview frame shows the draft instead
     supabase.from('app_theme_settings').select('live').eq('id', 'global').maybeSingle()
       .then(({ data }) => { if (data?.live) applyTheme(data.live) })
   }, [session?.user?.id])
@@ -2658,7 +2661,7 @@ function App() {
             <button className="ne-hamburger" onClick={() => setMobileDrawerOpen(true)} style={{ position: 'absolute', top: 10, left: 10, zIndex: 50 }}>☰</button>
           )}
 
-          <div className={`ne-content${activeMenu === 'settings' ? ' ne-content-settings' : noCardModules.includes(navMenu) ? ' ne-content-fullscreen' : fullScreenModules.includes(navMenu) ? ' ne-content-notopbar' : ''}`}>
+          <div data-ne-page={navMenu} className={`ne-content${activeMenu === 'settings' ? ' ne-content-settings' : noCardModules.includes(navMenu) ? ' ne-content-fullscreen' : fullScreenModules.includes(navMenu) ? ' ne-content-notopbar' : ''}`}>
           <ErrorBoundary key={activeMenu}>
             {((ordersPending && ORDERS_DEPENDENT_PAGES.includes(activeMenu)) || (storePending && STORE_DEPENDENT_PAGES.includes(activeMenu))) && hasAccess(activeMenu) && <PageSkeletonFor menu={activeMenu} />}
             {activeMenu === 'orders' && hasAccess('orders') && !storePending && (
