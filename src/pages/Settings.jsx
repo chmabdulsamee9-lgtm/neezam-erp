@@ -190,7 +190,7 @@ export default function Settings({ profile, onBack, hasAccess, currentStoreInfo,
             {activeSection === "domains" && <StoreConnect storeId={storeId} mode="domains" />}
             {activeSection === "whatsapp" && <WhatsApp />}
             {activeSection === "courier-connect" && <CourierConnect storeId={storeId} />}
-            {activeSection === "meta-connect" && <MetaConnect storeId={storeId} />}
+            {activeSection === "meta-connect" && <MetaConnect storeId={storeId} storeName={cardName} />}
             {activeSection === "general" && (
               <GeneralSettings storeId={storeId} cfUrl={cfUrl} canEdit={isPrivileged} onOpenOnlineStore={onOpenOnlineStore}
                 onSaved={({ storeName: n }) => { setBrand((b) => ({ ...b, name: n })); onStoreNameChanged?.(n); }} />

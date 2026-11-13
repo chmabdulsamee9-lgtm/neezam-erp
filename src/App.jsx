@@ -2694,7 +2694,7 @@ function App() {
             {activeMenu === 'finance-statement' && hasAccess('finance-statement') && !storePending && (
               <FinanceStatement storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} isCreator={profile.role === 'creator'} />
             )}
-            {activeMenu === 'meta-connect' && hasAccess('meta-connect') && <MetaConnect storeId={selectedStoreId} />}
+            {activeMenu === 'meta-connect' && hasAccess('meta-connect') && <MetaConnect storeId={selectedStoreId} storeName={currentStoreInfo?.store_name} />}
             {activeMenu === 'ads' && hasAccess('ads') && !ordersPending && (
               <AdsAnalytics ordersData={ordersData} storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
             )}

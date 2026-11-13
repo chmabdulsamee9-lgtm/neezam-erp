@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import Icon from "../components/Icon";
+import AssetPicker from "../components/AssetPicker";
 import { useLanguage, useTranslation } from "../i18n";
 import { workerFetch } from "../lib/storeApi";
 
@@ -22,19 +23,23 @@ function bannerFromUrl(t) {
 // Meta Connect: the OAuth round trip, the token and the ad-account / pixel checks all happen on the server. This page never
 // sees, stores or sends a token: it only starts the connection (/meta-oauth-start), reads the status (/meta-status) and
 // picks an ad account and a pixel by id.
-export default function MetaConnect({ storeId }) {
+export default function MetaConnect({ storeId, storeName }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [banner, setBanner] = useState(() => bannerFromUrl(t)); // { kind: "success" | "error" | "info", text }
+  const [businesses, setBusinesses] = useState(null); // null = not loaded
+  const [businessPermission, setBusinessPermission] = useState(true);
+  const [businessChoice, setBusinessChoice] = useState("");
   const [accounts, setAccounts] = useState(null); // null = not loaded
-  const [accountChoice, setAccountChoice] = useState("");
   const [pixels, setPixels] = useState(null);
   const [pixelsState, setPixelsState] = useState("idle"); // idle | ok | unavailable
-  const [pixelChoice, setPixelChoice] = useState("");
   const [manualPixel, setManualPixel] = useState("");
+  const [manualOpen, setManualOpen] = useState(false);
+  const [catalogs, setCatalogs] = useState(null);
+  const [catalogError, setCatalogError] = useState("");
   const [testCodeEdit, setTestCodeEdit] = useState(null); // null = show the saved code
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
 
@@ -64,7 +69,7 @@ export default function MetaConnect({ storeId }) {
     window.history.replaceState(window.history.state, "", window.location.pathname + (rest ? `?${rest}` : ""));
   }, []);
 
-  useEffect(() => { setAccounts(null); setPixels(null); setPixelsState("idle"); loadStatus(); }, [storeId, loadStatus]);
+  useEffect(() => { setBusinesses(null); setBusinessChoice(""); setAccounts(null); setPixels(null); setPixelsState("idle"); setCatalogs(null); loadStatus(); }, [storeId, loadStatus]);
 
   const needsReconnect = !!status?.needs_reconnect;
   const connected = !!status?.connected;
@@ -99,28 +104,93 @@ export default function MetaConnect({ storeId }) {
     setBanner(null);
     const { status: code, data } = await call("/meta-disconnect");
     setBusy("");
-    if (code === 200 && data?.success) { setAccounts(null); setPixels(null); setPixelsState("idle"); await loadStatus(); return; }
+    if (code === 200 && data?.success) { setBusinesses(null); setBusinessChoice(""); setAccounts(null); setPixels(null); setPixelsState("idle"); setCatalogs(null); await loadStatus(); return; }
     setBanner({ kind: "error", text: data?.error || t("metaConnect.disconnectFailed") });
   };
 
-  const loadAccounts = async () => {
-    setBusy("accounts");
-    const { data } = await call("/meta-ad-accounts");
+  // ---- step 1: business portfolio (picking one only filters the ad accounts; it is saved together with the ad account)
+  const loadBusinesses = useCallback(async () => {
+    setBusy("businesses");
+    const { data } = await call("/meta-businesses");
     setBusy("");
     if (data?.needs_reconnect) { await loadStatus(); return; }
-    if (data?.error) { setBanner({ kind: "error", text: t("metaConnect.adAccountLoadFailed") }); return; }
-    setAccounts(data.accounts || []);
-    setAccountChoice(data.selected || data.accounts?.[0]?.account_id || "");
-  };
+    // no business list (older server, Meta error): every ad account is shown under "All ad accounts"
+    if (!data?.businesses) { setBusinesses([{ id: "all", name: "", ad_accounts: 0 }]); setBusinessChoice("all"); return; }
+    setBusinesses(data.businesses);
+    setBusinessPermission(data.business_permission !== false);
+    setBusinessChoice((cur) => cur || data.selected || (data.businesses.length === 1 ? data.businesses[0].id : ""));
+  }, [call, loadStatus]);
 
-  const saveAccount = async () => {
-    if (!accountChoice) return;
-    setBusy("account");
-    const { data } = await call("/meta-set-account", { ad_account_id: accountChoice });
+  // ---- step 2: ad accounts of the chosen business
+  const loadAccounts = useCallback(async (biz) => {
+    if (!biz) { setAccounts(null); return; }
+    setBusy("accounts");
+    const { data } = await call("/meta-ad-accounts", biz === "all" ? {} : { business_id: biz });
     setBusy("");
-    if (data?.success) { setAccounts(null); setBanner({ kind: "success", text: t("metaConnect.adAccountSaved") }); setPixels(null); setPixelsState("idle"); await loadStatus(); return; }
+    if (data?.needs_reconnect) { await loadStatus(); return; }
+    if (data?.error) { setBanner({ kind: "error", text: t("metaConnect.adAccountLoadFailed") }); setAccounts([]); return; }
+    setAccounts(data.accounts || []);
+  }, [call, loadStatus, t]);
+
+  const saveAccount = async (id) => {
+    setBusy("account");
+    const { data } = await call("/meta-set-account", { ad_account_id: id });
+    setBusy("");
+    if (data?.success) { setBanner({ kind: "success", text: t("metaConnect.adAccountSaved") }); setPixels(null); setPixelsState("idle"); setCatalogs(null); await loadStatus(); return; }
     if (data?.needs_reconnect) { await loadStatus(); return; }
     setBanner({ kind: "error", text: t("metaConnect.adAccountLoadFailed") });
+  };
+
+  // ---- step 4: product catalogue
+  const loadCatalogs = useCallback(async () => {
+    setBusy("catalogs");
+    const { data } = await call("/meta-catalogs");
+    setBusy("");
+    if (data?.needs_reconnect) { await loadStatus(); return; }
+    if (data?.catalogs) { setCatalogs(data.catalogs); setCatalogError(""); return; }
+    setCatalogs([]);
+    setCatalogError(data?.error || "catalog_failed");
+  }, [call, loadStatus]);
+
+  const catalogErrorText = (code, msg) => {
+    const keys = { catalog_permission: "catalogPermission", catalog_needs_business: "catalogNeedsBusiness", catalog_unavailable: "catalogUnavailable", catalog_no_website: "catalogNoWebsite", catalog_sync_failed: "catalogSyncFailed", catalog_create_failed: "catalogCreateFailed" };
+    return `${t(`metaConnect.${keys[code] || "catalogFailed"}`)}${msg ? ` (${msg})` : ""}`;
+  };
+
+  const saveCatalog = async (path, extra) => {
+    setBusy("catalog");
+    const { data } = await call(path, extra);
+    setBusy("");
+    if (data?.success) {
+      setBanner({ kind: "success", text: t(path === "/meta-create-catalog" ? "metaConnect.catalogCreated" : "metaConnect.catalogSaved") });
+      setCatalogs(null);
+      await loadStatus();
+      return;
+    }
+    if (data?.needs_reconnect) { await loadStatus(); return; }
+    setBanner({ kind: "error", text: catalogErrorText(data?.error, data?.meta_message) });
+  };
+
+  const syncCatalog = async () => {
+    setBusy("sync");
+    const { data } = await call("/meta-catalog-sync");
+    setBusy("");
+    if (data?.success) {
+      setBanner({ kind: data.partial ? "info" : "success", text: t("metaConnect.catalogSynced").replace("{n}", String(data.sent)).replace("{skipped}", String(data.skipped || 0)) });
+      await loadStatus();
+      return;
+    }
+    if (data?.needs_reconnect) { await loadStatus(); return; }
+    setBanner({ kind: "error", text: catalogErrorText(data?.error, data?.meta_message) });
+  };
+
+  const createPixel = async (name) => {
+    setBusy("pixel");
+    const { data } = await call("/meta-create-pixel", { name });
+    setBusy("");
+    if (data?.success) { setBanner({ kind: "success", text: t("metaConnect.pixelCreated") }); setPixelsState("idle"); await loadStatus(); return; }
+    if (data?.needs_reconnect) { await loadStatus(); return; }
+    setBanner({ kind: "error", text: `${t("metaConnect.pixelCreateFailed")}${data?.meta_message ? ` (${data.meta_message})` : ""}` });
   };
 
   const loadPixels = useCallback(async () => {
@@ -128,19 +198,23 @@ export default function MetaConnect({ storeId }) {
     const { data } = await call("/meta-pixels");
     setBusy("");
     if (data?.needs_reconnect) { await loadStatus(); return; }
-    if (data?.pixels) { setPixels(data.pixels); setPixelsState("ok"); setPixelChoice(data.selected || data.pixels[0]?.id || ""); return; }
+    if (data?.pixels) { setPixels(data.pixels); setPixelsState("ok"); return; }
     setPixels([]);
     setPixelsState("unavailable");
   }, [call, loadStatus]);
 
   useEffect(() => { if (connected && !needsReconnect && status?.ad_account_id && pixelsState === "idle") loadPixels(); }, [connected, needsReconnect, status?.ad_account_id, pixelsState, loadPixels]);
+  const ready = connected && !needsReconnect;
+  useEffect(() => { if (ready && businesses === null) loadBusinesses(); }, [ready, businesses, loadBusinesses]);
+  useEffect(() => { if (ready && businessChoice) loadAccounts(businessChoice); }, [ready, businessChoice, loadAccounts]);
+  useEffect(() => { if (ready && status?.ad_account_id && status?.catalog_available && catalogs === null) loadCatalogs(); }, [ready, status?.ad_account_id, status?.catalog_available, catalogs, loadCatalogs]);
 
   const savePixel = async (id) => {
     if (!PIXEL_RE.test(id)) { setBanner({ kind: "error", text: t("metaConnect.pixelInvalid") }); return; }
     setBusy("pixel");
     const { data } = await call("/meta-set-pixel", { pixel_id: id });
     setBusy("");
-    if (data?.success) { setManualPixel(""); setBanner({ kind: "success", text: t("metaConnect.pixelSaved") }); await loadStatus(); return; }
+    if (data?.success) { setManualPixel(""); setManualOpen(false); setBanner({ kind: "success", text: t("metaConnect.pixelSaved") }); await loadStatus(); return; }
     if (data?.needs_reconnect) { await loadStatus(); return; }
     setBanner({ kind: "error", text: data?.error === "pixel_not_in_account" ? t("metaConnect.pixelNotInAccount") : t("metaConnect.pixelInvalid") });
   };
@@ -220,53 +294,82 @@ export default function MetaConnect({ storeId }) {
             </div>
           </div>
 
-          {connected && !needsReconnect && (
-            <div style={card}>
-              <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: 14 }}>{t("metaConnect.adAccountTitle")}</p>
-              <p style={{ margin: "0 0 10px", fontSize: 12, color: "var(--ne-muted)" }}>{status.ad_account_id ? `${t("metaConnect.adAccountCurrent")}: ${status.ad_account_name || status.ad_account_id}` : t("metaConnect.adAccountPickHelp")}</p>
-              {accounts === null ? (
-                <button onClick={loadAccounts} disabled={!!busy} style={btnGhost(!!busy)}>{busy === "accounts" ? t("metaConnect.loading") : status.ad_account_id ? t("metaConnect.adAccountChange") : t("metaConnect.adAccountPick")}</button>
-              ) : accounts.length === 0 ? (
-                <p style={{ margin: 0, fontSize: 12.5, color: "var(--ne-warning)" }}>{t("metaConnect.adAccountNone")}</p>
-              ) : (
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <select value={accountChoice} onChange={(e) => setAccountChoice(e.target.value)} aria-label={t("metaConnect.adAccountTitle")} style={{ ...input, flex: 1, minWidth: 200 }}>
-                    {accounts.map((a) => <option key={a.account_id} value={a.account_id}>{a.name || a.account_id} ({a.account_id}){a.currency ? ` · ${a.currency}` : ""}</option>)}
-                  </select>
-                  <button onClick={saveAccount} disabled={!!busy || !accountChoice} style={btnPrimary(!!busy || !accountChoice)}>{busy === "account" ? t("metaConnect.saving") : t("metaConnect.adAccountSave")}</button>
+          {ready && (() => {
+            const P = (k) => t(`metaConnect.${k}`);
+            const bizOptions = (businesses || []).map((b) => (b.id === "all" ? { id: "all", name: P("allAdAccounts"), sub: "", icon: "megaphone" }
+              : { id: b.id, name: b.id === "personal" ? P("personalAccounts") : b.name || b.id, sub: b.id === "personal" ? P("personalAccountsSub") : `${P("idLabel")} ${b.id}`, picture: b.picture, icon: b.id === "personal" ? "team" : null }));
+            const bizValue = bizOptions.find((b) => b.id === businessChoice) || null;
+            const accOptions = (accounts || []).map((a) => ({ id: a.account_id, name: a.name || a.account_id, sub: `${P("idLabel")} ${a.account_id}${a.currency ? ` · ${a.currency}` : ""}`, icon: "megaphone" }));
+            const accValue = status.ad_account_id ? (accOptions.find((a) => a.id === String(status.ad_account_id)) || { id: String(status.ad_account_id), name: status.ad_account_name || status.ad_account_id, sub: `${P("idLabel")} ${status.ad_account_id}`, icon: "megaphone" }) : null;
+            const pxOptions = (pixels || []).map((p) => ({ id: p.id, name: p.name || p.id, sub: `${P("idLabel")} ${p.id}`, icon: "zap" }));
+            const pxValue = status.pixel_id ? (pxOptions.find((p) => p.id === String(status.pixel_id)) || { id: String(status.pixel_id), name: status.pixel_name || P("pixelTitle"), sub: `${P("idLabel")} ${status.pixel_id}`, icon: "zap" }) : null;
+            const catOptions = (catalogs || []).map((c) => ({ id: c.id, name: c.name || c.id, sub: `${P("idLabel")} ${c.id}${c.product_count !== null && c.product_count !== undefined ? ` · ${P("catalogItems").replace("{n}", String(c.product_count))}` : ""}`, icon: "products" }));
+            const catValue = status.catalog_id ? (catOptions.find((c) => c.id === String(status.catalog_id)) || { id: String(status.catalog_id), name: status.catalog_name || status.catalog_id, sub: `${P("idLabel")} ${status.catalog_id}`, icon: "products" }) : null;
+            const common = { searchLabel: P("pickerSearch"), emptyLabel: P("pickerEmpty"), cancelLabel: P("cancel"), createButton: P("create") };
+            const steps = [
+              { key: "business", done: !!bizValue, title: P("stepBusiness"), help: businessPermission ? P("stepBusinessHelp") : P("businessPermissionHint"),
+                picker: <AssetPicker label={P("stepBusiness")} value={bizValue} options={bizOptions} placeholder={busy === "businesses" ? P("loadingShort") : P("pickBusiness")} busy={busy === "businesses"} disabled={!!busy && busy !== "businesses"} onChange={(id) => setBusinessChoice(id)} {...common} /> },
+              { key: "account", done: !!accValue, locked: !bizValue, title: P("adAccountTitle"), help: P("adAccountPickHelp"),
+                picker: <AssetPicker label={P("adAccountTitle")} value={accValue && accOptions.some((a) => a.id === accValue.id) ? accValue : (accounts === null ? accValue : null)} options={accOptions} placeholder={accounts && accounts.length === 0 ? P("adAccountNone") : P("adAccountPick")} busy={busy === "accounts" || busy === "account"} disabled={!bizValue || (!!busy && busy !== "accounts")} onChange={saveAccount} {...common} /> },
+              { key: "pixel", done: !!pxValue, locked: !accValue, title: P("stepPixel"), help: P("stepPixelHelp"),
+                picker: <AssetPicker label={P("stepPixel")} value={pxValue} options={pxOptions} placeholder={P("pixelPick")} busy={busy === "pixels" || busy === "pixel"} disabled={!accValue || (!!busy && busy !== "pixels")} onChange={savePixel}
+                  onCreate={createPixel} createLabel={P("pixelCreate")} createPlaceholder={P("pixelCreateName")} createDefault={`${storeName || "eNeezam"} pixel`}
+                  footerExtra={<button type="button" className="ne-asset-footer ne-asset-footer-muted" onClick={() => setManualOpen(true)}><Icon name="edit" size={13} /> {P("pixelManualLabel")}</button>} {...common} /> },
+              { key: "catalog", done: !!catValue, locked: !accValue, optional: true, title: P("stepCatalog"), help: status.catalog_available === false ? P("catalogUnavailable") : catalogError ? catalogErrorText(catalogError) : P("stepCatalogHelp"),
+                picker: <AssetPicker label={P("stepCatalog")} value={catValue} options={catOptions} placeholder={P("catalogPick")} busy={busy === "catalogs" || busy === "catalog"} disabled={!accValue || status.catalog_available === false || !!catalogError || (!!busy && busy !== "catalogs")}
+                  onChange={(id) => saveCatalog("/meta-set-catalog", { catalog_id: id })} onCreate={(name) => saveCatalog("/meta-create-catalog", { name })} createLabel={P("catalogCreate")} createPlaceholder={P("catalogCreateName")} createDefault={`${storeName || "eNeezam"} catalogue`} {...common} /> },
+            ];
+            const doneCount = steps.filter((s) => s.done).length;
+            return (
+              <div style={card} className="ne-assets-card">
+                <div className="ne-assets-head">
+                  <div>
+                    <p className="ne-assets-title">{P("assetsTitle")}</p>
+                    <p className="ne-assets-help">{P("assetsHelp")}</p>
+                  </div>
+                  <span className="ne-assets-count">{doneCount}/{steps.length}</span>
                 </div>
-              )}
-            </div>
-          )}
-
-          {connected && !needsReconnect && status.ad_account_id && (
-            <div style={card}>
-              <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: 14 }}>{t("metaConnect.pixelTitle")}</p>
-              <p style={{ margin: "0 0 10px", fontSize: 12, color: "var(--ne-muted)" }}>{t("metaConnect.pixelHelp")}</p>
-              {status.pixel_id && (
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 12.5 }}>{t("metaConnect.pixelCurrent")}: <strong dir="ltr">{status.pixel_id}</strong></span>
-                  <button onClick={removePixel} disabled={!!busy} style={btnGhost(!!busy, true)}><Icon name="trash" size={13} /> {busy === "pixelRemove" ? t("metaConnect.saving") : t("metaConnect.pixelRemove")}</button>
-                </div>
-              )}
-              {pixelsState === "ok" && pixels.length > 0 && (
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-                  <select value={pixelChoice} onChange={(e) => setPixelChoice(e.target.value)} aria-label={t("metaConnect.pixelPick")} style={{ ...input, flex: 1, minWidth: 200 }}>
-                    {pixels.map((p) => <option key={p.id} value={p.id}>{p.name || p.id} ({p.id})</option>)}
-                  </select>
-                  <button onClick={() => savePixel(pixelChoice)} disabled={!!busy || !pixelChoice} style={btnPrimary(!!busy || !pixelChoice)}>{busy === "pixel" ? t("metaConnect.saving") : t("metaConnect.pixelSave")}</button>
-                </div>
-              )}
-              {pixelsState === "ok" && pixels.length === 0 && <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "var(--ne-muted)" }}>{t("metaConnect.pixelNone")}</p>}
-              {pixelsState === "unavailable" && <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "var(--ne-warning)" }}>{t("metaConnect.pixelUnavailable")}</p>}
-              <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 6 }}>{t("metaConnect.pixelManualLabel")}</label>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <input dir="ltr" inputMode="numeric" value={manualPixel} onChange={(e) => setManualPixel(e.target.value.replace(/\D/g, "").slice(0, 20))} placeholder={t("metaConnect.pixelManualPlaceholder")} style={{ ...input, flex: 1, minWidth: 200 }} />
-                <button onClick={() => savePixel(manualPixel)} disabled={!!busy || !PIXEL_RE.test(manualPixel)} style={btnGhost(!!busy || !PIXEL_RE.test(manualPixel))}>{t("metaConnect.pixelSave")}</button>
+                <ol className="ne-assets-steps">
+                  {steps.map((s, i) => (
+                    <li key={s.key} className={`ne-assets-step${s.done ? " done" : ""}${s.locked ? " locked" : ""}`}>
+                      <span className="ne-assets-dot" aria-hidden="true">{s.done ? <Icon name="check" size={12} /> : i + 1}</span>
+                      <div className="ne-assets-body">
+                        <div className="ne-assets-label">
+                          <span>{s.title}</span>{s.optional && <span className="ne-assets-optional">{P("optional")}</span>}
+                        </div>
+                        <p className="ne-assets-sub">{s.help}</p>
+                        {s.picker}
+                        {s.key === "business" && !businessPermission && (
+                          <button type="button" className="ne-asset-link" onClick={handleConnect} disabled={!!busy}><Icon name="refresh" size={12} /> {P("reconnectForBusiness")}</button>
+                        )}
+                        {s.key === "pixel" && manualOpen && (
+                          <div className="ne-assets-manual">
+                            <input dir="ltr" inputMode="numeric" value={manualPixel} onChange={(e) => setManualPixel(e.target.value.replace(/\D/g, "").slice(0, 20))} placeholder={P("pixelManualPlaceholder")} aria-label={P("pixelManualLabel")} style={{ ...input, flex: 1, minWidth: 160 }} />
+                            <button onClick={() => savePixel(manualPixel)} disabled={!!busy || !PIXEL_RE.test(manualPixel)} style={btnGhost(!!busy || !PIXEL_RE.test(manualPixel))}>{P("pixelSave")}</button>
+                            <button onClick={() => setManualOpen(false)} style={btnGhost(false)}>{P("cancel")}</button>
+                          </div>
+                        )}
+                        {s.key === "pixel" && pixelsState === "unavailable" && <p className="ne-assets-warn">{P("pixelUnavailable")}</p>}
+                        {s.key === "pixel" && pxValue && (
+                          <div className="ne-assets-meta">
+                            <a href={`https://business.facebook.com/events_manager2/list/pixel/${pxValue.id}/test_events`} target="_blank" rel="noopener noreferrer"><Icon name="arrowRight" size={12} /> {P("testEvents")}</a>
+                            <button type="button" className="ne-asset-link danger" onClick={removePixel} disabled={!!busy}>{busy === "pixelRemove" ? P("saving") : P("pixelRemove")}</button>
+                          </div>
+                        )}
+                        {s.key === "catalog" && catValue && (
+                          <div className="ne-assets-sync">
+                            <span>{status.catalog_synced_at ? P("catalogLastSync").replace("{n}", String(status.catalog_item_count ?? 0)).replace("{time}", new Date(status.catalog_synced_at).toLocaleString()) : P("catalogNeverSynced")}</span>
+                            <button onClick={syncCatalog} disabled={!!busy} style={btnPrimary(!!busy)}><Icon name="refresh" size={13} /> {busy === "sync" ? P("catalogSyncing") : P("catalogSync")}</button>
+                          </div>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+                {pxValue && <p className="ne-assets-note"><Icon name="warning" size={12} /> {P("pixelHelperNote")}</p>}
               </div>
-              <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--ne-muted-2)" }}>{t("metaConnect.pixelManualHelp")}</p>
-            </div>
-          )}
+            );
+          })()}
 
           {connected && status.pixel_id && (
             <div style={card}>
