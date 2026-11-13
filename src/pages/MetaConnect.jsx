@@ -161,7 +161,7 @@ export default function MetaConnect({ storeId, storeName }) {
   }, [call, loadStatus]);
 
   const catalogErrorText = (code, msg) => {
-    const keys = { catalog_permission: "catalogPermission", catalog_needs_business: "catalogNeedsBusiness", catalog_unavailable: "catalogUnavailable", catalog_no_website: "catalogNoWebsite", catalog_sync_failed: "catalogSyncFailed", catalog_create_failed: "catalogCreateFailed" };
+    const keys = { catalog_permission: "catalogPermission", catalog_needs_business: "catalogNeedsBusiness", catalog_unavailable: "catalogUnavailable", catalog_no_website: "catalogNoWebsite", catalog_sync_failed: "catalogSyncFailed", catalog_create_failed: "catalogCreateFailed", catalog_wrong_type: "catalogWrongTypeHelp" };
     return `${t(`metaConnect.${keys[code] || "catalogFailed"}`)}${msg ? ` (${msg})` : ""}`;
   };
 
@@ -368,7 +368,7 @@ export default function MetaConnect({ storeId, storeName }) {
             {catalogs === null && <div className="ne-acc-empty">{P("loadingShort")}</div>}
             {(catalogs || []).map((c) => (
               <Row key={c.id} icon="products" name={c.name || c.id} sub={`${P("idLabel")} ${c.id}${c.product_count !== null && c.product_count !== undefined ? ` · ${P("catalogItems").replace("{n}", String(c.product_count))}` : ""}`}
-                action={connectBtn(() => saveCatalog("/meta-set-catalog", { catalog_id: c.id }))} />
+                action={c.usable === false ? <span className="ne-acc-tag ne-acc-tag-muted" title={P("catalogWrongTypeHelp")}>{P("catalogWrongType")}</span> : connectBtn(() => saveCatalog("/meta-set-catalog", { catalog_id: c.id }))} />
             ))}
             <div className="ne-acc-row">
               <span className="ne-acc-avatar ne-acc-avatar-new" aria-hidden="true"><Icon name="plus" size={15} /></span>
