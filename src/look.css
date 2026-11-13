@@ -481,6 +481,54 @@
 .ne-asset-primary:disabled{opacity:.45; cursor:default;}
 @media (max-width:760px){ .ne-asset-picker{max-width:none;} .ne-assets-step{gap:10px;} }
 .ne-assets-count-ok{background:var(--ne-success-soft); color:var(--ne-success);}
+
+/* ---------- Meta Connect: Shopify's "Set up ads on Facebook and Instagram" accordion ---------- */
+.ne-acc-header{display:flex; gap:14px; align-items:center; margin-bottom:18px;}
+.ne-acc-header h1{margin:0; font-size:19px; font-weight:700;}
+.ne-acc-header p{margin:2px 0 0; font-size:12.5px; color:var(--ne-muted);}
+.ne-acc-logo{width:40px; height:40px; border-radius:12px; display:inline-flex; align-items:center; justify-content:center; background:var(--ne-surface-2); box-shadow:var(--ne-shadow-card); color:var(--ne-accent); flex-shrink:0;}
+.ne-acc{display:grid; gap:12px;}
+.ne-acc-item{background:var(--ne-surface-2); border-radius:14px; box-shadow:var(--ne-shadow-card); overflow:hidden;}
+:root[data-theme="dark"] .ne-acc-item{border:1px solid var(--ne-border);}
+.ne-acc-item.locked{opacity:.6;}
+.ne-acc-head{width:100%; display:flex; align-items:center; gap:12px; padding:16px 18px; background:transparent; border:none; color:var(--ne-text); cursor:pointer; text-align:start;}
+.ne-acc-head:disabled{cursor:default;}
+.ne-acc-head > svg{color:var(--ne-muted); flex-shrink:0;}
+.ne-acc-title{flex:1; font-size:15px; font-weight:650; display:flex; align-items:center; gap:8px;}
+.ne-acc-check{width:20px; height:20px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; color:var(--ne-success); box-shadow:inset 0 0 0 1.6px var(--ne-success); flex-shrink:0;}
+.ne-acc-body{padding:0 18px 18px; animation:ne-asset-in .18s cubic-bezier(.2,.8,0,1);}
+.ne-acc-help{margin:0 0 12px; font-size:13px; color:var(--ne-text); line-height:1.5; opacity:.85;}
+.ne-acc-sublabel{margin:4px 0 10px; font-size:14px; font-weight:700;}
+.ne-acc-list{border-radius:10px; box-shadow:inset 0 0 0 1px var(--ne-border); max-height:320px; overflow-y:auto;}
+.ne-acc-row{display:flex; align-items:center; gap:12px; padding:14px 16px; border-top:1px solid var(--ne-border);}
+.ne-acc-row:first-child{border-top:none;}
+.ne-acc-row.active{background:color-mix(in srgb, var(--ne-success) 5%, transparent);}
+.ne-acc-avatar{width:32px; height:32px; border-radius:50%; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; font-weight:700; font-size:14px; background:color-mix(in srgb, var(--ne-accent) 14%, var(--ne-surface)); color:var(--ne-accent); object-fit:cover;}
+.ne-acc-avatar-new{background:var(--ne-success-soft); color:var(--ne-success);}
+.ne-acc-row-text{flex:1; min-width:0; display:flex; flex-direction:column;}
+.ne-acc-row-name{font-size:13.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.ne-acc-row-sub{font-size:12px; color:var(--ne-muted); line-height:1.45;}
+.ne-acc-row-sub a{color:var(--ne-accent);}
+.ne-acc-connect, .ne-acc-primary{border:none; border-radius:10px; padding:9px 16px; font-size:13px; font-weight:650; cursor:pointer; background:#008060; color:#fff; box-shadow:inset 0 -1px 0 rgba(0,0,0,.2), 0 1px 2px rgba(0,0,0,.12); display:inline-flex; align-items:center; gap:6px; white-space:nowrap;}
+.ne-acc-connect:hover:not(:disabled), .ne-acc-primary:hover:not(:disabled){background:#006e52;}
+.ne-acc-connect:disabled, .ne-acc-primary:disabled{opacity:.55; cursor:default;}
+.ne-acc-outline{border-radius:10px; padding:8px 14px; font-size:13px; font-weight:600; cursor:pointer; background:var(--ne-surface-2); color:var(--ne-text); border:1px solid var(--ne-border); box-shadow:0 1px 2px rgba(0,0,0,.06); white-space:nowrap;}
+.ne-acc-outline:disabled{opacity:.55; cursor:default;}
+.ne-acc-tag{font-size:11.5px; font-weight:700; padding:4px 10px; border-radius:999px; background:var(--ne-success-soft); color:var(--ne-success); white-space:nowrap;}
+.ne-acc-empty{padding:16px; text-align:center; font-size:12.5px; color:var(--ne-muted);}
+.ne-acc-actions{display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-top:12px;}
+.ne-acc-actions .ne-asset-link{margin-top:0; text-decoration:none;}
+.ne-acc-note{margin:10px 0 0; font-size:12px; color:var(--ne-muted); display:flex; gap:6px; align-items:center; flex-wrap:wrap;}
+.ne-acc-footer{display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:16px; font-size:12px; color:var(--ne-muted);}
+.ne-acc-submit{border:none; border-radius:10px; padding:10px 18px; font-size:13.5px; font-weight:650; cursor:pointer; background:#303030; color:#fff; box-shadow:inset 0 -1px 0 rgba(0,0,0,.3), 0 1px 2px rgba(0,0,0,.15);}
+.ne-acc-submit:disabled{background:var(--ne-surface); color:var(--ne-muted); box-shadow:none; cursor:default;}
+.ne-share-grid{display:grid; grid-template-columns:repeat(3, 1fr); gap:10px;}
+.ne-share-opt{display:flex; flex-direction:column; gap:6px; text-align:start; padding:14px; border-radius:12px; border:1px solid var(--ne-border); background:var(--ne-surface-2); color:var(--ne-text); cursor:pointer;}
+.ne-share-opt.on{border-color:var(--ne-text); box-shadow:0 0 0 1px var(--ne-text);}
+.ne-share-opt:disabled{opacity:.55; cursor:default;}
+.ne-share-name{font-weight:700; font-size:13.5px;}
+.ne-share-desc{font-size:12px; color:var(--ne-muted); line-height:1.45;}
+@media (max-width:760px){ .ne-share-grid{grid-template-columns:1fr;} .ne-acc-row{padding:12px;} .ne-acc-head{padding:14px;} .ne-acc-body{padding:0 14px 14px;} }
 .ne-terms-list{margin:10px 0 12px; padding-inline-start:18px; font-size:12.5px; line-height:1.9;}
 .ne-terms-list a{color:var(--ne-accent); text-decoration:none; font-weight:600;}
 .ne-terms-list a:hover{text-decoration:underline;}

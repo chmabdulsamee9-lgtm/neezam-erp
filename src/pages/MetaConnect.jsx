@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
 import Icon from "../components/Icon";
-import AssetPicker from "../components/AssetPicker";
 import { useLanguage, useTranslation } from "../i18n";
 import { workerFetch } from "../lib/storeApi";
 
@@ -31,8 +30,6 @@ export default function MetaConnect({ storeId, storeName }) {
   const [busy, setBusy] = useState("");
   const [banner, setBanner] = useState(() => bannerFromUrl(t)); // { kind: "success" | "error" | "info", text }
   const [businesses, setBusinesses] = useState(null); // null = not loaded
-  const [businessPermission, setBusinessPermission] = useState(true);
-  const [businessChoice, setBusinessChoice] = useState("");
   const [accounts, setAccounts] = useState(null); // null = not loaded
   const [pixels, setPixels] = useState(null);
   const [pixelsState, setPixelsState] = useState("idle"); // idle | ok | unavailable
@@ -42,6 +39,7 @@ export default function MetaConnect({ storeId, storeName }) {
   const [catalogError, setCatalogError] = useState("");
   const [productStatus, setProductStatus] = useState(null);
   const [termsChecked, setTermsChecked] = useState(false);
+  const [openSection, setOpenSection] = useState(null); // null = the first step that still needs work
   const [testCodeEdit, setTestCodeEdit] = useState(null); // null = show the saved code
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
 
@@ -71,7 +69,7 @@ export default function MetaConnect({ storeId, storeName }) {
     window.history.replaceState(window.history.state, "", window.location.pathname + (rest ? `?${rest}` : ""));
   }, []);
 
-  useEffect(() => { setBusinesses(null); setBusinessChoice(""); setAccounts(null); setPixels(null); setPixelsState("idle"); setCatalogs(null); loadStatus(); }, [storeId, loadStatus]);
+  useEffect(() => { setBusinesses(null); setAccounts(null); setPixels(null); setPixelsState("idle"); setCatalogs(null); loadStatus(); }, [storeId, loadStatus]);
 
   const needsReconnect = !!status?.needs_reconnect;
   const connected = !!status?.connected;
@@ -106,7 +104,7 @@ export default function MetaConnect({ storeId, storeName }) {
     setBanner(null);
     const { status: code, data } = await call("/meta-disconnect");
     setBusy("");
-    if (code === 200 && data?.success) { setBusinesses(null); setBusinessChoice(""); setAccounts(null); setPixels(null); setPixelsState("idle"); setCatalogs(null); await loadStatus(); return; }
+    if (code === 200 && data?.success) { setBusinesses(null); setAccounts(null); setPixels(null); setPixelsState("idle"); setCatalogs(null); await loadStatus(); return; }
     setBanner({ kind: "error", text: data?.error || t("metaConnect.disconnectFailed") });
   };
 
@@ -117,11 +115,19 @@ export default function MetaConnect({ storeId, storeName }) {
     setBusy("");
     if (data?.needs_reconnect) { await loadStatus(); return; }
     // no business list (older server, Meta error): every ad account is shown under "All ad accounts"
-    if (!data?.businesses) { setBusinesses([{ id: "all", name: "", ad_accounts: 0 }]); setBusinessChoice("all"); return; }
+    if (!data?.businesses) { setBusinesses([{ id: "all", name: "", ad_accounts: 0 }]); return; }
     setBusinesses(data.businesses);
-    setBusinessPermission(data.business_permission !== false);
-    setBusinessChoice((cur) => cur || data.selected || (data.businesses.length === 1 ? data.businesses[0].id : ""));
+    
   }, [call, loadStatus]);
+
+  const saveBusiness = async (id) => {
+    setBusy("business");
+    const { data } = await call("/meta-set-business", { business_id: id });
+    setBusy("");
+    if (data?.success) { setCatalogs(null); setPixels(null); setPixelsState("idle"); setOpenSection(null); await loadStatus(); return; }
+    if (data?.needs_reconnect) { await loadStatus(); return; }
+    setBanner({ kind: "error", text: t("metaConnect.businessSaveFailed") });
+  };
 
   // ---- step 2: ad accounts of the chosen business
   const loadAccounts = useCallback(async (biz) => {
@@ -208,7 +214,8 @@ export default function MetaConnect({ storeId, storeName }) {
   useEffect(() => { if (connected && !needsReconnect && (status?.ad_account_id || status?.business_id) && pixelsState === "idle") loadPixels(); }, [connected, needsReconnect, status?.business_id, status?.ad_account_id, pixelsState, loadPixels]);
   const ready = connected && !needsReconnect;
   useEffect(() => { if (ready && businesses === null) loadBusinesses(); }, [ready, businesses, loadBusinesses]);
-  useEffect(() => { if (ready && businessChoice) loadAccounts(businessChoice); }, [ready, businessChoice, loadAccounts]);
+  // the ad account is optional (like Shopify): every account the connection can use is listed
+  useEffect(() => { if (ready && accounts === null) loadAccounts("all"); }, [ready, accounts, loadAccounts]);
   useEffect(() => { if (ready && (status?.ad_account_id || status?.business_id) && status?.catalog_available && catalogs === null) loadCatalogs(); }, [ready, status?.business_id, status?.ad_account_id, status?.catalog_available, catalogs, loadCatalogs]);
 
   const savePixel = async (id) => {
@@ -261,227 +268,250 @@ export default function MetaConnect({ storeId, storeName }) {
   };
 
   const card = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1.25rem", marginBottom: 14 };
-  const btnPrimary = (off) => ({ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "10px 16px", background: "var(--ne-grad)", color: "#fff", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: off ? "default" : "pointer", opacity: off ? 0.6 : 1 });
-  const btnGhost = (off, danger) => ({ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 14px", background: "transparent", border: `1px solid ${danger ? "var(--ne-danger)" : "var(--ne-border)"}`, color: danger ? "var(--ne-danger)" : "var(--ne-text)", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: off ? "default" : "pointer", opacity: off ? 0.6 : 1 });
   const input = { width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-surface)", color: "var(--ne-text)", fontSize: 13 };
   const bannerColors = { success: ["var(--ne-success-soft)", "var(--ne-success)"], error: ["var(--ne-danger-soft)", "var(--ne-danger)"], info: ["var(--ne-warning-soft)", "var(--ne-warning)"] };
 
   const days = status?.expires_in_days;
   const expiryText = status?.token_never_expires ? t("metaConnect.neverExpires") : days === null || days === undefined ? "" :days < 0 ? t("metaConnect.expired") : days === 0 ? t("metaConnect.expiresToday") : t("metaConnect.expiresIn").replace("{days}", String(days));
 
+  // ---------------------------------------------------------------- Shopify-style setup: one card, collapsible steps
+  const P = (k) => t(`metaConnect.${k}`);
+  const fmtDate = (iso) => { try { return new Date(iso).toLocaleDateString(lang === "ur" ? "en-GB" : undefined, { day: "numeric", month: "short", year: "numeric" }); } catch { return ""; } };
+  const bizList = (businesses || []).filter((b) => b.id !== "personal" && b.id !== "all");
+  const sections = [
+    { key: "profile", title: P("stepProfile"), done: ready },
+    { key: "business", title: P("stepBusiness"), done: ready && !!status?.business_id, locked: !ready },
+    { key: "catalog", title: P("stepCatalog"), done: ready && !!status?.catalog_id, locked: !ready || !status?.business_id, optional: true },
+    { key: "pixel", title: P("stepPixel"), done: ready && !!status?.pixel_id, locked: !ready || (!status?.business_id && !status?.ad_account_id) },
+    { key: "account", title: P("adAccountTitle"), done: ready && !!status?.ad_account_id, locked: !ready, optional: true },
+    { key: "sharing", title: P("sharingTitle"), done: ready && !!status?.pixel_id && level !== "standard", locked: !ready || !status?.pixel_id },
+    { key: "terms", title: P("termsTitle"), done: !!status?.terms_accepted_at, locked: !ready || !status?.pixel_id },
+  ];
+  const firstOpen = (sections.find((s) => !s.done && !s.locked && !s.optional) || sections.find((s) => !s.done && !s.locked) || sections[0]).key;
+  const openKey = openSection ?? firstOpen;
+  const canSubmit = ready && !!status?.pixel_id && (termsChecked || !!status?.terms_accepted_at) && !busy;
+
+  const Row = ({ avatar, picture, icon, name, sub, action, active }) => (
+    <div className={`ne-acc-row${active ? " active" : ""}`}>
+      {picture ? <img className="ne-acc-avatar" src={picture} alt="" /> : <span className="ne-acc-avatar" aria-hidden="true">{icon ? <Icon name={icon} size={15} /> : String(avatar || name || "?").trim().charAt(0).toUpperCase()}</span>}
+      <span className="ne-acc-row-text">
+        <span className="ne-acc-row-name">{name}</span>
+        {sub && <span className="ne-acc-row-sub" dir="ltr">{sub}</span>}
+      </span>
+      {action}
+    </div>
+  );
+  const connectBtn = (onClick, label = P("connect")) => <button type="button" className="ne-acc-connect" onClick={onClick} disabled={!!busy}>{label}</button>;
+  const connectedTag = <span className="ne-acc-tag">{P("connectedTag")}</span>;
+
+  const body = (key) => {
+    if (key === "profile") {
+      if (!connected) return (
+        <>
+          <p className="ne-acc-help">{P("profileHelp")}</p>
+          <button onClick={handleConnect} disabled={!!busy || status?.configured === false} className="ne-acc-primary"><Icon name="link" size={14} /> {busy === "connect" ? P("connecting") : P("connectButton")}</button>
+        </>
+      );
+      return (
+        <>
+          <Row icon="team" name={P("accountName")} sub={needsReconnect ? P("needsReconnectTitle") : expiryText} action={needsReconnect ? connectBtn(handleConnect, P("reconnectButton")) : connectedTag} active={!needsReconnect} />
+          <div className="ne-acc-actions">
+            <button type="button" className="ne-asset-link" onClick={handleConnect} disabled={!!busy}><Icon name="refresh" size={12} /> {busy === "connect" ? P("connecting") : P("reconnectButton")}</button>
+            <button type="button" className="ne-asset-link danger" onClick={handleDisconnect} disabled={!!busy}>{busy === "disconnect" ? P("disconnecting") : P("disconnect")}</button>
+          </div>
+        </>
+      );
+    }
+    if (key === "business") return (
+      <>
+        <p className="ne-acc-help">{P("businessHelp")}</p>
+        <div className="ne-acc-list">
+          {businesses === null && <div className="ne-acc-empty">{P("loadingShort")}</div>}
+          {businesses !== null && bizList.length === 0 && <div className="ne-acc-empty">{P("businessNone")}</div>}
+          {bizList.map((b) => (
+            <Row key={b.id} picture={b.picture} name={b.name || b.id} sub={b.created ? P("createdOn").replace("{date}", fmtDate(b.created)) : `${P("idLabel")} ${b.id}`}
+              active={status?.business_id === b.id} action={status?.business_id === b.id ? connectedTag : connectBtn(() => saveBusiness(b.id))} />
+          ))}
+        </div>
+        <p className="ne-acc-note">{P("businessMissingNote")} <button type="button" className="ne-asset-link" style={{ marginTop: 0 }} onClick={handleConnect} disabled={!!busy}>{P("reconnectButton")}</button></p>
+      </>
+    );
+    if (key === "catalog") {
+      if (status?.catalog_id) {
+        const c = (catalogs || []).find((x) => x.id === String(status.catalog_id));
+        return (
+          <>
+            <Row icon="products" name={status.catalog_name || c?.name || status.catalog_id} sub={`${P("idLabel")} ${status.catalog_id}`} action={connectedTag} active />
+            <div className="ne-assets-sync">
+              <span>{status.catalog_synced_at ? P("catalogLastSync").replace("{n}", String(status.catalog_item_count ?? 0)).replace("{time}", new Date(status.catalog_synced_at).toLocaleString()) : P("catalogNeverSynced")}</span>
+              <button onClick={syncCatalog} disabled={!!busy} className="ne-acc-primary"><Icon name="refresh" size={13} /> {busy === "sync" ? P("catalogSyncing") : P("catalogSync")}</button>
+            </div>
+            {productStatus && (
+              <div className="ne-product-status-row" style={{ marginTop: 10 }}>
+                <span className="ok"><strong>{productStatus.approved}</strong> {P("statusApproved")}</span>
+                <span className="wait"><strong>{productStatus.pending}</strong> {P("statusPending")}</span>
+                <span className="bad"><strong>{productStatus.rejected}</strong> {P("statusRejected")}</span>
+              </div>
+            )}
+            <div className="ne-acc-actions">
+              <a href={`https://business.facebook.com/commerce/catalogs/${status.catalog_id}/products`} target="_blank" rel="noopener noreferrer" className="ne-asset-link"><Icon name="arrowRight" size={12} /> {P("viewProducts")}</a>
+              <button type="button" className="ne-asset-link danger" onClick={removeCatalog} disabled={!!busy}>{busy === "catalogRemove" ? P("saving") : P("catalogRemove")}</button>
+            </div>
+          </>
+        );
+      }
+      return (
+        <>
+          <p className="ne-acc-help">{status?.catalog_available === false ? P("catalogUnavailable") : catalogError ? catalogErrorText(catalogError) : P("catalogChooseHelp")}</p>
+          <p className="ne-acc-sublabel">{P("catalogChooseTitle")}</p>
+          <div className="ne-acc-list">
+            {catalogs === null && <div className="ne-acc-empty">{P("loadingShort")}</div>}
+            {(catalogs || []).map((c) => (
+              <Row key={c.id} icon="products" name={c.name || c.id} sub={`${P("idLabel")} ${c.id}${c.product_count !== null && c.product_count !== undefined ? ` · ${P("catalogItems").replace("{n}", String(c.product_count))}` : ""}`}
+                action={connectBtn(() => saveCatalog("/meta-set-catalog", { catalog_id: c.id }))} />
+            ))}
+            <div className="ne-acc-row">
+              <span className="ne-acc-avatar ne-acc-avatar-new" aria-hidden="true"><Icon name="plus" size={15} /></span>
+              <span className="ne-acc-row-text">
+                <span className="ne-acc-row-name">{P("catalogCreate")}</span>
+                <span className="ne-acc-row-sub">{P("catalogCreateTerms")} <a href="https://www.facebook.com/legal/commerce_product_merchant_agreement" target="_blank" rel="noopener noreferrer">{P("termsCatalog")}</a></span>
+              </span>
+              <button type="button" className="ne-acc-outline" disabled={!!busy || status?.catalog_available === false} onClick={() => saveCatalog("/meta-create-catalog", { name: `${storeName || "eNeezam"} catalogue` })}>{busy === "catalog" ? P("saving") : P("createCatalog")}</button>
+            </div>
+          </div>
+        </>
+      );
+    }
+    if (key === "pixel") return (
+      <>
+        <p className="ne-acc-help">{P("stepPixelHelp")}</p>
+        <div className="ne-acc-list">
+          {pixelsState === "idle" && !pixels && <div className="ne-acc-empty">{P("loadingShort")}</div>}
+          {(pixels || []).map((px) => (
+            <Row key={px.id} icon="zap" name={px.name || px.id} sub={`${P("idLabel")} ${px.id}`} active={String(status?.pixel_id) === px.id}
+              action={String(status?.pixel_id) === px.id ? connectedTag : connectBtn(() => savePixel(px.id))} />
+          ))}
+          {status?.pixel_id && !(pixels || []).some((px) => px.id === String(status.pixel_id)) && (
+            <Row icon="zap" name={status.pixel_name || P("pixelTitle")} sub={`${P("idLabel")} ${status.pixel_id}`} action={connectedTag} active />
+          )}
+          <div className="ne-acc-row">
+            <span className="ne-acc-avatar ne-acc-avatar-new" aria-hidden="true"><Icon name="plus" size={15} /></span>
+            <span className="ne-acc-row-text"><span className="ne-acc-row-name">{P("pixelCreate")}</span><span className="ne-acc-row-sub">{P("pixelCreateHelp")}</span></span>
+            <button type="button" className="ne-acc-outline" disabled={!!busy} onClick={() => createPixel(`${storeName || "eNeezam"} pixel`)}>{busy === "pixel" ? P("saving") : P("create")}</button>
+          </div>
+        </div>
+        <div className="ne-acc-actions">
+          {status?.pixel_id && <a href={`https://business.facebook.com/events_manager2/list/pixel/${status.pixel_id}/test_events`} target="_blank" rel="noopener noreferrer" className="ne-asset-link"><Icon name="arrowRight" size={12} /> {P("testEvents")}</a>}
+          <button type="button" className="ne-asset-link" onClick={() => setManualOpen((v) => !v)}><Icon name="edit" size={12} /> {P("pixelManualLabel")}</button>
+          {status?.pixel_id && <button type="button" className="ne-asset-link danger" onClick={removePixel} disabled={!!busy}>{busy === "pixelRemove" ? P("saving") : P("pixelRemove")}</button>}
+        </div>
+        {manualOpen && (
+          <div className="ne-assets-manual">
+            <input dir="ltr" inputMode="numeric" value={manualPixel} onChange={(e) => setManualPixel(e.target.value.replace(/\D/g, "").slice(0, 20))} placeholder={P("pixelManualPlaceholder")} aria-label={P("pixelManualLabel")} style={{ ...input, flex: 1, minWidth: 160 }} />
+            <button onClick={() => savePixel(manualPixel)} disabled={!!busy || !PIXEL_RE.test(manualPixel)} className="ne-acc-outline">{P("pixelSave")}</button>
+          </div>
+        )}
+        <p className="ne-assets-note" style={{ marginTop: 12 }}><Icon name="warning" size={12} /> {P("pixelHelperNote")}</p>
+      </>
+    );
+    if (key === "account") return (
+      <>
+        <p className="ne-acc-help">{P("accountOptionalHelp")}</p>
+        <div className="ne-acc-list">
+          {accounts === null && <div className="ne-acc-empty">{P("loadingShort")}</div>}
+          {accounts !== null && accounts.length === 0 && <div className="ne-acc-empty">{P("adAccountNone")}</div>}
+          {(accounts || []).map((a) => (
+            <Row key={a.account_id} icon="megaphone" name={a.name || a.account_id} sub={`${P("idLabel")} ${a.account_id}${a.currency ? ` · ${a.currency}` : ""}`} active={String(status?.ad_account_id) === a.account_id}
+              action={String(status?.ad_account_id) === a.account_id ? connectedTag : connectBtn(() => saveAccount(a.account_id))} />
+          ))}
+        </div>
+      </>
+    );
+    if (key === "sharing") return (
+      <>
+        <p className="ne-acc-help">{P("sharingHelp")}</p>
+        {status?.sharing_available === false && <p className="ne-assets-warn">{P("sharingUnavailable")}</p>}
+        <div role="radiogroup" aria-label={P("sharingTitle")} className="ne-share-grid">
+          {["standard", "enhanced", "maximum"].map((k) => {
+            const blocked = k === "maximum" && needsReconnect;
+            const off = !!busy || status?.sharing_available === false || blocked;
+            const on = level === k;
+            return (
+              <button key={k} role="radio" aria-checked={on} onClick={() => saveSharing(k)} disabled={off && !on} className={`ne-share-opt${on ? " on" : ""}`}>
+                <span className="ne-share-name">{P(`sharing_${k}`)}</span>
+                <span className="ne-share-desc">{P(`sharing_${k}_desc`)}</span>
+              </button>
+            );
+          })}
+        </div>
+        {level === "maximum" && (
+          <div className="ne-assets-manual">
+            <input dir="ltr" value={testCode} onChange={(e) => setTestCodeEdit(e.target.value.replace(/[^A-Za-z0-9]/g, "").slice(0, 30))} placeholder="TEST12345" aria-label={P("sharingTestCode")} style={{ ...input, flex: 1, minWidth: 160 }} />
+            <button onClick={() => saveSharing("maximum")} disabled={!!busy || needsReconnect} className="ne-acc-outline">{busy === "sharing" ? P("saving") : t("action.save")}</button>
+          </div>
+        )}
+      </>
+    );
+    // terms
+    return (
+      <>
+        <p className="ne-acc-help">{P("termsHelp")}</p>
+        <ul className="ne-terms-list">
+          <li><a href="https://www.facebook.com/legal/commercial_terms" target="_blank" rel="noopener noreferrer">{P("termsCommercial")}</a></li>
+          <li><a href="https://www.facebook.com/legal/terms/businesstools" target="_blank" rel="noopener noreferrer">{P("termsBusinessTools")}</a></li>
+          {status?.catalog_id && <li><a href="https://www.facebook.com/legal/commerce_product_merchant_agreement" target="_blank" rel="noopener noreferrer">{P("termsCatalog")}</a></li>}
+        </ul>
+        <label className="ne-terms-check">
+          <input type="checkbox" checked={termsChecked || !!status?.terms_accepted_at} onChange={(e) => setTermsChecked(e.target.checked)} disabled={!!status?.terms_accepted_at} />
+          <span>{P("termsAgree")}</span>
+        </label>
+      </>
+    );
+  };
+
   return (
-    <div style={{ padding: isMobile ? "1rem" : "1.5rem", maxWidth: 640, margin: "0 auto", color: "var(--ne-text)" }}>
-      <div style={{ marginBottom: "1.25rem" }}>
-        <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><Icon name="megaphone" size={17} /> {t("metaConnect.title")}</h1>
-        <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{t("metaConnect.subtitle")}</p>
+    <div style={{ padding: isMobile ? "1rem" : "1.5rem", maxWidth: 680, margin: "0 auto", color: "var(--ne-text)" }}>
+      <div className="ne-acc-header">
+        <span className="ne-acc-logo" aria-hidden="true"><Icon name="megaphone" size={18} /></span>
+        <div>
+          <h1>{P("setupTitle")}</h1>
+          <p>{P("setupSubtitle")}</p>
+        </div>
       </div>
 
       {banner && (
         <div role="status" style={{ ...card, background: bannerColors[banner.kind][0], color: bannerColors[banner.kind][1], padding: "10px 14px", fontSize: 12.5, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
           <Icon name={banner.kind === "success" ? "check" : "warning"} size={14} /> <span style={{ flex: 1 }}>{banner.text}</span>
-          <button onClick={() => setBanner(null)} aria-label={t("metaConnect.dismiss")} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", padding: 0 }}><Icon name="close" size={12} /></button>
+          <button onClick={() => setBanner(null)} aria-label={P("dismiss")} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", padding: 0 }}><Icon name="close" size={12} /></button>
         </div>
       )}
 
       {loading ? (
-        <div style={{ textAlign: "center", padding: "3rem", color: "var(--ne-muted)" }}>{t("metaConnect.loading")}</div>
+        <div style={{ textAlign: "center", padding: "3rem", color: "var(--ne-muted)" }}>{P("loading")}</div>
       ) : (
         <>
-          {status && status.configured === false && (
-            <div style={{ ...card, color: "var(--ne-warning)", fontSize: 12.5, fontWeight: 600 }}>{t("metaConnect.notConfigured")}</div>
-          )}
-
-          {connected && needsReconnect && (
-            <div role="alert" style={{ ...card, border: "1px solid var(--ne-warning)", background: "var(--ne-warning-soft)" }}>
-              <p style={{ margin: "0 0 4px", fontWeight: 700, color: "var(--ne-warning)", display: "flex", alignItems: "center", gap: 6 }}><Icon name="warning" size={14} /> {t("metaConnect.needsReconnectTitle")}</p>
-              <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "var(--ne-text)" }}>{t("metaConnect.needsReconnectBody")}</p>
-              {level === "maximum" && <p style={{ margin: "0 0 10px", fontSize: 12.5, fontWeight: 600, color: "var(--ne-text)" }}>{t("metaConnect.serverPaused")}</p>}
-              <button onClick={handleConnect} disabled={!!busy} style={btnPrimary(!!busy)}><Icon name="refresh" size={14} /> {busy === "connect" ? t("metaConnect.connecting") : t("metaConnect.reconnectButton")}</button>
-            </div>
-          )}
-
-          <div style={card}>
-            <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-              <div style={{ width: 48, height: 48, borderRadius: 12, background: "var(--ne-surface)", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--ne-border)" }}><Icon name="megaphone" size={22} /></div>
-              <div style={{ flex: 1, minWidth: 160 }}>
-                <p style={{ margin: 0, fontWeight: 700, fontSize: 15 }}>{t("metaConnect.accountName")}</p>
-                <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--ne-muted-2)" }}>
-                  {connected ? (status.ad_account_name || (status.ad_account_id ? `${t("metaConnect.accountIdPrefix")} ${status.ad_account_id}` : t("metaConnect.noAdAccountYet"))) : t("metaConnect.notConnectedYet")}
-                </p>
-                {connected && expiryText && <p style={{ margin: "2px 0 0", fontSize: 11.5, color: days !== null && days < 7 ? "var(--ne-warning)" : "var(--ne-muted)" }}>{expiryText}</p>}
-              </div>
-              <span style={{ fontSize: 11, padding: "4px 12px", background: connected && !needsReconnect ? "var(--ne-success-soft)" : "var(--ne-warning-soft)", color: connected && !needsReconnect ? "var(--ne-success)" : "var(--ne-warning)", borderRadius: 20, fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 5 }}>
-                <Icon name={connected && !needsReconnect ? "check" : "pending"} size={10} /> {connected && !needsReconnect ? t("metaConnect.connected") : t("metaConnect.notConnected")}
-              </span>
-            </div>
-
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
-              {!connected && (
-                <button onClick={handleConnect} disabled={!!busy || status?.configured === false} style={{ ...btnPrimary(!!busy || status?.configured === false), width: isMobile ? "100%" : "auto" }}>
-                  <Icon name="link" size={14} /> {busy === "connect" ? t("metaConnect.connecting") : t("metaConnect.connectButton")}
-                </button>
-              )}
-              {connected && !needsReconnect && <button onClick={handleConnect} disabled={!!busy} style={btnGhost(!!busy)}><Icon name="refresh" size={13} /> {busy === "connect" ? t("metaConnect.connecting") : t("metaConnect.reconnectButton")}</button>}
-              {connected && <button onClick={handleDisconnect} disabled={!!busy} style={btnGhost(!!busy, true)}>{busy === "disconnect" ? t("metaConnect.disconnecting") : t("metaConnect.disconnect")}</button>}
-            </div>
+          {status && status.configured === false && <div style={{ ...card, color: "var(--ne-warning)", fontSize: 12.5, fontWeight: 600 }}>{P("notConfigured")}</div>}
+          <div className="ne-acc">
+            {sections.map((s) => {
+              const open = openKey === s.key && !s.locked;
+              return (
+                <section key={s.key} className={`ne-acc-item${open ? " open" : ""}${s.locked ? " locked" : ""}`}>
+                  <button type="button" className="ne-acc-head" aria-expanded={open} disabled={s.locked} onClick={() => setOpenSection(open ? "" : s.key)}>
+                    <Icon name={open ? "chevronUp" : "chevronDown"} size={15} />
+                    <span className="ne-acc-title">{s.title}{s.optional && <span className="ne-assets-optional">{P("optional")}</span>}</span>
+                    {s.done && <span className="ne-acc-check" aria-label={P("connectedTag")}><Icon name="check" size={12} /></span>}
+                  </button>
+                  {open && <div className="ne-acc-body">{body(s.key)}</div>}
+                </section>
+              );
+            })}
           </div>
-
-          {ready && (() => {
-            const P = (k) => t(`metaConnect.${k}`);
-            const bizOptions = (businesses || []).map((b) => (b.id === "all" ? { id: "all", name: P("allAdAccounts"), sub: "", icon: "megaphone" }
-              : { id: b.id, name: b.id === "personal" ? P("personalAccounts") : b.name || b.id, sub: b.id === "personal" ? P("personalAccountsSub") : `${P("idLabel")} ${b.id}`, picture: b.picture, icon: b.id === "personal" ? "team" : null }));
-            const bizValue = bizOptions.find((b) => b.id === businessChoice) || null;
-            const accOptions = (accounts || []).map((a) => ({ id: a.account_id, name: a.name || a.account_id, sub: `${P("idLabel")} ${a.account_id}${a.currency ? ` · ${a.currency}` : ""}`, icon: "megaphone" }));
-            const accValue = status.ad_account_id ? (accOptions.find((a) => a.id === String(status.ad_account_id)) || { id: String(status.ad_account_id), name: status.ad_account_name || status.ad_account_id, sub: `${P("idLabel")} ${status.ad_account_id}`, icon: "megaphone" }) : null;
-            const pxOptions = (pixels || []).map((p) => ({ id: p.id, name: p.name || p.id, sub: `${P("idLabel")} ${p.id}`, icon: "zap" }));
-            const pxValue = status.pixel_id ? (pxOptions.find((p) => p.id === String(status.pixel_id)) || { id: String(status.pixel_id), name: status.pixel_name || P("pixelTitle"), sub: `${P("idLabel")} ${status.pixel_id}`, icon: "zap" }) : null;
-            const catOptions = (catalogs || []).map((c) => ({ id: c.id, name: c.name || c.id, sub: `${P("idLabel")} ${c.id}${c.product_count !== null && c.product_count !== undefined ? ` · ${P("catalogItems").replace("{n}", String(c.product_count))}` : ""}`, icon: "products" }));
-            const catValue = status.catalog_id ? (catOptions.find((c) => c.id === String(status.catalog_id)) || { id: String(status.catalog_id), name: status.catalog_name || status.catalog_id, sub: `${P("idLabel")} ${status.catalog_id}`, icon: "products" }) : null;
-            const common = { searchLabel: P("pickerSearch"), emptyLabel: P("pickerEmpty"), cancelLabel: P("cancel"), createButton: P("create") };
-            const steps = [
-              { key: "business", done: !!bizValue, title: P("stepBusiness"), help: businessPermission ? P("stepBusinessHelp") : P("businessPermissionHint"),
-                picker: <AssetPicker label={P("stepBusiness")} value={bizValue} options={bizOptions} placeholder={busy === "businesses" ? P("loadingShort") : P("pickBusiness")} busy={busy === "businesses"} disabled={!!busy && busy !== "businesses"} onChange={(id) => setBusinessChoice(id)} {...common} /> },
-              { key: "account", done: !!accValue, locked: !bizValue, optional: true, title: P("adAccountTitle"), help: P("adAccountPickHelp"),
-                picker: <AssetPicker label={P("adAccountTitle")} value={accValue && accOptions.some((a) => a.id === accValue.id) ? accValue : (accounts === null ? accValue : null)} options={accOptions} placeholder={accounts && accounts.length === 0 ? P("adAccountNone") : P("adAccountPick")} busy={busy === "accounts" || busy === "account"} disabled={!bizValue || (!!busy && busy !== "accounts")} onChange={saveAccount} {...common} /> },
-              { key: "pixel", done: !!pxValue, locked: !bizValue && !accValue, title: P("stepPixel"), help: P("stepPixelHelp"),
-                picker: <AssetPicker label={P("stepPixel")} value={pxValue} options={pxOptions} placeholder={P("pixelPick")} busy={busy === "pixels" || busy === "pixel"} disabled={(!bizValue && !accValue) || (!!busy && busy !== "pixels")} onChange={savePixel}
-                  onCreate={createPixel} createLabel={P("pixelCreate")} createPlaceholder={P("pixelCreateName")} createDefault={`${storeName || "eNeezam"} pixel`}
-                  footerExtra={<button type="button" className="ne-asset-footer ne-asset-footer-muted" onClick={() => setManualOpen(true)}><Icon name="edit" size={13} /> {P("pixelManualLabel")}</button>} {...common} /> },
-              { key: "catalog", done: !!catValue, locked: !bizValue && !accValue, optional: true, title: P("stepCatalog"), help: status.catalog_available === false ? P("catalogUnavailable") : catalogError ? catalogErrorText(catalogError) : P("stepCatalogHelp"),
-                picker: <AssetPicker label={P("stepCatalog")} value={catValue} options={catOptions} placeholder={P("catalogPick")} busy={busy === "catalogs" || busy === "catalog"} disabled={(!bizValue && !accValue) || status.catalog_available === false || !!catalogError || (!!busy && busy !== "catalogs")}
-                  onChange={(id) => saveCatalog("/meta-set-catalog", { catalog_id: id })} onCreate={(name) => saveCatalog("/meta-create-catalog", { name })} createLabel={P("catalogCreate")} createPlaceholder={P("catalogCreateName")} createDefault={`${storeName || "eNeezam"} catalogue`} {...common} /> },
-            ];
-            const doneCount = steps.filter((s) => s.done).length;
-            return (
-              <div style={card} className="ne-assets-card">
-                <div className="ne-assets-head">
-                  <div>
-                    <p className="ne-assets-title">{P("assetsTitle")}</p>
-                    <p className="ne-assets-help">{P("assetsHelp")}</p>
-                  </div>
-                  <span className="ne-assets-count">{doneCount}/{steps.length}</span>
-                </div>
-                <ol className="ne-assets-steps">
-                  {steps.map((s, i) => (
-                    <li key={s.key} className={`ne-assets-step${s.done ? " done" : ""}${s.locked ? " locked" : ""}`}>
-                      <span className="ne-assets-dot" aria-hidden="true">{s.done ? <Icon name="check" size={12} /> : i + 1}</span>
-                      <div className="ne-assets-body">
-                        <div className="ne-assets-label">
-                          <span>{s.title}</span>{s.optional && <span className="ne-assets-optional">{P("optional")}</span>}
-                        </div>
-                        <p className="ne-assets-sub">{s.help}</p>
-                        {s.picker}
-                        {s.key === "business" && !businessPermission && (
-                          <button type="button" className="ne-asset-link" onClick={handleConnect} disabled={!!busy}><Icon name="refresh" size={12} /> {P("reconnectForBusiness")}</button>
-                        )}
-                        {s.key === "pixel" && manualOpen && (
-                          <div className="ne-assets-manual">
-                            <input dir="ltr" inputMode="numeric" value={manualPixel} onChange={(e) => setManualPixel(e.target.value.replace(/\D/g, "").slice(0, 20))} placeholder={P("pixelManualPlaceholder")} aria-label={P("pixelManualLabel")} style={{ ...input, flex: 1, minWidth: 160 }} />
-                            <button onClick={() => savePixel(manualPixel)} disabled={!!busy || !PIXEL_RE.test(manualPixel)} style={btnGhost(!!busy || !PIXEL_RE.test(manualPixel))}>{P("pixelSave")}</button>
-                            <button onClick={() => setManualOpen(false)} style={btnGhost(false)}>{P("cancel")}</button>
-                          </div>
-                        )}
-                        {s.key === "pixel" && pixelsState === "unavailable" && <p className="ne-assets-warn">{P("pixelUnavailable")}</p>}
-                        {s.key === "pixel" && pxValue && (
-                          <div className="ne-assets-meta">
-                            <a href={`https://business.facebook.com/events_manager2/list/pixel/${pxValue.id}/test_events`} target="_blank" rel="noopener noreferrer"><Icon name="arrowRight" size={12} /> {P("testEvents")}</a>
-                            <button type="button" className="ne-asset-link danger" onClick={removePixel} disabled={!!busy}>{busy === "pixelRemove" ? P("saving") : P("pixelRemove")}</button>
-                          </div>
-                        )}
-                        {s.key === "catalog" && catValue && (
-                          <div className="ne-assets-sync">
-                            <span>{status.catalog_synced_at ? P("catalogLastSync").replace("{n}", String(status.catalog_item_count ?? 0)).replace("{time}", new Date(status.catalog_synced_at).toLocaleString()) : P("catalogNeverSynced")}</span>
-                            <button onClick={syncCatalog} disabled={!!busy} style={btnPrimary(!!busy)}><Icon name="refresh" size={13} /> {busy === "sync" ? P("catalogSyncing") : P("catalogSync")}</button>
-                          </div>
-                        )}
-                        {s.key === "catalog" && catValue && (
-                          <div className="ne-assets-meta">
-                            <a href={`https://business.facebook.com/commerce/catalogs/${catValue.id}/products`} target="_blank" rel="noopener noreferrer"><Icon name="arrowRight" size={12} /> {P("viewProducts")}</a>
-                            <button type="button" className="ne-asset-link danger" onClick={removeCatalog} disabled={!!busy}>{busy === "catalogRemove" ? P("saving") : P("catalogRemove")}</button>
-                          </div>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-                {pxValue && <p className="ne-assets-note"><Icon name="warning" size={12} /> {P("pixelHelperNote")}</p>}
-              </div>
-            );
-          })()}
-
-          {connected && status.pixel_id && (
-            <div style={card}>
-              <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: 14 }}>{t("metaConnect.sharingTitle")}</p>
-              <p style={{ margin: "0 0 10px", fontSize: 12, color: "var(--ne-muted)" }}>{t("metaConnect.sharingHelp")}</p>
-              {status.sharing_available === false && <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "var(--ne-warning)" }}>{t("metaConnect.sharingUnavailable")}</p>}
-              {level === "maximum" && days !== null && days !== undefined && days >= 0 && days <= 7 && !needsReconnect && (
-                <div role="alert" style={{ marginBottom: 10, padding: "9px 12px", borderRadius: 9, background: "var(--ne-warning-soft)", color: "var(--ne-warning)", fontSize: 12.5, fontWeight: 600 }}>{t("metaConnect.sharingExpiring").replace("{days}", String(days))}</div>
-              )}
-              <div role="radiogroup" aria-label={t("metaConnect.sharingTitle")} style={{ display: "grid", gap: 8 }}>
-                {["standard", "enhanced", "maximum"].map((key) => {
-                  const blocked = key === "maximum" && needsReconnect;
-                  const off = !!busy || status.sharing_available === false || blocked;
-                  const on = level === key;
-                  return (
-                    <button key={key} role="radio" aria-checked={on} onClick={() => saveSharing(key)} disabled={off && !on} style={{ textAlign: "start", display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 12px", borderRadius: 10, border: `1px solid ${on ? "var(--ne-success)" : "var(--ne-border)"}`, background: on ? "var(--ne-success-soft)" : "var(--ne-surface)", color: "var(--ne-text)", cursor: off ? "default" : "pointer", opacity: off && !on ? 0.55 : 1 }}>
-                      <span style={{ marginTop: 2, width: 14 }}>{on ? <Icon name="check" size={13} /> : null}</span>
-                      <span style={{ flex: 1 }}>
-                        <span style={{ display: "block", fontWeight: 700, fontSize: 13 }}>{t(`metaConnect.sharing_${key}`)}</span>
-                        <span style={{ display: "block", fontSize: 12, color: "var(--ne-muted)", marginTop: 2 }}>{t(`metaConnect.sharing_${key}_desc`)}</span>
-                        {blocked && <span style={{ display: "block", fontSize: 11.5, color: "var(--ne-warning)", marginTop: 4 }}>{t("metaConnect.sharingMaxBlocked")}</span>}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-              {level === "maximum" && (
-                <div style={{ marginTop: 12 }}>
-                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 6 }}>{t("metaConnect.sharingTestCode")}</label>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <input dir="ltr" value={testCode} onChange={(e) => setTestCodeEdit(e.target.value.replace(/[^A-Za-z0-9]/g, "").slice(0, 30))} placeholder="TEST12345" style={{ ...input, flex: 1, minWidth: 200 }} />
-                    <button onClick={() => saveSharing("maximum")} disabled={!!busy || needsReconnect} style={btnGhost(!!busy || needsReconnect)}>{busy === "sharing" ? t("metaConnect.saving") : t("action.save")}</button>
-                  </div>
-                  <p style={{ margin: "6px 0 0", fontSize: 11.5, color: "var(--ne-muted-2)" }}>{t("metaConnect.sharingTestCodeHelp")}</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {ready && status.pixel_id && (
-            <div style={card} className="ne-assets-card">
-              <div className="ne-assets-head">
-                <div>
-                  <p className="ne-assets-title">{t("metaConnect.termsTitle")}</p>
-                  <p className="ne-assets-help">{t("metaConnect.termsHelp")}</p>
-                </div>
-                {status.review_submitted_at && <span className="ne-assets-count ne-assets-count-ok">{t("metaConnect.submitted")}</span>}
-              </div>
-              <ul className="ne-terms-list">
-                <li><a href="https://www.facebook.com/legal/commercial_terms" target="_blank" rel="noopener noreferrer">{t("metaConnect.termsCommercial")}</a></li>
-                <li><a href="https://www.facebook.com/legal/terms/businesstools" target="_blank" rel="noopener noreferrer">{t("metaConnect.termsBusinessTools")}</a></li>
-                {status.catalog_id && <li><a href="https://www.facebook.com/legal/commerce_product_merchant_agreement" target="_blank" rel="noopener noreferrer">{t("metaConnect.termsCatalog")}</a></li>}
-              </ul>
-              <label className="ne-terms-check">
-                <input type="checkbox" checked={termsChecked || !!status.terms_accepted_at} onChange={(e) => setTermsChecked(e.target.checked)} disabled={!!status.terms_accepted_at} />
-                <span>{t("metaConnect.termsAgree")}</span>
-              </label>
-              <div className="ne-assets-sync" style={{ marginTop: 12 }}>
-                <span>{status.review_submitted_at ? t("metaConnect.submittedOn").replace("{time}", new Date(status.review_submitted_at).toLocaleString()) : t("metaConnect.submitHelp")}</span>
-                <button onClick={submitReview} disabled={!!busy || !(termsChecked || status.terms_accepted_at)} style={btnPrimary(!!busy || !(termsChecked || status.terms_accepted_at))}>
-                  {busy === "review" ? t("metaConnect.submitting") : status.review_submitted_at ? t("metaConnect.resubmit") : t("metaConnect.submitReview")}
-                </button>
-              </div>
-              {status.catalog_id && productStatus && (
-                <div className="ne-product-status">
-                  <p className="ne-assets-label" style={{ margin: "14px 0 8px" }}>{t("metaConnect.productStatus")}</p>
-                  <div className="ne-product-status-row">
-                    <span className="ok"><strong>{productStatus.approved}</strong> {t("metaConnect.statusApproved")}</span>
-                    <span className="wait"><strong>{productStatus.pending}</strong> {t("metaConnect.statusPending")}</span>
-                    <span className="bad"><strong>{productStatus.rejected}</strong> {t("metaConnect.statusRejected")}</span>
-                  </div>
-                  <a className="ne-product-status-link" href={`https://business.facebook.com/commerce/catalogs/${status.catalog_id}/products`} target="_blank" rel="noopener noreferrer"><Icon name="arrowRight" size={12} /> {t("metaConnect.viewProducts")}</a>
-                </div>
-              )}
+          {ready && (
+            <div className="ne-acc-footer">
+              <span>{status?.review_submitted_at ? P("submittedOn").replace("{time}", new Date(status.review_submitted_at).toLocaleString()) : ""}</span>
+              <button onClick={submitReview} disabled={!canSubmit} className="ne-acc-submit">
+                {busy === "review" ? P("submitting") : status?.review_submitted_at ? P("resubmit") : P("submitReview")}
+              </button>
             </div>
           )}
         </>
