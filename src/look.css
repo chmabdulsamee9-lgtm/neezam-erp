@@ -480,6 +480,19 @@
 .ne-asset-primary{background:var(--ne-text); color:var(--ne-bg); border-color:transparent;}
 .ne-asset-primary:disabled{opacity:.45; cursor:default;}
 @media (max-width:760px){ .ne-asset-picker{max-width:none;} .ne-assets-step{gap:10px;} }
+.ne-assets-count-ok{background:var(--ne-success-soft); color:var(--ne-success);}
+.ne-terms-list{margin:10px 0 12px; padding-inline-start:18px; font-size:12.5px; line-height:1.9;}
+.ne-terms-list a{color:var(--ne-accent); text-decoration:none; font-weight:600;}
+.ne-terms-list a:hover{text-decoration:underline;}
+.ne-terms-check{display:flex; gap:10px; align-items:flex-start; font-size:12.5px; cursor:pointer; line-height:1.45;}
+.ne-terms-check input{margin-top:2px; width:16px; height:16px; accent-color:var(--ne-accent); flex-shrink:0;}
+.ne-product-status-row{display:flex; gap:8px; flex-wrap:wrap;}
+.ne-product-status-row span{flex:1; min-width:90px; padding:10px 12px; border-radius:10px; font-size:12px; display:flex; flex-direction:column; gap:2px;}
+.ne-product-status-row strong{font-size:18px;}
+.ne-product-status-row .ok{background:var(--ne-success-soft); color:var(--ne-success);}
+.ne-product-status-row .wait{background:var(--ne-warning-soft); color:var(--ne-warning);}
+.ne-product-status-row .bad{background:var(--ne-danger-soft); color:var(--ne-danger);}
+.ne-product-status-link{display:inline-flex; align-items:center; gap:5px; margin-top:10px; font-size:12px; font-weight:600; color:var(--ne-accent); text-decoration:none;}
 
 /* expanding details inside a card */
 .ne-expand-in{animation:ne-expand-in var(--ne-motion) var(--ne-ease); overflow:hidden;}

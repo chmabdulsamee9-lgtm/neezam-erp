@@ -40,6 +40,8 @@ export default function MetaConnect({ storeId, storeName }) {
   const [manualOpen, setManualOpen] = useState(false);
   const [catalogs, setCatalogs] = useState(null);
   const [catalogError, setCatalogError] = useState("");
+  const [productStatus, setProductStatus] = useState(null);
+  const [termsChecked, setTermsChecked] = useState(false);
   const [testCodeEdit, setTestCodeEdit] = useState(null); // null = show the saved code
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
 
@@ -219,6 +221,36 @@ export default function MetaConnect({ storeId, storeName }) {
     setBanner({ kind: "error", text: data?.error === "pixel_not_in_account" ? t("metaConnect.pixelNotInAccount") : t("metaConnect.pixelInvalid") });
   };
 
+  const loadProductStatus = useCallback(async () => {
+    const { data } = await call("/meta-catalog-status");
+    if (data?.success) setProductStatus(data);
+  }, [call]);
+  useEffect(() => { if (ready && status?.catalog_id && productStatus === null) loadProductStatus(); }, [ready, status?.catalog_id, productStatus, loadProductStatus]);
+
+  const removeCatalog = async () => {
+    if (!window.confirm(t("metaConnect.catalogRemoveConfirm"))) return;
+    setBusy("catalogRemove");
+    const { data } = await call("/meta-remove-catalog");
+    setBusy("");
+    if (data?.success) { setBanner({ kind: "success", text: t("metaConnect.catalogRemoved") }); setCatalogs(null); setProductStatus(null); await loadStatus(); return; }
+    setBanner({ kind: "error", text: t("metaConnect.catalogFailed") });
+  };
+
+  const submitReview = async () => {
+    setBusy("review");
+    const { data } = await call("/meta-submit-review", { accept_terms: true });
+    setBusy("");
+    if (data?.success) {
+      setBanner({ kind: data.sync_error ? "info" : "success", text: data.sync_error ? `${t("metaConnect.submittedPartly")} (${data.sync_error})` : t("metaConnect.submittedOk").replace("{n}", String(data.sent ?? 0)) });
+      setProductStatus(null);
+      await loadStatus();
+      return;
+    }
+    if (data?.needs_reconnect) { await loadStatus(); return; }
+    const errs = { setup_incomplete: "submitNeedsSetup", review_unavailable: "catalogUnavailable", terms_required: "termsAgree" };
+    setBanner({ kind: "error", text: t(`metaConnect.${errs[data?.error] || "submitFailed"}`) });
+  };
+
   const removePixel = async () => {
     if (!window.confirm(t("metaConnect.pixelRemoveConfirm"))) return;
     setBusy("pixelRemove");
@@ -235,7 +267,7 @@ export default function MetaConnect({ storeId, storeName }) {
   const bannerColors = { success: ["var(--ne-success-soft)", "var(--ne-success)"], error: ["var(--ne-danger-soft)", "var(--ne-danger)"], info: ["var(--ne-warning-soft)", "var(--ne-warning)"] };
 
   const days = status?.expires_in_days;
-  const expiryText = days === null || days === undefined ? "" : days < 0 ? t("metaConnect.expired") : days === 0 ? t("metaConnect.expiresToday") : t("metaConnect.expiresIn").replace("{days}", String(days));
+  const expiryText = status?.token_never_expires ? t("metaConnect.neverExpires") : days === null || days === undefined ? "" :days < 0 ? t("metaConnect.expired") : days === 0 ? t("metaConnect.expiresToday") : t("metaConnect.expiresIn").replace("{days}", String(days));
 
   return (
     <div style={{ padding: isMobile ? "1rem" : "1.5rem", maxWidth: 640, margin: "0 auto", color: "var(--ne-text)" }}>
@@ -362,6 +394,12 @@ export default function MetaConnect({ storeId, storeName }) {
                             <button onClick={syncCatalog} disabled={!!busy} style={btnPrimary(!!busy)}><Icon name="refresh" size={13} /> {busy === "sync" ? P("catalogSyncing") : P("catalogSync")}</button>
                           </div>
                         )}
+                        {s.key === "catalog" && catValue && (
+                          <div className="ne-assets-meta">
+                            <a href={`https://business.facebook.com/commerce/catalogs/${catValue.id}/products`} target="_blank" rel="noopener noreferrer"><Icon name="arrowRight" size={12} /> {P("viewProducts")}</a>
+                            <button type="button" className="ne-asset-link danger" onClick={removeCatalog} disabled={!!busy}>{busy === "catalogRemove" ? P("saving") : P("catalogRemove")}</button>
+                          </div>
+                        )}
                       </div>
                     </li>
                   ))}
@@ -404,6 +442,44 @@ export default function MetaConnect({ storeId, storeName }) {
                     <button onClick={() => saveSharing("maximum")} disabled={!!busy || needsReconnect} style={btnGhost(!!busy || needsReconnect)}>{busy === "sharing" ? t("metaConnect.saving") : t("action.save")}</button>
                   </div>
                   <p style={{ margin: "6px 0 0", fontSize: 11.5, color: "var(--ne-muted-2)" }}>{t("metaConnect.sharingTestCodeHelp")}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {ready && status.pixel_id && (
+            <div style={card} className="ne-assets-card">
+              <div className="ne-assets-head">
+                <div>
+                  <p className="ne-assets-title">{t("metaConnect.termsTitle")}</p>
+                  <p className="ne-assets-help">{t("metaConnect.termsHelp")}</p>
+                </div>
+                {status.review_submitted_at && <span className="ne-assets-count ne-assets-count-ok">{t("metaConnect.submitted")}</span>}
+              </div>
+              <ul className="ne-terms-list">
+                <li><a href="https://www.facebook.com/legal/commercial_terms" target="_blank" rel="noopener noreferrer">{t("metaConnect.termsCommercial")}</a></li>
+                <li><a href="https://www.facebook.com/legal/terms/businesstools" target="_blank" rel="noopener noreferrer">{t("metaConnect.termsBusinessTools")}</a></li>
+                {status.catalog_id && <li><a href="https://www.facebook.com/legal/commerce_product_merchant_agreement" target="_blank" rel="noopener noreferrer">{t("metaConnect.termsCatalog")}</a></li>}
+              </ul>
+              <label className="ne-terms-check">
+                <input type="checkbox" checked={termsChecked || !!status.terms_accepted_at} onChange={(e) => setTermsChecked(e.target.checked)} disabled={!!status.terms_accepted_at} />
+                <span>{t("metaConnect.termsAgree")}</span>
+              </label>
+              <div className="ne-assets-sync" style={{ marginTop: 12 }}>
+                <span>{status.review_submitted_at ? t("metaConnect.submittedOn").replace("{time}", new Date(status.review_submitted_at).toLocaleString()) : t("metaConnect.submitHelp")}</span>
+                <button onClick={submitReview} disabled={!!busy || !(termsChecked || status.terms_accepted_at)} style={btnPrimary(!!busy || !(termsChecked || status.terms_accepted_at))}>
+                  {busy === "review" ? t("metaConnect.submitting") : status.review_submitted_at ? t("metaConnect.resubmit") : t("metaConnect.submitReview")}
+                </button>
+              </div>
+              {status.catalog_id && productStatus && (
+                <div className="ne-product-status">
+                  <p className="ne-assets-label" style={{ margin: "14px 0 8px" }}>{t("metaConnect.productStatus")}</p>
+                  <div className="ne-product-status-row">
+                    <span className="ok"><strong>{productStatus.approved}</strong> {t("metaConnect.statusApproved")}</span>
+                    <span className="wait"><strong>{productStatus.pending}</strong> {t("metaConnect.statusPending")}</span>
+                    <span className="bad"><strong>{productStatus.rejected}</strong> {t("metaConnect.statusRejected")}</span>
+                  </div>
+                  <a className="ne-product-status-link" href={`https://business.facebook.com/commerce/catalogs/${status.catalog_id}/products`} target="_blank" rel="noopener noreferrer"><Icon name="arrowRight" size={12} /> {t("metaConnect.viewProducts")}</a>
                 </div>
               )}
             </div>

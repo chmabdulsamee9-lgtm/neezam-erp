@@ -17,3 +17,9 @@ where table_schema = 'public' and table_name = 'stores' and column_name like 'me
 --   drop column if exists meta_business_id, drop column if exists meta_business_name,
 --   drop column if exists meta_catalog_id, drop column if exists meta_catalog_name,
 --   drop column if exists meta_catalog_synced_at, drop column if exists meta_catalog_item_count;
+
+-- 2026-11-13: terms + review submission (applied)
+alter table public.stores
+  add column if not exists meta_terms_accepted_at timestamptz,
+  add column if not exists meta_review_submitted_at timestamptz;
+-- rollback: alter table public.stores drop column if exists meta_terms_accepted_at, drop column if exists meta_review_submitted_at;
