@@ -205,11 +205,11 @@ export default function MetaConnect({ storeId, storeName }) {
     setPixelsState("unavailable");
   }, [call, loadStatus]);
 
-  useEffect(() => { if (connected && !needsReconnect && status?.ad_account_id && pixelsState === "idle") loadPixels(); }, [connected, needsReconnect, status?.ad_account_id, pixelsState, loadPixels]);
+  useEffect(() => { if (connected && !needsReconnect && (status?.ad_account_id || status?.business_id) && pixelsState === "idle") loadPixels(); }, [connected, needsReconnect, status?.business_id, status?.ad_account_id, pixelsState, loadPixels]);
   const ready = connected && !needsReconnect;
   useEffect(() => { if (ready && businesses === null) loadBusinesses(); }, [ready, businesses, loadBusinesses]);
   useEffect(() => { if (ready && businessChoice) loadAccounts(businessChoice); }, [ready, businessChoice, loadAccounts]);
-  useEffect(() => { if (ready && status?.ad_account_id && status?.catalog_available && catalogs === null) loadCatalogs(); }, [ready, status?.ad_account_id, status?.catalog_available, catalogs, loadCatalogs]);
+  useEffect(() => { if (ready && (status?.ad_account_id || status?.business_id) && status?.catalog_available && catalogs === null) loadCatalogs(); }, [ready, status?.business_id, status?.ad_account_id, status?.catalog_available, catalogs, loadCatalogs]);
 
   const savePixel = async (id) => {
     if (!PIXEL_RE.test(id)) { setBanner({ kind: "error", text: t("metaConnect.pixelInvalid") }); return; }
@@ -341,14 +341,14 @@ export default function MetaConnect({ storeId, storeName }) {
             const steps = [
               { key: "business", done: !!bizValue, title: P("stepBusiness"), help: businessPermission ? P("stepBusinessHelp") : P("businessPermissionHint"),
                 picker: <AssetPicker label={P("stepBusiness")} value={bizValue} options={bizOptions} placeholder={busy === "businesses" ? P("loadingShort") : P("pickBusiness")} busy={busy === "businesses"} disabled={!!busy && busy !== "businesses"} onChange={(id) => setBusinessChoice(id)} {...common} /> },
-              { key: "account", done: !!accValue, locked: !bizValue, title: P("adAccountTitle"), help: P("adAccountPickHelp"),
+              { key: "account", done: !!accValue, locked: !bizValue, optional: true, title: P("adAccountTitle"), help: P("adAccountPickHelp"),
                 picker: <AssetPicker label={P("adAccountTitle")} value={accValue && accOptions.some((a) => a.id === accValue.id) ? accValue : (accounts === null ? accValue : null)} options={accOptions} placeholder={accounts && accounts.length === 0 ? P("adAccountNone") : P("adAccountPick")} busy={busy === "accounts" || busy === "account"} disabled={!bizValue || (!!busy && busy !== "accounts")} onChange={saveAccount} {...common} /> },
-              { key: "pixel", done: !!pxValue, locked: !accValue, title: P("stepPixel"), help: P("stepPixelHelp"),
-                picker: <AssetPicker label={P("stepPixel")} value={pxValue} options={pxOptions} placeholder={P("pixelPick")} busy={busy === "pixels" || busy === "pixel"} disabled={!accValue || (!!busy && busy !== "pixels")} onChange={savePixel}
+              { key: "pixel", done: !!pxValue, locked: !bizValue && !accValue, title: P("stepPixel"), help: P("stepPixelHelp"),
+                picker: <AssetPicker label={P("stepPixel")} value={pxValue} options={pxOptions} placeholder={P("pixelPick")} busy={busy === "pixels" || busy === "pixel"} disabled={(!bizValue && !accValue) || (!!busy && busy !== "pixels")} onChange={savePixel}
                   onCreate={createPixel} createLabel={P("pixelCreate")} createPlaceholder={P("pixelCreateName")} createDefault={`${storeName || "eNeezam"} pixel`}
                   footerExtra={<button type="button" className="ne-asset-footer ne-asset-footer-muted" onClick={() => setManualOpen(true)}><Icon name="edit" size={13} /> {P("pixelManualLabel")}</button>} {...common} /> },
-              { key: "catalog", done: !!catValue, locked: !accValue, optional: true, title: P("stepCatalog"), help: status.catalog_available === false ? P("catalogUnavailable") : catalogError ? catalogErrorText(catalogError) : P("stepCatalogHelp"),
-                picker: <AssetPicker label={P("stepCatalog")} value={catValue} options={catOptions} placeholder={P("catalogPick")} busy={busy === "catalogs" || busy === "catalog"} disabled={!accValue || status.catalog_available === false || !!catalogError || (!!busy && busy !== "catalogs")}
+              { key: "catalog", done: !!catValue, locked: !bizValue && !accValue, optional: true, title: P("stepCatalog"), help: status.catalog_available === false ? P("catalogUnavailable") : catalogError ? catalogErrorText(catalogError) : P("stepCatalogHelp"),
+                picker: <AssetPicker label={P("stepCatalog")} value={catValue} options={catOptions} placeholder={P("catalogPick")} busy={busy === "catalogs" || busy === "catalog"} disabled={(!bizValue && !accValue) || status.catalog_available === false || !!catalogError || (!!busy && busy !== "catalogs")}
                   onChange={(id) => saveCatalog("/meta-set-catalog", { catalog_id: id })} onCreate={(name) => saveCatalog("/meta-create-catalog", { name })} createLabel={P("catalogCreate")} createPlaceholder={P("catalogCreateName")} createDefault={`${storeName || "eNeezam"} catalogue`} {...common} /> },
             ];
             const doneCount = steps.filter((s) => s.done).length;
