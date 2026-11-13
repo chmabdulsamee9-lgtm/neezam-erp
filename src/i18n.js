@@ -4266,7 +4266,7 @@ export const translations = {
     'metaConnect.personalAccounts': 'Personal ad accounts',
     'metaConnect.allAdAccounts': 'All ad accounts',
     'metaConnect.catalogWrongType': 'Not for products',
-    'metaConnect.catalogWrongTypeHelp': 'This catalogue is not a commerce catalogue (Meta's window made a generic one). Create a new catalogue for products.',
+    'metaConnect.catalogWrongTypeHelp': 'This catalogue is not a commerce catalogue (the Meta window made a generic one). Create a new catalogue for products.',
     'metaConnect.setupTitle': 'Set up ads on Facebook and Instagram',
     'metaConnect.setupSubtitle': 'Create personalised ad campaigns based on your product catalogue.',
     'metaConnect.stepProfile': 'Facebook profile',
