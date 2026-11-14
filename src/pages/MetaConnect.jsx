@@ -333,6 +333,7 @@ export default function MetaConnect({ storeId, storeName }) {
         <>
           <Row icon="team" name={P("accountName")} sub={needsReconnect ? P("needsReconnectTitle") : expiryText} action={needsReconnect ? connectBtn(handleConnect, P("reconnectButton")) : connectedTag} active={!needsReconnect} />
           {!needsReconnect && <p className="ne-acc-note" style={{ marginTop: 8 }}><Icon name={status?.partner_access ? "check" : "warning"} size={12} /> {status?.partner_access ? P("permanentOn") : P("permanentPending")}</p>}
+          {status?.partner_access && status?.partner_pixel === false && <p className="ne-assets-warn">{P("pixelNotPermanent")}</p>}
           {loginNeeded && <p className="ne-assets-warn">{P("loginNeededForChange")}</p>}
           <div className="ne-acc-actions">
             <button type="button" className="ne-asset-link" onClick={handleConnect} disabled={!!busy}><Icon name="refresh" size={12} /> {busy === "connect" ? P("connecting") : P("reconnectButton")}</button>
