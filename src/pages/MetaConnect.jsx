@@ -39,6 +39,8 @@ export default function MetaConnect({ storeId, storeName }) {
   const [catalogError, setCatalogError] = useState("");
   const [productStatus, setProductStatus] = useState(null);
   const [termsChecked, setTermsChecked] = useState(false);
+  const [loginNeeded, setLoginNeeded] = useState(false); // shared with eNeezam but the Facebook login expired: changes need a new login
+  const [madePermanent, setMadePermanent] = useState(false);
   const [openSection, setOpenSection] = useState(null); // null = the first step that still needs work
   const [testCodeEdit, setTestCodeEdit] = useState(null); // null = show the saved code
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
@@ -89,6 +91,15 @@ export default function MetaConnect({ storeId, storeName }) {
     setBanner({ kind: "error", text: t(`metaConnect.${errs[data?.error] || "sharingFailed"}`) });
   };
 
+  // a list call answered "log in again": with permanent access the connection still works, so only the pickers wait for a login
+  const onLoginNeeded = useCallback(async (clear) => {
+    if (status?.partner_access) { setLoginNeeded(true); clear(); return; }
+    await loadStatus();
+  }, [status?.partner_access, loadStatus]);
+
+  // after a save: tell the merchant when the asset could not be shared with eNeezam (permanent access)
+  const partnerNote = (data) => { if (data && data.permanent === false && data.partner_step && data.partner_step !== "config") setBanner({ kind: "info", text: `${t("metaConnect.partnerFailed")}${data.partner_message ? ` (${data.partner_message})` : ""}` }); };
+
   const handleConnect = async () => {
     setBusy("connect");
     setBanner(null);
@@ -113,18 +124,17 @@ export default function MetaConnect({ storeId, storeName }) {
     setBusy("businesses");
     const { data } = await call("/meta-businesses");
     setBusy("");
-    if (data?.needs_reconnect) { await loadStatus(); return; }
+    if (data?.needs_reconnect) { await onLoginNeeded(() => setBusinesses([])); return; }
     // no business list (older server, Meta error): every ad account is shown under "All ad accounts"
     if (!data?.businesses) { setBusinesses([{ id: "all", name: "", ad_accounts: 0 }]); return; }
     setBusinesses(data.businesses);
-    
-  }, [call, loadStatus]);
+  }, [call, onLoginNeeded]);
 
   const saveBusiness = async (id) => {
     setBusy("business");
     const { data } = await call("/meta-set-business", { business_id: id });
     setBusy("");
-    if (data?.success) { setCatalogs(null); setPixels(null); setPixelsState("idle"); setOpenSection(null); await loadStatus(); return; }
+    if (data?.success) { setCatalogs(null); setAccounts(null); setPixels(null); setPixelsState("idle"); setOpenSection(null); await loadStatus(); return; }
     if (data?.needs_reconnect) { await loadStatus(); return; }
     setBanner({ kind: "error", text: t("metaConnect.businessSaveFailed") });
   };
@@ -135,16 +145,16 @@ export default function MetaConnect({ storeId, storeName }) {
     setBusy("accounts");
     const { data } = await call("/meta-ad-accounts", biz === "all" ? {} : { business_id: biz });
     setBusy("");
-    if (data?.needs_reconnect) { await loadStatus(); return; }
+    if (data?.needs_reconnect) { await onLoginNeeded(() => setAccounts([])); return; }
     if (data?.error) { setBanner({ kind: "error", text: t("metaConnect.adAccountLoadFailed") }); setAccounts([]); return; }
     setAccounts(data.accounts || []);
-  }, [call, loadStatus, t]);
+  }, [call, onLoginNeeded, t]);
 
   const saveAccount = async (id) => {
     setBusy("account");
     const { data } = await call("/meta-set-account", { ad_account_id: id });
     setBusy("");
-    if (data?.success) { setBanner({ kind: "success", text: t("metaConnect.adAccountSaved") }); setPixels(null); setPixelsState("idle"); setCatalogs(null); await loadStatus(); return; }
+    if (data?.success) { setBanner({ kind: "success", text: t("metaConnect.adAccountSaved") }); partnerNote(data); setPixels(null); setPixelsState("idle"); setCatalogs(null); await loadStatus(); return; }
     if (data?.needs_reconnect) { await loadStatus(); return; }
     setBanner({ kind: "error", text: t("metaConnect.adAccountLoadFailed") });
   };
@@ -154,11 +164,11 @@ export default function MetaConnect({ storeId, storeName }) {
     setBusy("catalogs");
     const { data } = await call("/meta-catalogs");
     setBusy("");
-    if (data?.needs_reconnect) { await loadStatus(); return; }
+    if (data?.needs_reconnect) { await onLoginNeeded(() => setCatalogs([])); return; }
     if (data?.catalogs) { setCatalogs(data.catalogs); setCatalogError(""); return; }
     setCatalogs([]);
     setCatalogError(data?.error || "catalog_failed");
-  }, [call, loadStatus]);
+  }, [call, onLoginNeeded]);
 
   const catalogErrorText = (code, msg) => {
     const keys = { catalog_permission: "catalogPermission", catalog_needs_business: "catalogNeedsBusiness", catalog_unavailable: "catalogUnavailable", catalog_no_website: "catalogNoWebsite", catalog_sync_failed: "catalogSyncFailed", catalog_create_failed: "catalogCreateFailed", catalog_wrong_type: "catalogWrongTypeHelp" };
@@ -171,6 +181,7 @@ export default function MetaConnect({ storeId, storeName }) {
     setBusy("");
     if (data?.success) {
       setBanner({ kind: "success", text: t(path === "/meta-create-catalog" ? "metaConnect.catalogCreated" : "metaConnect.catalogSaved") });
+      partnerNote(data);
       setCatalogs(null);
       await loadStatus();
       return;
@@ -196,7 +207,7 @@ export default function MetaConnect({ storeId, storeName }) {
     setBusy("pixel");
     const { data } = await call("/meta-create-pixel", { name });
     setBusy("");
-    if (data?.success) { setBanner({ kind: "success", text: t("metaConnect.pixelCreated") }); setPixelsState("idle"); await loadStatus(); return; }
+    if (data?.success) { setBanner({ kind: "success", text: t("metaConnect.pixelCreated") }); partnerNote(data); setPixelsState("idle"); await loadStatus(); return; }
     if (data?.needs_reconnect) { await loadStatus(); return; }
     setBanner({ kind: "error", text: `${t("metaConnect.pixelCreateFailed")}${data?.meta_message ? ` (${data.meta_message})` : ""}` });
   };
@@ -205,17 +216,23 @@ export default function MetaConnect({ storeId, storeName }) {
     setBusy("pixels");
     const { data } = await call("/meta-pixels");
     setBusy("");
-    if (data?.needs_reconnect) { await loadStatus(); return; }
+    if (data?.needs_reconnect) { await onLoginNeeded(() => { setPixels([]); setPixelsState("ok"); }); return; }
     if (data?.pixels) { setPixels(data.pixels); setPixelsState("ok"); return; }
     setPixels([]);
     setPixelsState("unavailable");
-  }, [call, loadStatus]);
+  }, [call, onLoginNeeded]);
 
   useEffect(() => { if (connected && !needsReconnect && (status?.ad_account_id || status?.business_id) && pixelsState === "idle") loadPixels(); }, [connected, needsReconnect, status?.business_id, status?.ad_account_id, pixelsState, loadPixels]);
   const ready = connected && !needsReconnect;
   useEffect(() => { if (ready && businesses === null) loadBusinesses(); }, [ready, businesses, loadBusinesses]);
-  // the ad account is optional (like Shopify): every account the connection can use is listed
-  useEffect(() => { if (ready && accounts === null) loadAccounts("all"); }, [ready, accounts, loadAccounts]);
+  // the ad account is optional (like Shopify): the accounts of the chosen business are listed
+  useEffect(() => { if (ready && accounts === null) loadAccounts(status?.business_id || "all"); }, [ready, accounts, status?.business_id, loadAccounts]);
+  // back from Facebook: assets picked before (or in an older connection) are shared with eNeezam once, so the connection is permanent
+  useEffect(() => {
+    if (!ready || madePermanent || status?.partner_access || !(status?.pixel_id || status?.catalog_id || status?.ad_account_id)) return;
+    setMadePermanent(true);
+    call("/meta-make-permanent").then(({ data }) => { if (data?.permanent) loadStatus(); });
+  }, [ready, madePermanent, status?.partner_access, status?.pixel_id, status?.catalog_id, status?.ad_account_id, call, loadStatus]);
   useEffect(() => { if (ready && (status?.ad_account_id || status?.business_id) && status?.catalog_available && catalogs === null) loadCatalogs(); }, [ready, status?.business_id, status?.ad_account_id, status?.catalog_available, catalogs, loadCatalogs]);
 
   const savePixel = async (id) => {
@@ -223,7 +240,7 @@ export default function MetaConnect({ storeId, storeName }) {
     setBusy("pixel");
     const { data } = await call("/meta-set-pixel", { pixel_id: id });
     setBusy("");
-    if (data?.success) { setManualPixel(""); setManualOpen(false); setBanner({ kind: "success", text: t("metaConnect.pixelSaved") }); await loadStatus(); return; }
+    if (data?.success) { setManualPixel(""); setManualOpen(false); setBanner({ kind: "success", text: t("metaConnect.pixelSaved") }); partnerNote(data); await loadStatus(); return; }
     if (data?.needs_reconnect) { await loadStatus(); return; }
     setBanner({ kind: "error", text: data?.error === "pixel_not_in_account" ? t("metaConnect.pixelNotInAccount") : t("metaConnect.pixelInvalid") });
   };
@@ -281,9 +298,9 @@ export default function MetaConnect({ storeId, storeName }) {
   const sections = [
     { key: "profile", title: P("stepProfile"), done: ready },
     { key: "business", title: P("stepBusiness"), done: ready && !!status?.business_id, locked: !ready },
-    { key: "catalog", title: P("stepCatalog"), done: ready && !!status?.catalog_id, locked: !ready || !status?.business_id, optional: true },
+    { key: "account", title: P("adAccountTitle"), done: ready && !!status?.ad_account_id, locked: !ready || !status?.business_id, optional: true },
     { key: "pixel", title: P("stepPixel"), done: ready && !!status?.pixel_id, locked: !ready || (!status?.business_id && !status?.ad_account_id) },
-    { key: "account", title: P("adAccountTitle"), done: ready && !!status?.ad_account_id, locked: !ready, optional: true },
+    { key: "catalog", title: P("stepCatalog"), done: ready && !!status?.catalog_id, locked: !ready || !status?.business_id, optional: true },
     { key: "sharing", title: P("sharingTitle"), done: ready && !!status?.pixel_id && level !== "standard", locked: !ready || !status?.pixel_id },
     { key: "terms", title: P("termsTitle"), done: !!status?.terms_accepted_at, locked: !ready || !status?.pixel_id },
   ];
@@ -315,6 +332,8 @@ export default function MetaConnect({ storeId, storeName }) {
       return (
         <>
           <Row icon="team" name={P("accountName")} sub={needsReconnect ? P("needsReconnectTitle") : expiryText} action={needsReconnect ? connectBtn(handleConnect, P("reconnectButton")) : connectedTag} active={!needsReconnect} />
+          {!needsReconnect && <p className="ne-acc-note" style={{ marginTop: 8 }}><Icon name={status?.partner_access ? "check" : "warning"} size={12} /> {status?.partner_access ? P("permanentOn") : P("permanentPending")}</p>}
+          {loginNeeded && <p className="ne-assets-warn">{P("loginNeededForChange")}</p>}
           <div className="ne-acc-actions">
             <button type="button" className="ne-asset-link" onClick={handleConnect} disabled={!!busy}><Icon name="refresh" size={12} /> {busy === "connect" ? P("connecting") : P("reconnectButton")}</button>
             <button type="button" className="ne-asset-link danger" onClick={handleDisconnect} disabled={!!busy}>{busy === "disconnect" ? P("disconnecting") : P("disconnect")}</button>
@@ -416,7 +435,7 @@ export default function MetaConnect({ storeId, storeName }) {
     );
     if (key === "account") return (
       <>
-        <p className="ne-acc-help">{P("accountOptionalHelp")}</p>
+        <p className="ne-acc-help">{status?.business_id ? P("accountBusinessHelp") : P("accountOptionalHelp")}</p>
         <div className="ne-acc-list">
           {accounts === null && <div className="ne-acc-empty">{P("loadingShort")}</div>}
           {accounts !== null && accounts.length === 0 && <div className="ne-acc-empty">{P("adAccountNone")}</div>}
