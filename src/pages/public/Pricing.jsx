@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import LandingPage, { useLandingDesign, DesignSwitch } from "./landing/LandingPage";
 import { supabase } from "../../supabase";
 import Icon from "../../components/Icon";
 import { useLanguage, useTranslation } from "../../i18n";
@@ -17,7 +18,7 @@ const MODULE_LABEL_KEYS = {
 
 const fmtRs = (n) => `Rs. ${Number(n).toLocaleString()}`;
 
-export default function Pricing() {
+function PricingCurrent() {
   const navigate = useNavigate();
   const [lang] = useLanguage();
   const t = useTranslation(lang);
@@ -155,5 +156,17 @@ export default function Pricing() {
 
       <PublicFooter />
     </div>
+  );
+}
+
+// Landing redesign: the dev site switches between the current page (0) and the new designs (1-5).
+export default function Pricing() {
+  const design = useLandingDesign();
+  if (design) return <LandingPage design={design} page="pricing" />;
+  return (
+    <>
+      <PricingCurrent />
+      <DesignSwitch current={0} />
+    </>
   );
 }
