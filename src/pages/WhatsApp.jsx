@@ -29,7 +29,10 @@ const S = {
     orderId: "Order ID (from the Orders list)", phone: "Phone 03xx-xxxxxxx", send: "Send", sent: "Sent",
     log: "Recent messages", logEmpty: "No messages yet.", out: "Sent", in: "Received",
     sqlMissing: "WhatsApp tables are not created in the database yet.", loading: "Loading…", error: "Something went wrong",
-    cost: "Meta charges about Rs 4.2 per utility message in Pakistan (Oct 2026 rate), billed by Meta to the number's owner.",
+    cost: "Meta charges about Rs 4.2 ($0.015) per utility message and about Rs 13 ($0.047) per marketing message in Pakistan (Oct 2026 rate).",
+    costTitle: "Meta WhatsApp fee (estimate, this month)", costOwn: "Billed by Meta directly to your own payment method in Meta (not part of the eNeezam fee).",
+    costShared: "Sent from eNeezam's number: included in your eNeezam plan up to the plan limit.", costLine: (c) => `${c.templates.toLocaleString()} utility template messages${c.paid_replies ? ` + ${c.paid_replies.toLocaleString()} paid replies` : ""} (first 1,000 replies a month are free)`,
+    ownCard: "Add your payment method in Meta Business (WhatsApp Manager → Payment settings) after connecting.",
   },
   ur: {
     title: "WhatsApp", sub: "Order confirmation aur delivery updates WhatsApp par (Meta ka official Cloud API).",
@@ -53,7 +56,10 @@ const S = {
     orderId: "Order ID (Orders list se)", phone: "Phone 03xx-xxxxxxx", send: "Bhejein", sent: "Bhej diya",
     log: "Haal ke messages", logEmpty: "Abhi koi message nahi.", out: "Bheja", in: "Aaya",
     sqlMissing: "WhatsApp ke tables database mein abhi nahi bane.", loading: "Load ho raha hai…", error: "Kuch ghalat ho gaya",
-    cost: "Pakistan mein Meta har utility message ka taqreeban Rs 4.2 leta hai (Oct 2026 rate), number ke maalik se.",
+    cost: "Pakistan mein Meta har utility message ka taqreeban Rs 4.2 ($0.015) aur marketing message ka taqreeban Rs 13 ($0.047) leta hai (Oct 2026 rate).",
+    costTitle: "Meta WhatsApp fee (andaza, is mahine)", costOwn: "Yeh Meta aap ke Meta account mein lage card se seedha charge karta hai (eNeezam fee ka hissa nahi).",
+    costShared: "eNeezam ke number se: plan limit tak aap ke eNeezam plan mein shamil.", costLine: (c) => `${c.templates.toLocaleString()} utility template messages${c.paid_replies ? ` + ${c.paid_replies.toLocaleString()} paid replies` : ""} (mahine ke pehle 1,000 replies free)`,
+    ownCard: "Connect ke baad Meta Business (WhatsApp Manager → Payment settings) mein apna card add karein.",
   },
 };
 
@@ -166,7 +172,7 @@ export default function WhatsApp({ storeId, role }) {
           <div className="ne-share-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
             <div className="ne-share-opt">
               <span className="ne-share-name">{L.ownTitle}</span>
-              <span className="ne-share-desc">{L.ownHelp}</span>
+              <span className="ne-share-desc">{L.ownHelp} {L.ownCard}</span>
               {st.signup?.config_id
                 ? <button className="ne-acc-primary" style={{ marginTop: 6, alignSelf: "flex-start" }} disabled={!!busy} onClick={connectOwn}><Icon name="link" size={13} /> {busy === "own" ? "…" : L.ownBtn}</button>
                 : <span className="ne-share-desc" style={{ fontStyle: "italic" }}>{L.esNotReady}</span>}
@@ -219,7 +225,20 @@ export default function WhatsApp({ storeId, role }) {
           </div>
         </div>
         {limit ? <div style={{ height: 8, borderRadius: 99, background: "var(--ne-surface)", marginTop: 10, overflow: "hidden" }}><div style={{ width: `${pct}%`, height: "100%", background: pct >= 100 ? "var(--ne-danger, #ef4444)" : pct > 80 ? "#F2A83E" : "var(--ne-success)" }} /></div> : null}
-        {limit && used >= limit ? <p className="ne-assets-warn" style={{ marginTop: 8 }}>{L.limitHit}</p> : null}
+        {limit && used >= limit && st.usage?.enforced ? <p className="ne-assets-warn" style={{ marginTop: 8 }}>{L.limitHit}</p> : null}
+        {st.cost && (
+          <div style={{ marginTop: 14, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ minWidth: 0, flex: "1 1 260px" }}>
+              <div style={{ fontSize: 13, fontWeight: 650 }}>{L.costTitle}</div>
+              <div className="ne-acc-row-sub">{L.costLine(st.cost)}</div>
+              <div className="ne-acc-row-sub">{st.cost.payer === "eneezam" ? L.costShared : L.costOwn}</div>
+            </div>
+            <div style={{ textAlign: "end" }}>
+              <div style={{ fontSize: 18, fontWeight: 750 }}>Rs {st.cost.pkr.toLocaleString()}</div>
+              <div className="ne-acc-row-sub" dir="ltr">≈ ${st.cost.usd.toFixed(2)}</div>
+            </div>
+          </div>
+        )}
       </div></div>
 
       {live && (
