@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import LandingPage, { useLandingDesign, DesignSwitch } from "./landing/LandingPage";
 import PublicHeader from "./PublicHeader";
 import PublicFooter from "./PublicFooter";
 import Icon from "../../components/Icon";
@@ -37,7 +38,7 @@ const TESTIMONIALS = [
   { quoteKey: "mkt.home.testimonial3Quote", nameKey: "mkt.home.testimonial3Name", roleKey: "mkt.home.testimonial3Role", initials: "HR", color: "#F2A83E" },
 ];
 
-export default function Home() {
+function HomeCurrent() {
   const navigate = useNavigate();
   const [lang] = useLanguage();
   const t = useTranslation(lang);
@@ -155,5 +156,17 @@ export default function Home() {
 
       <PublicFooter />
     </div>
+  );
+}
+
+// Landing redesign: the dev site switches between the current page (0) and the new designs (1-5).
+export default function Home() {
+  const design = useLandingDesign();
+  if (design) return <LandingPage design={design} page="home" />;
+  return (
+    <>
+      <HomeCurrent />
+      <DesignSwitch current={0} />
+    </>
   );
 }
