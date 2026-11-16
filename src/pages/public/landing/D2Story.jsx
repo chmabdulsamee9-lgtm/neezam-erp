@@ -8,6 +8,8 @@ import {
   useLP, useReveal, usePointerVars, useScrollProgress, useHashScroll, finePointer,
   DashMock, LPNav, LPFooter, PricingBlock, CompareTable, Faq, CountUp, Scramble, Magnet, goSignup,
 } from "./shared";
+import { AppWindow } from "./AppUI";
+import { ContentShell } from "./ContentPage";
 import "./d2.css";
 
 const PIECES = [
@@ -115,7 +117,7 @@ function Story({ c, scroller }) {
               <Magnet className="lp-btn" onClick={goSignup} data-cursor="start">{c.hero.cta} <Icon name="arrowRight" size={14} /></Magnet>
             </div>
           </div>
-          <div className="d2-after-dash"><DashMock c={c} tilt /></div>
+          <div className="d2-after-dash"><AppWindow screen="home" theme="dark" compact /></div>
         </div>
 
         <div className="d2-scrollhint"><span>{c.story.scroll}</span><i /></div>
@@ -180,6 +182,11 @@ function Journey({ c, scroller }) {
 }
 
 export default function D2Story({ page }) {
+  if (page !== "home") return <ContentShell page={page} rootClass="d2" navClass="d2-nav" appTheme="dark" logoDark />;
+  return <D2Home page={page} />;
+}
+
+function D2Home({ page }) {
   const { c, lang, setLang } = useLP();
   const root = useRef(null);
   const cta = useRef(null);

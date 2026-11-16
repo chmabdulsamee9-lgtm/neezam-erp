@@ -6,6 +6,8 @@ import {
   useLP, useReveal, usePointerVars, useScrollProgress, useHashScroll,
   DashMock, LPNav, LPFooter, PricingBlock, CompareTable, Faq, Magnet, goSignup,
 } from "./shared";
+import { AppWindow, useAutoScreen } from "./AppUI";
+import { ContentShell } from "./ContentPage";
 import "./d1.css";
 
 function Timeline({ c, scroller }) {
@@ -40,6 +42,14 @@ function Timeline({ c, scroller }) {
 }
 
 export default function D1Classic({ page }) {
+  if (page !== "home") return <ContentShell page={page} rootClass="d1" navClass="d1-nav" />;
+  return <D1Home page={page} />;
+}
+
+const TOUR = ["home", "orders", "whatsapp", "booked", "ads", "pnl"];
+
+function D1Home({ page }) {
+  const [screen, setScreen] = useAutoScreen(TOUR);
   const { c, lang, setLang } = useLP();
   const root = useRef(null), hero = useRef(null);
   useReveal(root, [page, lang]);
@@ -70,7 +80,7 @@ export default function D1Classic({ page }) {
               </div>
               <div className="d1-trust" data-rv="up" style={{ "--d": "320ms" }}><Icon name="check" size={13} /> {c.hero.trust}</div>
             </div>
-            <div className="d1-hero-dash" data-rv="scale" style={{ "--d": "200ms" }}><DashMock c={c} tilt /></div>
+            <div className="d1-hero-dash" data-rv="scale" style={{ "--d": "200ms" }}><AppWindow screen={screen} onNav={setScreen} /></div>
           </div>
         </section>
       ) : (

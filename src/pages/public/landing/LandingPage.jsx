@@ -8,9 +8,14 @@ export const DESIGNS = [
   { n: 0, label: "Abhi wala" },
   { n: 1, label: "1 Classic+" },
   { n: 2, label: "2 Kahani" },
-  { n: 3, label: "3 Minimal" },
+  { n: 3, label: "3 Live Tour" },
   { n: 4, label: "4 Dark" },
-  { n: 5, label: "5 Bazaar" },
+  { n: 5, label: "5 Neezi Guide" },
+  { n: 6, label: "6 Neezi Chat" },
+  { n: 7, label: "7 Neezi World" },
+  { n: 8, label: "8 Network" },
+  { n: 9, label: "9 Kinetic" },
+  { n: 10, label: "10 Stack" },
 ];
 const KEY = "ne_landing_design";
 const EVT = "ne-landing-design";
@@ -20,10 +25,18 @@ export const PRODUCTION_DESIGN = 0;
 const loaders = {
   1: lazy(() => import("./D1Classic")),
   2: lazy(() => import("./D2Story")),
-  3: lazy(() => import("./D3Minimal")),
+  3: lazy(() => import("./D3Tour")),
   4: lazy(() => import("./D4Dark")),
-  5: lazy(() => import("./D5Bazaar")),
+  5: lazy(() => import("./D5NeeziGuide")),
+  6: lazy(() => import("./D6NeeziChat")),
+  7: lazy(() => import("./D7NeeziWorld")),
+  8: lazy(() => import("./D8Network")),
+  9: lazy(() => import("./D9Kinetic")),
+  10: lazy(() => import("./D10Stack")),
 };
+// design used for brand-new pages while production still shows the old site (design 0)
+export const FALLBACK_DESIGN = 1;
+const DARK = new Set([2, 4, 6, 8]);
 
 function readDesign() {
   if (!isDevEnv()) return PRODUCTION_DESIGN;
@@ -84,13 +97,13 @@ function useLandingFonts() {
   }, []);
 }
 
-// page: "home" | "pricing"
+// page: "home" | "pricing" | "about" | "contact" | "p:<slug>"
 export default function LandingPage({ design, page }) {
   useLandingFonts();
   const Design = loaders[design];
   return (
     <>
-      <Suspense fallback={<div style={{ height: "100dvh", background: design === 4 || design === 2 ? "#070A1A" : "#fff" }} />}>
+      <Suspense fallback={<div style={{ height: "100dvh", background: DARK.has(design) ? "#070A1A" : "#fff" }} />}>
         <Design page={page} />
       </Suspense>
       <DesignSwitch current={design} />

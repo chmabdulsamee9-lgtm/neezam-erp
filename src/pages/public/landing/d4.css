@@ -92,3 +92,5 @@
 .d4-final h2{font-size:clamp(38px,6.6vw,88px);font-weight:700;letter-spacing:-.05em;line-height:1;max-width:900px;margin:0 auto;background:linear-gradient(180deg,#fff,#9aa1c4);-webkit-background-clip:text;background-clip:text;color:transparent;}
 .d4-final p{color:var(--lp-muted);font-size:17px;margin:20px 0 34px;}
 .d4-final-btn{padding:18px 34px;font-size:16px;}
+.d4-tile-app{height:290px;box-shadow:0 30px 60px rgba(0,0,0,.45),0 0 0 1px rgba(255,255,255,.08);pointer-events:none;}
+.d4-wall{grid-template-columns:repeat(3,1fr);}

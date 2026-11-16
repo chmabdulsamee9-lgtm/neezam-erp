@@ -16,6 +16,7 @@ import { installFetchTracking, startLoading, armLoading } from './lib/loadingBar
 import { applyTheme } from './lib/themeTokens'
 import { installEditMode } from './lib/editMode'
 import { SOLUTIONS_LINKS } from './pages/public/solutionsLinks'
+import { withLanding } from './pages/public/landing/Routed'
 import { fetchStoreRow, fetchStoreRows } from './lib/storeColumns'
 import { getCachedOrders, saveOrdersBulk, upsertOrder, getMeta, setMeta, clearCache, getCachedPeriod, setCachedPeriod, clearStoreOrders } from './ordersCache'
 import { clearViewCache } from './viewCache'
@@ -102,20 +103,29 @@ const LEGAL_ROUTES = { '/privacy': PublicPrivacy, '/terms': PublicTerms, '/data-
 // pehle sirf "/" ke liye Homepage tha, ab poori 12-page site isi pattern
 // ko extend karti hai). Session hone par in paths ka koi special-case nahi —
 // wahi neeche wala Login/dashboard-shell flow chalta hai.
+// Landing redesign (Nov 2026): every marketing page goes through withLanding, so the dev site can show it
+// in any of the candidate designs while production keeps the old page (see landing/LandingPage.jsx).
 const PUBLIC_ROUTES = {
   '/': Home,
-  '/solutions/orders': OrderManagementSolution,
-  '/solutions/courier': CourierIntegrationSolution,
-  '/solutions/courier-network': CourierNetworkSolution,
-  '/solutions/analytics': AnalyticsSolution,
-  '/solutions/products': ProductsInventorySolution,
-  '/solutions/ads': AIAdsSolution,
+  '/solutions/orders': withLanding(OrderManagementSolution, 'p:orders'),
+  '/solutions/courier': withLanding(CourierIntegrationSolution, 'p:courier'),
+  '/solutions/courier-network': withLanding(CourierNetworkSolution, 'p:courier'),
+  '/solutions/analytics': withLanding(AnalyticsSolution, 'p:analytics'),
+  '/solutions/products': withLanding(ProductsInventorySolution, 'p:products'),
+  '/solutions/ads': withLanding(AIAdsSolution, 'p:ads'),
   // solutions described only as data in solutionsLinks.js (the `page` field) share one component
-  ...Object.fromEntries(SOLUTIONS_LINKS.filter((s) => s.page).map((s) => [s.path, DataSolution])),
+  ...Object.fromEntries(SOLUTIONS_LINKS.filter((s) => s.page).map((s) => [s.path, withLanding(DataSolution, 'p:meta')])),
+  '/solutions/online-store': withLanding(null, 'p:store'),
+  '/solutions/shopify': withLanding(null, 'p:shopify'),
+  '/solutions/whatsapp': withLanding(null, 'p:whatsapp'),
+  '/solutions/neezi': withLanding(null, 'p:neezi'),
+  '/solutions/finance': withLanding(null, 'p:finance'),
+  '/solutions/returns': withLanding(null, 'p:returns'),
+  '/solutions/team': withLanding(null, 'p:team'),
   '/pricing': PublicPricing,
   '/tracking': PublicTracking,
-  '/about': PublicAbout,
-  '/contact': PublicContact,
+  '/about': withLanding(PublicAbout, 'about'),
+  '/contact': withLanding(PublicContact, 'contact'),
   '/terms': PublicTerms,
 }
 const StoreConnect = lazyPage(() => import('./pages/StoreConnect'), 'store-connect')

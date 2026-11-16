@@ -8,6 +8,7 @@ import Icon from "../../../components/Icon";
 import { useLanguage } from "../../../i18n";
 import { isDevEnv } from "../../../App";
 import { CONTENT, PLANS, COMPARE } from "./content";
+import { PAGES, PAGE_ORDER, PAGE_ICONS, PAGE_PATH } from "./pages";
 import "./landing.css";
 
 export function useLP() {
@@ -84,7 +85,8 @@ export function useScrollProgress(sectionRef, scrollerRef, onChange) {
       const r = el.getBoundingClientRect();
       const vh = window.innerHeight;
       const total = r.height - vh;
-      const p = total > 0 ? Math.min(1, Math.max(0, -r.top / total)) : (r.top < vh ? 1 : 0);
+      // tall (pinned) sections: 0..1 while pinned; short sections: 0..1 across their pass through the viewport
+      const p = total > 0 ? Math.min(1, Math.max(0, -r.top / total)) : Math.min(1, Math.max(0, (vh - r.top) / (vh + r.height)));
       el.style.setProperty("--p", p.toFixed(4));
       cb.current?.(p);
     };
@@ -215,13 +217,15 @@ export function DashMock({ c, className = "", tilt = false, still = false }) {
 export function LPNav({ c, lang, setLang, className = "", logoDark = false, onPricing }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [ddOpen, setDdOpen] = useState(false);
+  const PL = PAGES[lang === "en" ? "en" : "ur"];
   const toSection = (id) => {
     setOpen(false);
     const el = document.getElementById(id);
     if (el) el.scrollIntoView({ behavior: reduceMotion() ? "auto" : "smooth", block: "start" });
     else navigate(`/#${id}`);
   };
-  const go = (p) => { setOpen(false); if (p === "/pricing" && onPricing) onPricing(); else navigate(p); };
+  const go = (p) => { setOpen(false); setDdOpen(false); if (p === "/pricing" && onPricing) onPricing(); else navigate(p); };
   return (
     <header className={`lp-nav ${open ? "open" : ""} ${className}`}>
       <div className="lp-nav-in">
@@ -229,10 +233,15 @@ export function LPNav({ c, lang, setLang, className = "", logoDark = false, onPr
           <Monogram size={26} /><Wordmark size={17} dark={logoDark} />
         </button>
         <nav className="lp-nav-links">
-          <button onClick={() => toSection("features")}>{c.nav.features}</button>
+          <div className={`lp-nav-dd ${ddOpen ? "open" : ""}`}>
+            <button onClick={() => setDdOpen((o) => !o)}>{c.nav.product} <Icon name="chevronDown" size={11} /></button>
+            <div className="lp-nav-menu"><div className="lp-nav-menu-in">
+              {PAGE_ORDER.map((s) => <button key={s} onClick={() => go(PAGE_PATH[s])}><span><Icon name={PAGE_ICONS[s]} size={13} /></span>{PL[s].nav}</button>)}
+            </div></div>
+          </div>
           <button onClick={() => toSection("how")}>{c.nav.how}</button>
           <button onClick={() => go("/pricing")}>{c.nav.pricing}</button>
-          <button onClick={() => go("/tracking")}>{c.nav.tracking}</button>
+          <button onClick={() => go("/about")}>{c.footer.about}</button>
           <button onClick={() => go("/contact")}>{c.nav.contact}</button>
         </nav>
         <div className="lp-nav-act">
@@ -258,10 +267,7 @@ export function LPFooter({ c, logoDark = false }) {
           <p className="lp-foot-contact">support@eneezam.com · 03152433123</p>
         </div>
         <div><h4>{c.footer.product}</h4>
-          <button onClick={() => navigate("/solutions/orders")}>Orders</button>
-          <button onClick={() => navigate("/solutions/courier")}>Courier</button>
-          <button onClick={() => navigate("/solutions/ads")}>Ads</button>
-          <button onClick={() => navigate("/solutions/meta")}>Meta</button>
+          {PAGE_ORDER.slice(0, 8).map((s) => <button key={s} onClick={() => navigate(PAGE_PATH[s])}>{PAGES[c === CONTENT.en ? "en" : "ur"][s].nav}</button>)}
           <button onClick={() => navigate("/pricing")}>{c.nav.pricing}</button>
         </div>
         <div><h4>{c.footer.company}</h4>
