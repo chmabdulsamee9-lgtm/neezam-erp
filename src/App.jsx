@@ -2704,7 +2704,7 @@ function App() {
             {activeMenu === 'courier-connect' && hasAccess('courier-connect') && (
               <CourierConnect storeId={selectedStoreId} />
             )}
-            {activeMenu === 'whatsapp' && hasAccess('whatsapp') && <WhatsApp />}
+            {activeMenu === 'whatsapp' && hasAccess('whatsapp') && <WhatsApp storeId={selectedStoreId} role={profile?.role} />}
             {activeMenu === 'team' && (profile.role === 'admin' || profile.role === 'creator') && (
               <Team storeId={selectedStoreId} storeName={currentStoreInfo?.store_name || ordersStore?.store_name} eneezamId={currentStoreInfo?.eneezam_id || ordersStore?.eneezam_id} cfUrl={CF_URL} />
             )}
