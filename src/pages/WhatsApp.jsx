@@ -99,8 +99,8 @@ export default function WhatsApp({ storeId, role }) {
   // Embedded Signup tells us the WABA and phone number id through a postMessage from facebook.com
   useEffect(() => {
     const onMsg = (e) => {
-      if (!/(^|\.)facebook\.com$/.test(new URL(e.origin).hostname)) return;
       try {
+        if (!/(^|\.)facebook\.com$/.test(new URL(e.origin).hostname)) return;
         const d = typeof e.data === "string" ? JSON.parse(e.data) : e.data;
         if (d && d.type === "WA_EMBEDDED_SIGNUP" && d.data) session.current = { ...session.current, ...d.data, event: d.event };
       } catch { /* not ours */ }
@@ -115,9 +115,18 @@ export default function WhatsApp({ storeId, role }) {
     setBusy("");
   };
 
+  // the Facebook SDK loads with the page, so the click can open the popup at once (a popup opened after an await is blocked)
+  const [fbReady, setFbReady] = useState(false);
+  useEffect(() => {
+    const su = st?.signup;
+    if (!su?.app_id || !su?.config_id || st?.account?.phone_number_id) return;
+    loadFbSdk(su.app_id).then(() => setFbReady(true)).catch(() => setFbReady(false));
+  }, [st?.signup?.app_id, st?.signup?.config_id, st?.account?.phone_number_id]);
+
   const connectOwn = () => run("own", async () => {
     const su = st?.signup || {};
-    const FB = await loadFbSdk(su.app_id);
+    const FB = window.FB;
+    if (!FB) throw new Error(lang === "ur" ? "Facebook load nahi hua, page refresh karein" : "Facebook did not load, refresh the page");
     session.current = {};
     const code = await new Promise((resolve, reject) => FB.login((r) => (r.authResponse && r.authResponse.code ? resolve(r.authResponse.code) : reject(new Error(lang === "ur" ? "Connect cancel ho gaya" : "Connection cancelled"))), {
       config_id: su.config_id, response_type: "code", override_default_response_type: true, extras: { setup: {}, featureType: "", sessionInfoVersion: "3" },
@@ -174,7 +183,7 @@ export default function WhatsApp({ storeId, role }) {
               <span className="ne-share-name">{L.ownTitle}</span>
               <span className="ne-share-desc">{L.ownHelp} {L.ownCard}</span>
               {st.signup?.config_id
-                ? <button className="ne-acc-primary" style={{ marginTop: 6, alignSelf: "flex-start" }} disabled={!!busy} onClick={connectOwn}><Icon name="link" size={13} /> {busy === "own" ? "…" : L.ownBtn}</button>
+                ? <button className="ne-acc-primary" style={{ marginTop: 6, alignSelf: "flex-start" }} disabled={!!busy || !fbReady} onClick={connectOwn}><Icon name="link" size={13} /> {busy === "own" ? "…" : L.ownBtn}</button>
                 : <span className="ne-share-desc" style={{ fontStyle: "italic" }}>{L.esNotReady}</span>}
             </div>
             <div className="ne-share-opt">
