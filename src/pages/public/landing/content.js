@@ -42,7 +42,7 @@ export const COMPARE = [
 ];
 
 const ur = {
-  nav: { features: "Features", how: "Kaise chalta hai", pricing: "Pricing", tracking: "Order tracking", contact: "Rabta", login: "Login", signup: "Free shuru karein" },
+  nav: { product: "Product", features: "Features", how: "Kaise chalta hai", pricing: "Pricing", tracking: "Order tracking", contact: "Rabta", login: "Login", signup: "Free shuru karein" },
   hero: {
     eyebrow: "Pakistan ke COD brands ke liye",
     title1: "Poora COD business,",
@@ -134,7 +134,7 @@ const ur = {
 };
 
 const en = {
-  nav: { features: "Features", how: "How it works", pricing: "Pricing", tracking: "Order tracking", contact: "Contact", login: "Log in", signup: "Start free" },
+  nav: { product: "Product", features: "Features", how: "How it works", pricing: "Pricing", tracking: "Order tracking", contact: "Contact", login: "Log in", signup: "Start free" },
   hero: {
     eyebrow: "For Pakistan's COD brands",
     title1: "Your whole COD business,",

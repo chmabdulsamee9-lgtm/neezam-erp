@@ -7,6 +7,8 @@ import {
   useLP, useReveal, usePointerVars, useScrollProgress, useHashScroll,
   LPNav, LPFooter, PricingBlock, CompareTable, Faq, Magnet, goSignup,
 } from "./shared";
+import { AppScreen, AppWindow } from "./AppUI";
+import { ContentShell } from "./ContentPage";
 import "./d4.css";
 
 function Typed({ words }) {
@@ -30,25 +32,21 @@ function Typed({ words }) {
 function Wall({ c, scroller }) {
   const sec = useRef(null);
   useScrollProgress(sec, scroller);
-  const t = c.dash;
   return (
     <div ref={sec} className="d4-wall-sec" aria-hidden="true">
       <div className="d4-wall">
-        <div className="d4-tile kpi"><span>{t.orders}</span><b>1,284</b><em>+18%</em></div>
-        <div className="d4-tile chat"><span className="bub l">Order #T3176 confirm karein?</span><span className="bub r">✓ Confirm</span><span className="bub l">Shukriya! Kal dispatch hoga.</span></div>
-        <div className="d4-tile kpi hi"><span>{t.profit}</span><b>Rs 8.4L</b><em>{t.roas} 3.6x</em></div>
-        <div className="d4-tile bars">{[30, 48, 40, 62, 55, 78, 70, 90].map((h, i) => <i key={i} style={{ "--h": `${h}%`, "--i": i }} />)}</div>
-        <div className="d4-tile track"><span>Nex · #DX88213</span><div className="dots"><i className="on" /><i className="on" /><i className="on" /><i /></div><b>Out for delivery</b></div>
-        <div className="d4-tile kpi"><span>{t.confirmed}</span><b>92%</b><em>WhatsApp</em></div>
-        <div className="d4-tile list">{["Karachi", "Lahore", "Multan", "Sialkot"].map((x, i) => <div key={x}><span>#T31{70 + i}</span><span>{x}</span><b>Rs {(2 + i) * 1150}</b></div>)}</div>
-        <div className="d4-tile neezi"><span className="orb" /><p>Neezi: "Campaign B ka ROAS break-even se neeche hai, budget 20% kam karein?"</p></div>
-        <div className="d4-tile kpi"><span>{t.booked}</span><b>1,127</b><em>Nex</em></div>
+        {["orders", "whatsapp", "ads", "booked", "pnl", "returns"].map((x) => <AppScreen key={x} screen={x} theme="dark" className="d4-tile-app" />)}
       </div>
     </div>
   );
 }
 
 export default function D4Dark({ page }) {
+  if (page !== "home") return <ContentShell page={page} rootClass="d4" navClass="d4-nav" appTheme="dark" logoDark />;
+  return <D4Home page={page} />;
+}
+
+function D4Home({ page }) {
   const { c, lang, setLang } = useLP();
   const root = useRef(null);
   useReveal(root, [page, lang]);
