@@ -164,3 +164,22 @@
 .lp-switch button.x{color:#889;padding:6px 9px;}
 .lp-switch-mini{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:9999;border:none;border-radius:99px;background:rgba(13,19,33,.85);color:#fff;font-size:11px;font-weight:700;padding:6px 12px;cursor:pointer;}
 .lp-root section[id]{scroll-margin-top:90px;}
+
+/* plans: three clearly different looks (blue / full gradient / deep violet with pink) */
+.lp-root .lp-plan.pid-essential{background:linear-gradient(165deg,rgba(92,124,250,.22),rgba(92,124,250,.04) 55%),var(--lp-surface);border:1.5px solid rgba(92,124,250,.55);}
+.lp-root .lp-plan.pid-essential .lp-plan-name,.lp-root .lp-plan.pid-essential .lp-plan-feat li svg{color:#5C7CFA;}
+.lp-root .lp-plan.pid-essential .lp-btn{background:#5C7CFA;color:#fff;border:none;box-shadow:0 10px 26px rgba(92,124,250,.35);}
+.lp-root .lp-plan.pid-grow{background:linear-gradient(150deg,#5C7CFA 0%,#8B5CF6 50%,#A855F7 100%);border:none;color:#fff;box-shadow:0 30px 80px rgba(124,92,250,.45);transform:translateY(-10px);}
+.lp-root .lp-plan.pid-grow .lp-plan-tag,.lp-root .lp-plan.pid-grow .lp-plan-price small,.lp-root .lp-plan.pid-grow .lp-plan-lims span{color:rgba(255,255,255,.82);}
+.lp-root .lp-plan.pid-grow .lp-plan-lims div{border-bottom-color:rgba(255,255,255,.25);}
+.lp-root .lp-plan.pid-grow .lp-plan-feat li svg{color:#fff;}
+.lp-root .lp-plan.pid-grow .lp-plan-badge{background:#0d1321;color:#fff;}
+.lp-root .lp-plan.pid-grow .lp-btn{background:#fff;color:#3b2fa8;box-shadow:0 10px 26px rgba(0,0,0,.18);}
+.lp-root .lp-plan.pid-advance{background:linear-gradient(165deg,#1a0f3d 0%,#0c0822 70%);color:#f3eeff;border:1.5px solid transparent;
+  background-clip:padding-box;box-shadow:0 0 0 1.5px rgba(244,114,182,.55),0 24px 60px rgba(40,10,80,.35);}
+.lp-root .lp-plan.pid-advance .lp-plan-tag,.lp-root .lp-plan.pid-advance .lp-plan-price small,.lp-root .lp-plan.pid-advance .lp-plan-lims span{color:#b9addb;}
+.lp-root .lp-plan.pid-advance .lp-plan-lims div{border-bottom-color:rgba(255,255,255,.12);}
+.lp-root .lp-plan.pid-advance .lp-plan-name,.lp-root .lp-plan.pid-advance .lp-plan-feat li svg{color:#F472B6;}
+.lp-root .lp-plan.pid-advance .lp-btn{background:linear-gradient(120deg,#A855F7,#F472B6);color:#fff;border:none;box-shadow:0 10px 26px rgba(244,114,182,.3);}
+.lp-root .lp-plan.pid-essential .lp-plan-alt,.lp-root .lp-plan.pid-advance .lp-plan-alt{background:rgba(127,127,170,.12);}
+@media (max-width:900px){.lp-root .lp-plan.pid-grow{transform:none;}}

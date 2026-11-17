@@ -203,3 +203,4 @@ html.d2-nocursor .lp-root.d2,html.d2-nocursor .lp-root.d2 *{cursor:none!importan
 .d2-neezi{width:86px;height:86px;margin:0 auto 30px;border-radius:50%;background:radial-gradient(circle at 35% 28%,#e9ddff,#A855F7 48%,#5C7CFA);box-shadow:0 0 60px rgba(168,85,247,.55);position:relative;animation:vOrb 3s ease-in-out infinite;}
 .d2-neezi .eye{position:absolute;top:36%;width:11px;height:15px;border-radius:6px;background:#0b1033;transform:translate(calc((var(--mx,.5) - .5) * 16px),calc((var(--my,.5) - .5) * 12px));transition:transform .15s;}
 .d2-neezi .eye.l{left:31%;}.d2-neezi .eye.r{right:31%;}
+.d2-neezi-svg{display:flex;justify-content:center;margin:0 auto 18px;}

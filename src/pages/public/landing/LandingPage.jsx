@@ -6,16 +6,12 @@ import { isDevEnv } from "../../../App";
 
 export const DESIGNS = [
   { n: 0, label: "Abhi wala" },
-  { n: 1, label: "1 Classic+" },
-  { n: 2, label: "2 Kahani" },
-  { n: 3, label: "3 Live Tour" },
-  { n: 4, label: "4 Dark" },
-  { n: 5, label: "5 Neezi Guide" },
-  { n: 6, label: "6 Neezi Chat" },
-  { n: 7, label: "7 Neezi World" },
-  { n: 8, label: "8 Network" },
-  { n: 9, label: "9 Kinetic" },
-  { n: 10, label: "10 Stack" },
+  { n: 2, label: "Kahani" },
+  { n: 11, label: "K1 Neezi" },
+  { n: 12, label: "K2 Raat-Din" },
+  { n: 13, label: "K3 Safar" },
+  { n: 14, label: "K4 Deewar" },
+  { n: 15, label: "K5 Puzzle" },
 ];
 const KEY = "ne_landing_design";
 const EVT = "ne-landing-design";
@@ -23,20 +19,16 @@ const EVT = "ne-landing-design";
 export const PRODUCTION_DESIGN = 0;
 
 const loaders = {
-  1: lazy(() => import("./D1Classic")),
   2: lazy(() => import("./D2Story")),
-  3: lazy(() => import("./D3Tour")),
-  4: lazy(() => import("./D4Dark")),
-  5: lazy(() => import("./D5NeeziGuide")),
-  6: lazy(() => import("./D6NeeziChat")),
-  7: lazy(() => import("./D7NeeziWorld")),
-  8: lazy(() => import("./D8Network")),
-  9: lazy(() => import("./D9Kinetic")),
-  10: lazy(() => import("./D10Stack")),
+  11: lazy(() => import("./K1Neezi")),
+  12: lazy(() => import("./K2Subah")),
+  13: lazy(() => import("./K3Safar")),
+  14: lazy(() => import("./K4Deewar")),
+  15: lazy(() => import("./K5Puzzle")),
 };
 // design used for brand-new pages while production still shows the old site (design 0)
-export const FALLBACK_DESIGN = 1;
-const DARK = new Set([2, 4, 6, 8]);
+export const FALLBACK_DESIGN = 2;
+const DARK = new Set([2, 11, 12, 13, 14, 15]);
 
 function readDesign() {
   if (!isDevEnv()) return PRODUCTION_DESIGN;
