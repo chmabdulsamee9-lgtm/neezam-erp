@@ -16,7 +16,7 @@ export const DESIGNS = [
 const KEY = "ne_landing_design";
 const EVT = "ne-landing-design";
 // the design production shows; change this once the owner picks one
-export const PRODUCTION_DESIGN = 0;
+export const PRODUCTION_DESIGN = 2;
 
 const loaders = {
   2: lazy(() => import("./D2Story")),
