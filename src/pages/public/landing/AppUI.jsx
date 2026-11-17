@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Monogram } from "../../../components/Logo";
 import Icon from "../../../components/Icon";
+import NeeziMascot from "./Neezi";
 import "./appui.css";
 
 export const SCREENS = ["home", "orders", "whatsapp", "booked", "returns", "ads", "pnl", "store", "neezi"];
@@ -246,7 +247,7 @@ function Neezi({ t }) {
   const n = t % tips.length;
   return (
     <div className="au-pad au-neezi">
-      <div className="au-nz-head"><img src="/brand/neezi/neezi-wave.webp" alt="" width="44" height="40" /><div><b>Neezi</b><span>Aap ka eNeezam AI</span></div></div>
+      <div className="au-nz-head"><NeeziMascot size={40} pose="wave" look={false} /><div><b>Neezi</b><span>Aap ka eNeezam AI</span></div></div>
       {tips.slice(0, n + 1).map(([m, a], i) => (
         <div key={i} className="au-nz-msg"><p>{m}</p><span className="au-btn">{a}</span><span className="au-btn ghost">Baad mein</span></div>
       ))}

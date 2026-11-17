@@ -5,6 +5,7 @@ import Icon from "../../../components/Icon";
 import { useLP, useReveal, useHashScroll, usePointerVars, LPNav, LPFooter, Faq, PricingBlock, CompareTable, Magnet, goSignup } from "./shared";
 import { AppWindow } from "./AppUI";
 import { PAGES, PAGE_ORDER, PAGE_ICONS, PAGE_PATH, ABOUT, CONTACT } from "./pages";
+import Neezi from "./Neezi";
 import "./pages.css";
 
 export const isContentPage = (page) => page !== "home";
@@ -105,7 +106,7 @@ function AboutPage({ lang }) {
         <div className="lp-wrap">
           <h1 data-rv="up">{a.title}</h1>
           <p data-rv="up" style={{ "--d": "100ms" }}>{a.sub}</p>
-          <img className="pg-about-neezi" src="/brand/neezi/neezi-wave.webp" alt="Neezi" width="200" height="184" data-rv="scale" />
+          <div className="pg-about-neezi" data-rv="scale"><Neezi size={190} pose="wave" /></div>
         </div>
       </section>
       <section className="lp-sec">

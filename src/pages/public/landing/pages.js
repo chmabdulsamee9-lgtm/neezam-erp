@@ -39,7 +39,7 @@ const ur = {
     features: [
       { t: "Apna domain", d: "yourbrand.com par apna store. eNeezam domain bhi muft milta hai." },
       { t: "Themes + Theme Editor", d: "Tayyar themes, sections drag karein, rang aur fonts badlein, live preview ke saath." },
-      { t: "Neezi AI setup", d: "Brand ka naam aur logo dein, Neezi basic store tayyar kar deta hai. Grow aur Advance mein poora custom design." },
+      { t: "Neezi AI setup", d: "Brand ka naam aur logo dein, Neezi poora store launch kar deta hai. Grow aur Advance mein Neezi AI Design Studio." },
       { t: "COD checkout", d: "Pakistan ke liye bana checkout: Cash on delivery, phone aur city pehle, kam steps." },
       { t: "Payments, shipping, tax", d: "Payment methods, shipping rates aur tax settings, sab Settings se." },
       { t: "Orders seedha eNeezam mein", d: "Store ka har order foran Orders list mein, WhatsApp confirm aur booking ke liye tayyar." },
@@ -236,7 +236,7 @@ const en = {
     features: [
       { t: "Your own domain", d: "Your store on yourbrand.com. An eNeezam domain is free too." },
       { t: "Themes + Theme Editor", d: "Ready themes; drag sections, change colours and fonts with a live preview." },
-      { t: "Neezi AI setup", d: "Give your brand name and logo and Neezi builds a basic store. Full custom design on Grow and Advance." },
+      { t: "Neezi AI setup", d: "Give your brand name and logo and Neezi launches your whole store. Neezi AI Design Studio on Grow and Advance." },
       { t: "COD checkout", d: "A checkout made for Pakistan: cash on delivery, phone and city first, fewer steps." },
       { t: "Payments, shipping, tax", d: "Payment methods, shipping rates and tax, all from Settings." },
       { t: "Orders straight into eNeezam", d: "Every store order is in the Orders list at once, ready for WhatsApp confirmation and booking." },

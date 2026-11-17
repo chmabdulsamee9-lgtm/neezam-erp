@@ -1,0 +1,41 @@
+/* Neezi mascot motion (SVG). Transform boxes use fill-box so rotations pivot on each limb. */
+.neezi{display:block;overflow:visible;}
+.nz-pupil,.nz-eyes,.nz-bounce,.nz-arm-r,.nz-arm-l,.nz-leg,.nz-shadow{transform-box:fill-box;}
+.nz-pupil{transition:transform .18s ease-out;}
+.nz-eyes{transform-origin:center;animation:nzBlink 4.6s infinite;}
+@keyframes nzBlink{0%,93%,100%{transform:scaleY(1)}95.5%{transform:scaleY(.08)}}
+.nz-bounce{transform-origin:50% 100%;animation:nzIdle 3.4s ease-in-out infinite;}
+@keyframes nzIdle{50%{transform:translateY(-4px) scaleY(1.01)}}
+.nz-arm-r{transform-origin:0% 100%;}
+.nz-arm-l{transform-origin:100% 0%;}
+.nz-leg{transform-origin:50% 0%;}
+.nz-logo{animation:nzLogo 2.6s ease-in-out infinite;}
+@keyframes nzLogo{50%{opacity:.65}}
+.nz-shadow{transform-origin:center;animation:nzShadow 3.4s ease-in-out infinite;}
+@keyframes nzShadow{50%{transform:scaleX(.9);opacity:.12}}
+
+.pose-wave .nz-arm-r{animation:nzWave 1.3s ease-in-out infinite;}
+@keyframes nzWave{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(16deg)}}
+
+.pose-walk .nz-bounce{animation:nzStep .55s ease-in-out infinite;}
+@keyframes nzStep{50%{transform:translateY(-5px)}}
+.pose-walk .nz-leg-l{animation:nzLeg .55s ease-in-out infinite alternate;}
+.pose-walk .nz-leg-r{animation:nzLeg .55s ease-in-out infinite alternate-reverse;}
+@keyframes nzLeg{from{transform:rotate(-16deg)}to{transform:rotate(16deg)}}
+.pose-walk .nz-arm-l{animation:nzSwing .55s ease-in-out infinite alternate;}
+.pose-walk .nz-arm-r{transform:rotate(68deg);animation:nzSwingR .55s ease-in-out infinite alternate;}
+@keyframes nzSwing{from{transform:rotate(-12deg)}to{transform:rotate(12deg)}}
+@keyframes nzSwingR{from{transform:rotate(58deg)}to{transform:rotate(80deg)}}
+
+.pose-idle .nz-arm-r{transform:rotate(70deg);}
+
+.pose-point .nz-arm-r{transform:rotate(40deg);animation:nzPoint 1.6s ease-in-out infinite;}
+@keyframes nzPoint{50%{transform:rotate(30deg)}}
+
+.pose-cheer .nz-bounce{animation:nzJump .7s cubic-bezier(.3,0,.3,1) infinite;}
+@keyframes nzJump{0%,100%{transform:translateY(0)}40%{transform:translateY(-16px)}}
+.pose-cheer .nz-arm-r{animation:nzWave .35s ease-in-out infinite;}
+.pose-cheer .nz-arm-l{transform:rotate(150deg);}
+.pose-cheer .nz-mouth{d:path("M82 116 Q100 138 118 116");}
+
+@media (prefers-reduced-motion:reduce){.neezi *{animation:none!important;}}

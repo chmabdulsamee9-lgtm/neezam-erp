@@ -9,6 +9,7 @@ import { useLanguage } from "../../../i18n";
 import { isDevEnv } from "../../../App";
 import { CONTENT, PLANS, COMPARE } from "./content";
 import { PAGES, PAGE_ORDER, PAGE_ICONS, PAGE_PATH } from "./pages";
+import Neezi from "./Neezi";
 import "./landing.css";
 
 export function useLP() {
@@ -293,7 +294,7 @@ export function PriceCards({ c }) {
   return (
     <div className="lp-plans">
       {PLANS.map((p, i) => (
-        <div key={p.id} className={`lp-plan ${p.popular ? "pop" : ""}`} data-rv="up" style={{ "--d": `${i * 90}ms` }}>
+        <div key={p.id} className={`lp-plan pid-${p.id} ${p.popular ? "pop" : ""}`} data-rv="up" style={{ "--d": `${i * 90}ms` }}>
           {p.popular && <span className="lp-plan-badge">{c.popular}</span>}
           <div className="lp-plan-name">{c.planName[p.id]}</div>
           <div className="lp-plan-tag">{c.planTag[p.id]}</div>
@@ -317,7 +318,7 @@ export function PlanNotes({ c }) {
   return (
     <div className="lp-plan-notes" data-rv="up">
       <div className="lp-brandbox"><img src="/brand/nex-logo.svg" alt="" width="44" height="44" loading="lazy" /><div><b>{c.nexTitle}</b><p>{c.nexBody}</p></div></div>
-      <div className="lp-brandbox"><img src="/brand/neezi-logo.svg" alt="" width="44" height="44" loading="lazy" /><div><b>{c.neeziTitle}</b><p>{c.neeziBody}</p></div></div>
+      <div className="lp-brandbox"><Neezi size={46} pose="wave" look={false} /><div><b>{c.neeziTitle}</b><p>{c.neeziBody}</p></div></div>
       <p className="lp-fine">{c.budgetNote}<br />{c.waNote}</p>
     </div>
   );
