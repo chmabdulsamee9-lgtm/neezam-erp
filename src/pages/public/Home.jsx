@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import LandingPage, { useLandingDesign, DesignSwitch } from "./landing/LandingPage";
+import LandingPage, { useLandingDesign } from "./landing/LandingPage";
 import PublicHeader from "./PublicHeader";
 import PublicFooter from "./PublicFooter";
 import Icon from "../../components/Icon";
@@ -163,10 +163,5 @@ function HomeCurrent() {
 export default function Home() {
   const design = useLandingDesign();
   if (design) return <LandingPage design={design} page="home" />;
-  return (
-    <>
-      <HomeCurrent />
-      <DesignSwitch current={0} />
-    </>
-  );
+  return <HomeCurrent />;
 }

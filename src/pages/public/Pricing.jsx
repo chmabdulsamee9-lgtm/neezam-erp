@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import LandingPage, { useLandingDesign, DesignSwitch } from "./landing/LandingPage";
+import LandingPage, { useLandingDesign } from "./landing/LandingPage";
 import { supabase } from "../../supabase";
 import Icon from "../../components/Icon";
 import { useLanguage, useTranslation } from "../../i18n";
@@ -163,10 +163,5 @@ function PricingCurrent() {
 export default function Pricing() {
   const design = useLandingDesign();
   if (design) return <LandingPage design={design} page="pricing" />;
-  return (
-    <>
-      <PricingCurrent />
-      <DesignSwitch current={0} />
-    </>
-  );
+  return <PricingCurrent />;
 }
