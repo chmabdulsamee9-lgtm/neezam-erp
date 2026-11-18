@@ -152,6 +152,11 @@ export default function EneezamProducts({ storeId, ordersStore, cfUrl }) {
   const [form, setForm] = useState(emptyForm());
   const [listOn, setListOn] = useState("eneezam");
   const [newImageUrl, setNewImageUrl] = useState("");
+  const [imgBusy, setImgBusy] = useState(""); // "" | "upload" | "ai-<i>" | "webp-<i>"
+  const [imgNote, setImgNote] = useState("");
+  const fileRef = useRef(null);
+  const kb = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+  const savedImg = (url) => ({ url, source_url: null, mirrored: true, alt: "", error: null });
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
 
@@ -186,6 +191,41 @@ export default function EneezamProducts({ storeId, ordersStore, cfUrl }) {
     setForm((f) => ({ ...f, images: [...f.images, { url, source_url: null, mirrored: false, alt: "", error: null }] }));
     setNewImageUrl("");
     setFormError("");
+  };
+
+  // Upload from the computer: the worker resizes and saves every picture as WebP (images.js in the worker).
+  const uploadFiles = async (files) => {
+    const list = [...(files || [])].slice(0, 10);
+    if (!list.length) return;
+    setImgBusy("upload"); setFormError(""); setImgNote("");
+    const { data: { session } } = await supabase.auth.getSession();
+    let before = 0, after = 0, added = 0;
+    for (const file of list) {
+      const res = await fetch(`${cfUrl}/growth/upload-image?store_id=${storeId}&kind=product`, { method: "POST", headers: { Authorization: `Bearer ${session?.access_token}`, "Content-Type": file.type || "image/jpeg" }, body: file });
+      let d = {}; try { d = await res.json(); } catch { /* */ }
+      if (!d.url) { setFormError(d.error || `Upload failed (HTTP ${res.status})`); break; }
+      before += d.before || file.size; after += d.after || file.size; added++;
+      setForm((f) => ({ ...f, images: [...f.images, savedImg(d.url)] }));
+    }
+    if (added) setImgNote(`${added} picture${added > 1 ? "s" : ""} saved as WebP: ${kb(before)} → ${kb(after)}`);
+    setImgBusy("");
+    if (fileRef.current) fileRef.current.value = "";
+  };
+  // Neezi photo (Agnes, Grow/Advance): a clean studio shot made from this picture; added as a new image.
+  const aiPhoto = async (i, style = "studio") => {
+    setImgBusy(`ai-${i}`); setFormError(""); setImgNote("Neezi is designing a studio photo with Agnes (about 20 to 60 seconds)…");
+    const { data } = await api("/growth/neezi-product-photo", { method: "POST", body: JSON.stringify({ store_id: storeId, image_url: form.images[i]?.url, title: form.title, style }) });
+    if (data.url) { setForm((f) => ({ ...f, images: [...f.images, savedImg(data.url)] })); setImgNote(`Neezi photo added (WebP, ${kb(data.after || 0)}). Move it up to make it the main picture.`); }
+    else { setImgNote(""); setFormError(data.error || "Neezi could not make the photo"); }
+    setImgBusy("");
+  };
+  // Convert an existing (Shopify / external / PNG) picture to a WebP copy in eNeezam storage.
+  const toWebp = async (i) => {
+    setImgBusy(`webp-${i}`); setFormError(""); setImgNote("");
+    const { data } = await api("/growth/convert-image", { method: "POST", body: JSON.stringify({ store_id: storeId, url: form.images[i]?.url, kind: "product" }) });
+    if (data.url) { setForm((f) => ({ ...f, images: f.images.map((img, j) => (j === i ? { ...img, ...savedImg(data.url), alt: img.alt } : img)) })); setImgNote(`Converted to WebP: ${kb(data.before || 0)} → ${kb(data.after || 0)}`); }
+    else setFormError(data.error || "Could not convert this picture");
+    setImgBusy("");
   };
 
   const validate = () => {
@@ -515,6 +555,8 @@ export default function EneezamProducts({ storeId, ordersStore, cfUrl }) {
                       {thumb(img.url, 40)}
                       <span style={{ flex: "1 1 160px", minWidth: 0, fontSize: 11.5, color: "var(--ne-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{img.url}</span>
                       <span style={img.mirrored ? pill("var(--ne-success-soft)", "var(--ne-success)") : pill("var(--ne-surface)", "var(--ne-muted)")}>{img.mirrored ? t("products.eneezam.imageSaved") : t("products.eneezam.imageExternal")}</span>
+                      {!/\.webp(\?|$)/i.test(img.url) && <button type="button" onClick={() => toWebp(i)} disabled={!!imgBusy} style={btn(false)} title="Make a small WebP copy in eNeezam">{imgBusy === `webp-${i}` ? "…" : "WebP"}</button>}
+                      <button type="button" onClick={() => aiPhoto(i)} disabled={!!imgBusy} style={btn(false)} title="Neezi studio photo with Agnes (Grow and Advance plans)"><Icon name="sparkle" size={11} /> {imgBusy === `ai-${i}` ? "Designing…" : "Neezi photo"}</button>
                       <button type="button" onClick={() => moveImage(i, -1)} disabled={i === 0} style={btn(false)} aria-label={t("products.eneezam.moveUp")}><Icon name="arrowUp" size={11} /></button>
                       <button type="button" onClick={() => moveImage(i, 1)} disabled={i === form.images.length - 1} style={btn(false)} aria-label={t("products.eneezam.moveDown")}><Icon name="arrowDown" size={11} /></button>
                       <button type="button" onClick={() => setField("images", form.images.filter((_, j) => j !== i))} style={{ ...btn(false), color: "var(--ne-danger)" }} aria-label={t("products.eneezam.remove")}><Icon name="close" size={11} /></button>
@@ -524,7 +566,10 @@ export default function EneezamProducts({ storeId, ordersStore, cfUrl }) {
                     <input value={newImageUrl} onChange={(e) => setNewImageUrl(e.target.value)} placeholder={t("products.eneezam.imageUrlPlaceholder")} style={{ ...input, flex: 1 }}
                       onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addImage(); } }} />
                     <button type="button" onClick={addImage} style={btn(false)}><Icon name="plus" size={11} /> {t("products.eneezam.addImage")}</button>
+                    <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/gif" multiple hidden onChange={(e) => uploadFiles(e.target.files)} />
+                    <button type="button" onClick={() => fileRef.current?.click()} disabled={!!imgBusy} style={btn(true)}><Icon name="upload" size={11} /> {imgBusy === "upload" ? "Uploading…" : "Upload"}</button>
                   </div>
+                  {imgNote && <div style={{ fontSize: 11.5, color: "var(--ne-muted)" }}>{imgNote}</div>}
                 </div>
               </div>
 

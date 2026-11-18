@@ -10,10 +10,10 @@ import { useNeeziJob, getNeeziJob, startNeeziJob, patchNeeziJob, clearNeeziJob, 
 
 const CF = "https://neezam-erp.chmabdulsamee9.workers.dev";
 const THEME_INFO = {
-  glow: { name: "Glow", tag: "Beauty and skincare: serif headings, soft cards, category bubbles, reviews", ref: "Inspired by Pakistani skincare brands" },
-  botanica: { name: "Botanica", tag: "Playful and colourful: pastel tiles, pill tabs, centred cards", ref: "Natural and K-beauty stores" },
-  volt: { name: "Volt", tag: "Bold tech and gadgets: sale banners, % OFF badges, trust strip", ref: "Smart watches, earbuds, electronics" },
-  luxe: { name: "Luxe", tag: "Quiet and premium: big images, thin serif, black buttons", ref: "Perfume, fashion, jewellery" },
+  glow: { name: "Aura", tag: "Beauty and skincare: soft cards, pack offers, bundles, benefit points, trust grid, tabs, floating cart", ref: "Skincare and personal care" },
+  botanica: { name: "Bloom", tag: "Playful and colourful: best seller badges, Helps and Targets chips, sticky add to cart, pill tabs", ref: "Natural and K-beauty stores" },
+  volt: { name: "Pulse", tag: "Bold tech and gadgets: % OFF, sale countdown, people viewing, colour options, warranty grid, spec tabs", ref: "Smart watches, earbuds, electronics" },
+  luxe: { name: "Velour", tag: "Quiet and premium: big stacked images, thin serif, black buttons, accordions", ref: "Perfume, fashion, jewellery" },
   nova: { name: "Nova", tag: "Clean and simple, works for any store", ref: "eNeezam's original theme" },
 };
 const THEME_ORDER = ["glow", "botanica", "volt", "luxe", "nova"];
@@ -257,7 +257,7 @@ export function MenusPage({ storeId }) {
 }
 
 /* ================================================================== Campaigns & upsell */
-const KIND = { sale: ["Sale (temporary discount)", "megaphone"], bogo: ["Buy X Get Y free", "tag"], bundle: ["Bundle / Frequently bought together", "package"] };
+const KIND = { sale: ["Sale (temporary discount)", "megaphone"], bogo: ["Buy X Get Y free", "tag"], bundle: ["Bundle / Frequently bought together", "package"], volume: ["Pack offers (buy more, save more)", "tag"] };
 const toLocal = (iso) => (iso ? new Date(new Date(iso).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "");
 const fromLocal = (v) => (v ? new Date(v).toISOString() : null);
 function campaignState(c) {
@@ -274,11 +274,11 @@ export function CampaignsPage({ storeId }) {
   const products = useProducts(storeId);
   const [edit, setEdit] = useState(null);
   const [msg, setMsg] = useState(null);
-  const blank = (kind) => ({ kind, title: kind === "sale" ? "Weekend sale" : kind === "bogo" ? "Buy 1 Get 1 Free" : "Complete the routine", active: true, starts_at: null, ends_at: null, target: { scope: kind === "bundle" ? "products" : "all", handles: [], collection: "" }, value_type: "percent", value: kind === "bundle" ? 10 : 20, config: kind === "bogo" ? { buy: 1, get: 1 } : {} });
+  const blank = (kind) => ({ kind, title: kind === "sale" ? "Weekend sale" : kind === "bogo" ? "Buy 1 Get 1 Free" : kind === "volume" ? "Buy more, save more" : "Complete the routine", active: true, starts_at: null, ends_at: null, target: { scope: kind === "bundle" ? "products" : "all", handles: [], collection: "" }, value_type: "percent", value: kind === "bundle" ? 10 : kind === "volume" ? 0 : 20, config: kind === "bogo" ? { buy: 1, get: 1 } : kind === "volume" ? { tiers: [{ qty: 2, percent: 10 }, { qty: 3, percent: 15 }] } : {} });
   const save = async () => { const d = await L.save(edit); if (d.error) setMsg({ kind: "error", text: d.error }); else { setMsg({ kind: "ok", text: "Saved. Prices and badges update on the store within a minute; checkout applies the discount automatically." }); setEdit(null); } };
   const t = edit?.target || {};
   return (
-    <Page title="Campaigns & Upsell" sub="Temporary discounts, Buy X Get Y free and bundles (frequently bought together). The store shows the offer and checkout applies it on the server, so nobody can change the price." actions={<>{Object.keys(KIND).map((k) => <button key={k} style={btn(k === "sale")} onClick={() => setEdit(blank(k))}><Icon name={KIND[k][1]} size={12} /> {k === "sale" ? "New sale" : k === "bogo" ? "Buy X Get Y" : "Bundle"}</button>)}</>}>
+    <Page title="Campaigns & Upsell" sub="Temporary discounts, Buy X Get Y free and bundles (frequently bought together). The store shows the offer and checkout applies it on the server, so nobody can change the price." actions={<>{Object.keys(KIND).map((k) => <button key={k} style={btn(k === "sale")} onClick={() => setEdit(blank(k))}><Icon name={KIND[k][1]} size={12} /> {k === "sale" ? "New sale" : k === "bogo" ? "Buy X Get Y" : k === "volume" ? "Pack offers" : "Bundle"}</button>)}</>}>
       {msg && <Note kind={msg.kind}>{msg.text}</Note>}
       {edit && (
         <div style={{ ...card, display: "grid", gap: 12 }}>
@@ -298,6 +298,19 @@ export function CampaignsPage({ storeId }) {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <Field l="Customer buys"><input type="number" min="1" style={input} value={edit.config.buy} onChange={(e) => setEdit({ ...edit, config: { ...edit.config, buy: Number(e.target.value) } })} /></Field>
               <Field l="Gets free (cheapest units)"><input type="number" min="1" style={input} value={edit.config.get} onChange={(e) => setEdit({ ...edit, config: { ...edit.config, get: Number(e.target.value) } })} /></Field>
+            </div>
+          )}
+          {edit.kind === "volume" && (
+            <div style={{ display: "grid", gap: 8 }}>
+              <span style={label}>Packs shown on the product page (e.g. Pack of 2: 10% off). Checkout gives the best pack the cart qualifies for.</span>
+              {(edit.config.tiers || []).map((tier, i) => (
+                <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, alignItems: "end" }}>
+                  <Field l="Pack of (units)"><input type="number" min="2" max="99" style={input} value={tier.qty} onChange={(e) => setEdit({ ...edit, config: { tiers: edit.config.tiers.map((x, j) => (j === i ? { ...x, qty: Number(e.target.value) } : x)) } })} /></Field>
+                  <Field l="% off the pack"><input type="number" min="1" max="90" style={input} value={tier.percent} onChange={(e) => setEdit({ ...edit, config: { tiers: edit.config.tiers.map((x, j) => (j === i ? { ...x, percent: Number(e.target.value) } : x)) } })} /></Field>
+                  <button type="button" style={btn(false)} onClick={() => setEdit({ ...edit, config: { tiers: edit.config.tiers.filter((_, j) => j !== i) } })}><Icon name="trash" size={12} /></button>
+                </div>
+              ))}
+              {(edit.config.tiers || []).length < 3 && <div><button type="button" style={btn(false)} onClick={() => setEdit({ ...edit, config: { tiers: [...(edit.config.tiers || []), { qty: ((edit.config.tiers || []).slice(-1)[0]?.qty || 1) + 1, percent: 10 }] } })}><Icon name="plus" size={12} /> Add pack</button></div>}
             </div>
           )}
           {edit.kind === "bundle" ? (
@@ -323,7 +336,7 @@ export function CampaignsPage({ storeId }) {
         <div style={{ ...card, padding: 0, overflow: "hidden" }}>
           {L.items.map((c) => {
             const [st, col] = campaignState(c);
-            const what = c.kind === "sale" ? (c.value_type === "amount" ? `Rs ${c.value} off` : `${c.value}% off`) : c.kind === "bogo" ? `Buy ${c.config?.buy || 1} Get ${c.config?.get || 1}` : `${(c.target?.handles || []).length} products · ${c.value}% off`;
+            const what = c.kind === "sale" ? (c.value_type === "amount" ? `Rs ${c.value} off` : `${c.value}% off`) : c.kind === "bogo" ? `Buy ${c.config?.buy || 1} Get ${c.config?.get || 1}` : c.kind === "volume" ? (c.config?.tiers || []).map((x) => `${x.qty} for ${x.percent}% off`).join(" · ") : `${(c.target?.handles || []).length} products · ${c.value}% off`;
             return (
               <div key={c.id} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto auto auto", gap: 12, alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--ne-border)", fontSize: 13 }}>
                 <Icon name={KIND[c.kind][1]} size={15} />
