@@ -139,6 +139,7 @@ const FinanceStatement = lazyPage(() => import('./pages/FinanceStatement'), 'fin
 const DevMonitorDetailed = lazyPage(() => import('./pages/DevMonitorDetailed'), 'master-dashboard/dev-monitor')
 const GeminiUsageMonitor = lazyPage(() => import('./pages/GeminiUsageMonitor'), 'master-dashboard/gemini-monitor')
 const UiEditor = lazyPage(() => import('./pages/UiEditor'), 'master-dashboard/ui-editor', { skeleton: false })
+import NeeziJobPill from './components/NeeziJobPill'
 const AgnesMonitor = lazyPage(() => import('./pages/AgnesMonitor'), 'master-dashboard/agnes-monitor')
 const StoreGrowthPage = lazyPage(() => import('./pages/StoreGrowth'), 'online-store/collections')
 const ShopifyCallback = lazyPage(() => import('./pages/ShopifyCallback'), null)
@@ -2776,6 +2777,7 @@ function App() {
             {activeMenu.startsWith('online-store/') && hasAccess('online-store') && (
               <StoreGrowthPage storeId={selectedStoreId} page={activeMenu.slice('online-store/'.length)} />
             )}
+            <NeeziJobPill onOpen={() => { if (activeMenu !== 'online-store') navigate('/online-store') }} />
             {!['home', 'dashboard', 'store-connect', 'online-store', 'theme-editor', 'products', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'returns', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor', 'master-dashboard/ui-editor', 'master-dashboard/agnes-monitor', 'online-store/collections', 'online-store/menus', 'online-store/campaigns', 'online-store/social-proof', 'online-store/reviews'].includes(navMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>

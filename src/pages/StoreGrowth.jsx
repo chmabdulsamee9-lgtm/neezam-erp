@@ -6,6 +6,7 @@ import { supabase } from "../supabase";
 import Icon from "../components/Icon";
 import { THEME_VERSIONS, getTheme, createDefaultConfig } from "../lib/themeV2/engine.generated";
 import { buildNeeziConfig } from "../lib/neeziTheme";
+import { useNeeziJob, getNeeziJob, startNeeziJob, patchNeeziJob, clearNeeziJob, setNeeziOpen, stepStart, stepDone, stepFailed, stepNote, creep, isNeeziBusy } from "../lib/neeziJob";
 
 const CF = "https://neezam-erp.chmabdulsamee9.workers.dev";
 const THEME_INFO = {
@@ -450,10 +451,17 @@ export function ThemeLibrary({ store, liveUrl, onCreated, onOpenThemeEditor }) {
   const [theme, setTheme] = useState("glow");
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState(null);
-  const [setup, setSetup] = useState(null);
+  const job = useNeeziJob();
   const base = liveUrl || "https://drglow.online";
   const versions = THEME_VERSIONS[theme] || [];
-  const useVersion = async (v) => {
+  const openNeezi = (themeId, versionId) => {
+    const j = getNeeziJob();
+    // a setup that is still running (or waiting for review) for this store is reopened, not restarted
+    if (j && j.storeId === store.id && j.phase !== "done" && (isNeeziBusy(j) || j.phase === "review")) { setNeeziOpen(true); return; }
+    startNeeziJob({ storeId: store.id, storeName: store.store_name, store, liveUrl: base, theme: themeId, version: versionId, auto: false, onCreated, onOpenThemeEditor });
+  };
+  useEffect(() => { if (job && job.storeId === store.id) patchNeeziJob({ onCreated, onOpenThemeEditor }); }, [store.id, onCreated, onOpenThemeEditor]); // eslint-disable-line react-hooks/exhaustive-deps
+  const addVersion = async (v) => {
     setBusy(v.id); setMsg(null);
     const cfg = createDefaultConfig(theme, v.id);
     if (cfg) cfg.settings.store_name = store?.store_name || "";
@@ -462,11 +470,12 @@ export function ThemeLibrary({ store, liveUrl, onCreated, onOpenThemeEditor }) {
     if (d.error || !d.theme) setMsg({ kind: "error", text: d.error || "Could not create the theme" });
     else { setMsg({ kind: "ok", text: `"${THEME_INFO[theme].name} · ${v.name}" was added to your themes as a draft. Customize it, then publish.` }); onCreated?.(d.theme); }
   };
+  const running = job && job.storeId === store.id && isNeeziBusy(job);
   return (
     <div style={{ ...card, display: "grid", gap: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
         <div><h2 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>Theme library</h2><p style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--ne-muted)" }}>5 themes, 4 versions each. Previews use sample products so you can see the look before you choose.</p></div>
-        <button style={btn(true)} onClick={() => setSetup({ theme, version: versions[0]?.id })}><Icon name="sparkle" size={13} /> Set up my store with Neezi</button>
+        <button style={btn(true)} onClick={() => openNeezi(theme, versions[0]?.id)}><Icon name="sparkle" size={13} /> {running ? `Neezi is working · ${Math.round(job.percent)}%` : "Set up my store with Neezi"}</button>
       </div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{THEME_ORDER.filter((id) => getTheme(id)).map((id) => <button key={id} style={btn(theme === id)} onClick={() => setTheme(id)}>{THEME_INFO[id].name}</button>)}</div>
       <p style={{ margin: 0, fontSize: 12.5 }}><b>{THEME_INFO[theme].name}</b> · {THEME_INFO[theme].tag}</p>
@@ -481,91 +490,162 @@ export function ThemeLibrary({ store, liveUrl, onCreated, onOpenThemeEditor }) {
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               <a style={{ ...btn(false), textDecoration: "none" }} href={`${base}/__demo/${theme}/${v.id}`} target="_blank" rel="noreferrer"><Icon name="eye" size={12} /> Preview</a>
-              <button style={btn(false, !!busy)} disabled={!!busy} onClick={() => useVersion(v)}>{busy === v.id ? "Adding…" : "Use"}</button>
-              <button style={btn(true)} onClick={() => setSetup({ theme, version: v.id })}><Icon name="sparkle" size={12} /> Neezi</button>
+              <button style={btn(false, !!busy)} disabled={!!busy} onClick={() => addVersion(v)}>{busy === v.id ? "Adding…" : "Use"}</button>
+              <button style={btn(true)} onClick={() => openNeezi(theme, v.id)}><Icon name="sparkle" size={12} /> Neezi</button>
             </div>
           </div>
         ))}
       </div>
-      {setup && <NeeziSetup store={store} liveUrl={base} start={setup} onClose={() => setSetup(null)} onCreated={(t) => { onCreated?.(t); }} onOpenThemeEditor={onOpenThemeEditor} />}
+      {job && job.open && job.storeId === store.id && <NeeziSetup job={job} />}
     </div>
   );
 }
 
-function NeeziSetup({ store, liveUrl, start, onClose, onCreated, onOpenThemeEditor }) {
-  const [step, setStep] = useState("choose"); // choose -> thinking -> review -> applying -> done
-  const [theme, setTheme] = useState(start.theme);
-  const [version, setVersion] = useState(start.version);
-  const [plan, setPlan] = useState(null);
-  const [tier, setTier] = useState("");
-  const [res, setRes] = useState(null);
-  const [picked, setPicked] = useState({});
-  const [error, setError] = useState("");
-  const [banners, setBanners] = useState([]);
-  const [bannerBusy, setBannerBusy] = useState(false);
-  const [created, setCreated] = useState(null);
-  useEffect(() => { api(`/growth/plan?store_id=${store.id}`).then((d) => { setPlan(d); setTier(d.tier || "essential"); }); }, [store.id]);
+/* ------------------------------------------------------------------ Neezi setup job (runs outside React) */
+const BANNER_PROMPTS = (j) => [
+  `Premium hero banner for "${j.storeName}", an online store in Pakistan. ${j.res?.proposal?.home?.hero_heading || ""}. Product-style studio composition, soft light, empty space on the left for text, no text, no logos.`,
+  `Sale promo banner background for "${j.storeName}", vibrant gradient, festive, product props, no text.`,
+];
+const tierOfJob = (j) => j.tier || j.plan?.tier || "essential";
+
+async function neeziPropose() {
+  const j = getNeeziJob();
+  if (!j || isNeeziBusy(j)) return;
+  patchNeeziJob({ phase: "thinking", error: "", timeline: [], percent: 2, res: null, banners: [], created: null });
+  stepNote(`Started: ${THEME_INFO[j.theme]?.name} · ${(THEME_VERSIONS[j.theme] || []).find((v) => v.id === j.version)?.name || ""}${j.auto ? " · Neezi does everything" : ""}`);
+  const s1 = stepStart("Reading all your products (titles and descriptions)", 4);
+  const stop = creep(34, 1.6);
+  const d = await api("/growth/neezi-setup", { method: "POST", body: { store_id: j.storeId, action: "propose", tier: j.plan?.is_creator ? j.tier : undefined } });
+  stop();
+  if (d.error) { stepFailed(s1, `Could not read products: ${d.error}`); patchNeeziJob({ phase: "choose", error: d.error }); return; }
+  const eng = d.engine === "agnes" ? "Agnes AI" : d.engine === "gemini" ? "Gemini" : "keyword rules (AI busy)";
+  stepDone(s1, `Read ${d.product_count} products with ${eng}`, 36);
+  const p = d.proposal;
+  stepNote(`Planned ${p.collections.length} collections: ${p.collections.map((c) => c.title).slice(0, 6).join(", ")}${p.collections.length > 6 ? "…" : ""}`, "done");
+  stepNote(`Planned menus: header (${p.menus.main.length} links), footer (${p.menus.footer.length} links)`, "done");
+  stepNote("Wrote homepage heading, text, announcement and FAQ", "done");
+  patchNeeziJob({ res: d, picked: Object.fromEntries(p.collections.map((c) => [c.handle, true])), percent: 40, phase: "review" });
+  const now = getNeeziJob();
+  if (now.auto) {
+    if (tierOfJob(now) !== "essential") await neeziBanners();
+    await neeziApply();
+  } else stepNote("Waiting for you to review Neezi's plan", "wait");
+}
+
+async function neeziBanners() {
+  const j = getNeeziJob();
+  if (!j || !j.res) return;
+  const back = j.phase;
+  patchNeeziJob({ phase: "banners", error: "" });
+  const out = [];
+  const prompts = BANNER_PROMPTS(j);
+  for (let i = 0; i < prompts.length; i++) {
+    const sid = stepStart(`Agnes is designing banner ${i + 1} of ${prompts.length}`);
+    const stop = creep(40 + ((i + 1) * 25) / prompts.length, 0.6);
+    const d = await api("/growth/neezi-banner", { method: "POST", body: { store_id: j.storeId, prompt: prompts[i], tier: j.plan?.is_creator ? j.tier : undefined } });
+    stop();
+    if (d.url) { out.push(d.url); stepDone(sid, `Banner ${i + 1} ready`); }
+    else { stepFailed(sid, `Banner ${i + 1} failed: ${d.error || "unknown error"}. The theme keeps its built-in banners.`); patchNeeziJob({ error: d.error || "Banner failed" }); break; }
+  }
+  patchNeeziJob({ banners: out.length ? out : getNeeziJob().banners || [], phase: back === "banners" ? "review" : back, percent: Math.max(getNeeziJob().percent, 65) });
+}
+
+async function neeziApply() {
+  const j = getNeeziJob();
+  if (!j || !j.res) return;
+  patchNeeziJob({ phase: "applying", error: "" });
+  const proposal = { ...j.res.proposal, collections: j.res.proposal.collections.filter((c) => j.picked?.[c.handle]) };
+  const s1 = stepStart(`Saving ${proposal.collections.length} collections and 2 menus`, Math.max(j.percent, 70));
+  const stop = creep(84, 1.5);
+  const a = await api("/growth/neezi-setup", { method: "POST", body: { store_id: j.storeId, action: "apply", proposal } });
+  stop();
+  if (a.error) { stepFailed(s1, `Saving failed: ${a.error}`); patchNeeziJob({ phase: "review", error: a.error }); return; }
+  stepDone(s1, `Saved ${a.results?.collections ?? 0} collections and ${a.results?.menus ?? 0} menus`, 86);
+  const s2 = stepStart("Building your theme: header, homepage sections, banners, FAQ", 88);
+  const cfg = buildNeeziConfig({ themeId: j.theme, versionId: j.version, storeName: j.storeName, proposal, banners: j.banners || [] });
+  const v = (THEME_VERSIONS[j.theme] || []).find((x) => x.id === j.version);
+  const stop2 = creep(97, 2);
+  const d = await api("/create-store-theme", { method: "POST", body: { store_id: j.storeId, name: `${THEME_INFO[j.theme].name} · ${v?.name || ""} · by Neezi`, theme_config: cfg } });
+  stop2();
+  if (d.error || !d.theme) { stepFailed(s2, `Theme could not be created: ${d.error || "unknown error"}`); patchNeeziJob({ phase: "review", error: d.error || "Theme could not be created" }); return; }
+  stepDone(s2, `Draft theme "${d.theme.name}" created (not published)`, 100);
+  stepNote("Done. Your live store does not change until you publish the theme.", "done");
+  patchNeeziJob({ phase: "done", created: { theme: d.theme, results: a.results }, percent: 100 });
+  try { getNeeziJob().onCreated?.(d.theme); } catch { /* page may be gone */ }
+}
+
+function Timeline({ items }) {
+  if (!items?.length) return null;
+  const dot = { done: ["#16a34a", "✓"], running: ["var(--ne-accent, #6366f1)", "•"], error: ["#dc2626", "!"], wait: ["#d97706", "…"], info: ["var(--ne-muted)", "•"] };
+  return (
+    <div style={{ display: "grid", gap: 0, maxHeight: 260, overflowY: "auto", padding: "4px 2px" }}>
+      {items.map((s, i) => {
+        const [c, ch] = dot[s.status] || dot.info;
+        return (
+          <div key={s.id} style={{ display: "grid", gridTemplateColumns: "22px 1fr auto", gap: 10, alignItems: "start" }}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", height: "100%" }}>
+              <span className={s.status === "running" ? "neezi-pulse" : ""} style={{ width: 18, height: 18, borderRadius: "50%", background: c, color: "#fff", fontSize: 10, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{ch}</span>
+              {i < items.length - 1 && <span style={{ flex: 1, width: 2, minHeight: 10, background: "var(--ne-border)" }} />}
+            </div>
+            <div style={{ fontSize: 12.5, paddingBottom: 10, color: s.status === "error" ? "#dc2626" : "var(--ne-text)" }}>{s.text}</div>
+            <span style={{ fontSize: 11, color: "var(--ne-muted)", whiteSpace: "nowrap" }}>{s.status === "running" ? "working…" : s.ms ? `${(s.ms / 1000).toFixed(1)}s` : new Date(s.at).toLocaleTimeString("en-PK", { hour: "numeric", minute: "2-digit" })}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function NeeziSetup({ job }) {
+  const { theme, version, plan, tier, res, picked = {}, banners = [], created, error, phase } = job;
+  useEffect(() => {
+    if (!job.plan) api(`/growth/plan?store_id=${job.storeId}`).then((d) => patchNeeziJob({ plan: d, tier: getNeeziJob()?.tier || d.tier || "essential" }));
+  }, [job.storeId]); // eslint-disable-line react-hooks/exhaustive-deps
   const versions = THEME_VERSIONS[theme] || [];
   const effTier = tier || plan?.tier || "essential";
-  const propose = async () => {
-    setStep("thinking"); setError("");
-    const d = await api("/growth/neezi-setup", { method: "POST", body: { store_id: store.id, action: "propose", tier: plan?.is_creator ? tier : undefined } });
-    if (d.error) { setError(d.error); setStep("choose"); return; }
-    setRes(d); setPicked(Object.fromEntries(d.proposal.collections.map((c) => [c.handle, true]))); setStep("review");
-  };
-  const makeBanners = async () => {
-    setBannerBusy(true); setError("");
-    const out = [];
-    for (const prompt of [
-      `Premium hero banner for "${store.store_name}", an online store in Pakistan. ${res?.proposal?.home?.hero_heading || ""}. Product-style studio composition, soft light, empty space on the left for text, no text, no logos.`,
-      `Sale promo banner background for "${store.store_name}", vibrant gradient, festive, product props, no text.`,
-    ]) {
-      const d = await api("/growth/neezi-banner", { method: "POST", body: { store_id: store.id, prompt, tier: plan?.is_creator ? tier : undefined } });
-      if (d.url) out.push(d.url); else { setError(d.error || "Banner failed"); break; }
-    }
-    setBanners(out); setBannerBusy(false);
-  };
-  const apply = async () => {
-    setStep("applying"); setError("");
-    const proposal = { ...res.proposal, collections: res.proposal.collections.filter((c) => picked[c.handle]) };
-    const a = await api("/growth/neezi-setup", { method: "POST", body: { store_id: store.id, action: "apply", proposal } });
-    if (a.error) { setError(a.error); setStep("review"); return; }
-    const cfg = buildNeeziConfig({ themeId: theme, versionId: version, storeName: store.store_name, proposal, banners });
-    const v = versions.find((x) => x.id === version);
-    const d = await api("/create-store-theme", { method: "POST", body: { store_id: store.id, name: `${THEME_INFO[theme].name} · ${v?.name || ""} · by Neezi`, theme_config: cfg } });
-    if (d.error || !d.theme) { setError(d.error || "Theme could not be created"); setStep("review"); return; }
-    setCreated({ theme: d.theme, results: a.results }); onCreated?.(d.theme); setStep("done");
-  };
+  const busy = isNeeziBusy(job);
+  const close = () => setNeeziOpen(false);
+  const setProposal = (patch) => patchNeeziJob((j) => ({ res: { ...j.res, proposal: { ...j.res.proposal, ...patch(j.res.proposal) } } }));
   const tierLabel = { essential: "Essential · Neezi AI Store Launch", grow: "Grow · Neezi AI Design Studio", advance: "Advance · Neezi AI Design Studio" }[effTier];
+  const pct = Math.round(job.percent || 0);
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(10,14,38,.55)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(10,14,38,.55)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={close}>
+      <style>{"@keyframes neeziPulse{0%,100%{box-shadow:0 0 0 0 rgba(99,102,241,.55)}50%{box-shadow:0 0 0 6px rgba(99,102,241,0)}}.neezi-pulse{animation:neeziPulse 1.4s infinite}"}</style>
       <div style={{ ...card, background: "var(--ne-surface-2)", width: "min(860px,100%)", maxHeight: "92vh", overflowY: "auto", display: "grid", gap: 14 }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}><span style={{ width: 36, height: 36, borderRadius: 11, background: "var(--ne-grad)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="sparkle" size={17} /></span><div><b style={{ fontSize: 15 }}>Neezi store setup</b><div style={{ fontSize: 12, color: "var(--ne-muted)" }}>{tierLabel}</div></div></div>
-          <button style={btn(false)} onClick={onClose}><Icon name="close" size={13} /></button>
+          <button style={btn(false)} onClick={close} title={busy ? "Close: Neezi keeps working in the background" : "Close"}><Icon name="close" size={13} /></button>
         </div>
-        {error && <Note kind="error">{error}</Note>}
-        {step === "choose" && (
+        {phase !== "choose" && (
+          <div style={{ display: "grid", gap: 6 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5 }}><b>{phase === "done" ? "Store setup complete" : phase === "review" ? "Plan ready: review it below" : "Neezi is setting up your store"}</b><b>{pct}%</b></div>
+            <div style={{ height: 8, borderRadius: 99, background: "var(--ne-border)", overflow: "hidden" }}><div style={{ width: `${pct}%`, height: "100%", background: "var(--ne-grad)", transition: "width .6s" }} /></div>
+            {busy && <div style={{ fontSize: 11.5, color: "var(--ne-muted)" }}>You can close this window or go to another page. Neezi keeps working and shows its progress in the corner.</div>}
+            <Timeline items={job.timeline} />
+          </div>
+        )}
+        {error && !busy && <Note kind="error">{error}</Note>}
+        {phase === "choose" && (
           <>
             <p style={{ margin: 0, fontSize: 13 }}>Neezi reads all your products (titles and descriptions), then makes your <b>collections</b>, the <b>header and footer menus</b> and your <b>homepage text</b>, and builds a draft of the theme you pick. Nothing goes live until you publish it.</p>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <Field l="Theme"><select style={input} value={theme} onChange={(e) => { setTheme(e.target.value); setVersion((THEME_VERSIONS[e.target.value] || [])[0]?.id); }}>{THEME_ORDER.map((id) => <option key={id} value={id}>{THEME_INFO[id].name}</option>)}</select></Field>
-              <Field l="Version"><select style={input} value={version} onChange={(e) => setVersion(e.target.value)}>{versions.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</select></Field>
+              <Field l="Theme"><select style={input} value={theme} onChange={(e) => patchNeeziJob({ theme: e.target.value, version: (THEME_VERSIONS[e.target.value] || [])[0]?.id })}>{THEME_ORDER.map((id) => <option key={id} value={id}>{THEME_INFO[id].name}</option>)}</select></Field>
+              <Field l="Version"><select style={input} value={version} onChange={(e) => patchNeeziJob({ version: e.target.value })}>{versions.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</select></Field>
             </div>
-            <DemoFrame src={`${liveUrl}/__demo/${theme}/${version}`} height={260} />
-            {plan?.is_creator && <Field l="Test as plan (eNeezam owner only)"><select style={input} value={tier} onChange={(e) => setTier(e.target.value)}><option value="essential">Essential</option><option value="grow">Grow</option><option value="advance">Advance</option></select></Field>}
-            <div style={{ display: "flex", justifyContent: "flex-end" }}><button style={btn(true)} onClick={propose}><Icon name="sparkle" size={13} /> Let Neezi read my products</button></div>
+            <DemoFrame src={`${job.liveUrl}/__demo/${theme}/${version}`} height={260} />
+            {plan?.is_creator && <Field l="Test as plan (eNeezam owner only)"><select style={input} value={tier} onChange={(e) => patchNeeziJob({ tier: e.target.value })}><option value="essential">Essential</option><option value="grow">Grow</option><option value="advance">Advance</option></select></Field>}
+            <Toggle on={!!job.auto} onChange={(v) => patchNeeziJob({ auto: v })} text={`Let Neezi do everything without stopping for review${effTier === "essential" ? "" : " (including AI banners)"}`} />
+            <div style={{ display: "flex", justifyContent: "flex-end" }}><button style={btn(true)} onClick={neeziPropose}><Icon name="sparkle" size={13} /> {job.auto ? "Set up my store" : "Let Neezi read my products"}</button></div>
           </>
         )}
-        {step === "thinking" && <div style={{ textAlign: "center", padding: 30 }}><b>Neezi is reading your products…</b><p style={{ color: "var(--ne-muted)", fontSize: 12.5 }}>This takes 10 to 40 seconds.</p></div>}
-        {step === "review" && res && (
+        {phase === "review" && res && (
           <>
             <Note>Neezi read {res.product_count} products{res.engine === "rules" ? " (AI was not available, so it grouped them by keywords; you can edit everything later)" : ` with ${res.engine === "agnes" ? "Agnes AI" : "Gemini"}`}. Untick anything you don't want.</Note>
             <div><span style={label}>Collections</span>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(220px,1fr))", gap: 8 }}>
                 {res.proposal.collections.map((c) => (
                   <label key={c.handle} style={{ display: "flex", gap: 8, alignItems: "flex-start", border: "1px solid var(--ne-border)", borderRadius: 10, padding: 10, cursor: "pointer", fontSize: 12.5 }}>
-                    <input type="checkbox" checked={!!picked[c.handle]} onChange={(e) => setPicked({ ...picked, [c.handle]: e.target.checked })} />
+                    <input type="checkbox" checked={!!picked[c.handle]} onChange={(e) => patchNeeziJob({ picked: { ...picked, [c.handle]: e.target.checked } })} />
                     <span><b>{c.title}</b><span style={{ display: "block", color: "var(--ne-muted)" }}>{c.count} products</span></span>
                   </label>
                 ))}
@@ -576,9 +656,9 @@ function NeeziSetup({ store, liveUrl, start, onClose, onCreated, onOpenThemeEdit
               <div><span style={label}>Footer menu</span><div style={{ fontSize: 12.5 }}>{res.proposal.menus.footer.map((m) => m.label).join(" · ")}</div></div>
             </div>
             <div style={{ display: "grid", gap: 8 }}>
-              <Field l="Announcement"><input style={input} value={res.proposal.home.announcement} onChange={(e) => setRes({ ...res, proposal: { ...res.proposal, home: { ...res.proposal.home, announcement: e.target.value } } })} /></Field>
-              <Field l="Homepage heading"><input style={input} value={res.proposal.home.hero_heading} onChange={(e) => setRes({ ...res, proposal: { ...res.proposal, home: { ...res.proposal.home, hero_heading: e.target.value } } })} /></Field>
-              <Field l="Homepage text"><input style={input} value={res.proposal.home.hero_text} onChange={(e) => setRes({ ...res, proposal: { ...res.proposal, home: { ...res.proposal.home, hero_text: e.target.value } } })} /></Field>
+              <Field l="Announcement"><input style={input} value={res.proposal.home.announcement} onChange={(e) => setProposal((p) => ({ home: { ...p.home, announcement: e.target.value } }))} /></Field>
+              <Field l="Homepage heading"><input style={input} value={res.proposal.home.hero_heading} onChange={(e) => setProposal((p) => ({ home: { ...p.home, hero_heading: e.target.value } }))} /></Field>
+              <Field l="Homepage text"><input style={input} value={res.proposal.home.hero_text} onChange={(e) => setProposal((p) => ({ home: { ...p.home, hero_text: e.target.value } }))} /></Field>
             </div>
             <div style={{ ...card, background: "var(--ne-surface)" }}>
               <b style={{ fontSize: 13 }}>AI banners (Agnes)</b>
@@ -586,20 +666,19 @@ function NeeziSetup({ store, liveUrl, start, onClose, onCreated, onOpenThemeEdit
                 <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
                   <p style={{ margin: 0, fontSize: 12.5, color: "var(--ne-muted)" }}>Neezi asks Agnes to design a hero and a sale banner for your brand.</p>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{banners.map((u) => <img key={u} src={u} alt="" style={{ width: 220, height: 92, objectFit: "cover", borderRadius: 8 }} />)}</div>
-                  <div><button style={btn(false, bannerBusy)} disabled={bannerBusy} onClick={makeBanners}>{bannerBusy ? "Designing…" : banners.length ? "Make new banners" : "Design my banners"}</button></div>
+                  <div><button style={btn(false)} onClick={neeziBanners}>{banners.length ? "Make new banners" : "Design my banners"}</button></div>
                 </div>
               )}
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between" }}><button style={btn(false)} onClick={() => setStep("choose")}>Back</button><button style={btn(true)} onClick={apply}><Icon name="check" size={13} /> Create collections, menus and draft theme</button></div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}><button style={btn(false)} onClick={() => patchNeeziJob({ phase: "choose", timeline: [], percent: 0, error: "" })}>Start over</button><button style={btn(true)} onClick={neeziApply}><Icon name="check" size={13} /> Create collections, menus and draft theme</button></div>
           </>
         )}
-        {step === "applying" && <div style={{ textAlign: "center", padding: 30 }}><b>Setting up your store…</b></div>}
-        {step === "done" && created && (
+        {phase === "done" && created && (
           <>
-            <Note kind="ok">Done: {created.results.collections} collections and {created.results.menus} menus were saved, and the draft theme "{created.theme.name}" is ready. Your live store does not change until you publish it.</Note>
+            <Note kind="ok">Done: {created.results?.collections ?? 0} collections and {created.results?.menus ?? 0} menus were saved, and the draft theme "{created.theme.name}" is ready. Your live store does not change until you publish it.</Note>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button style={btn(false)} onClick={onClose}>Close</button>
-              {onOpenThemeEditor && <button style={btn(true)} onClick={() => { onClose(); onOpenThemeEditor(created.theme.id); }}><Icon name="edit" size={13} /> Open in theme editor</button>}
+              <button style={btn(false)} onClick={clearNeeziJob}>Close</button>
+              {job.onOpenThemeEditor && <button style={btn(true)} onClick={() => { const open = job.onOpenThemeEditor; clearNeeziJob(); open(created.theme.id); }}><Icon name="edit" size={13} /> Open in theme editor</button>}
             </div>
           </>
         )}
