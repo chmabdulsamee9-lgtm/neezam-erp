@@ -139,6 +139,8 @@ const FinanceStatement = lazyPage(() => import('./pages/FinanceStatement'), 'fin
 const DevMonitorDetailed = lazyPage(() => import('./pages/DevMonitorDetailed'), 'master-dashboard/dev-monitor')
 const GeminiUsageMonitor = lazyPage(() => import('./pages/GeminiUsageMonitor'), 'master-dashboard/gemini-monitor')
 const UiEditor = lazyPage(() => import('./pages/UiEditor'), 'master-dashboard/ui-editor', { skeleton: false })
+const AgnesMonitor = lazyPage(() => import('./pages/AgnesMonitor'), 'master-dashboard/agnes-monitor')
+const StoreGrowthPage = lazyPage(() => import('./pages/StoreGrowth'), 'online-store/collections')
 const ShopifyCallback = lazyPage(() => import('./pages/ShopifyCallback'), null)
 const Orders = lazyPage(() => import('./pages/Orders'), 'orders')
 const OrderDetail = lazyPage(() => import('./pages/OrderDetail'), 'orders')
@@ -791,6 +793,10 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
           <button onClick={() => navigate('/master-dashboard/gemini-monitor')}
             style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Icon name="zap" size={13} /> {t('nav.gemini-monitor')}
+          </button>
+          <button onClick={() => navigate('/master-dashboard/agnes-monitor')}
+            style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="sparkle" size={13} /> Agnes AI
           </button>
           <button onClick={() => navigate('/master-dashboard/ui-editor')}
             style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -2248,7 +2254,7 @@ function App() {
 
   if (!selectedStoreId) return <SplashScreen />
   const isAdminOnlyPage = activeMenu === 'master-dashboard/dev-monitor' ||
-    activeMenu === 'master-dashboard/gemini-monitor' || activeMenu === 'master-dashboard/ui-editor'
+    activeMenu === 'master-dashboard/gemini-monitor' || activeMenu === 'master-dashboard/ui-editor' || activeMenu === 'master-dashboard/agnes-monitor'
   // Orders load hone tak poori app block nahi hoti: shell (sidebar/topbar) foran dikhta hai, aur sirf
   // orders-dependent pages ke content area mein PageSkeleton dikhta hai.
   const ordersPending = !ordersLoaded && !isAdminOnlyPage
@@ -2287,6 +2293,11 @@ function App() {
     { id: 'finance-statement', label: t('nav.finance-statement'), parent: 'group:courier-payments' },
     { id: 'group:sales-channels', label: t('nav.group.salesChannels'), isGroup: true },
     { id: 'online-store', label: t('nav.online-store'), parent: 'group:sales-channels' },
+    { id: 'online-store/collections', label: 'Collections', parent: 'group:sales-channels' },
+    { id: 'online-store/menus', label: 'Menus', parent: 'group:sales-channels' },
+    { id: 'online-store/campaigns', label: 'Campaigns & Upsell', parent: 'group:sales-channels' },
+    { id: 'online-store/social-proof', label: 'Social proof', parent: 'group:sales-channels' },
+    { id: 'online-store/reviews', label: 'Reviews', parent: 'group:sales-channels' },
     { id: 'store-connect', label: t('nav.store-connect'), parent: 'group:sales-channels' },
     { id: 'ads', label: t('nav.ads'), parent: 'group:sales-channels' },
     { id: 'suggestions', label: t('nav.suggestions') },
@@ -2761,7 +2772,11 @@ function App() {
               <GeminiUsageMonitor cfUrl={CF_URL} session={session} />
             )}
             {activeMenu === 'master-dashboard/ui-editor' && profile.role === 'creator' && <UiEditor />}
-            {!['home', 'dashboard', 'store-connect', 'online-store', 'theme-editor', 'products', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'returns', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor', 'master-dashboard/ui-editor'].includes(navMenu) && (
+            {activeMenu === 'master-dashboard/agnes-monitor' && profile.role === 'creator' && <AgnesMonitor />}
+            {activeMenu.startsWith('online-store/') && hasAccess('online-store') && (
+              <StoreGrowthPage storeId={selectedStoreId} page={activeMenu.slice('online-store/'.length)} />
+            )}
+            {!['home', 'dashboard', 'store-connect', 'online-store', 'theme-editor', 'products', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'returns', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor', 'master-dashboard/ui-editor', 'master-dashboard/agnes-monitor', 'online-store/collections', 'online-store/menus', 'online-store/campaigns', 'online-store/social-proof', 'online-store/reviews'].includes(navMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{pageTitleLookup.find(m => m.id === navMenu)?.label}</h2>
