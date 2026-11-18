@@ -697,7 +697,7 @@ function NeeziSetup({ job }) {
             <Note kind="ok">Done: {created.results?.collections ?? 0} collections and {created.results?.menus ?? 0} menus were saved, and the draft theme "{created.theme.name}" is ready. Your live store does not change until you publish it.</Note>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button style={btn(false)} onClick={clearNeeziJob}>Close</button>
-              {job.onOpenThemeEditor && <button style={btn(true)} onClick={() => { const open = job.onOpenThemeEditor; clearNeeziJob(); open(created.theme.id); }}><Icon name="edit" size={13} /> Open in theme editor</button>}
+              {job.onOpenThemeEditor && <button style={btn(true)} onClick={() => { const id = created.theme?.id; if (!id) return; job.onOpenThemeEditor(id); setTimeout(clearNeeziJob, 0); }}><Icon name="edit" size={13} /> Open in theme editor</button>}
             </div>
           </>
         )}
