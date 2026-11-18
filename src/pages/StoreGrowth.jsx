@@ -18,9 +18,15 @@ const THEME_INFO = {
 };
 const THEME_ORDER = ["glow", "botanica", "volt", "luxe", "nova"];
 
-async function api(path, { method = "GET", body } = {}) {
+async function api(path, { method = "GET", body, timeout = 180000 } = {}) {
   const { data: { session } } = await supabase.auth.getSession();
-  const res = await fetch(`${CF}${path}`, { method, headers: { Authorization: `Bearer ${session?.access_token}`, "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  let res;
+  try {
+    // every call has a time limit, so a request that never answers can't freeze Neezi's setup job
+    res = await fetch(`${CF}${path}`, { method, headers: { Authorization: `Bearer ${session?.access_token}`, "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(timeout) });
+  } catch (err) {
+    return { error: err?.name === "TimeoutError" ? "The server took too long to answer. Please try again." : "Network problem. Check the internet and try again." };
+  }
   let data = {};
   try { data = await res.json(); } catch { data = { error: `HTTP ${res.status}` }; }
   if (!res.ok && !data.error) data.error = `HTTP ${res.status}`;
