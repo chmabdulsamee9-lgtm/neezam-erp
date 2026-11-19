@@ -28,7 +28,7 @@ function useDebounced(value, ms = 350) {
   return v;
 }
 
-export default function EneezamProducts({ storeId, ordersStore, cfUrl, storeUrl = "", isMobile = false }) {
+export default function EneezamProducts({ storeId, ordersStore, cfUrl, storeUrl = "", isMobile = false, hasShopify = true }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const eneezamId = ordersStore?.eneezam_id;
@@ -446,7 +446,7 @@ export default function EneezamProducts({ storeId, ordersStore, cfUrl, storeUrl 
     <div style={{ color: "var(--ne-text)" }}>
       {/* header: storefront source + actions */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        {hasShopify ? <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{ fontSize: 12, color: "var(--ne-muted)", fontWeight: 700 }}>{t("products.eneezam.storefrontShows")}</span>
           <div style={{ display: "inline-flex", border: "1px solid var(--ne-border)", borderRadius: 9, overflow: "hidden" }}>
             {["shopify", "eneezam"].map((src) => (
@@ -457,14 +457,14 @@ export default function EneezamProducts({ storeId, ordersStore, cfUrl, storeUrl 
               </button>
             ))}
           </div>
-        </div>
+        </div> : <span style={{ fontSize: 12.5, color: "var(--ne-muted)" }}>Products you add here sell on your store{storeUrl ? ` (${storeUrl.replace("https://", "")})` : ""}. Set them to Active to show them.</span>}
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {pendingTotal > 0 && (
             <button type="button" onClick={runPageMirror} disabled={mirrorState?.running} style={btn(false)}>
               <Icon name="upload" size={12} /> {mirrorState?.running ? fmt(t, "products.eneezam.savingImages", { done: mirrorState.done || 0, total: mirrorState.total || 0 }) : t("products.eneezam.saveImages")}
             </button>
           )}
-          <button type="button" onClick={openCopy} style={btn(false)}><Icon name="download" size={12} /> {t("products.eneezam.copyFromShopify")}</button>
+          {hasShopify && <button type="button" onClick={openCopy} style={btn(false)}><Icon name="download" size={12} /> {t("products.eneezam.copyFromShopify")}</button>}
           <button type="button" onClick={openAdd} style={btn(true)}><Icon name="plus" size={12} /> {t("products.eneezam.addProduct")}</button>
         </div>
       </div>
@@ -573,7 +573,7 @@ export default function EneezamProducts({ storeId, ordersStore, cfUrl, storeUrl 
         <ProductEditor storeId={storeId} cfUrl={cfUrl} product={editing}
           onClose={() => { setFormOpen(false); loadList(); }}
           onSaved={(p) => { logActivity(editing ? "product_update" : "product_create", { product_id: p.id, title: p.title, source: "eneezam" }); setEditing(p); loadList(); }}
-          onListOnShopify={() => setListOn("shopify")} />
+          onListOnShopify={hasShopify ? () => setListOn("shopify") : null} />
       )}
       {/* new product listed on Shopify (old form) */}
       {formOpen && !editing && listOn === "shopify" && (

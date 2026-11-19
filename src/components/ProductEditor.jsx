@@ -21,7 +21,7 @@ function fromProduct(p) {
   return {
     title: p?.title || "",
     html: p?.description_html || textToHtml(p?.description || ""),
-    status: p?.status || "draft", vendor: p?.vendor || "", product_type: p?.product_type || "", tags: p?.tags || [],
+    status: p?.status || (p ? "draft" : "active"), vendor: p?.vendor || "", product_type: p?.product_type || "", tags: p?.tags || [],
     images: (p?.images || []).map((i) => (typeof i === "string" ? { url: i, mirrored: false } : i)),
     options: (p?.options || []).map((o) => ({ name: o.name, values: [...o.values] })),
     variants: (p?.variants?.length ? p.variants : [blankVariant()]).map((v) => ({

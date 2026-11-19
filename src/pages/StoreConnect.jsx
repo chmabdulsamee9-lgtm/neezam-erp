@@ -652,7 +652,8 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
       )}
 
       {/* Create Native Store — additive alongside Connect Shopify, never replacing it */}
-      {mode !== "shopify" && !loading && !showNativeInput && (
+      {/* one native store per account: once a store has its eneezam.com subdomain, it is managed below */}
+      {mode !== "shopify" && !loading && !showNativeInput && !stores.some((s) => s.subdomain || s.platform === "native") && (
         <button
           onClick={() => setShowNativeInput(true)}
           style={{
