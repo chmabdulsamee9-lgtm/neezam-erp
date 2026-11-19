@@ -63,6 +63,8 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
   const t = useTranslation(lang);
   const [currentProfile, setCurrentProfile] = useState(null);
   const [stores, setStores] = useState([]);
+  const [dnsTargets, setDnsTargets] = useState({ cname: "custom.eneezam.com", a: [] });
+  useEffect(() => { fetch(`${CF_URL}/dns-targets`).then((r) => r.json()).then((d) => { if (d && d.cname) setDnsTargets(d); }).catch(() => {}); }, []);
   const [loading, setLoading] = useState(true);
   const [shopUrl, setShopUrl] = useState("");
   const [error, setError] = useState("");
@@ -78,7 +80,7 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
   const [domainBusy, setDomainBusy] = useState({}); // {[storeId]: bool} — add/remove in flight
   const [domainChecking, setDomainChecking] = useState({}); // {[storeId]: bool} — status check in flight
   const [domainError, setDomainError] = useState({}); // {[storeId]: string}
-  const [domainCname, setDomainCname] = useState({}); // {[storeId]: {type, name, target} | null}
+  const [, setDomainCname] = useState({}); // {[storeId]: {type, name, target} | null}
   const [copiedKey, setCopiedKey] = useState(""); // which copy button last showed "copied"
   const [showEnableNativeInput, setShowEnableNativeInput] = useState({}); // {[storeId]: bool}
   const [enableNativeInputs, setEnableNativeInputs] = useState({}); // {[storeId]: string}
@@ -1259,43 +1261,44 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
                                 )}
                               </div>
 
-                              {domainCname[slotKey] && (
-                                <div style={{
-                                  marginTop: 12, padding: "12px 14px", background: "var(--ne-surface-2)",
-                                  border: "1px solid var(--ne-border)", borderRadius: 9,
-                                }}>
-                                  <p style={{ margin: "0 0 8px", fontSize: 12.5, fontWeight: 700, color: "var(--ne-text)" }}>
-                                    {t("store.cnameInstructionsTitle")}
-                                  </p>
-                                  {[
-                                    { labelKey: "store.cnameType", value: domainCname[slotKey].type },
-                                    { labelKey: "store.cnameName", value: domainCname[slotKey].name },
-                                    { labelKey: "store.cnameTarget", value: domainCname[slotKey].target },
-                                  ].map((r) => {
-                                    const copyKey = `${slotKey}-${r.labelKey}`;
-                                    return (
-                                      <div key={r.labelKey} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-                                        <span style={{ fontSize: 12, color: "var(--ne-muted)", minWidth: 50 }}>{t(r.labelKey)}:</span>
-                                        <code style={{ fontSize: 12, color: "var(--ne-text)", background: "var(--ne-bg)", padding: "2px 8px", borderRadius: 6 }}>
-                                          {r.value}
-                                        </code>
-                                        <button
-                                          onClick={() => handleCopy(copyKey, r.value)}
-                                          style={{
-                                            background: "transparent", border: "1px solid var(--ne-border)", color: "var(--ne-text)",
-                                            borderRadius: 6, padding: "2px 8px", fontSize: 11, cursor: "pointer",
-                                          }}
-                                        >
-                                          {copiedKey === copyKey ? t("store.copiedLabel") : t("store.copyButton")}
-                                        </button>
-                                      </div>
-                                    );
-                                  })}
-                                  <p style={{ margin: "6px 0 0", fontSize: 11.5, color: "var(--ne-muted-2)" }}>
-                                    {t("store.propagationNote")}
-                                  </p>
-                                </div>
-                              )}
+                              {row.status !== "active" && (() => {
+                                // DNS records for this domain, always visible while it is not active (also after a reload)
+                                const d = row.domain;
+                                const labels = d.split(".");
+                                const apex = labels.length === 2 || (labels.length === 3 && /^(com|net|org|edu|gov|co)\.(pk|uk|in|ae|sa|au|nz)$/.test(labels.slice(1).join(".")));
+                                const name = d.startsWith("www.") ? "www" : apex ? "@" : labels[0];
+                                const main = [{ type: "CNAME", name, target: dnsTargets.cname || "custom.eneezam.com" }];
+                                const alt = name === "@" ? (dnsTargets.a || []).map((ip) => ({ type: "A", name: "@", target: ip })) : [];
+                                const recRow = (r, i, group) => {
+                                  const copyKey = `${slotKey}-${group}-${i}`;
+                                  return (
+                                    <div key={copyKey} style={{ display: "grid", gridTemplateColumns: "70px 70px 1fr auto", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                                      <code style={{ fontSize: 12 }}>{r.type}</code>
+                                      <code style={{ fontSize: 12 }}>{r.name}</code>
+                                      <code style={{ fontSize: 12, background: "var(--ne-bg)", padding: "2px 8px", borderRadius: 6, overflowWrap: "anywhere" }}>{r.target}</code>
+                                      <button onClick={() => handleCopy(copyKey, r.target)} style={{ background: "transparent", border: "1px solid var(--ne-border)", color: "var(--ne-text)", borderRadius: 6, padding: "2px 8px", fontSize: 11, cursor: "pointer" }}>
+                                        {copiedKey === copyKey ? t("store.copiedLabel") : t("store.copyButton")}
+                                      </button>
+                                    </div>
+                                  );
+                                };
+                                return (
+                                  <div style={{ marginTop: 12, padding: "12px 14px", background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 9 }}>
+                                    <p style={{ margin: "0 0 8px", fontSize: 12.5, fontWeight: 700, color: "var(--ne-text)" }}>Add this record where you bought {d.replace(/^www\./, "")} (Hostinger, GoDaddy, Namecheap…)</p>
+                                    <div style={{ display: "grid", gridTemplateColumns: "70px 70px 1fr auto", gap: 8, fontSize: 11, color: "var(--ne-muted)", marginBottom: 4 }}><span>Type</span><span>Name</span><span>Target / Value</span><span /></div>
+                                    {main.map((r, i) => recRow(r, i, "c"))}
+                                    {alt.length > 0 && (
+                                      <>
+                                        <p style={{ margin: "10px 0 6px", fontSize: 12, color: "var(--ne-text)" }}><b>Provider doesn&apos;t allow CNAME on @?</b> (Hostinger and GoDaddy often don&apos;t.) Skip the CNAME above and add these A records instead:</p>
+                                        {alt.map((r, i) => recRow(r, i, "a"))}
+                                      </>
+                                    )}
+                                    <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--ne-muted-2)" }}>
+                                      Delete any old {name === "@" ? "@ (A / CNAME)" : `${name} (A / CNAME)`} records for this name first. In the Target box write only the value shown, not the word CNAME. {t("store.propagationNote")}
+                                    </p>
+                                  </div>
+                                );
+                              })()}
                             </div>
                           )}
 
