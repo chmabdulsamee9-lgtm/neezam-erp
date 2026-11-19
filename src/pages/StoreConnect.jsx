@@ -64,6 +64,8 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
   const [currentProfile, setCurrentProfile] = useState(null);
   const [stores, setStores] = useState([]);
   const [dnsTargets, setDnsTargets] = useState({ cname: "custom.eneezam.com", a: [] });
+  const [domainInfo, setDomainInfo] = useState({}); // {[storeId:role]: { records: [TXT...], errors: [] }} from Cloudflare
+  const autoChecked = useRef(new Set());
   useEffect(() => { fetch(`${CF_URL}/dns-targets`).then((r) => r.json()).then((d) => { if (d && d.cname) setDnsTargets(d); }).catch(() => {}); }, []);
   const [loading, setLoading] = useState(true);
   const [shopUrl, setShopUrl] = useState("");
@@ -335,6 +337,7 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
         { headers: { Authorization: `Bearer ${session?.access_token}` } }
       );
       const data = await res.json();
+      setDomainInfo((prev) => ({ ...prev, [slotKey]: { records: data.records || [], errors: data.errors || [] } }));
       if (data.status) {
         setStores((prev) => prev.map((s) => (
           s.id === store.id
@@ -348,6 +351,15 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
       setDomainChecking((prev) => ({ ...prev, [slotKey]: false }));
     }
   };
+
+  // pending domains are checked as soon as the page opens (and every 20 minutes by the server), so the merchant
+  // sees the latest state and any TXT record Cloudflare still needs without pressing "Check status"
+  useEffect(() => {
+    for (const st of stores) for (const d of st.store_custom_domains || []) {
+      const key = `${st.id}:${d.role}`;
+      if (d.status !== "active" && !autoChecked.current.has(key)) { autoChecked.current.add(key); handleCheckCustomDomainStatus(st, d.role); }
+    }
+  }, [stores]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRemoveCustomDomain = async (store, role) => {
     const row = getDomainRow(store, role);
@@ -1293,8 +1305,21 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
                                         {alt.map((r, i) => recRow(r, i, "a"))}
                                       </>
                                     )}
+                                    {(domainInfo[slotKey]?.records || []).length > 0 && (() => {
+                                      const base = d.replace(/^www\./, "");
+                                      const short = (n) => n.replace(new RegExp(`\\.${base.replace(/\./g, "\\.")}$`), "");
+                                      const stuck = (domainInfo[slotKey]?.errors || []).some((e) => /cname|point/i.test(e));
+                                      return (
+                                        <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px dashed var(--ne-border)" }}>
+                                          <p style={{ margin: "0 0 6px", fontSize: 12, color: "var(--ne-text)" }}>
+                                            <b>Also add {domainInfo[slotKey].records.length > 1 ? "these TXT records" : "this TXT record"}</b> — it proves {base} is yours.{stuck ? " Your domain still reaches its old platform (for example Shopify). You don't have to remove it there: this record is enough." : ""}
+                                          </p>
+                                          {domainInfo[slotKey].records.map((r, i) => recRow({ type: "TXT", name: short(r.name), target: r.value }, i, "t"))}
+                                        </div>
+                                      );
+                                    })()}
                                     <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--ne-muted-2)" }}>
-                                      Delete any old {name === "@" ? "@ (A / CNAME)" : `${name} (A / CNAME)`} records for this name first. In the Target box write only the value shown, not the word CNAME. {t("store.propagationNote")}
+                                      We check again every 20 minutes and turn it on by ourselves. Delete any old {name === "@" ? "@ (A / CNAME)" : `${name} (A / CNAME)`} records for this name first. In the Target box write only the value shown, not the word CNAME. {t("store.propagationNote")}
                                     </p>
                                   </div>
                                 );
