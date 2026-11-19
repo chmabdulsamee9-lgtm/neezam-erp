@@ -653,7 +653,9 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
 
       {/* Create Native Store — additive alongside Connect Shopify, never replacing it */}
       {/* one native store per account: once a store has its eneezam.com subdomain, it is managed below */}
-      {mode !== "shopify" && !loading && !showNativeInput && !stores.some((s) => s.subdomain || s.platform === "native") && (
+      {/* a new native store only when there is no store yet; an existing (Shopify) store gets its eneezam.com
+          address from its own card below, which turns it into a native store too */}
+      {mode !== "shopify" && !loading && !showNativeInput && stores.length === 0 && (
         <button
           onClick={() => setShowNativeInput(true)}
           style={{
@@ -846,9 +848,11 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
                       {store.eneezam_id || "—"}
                     </p>
                     <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--ne-muted-2)" }}>
-                      {store.platform === "native"
-                        ? `${store.subdomain}.eneezam.com`
-                        : (store.shopify_url || t("store.notConnectedYet"))}
+                      {mode === "domains"
+                        ? (store.subdomain ? `${store.subdomain}.eneezam.com` : "No eneezam.com address yet")
+                        : store.platform === "native"
+                          ? `${store.subdomain}.eneezam.com`
+                          : (store.shopify_url || t("store.notConnectedYet"))}
                     </p>
                   </div>
                 </div>
@@ -1036,8 +1040,11 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
                 {/* Enable Native Storefront — additive, for an existing Shopify store that
                     doesn't have a subdomain yet (never creates a new store, just reserves a
                     subdomain on this one) */}
+                {store.platform === "shopify" && !store.subdomain && mode === "domains" && (
+                  <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "var(--ne-muted)" }}>Choose your free eneezam.com address. Your eNeezam storefront is created on it right away; after that you can switch your store between Shopify and eNeezam, and connect your own domain.</p>
+                )}
                 {store.platform === "shopify" && !store.subdomain && (
-                  !showEnableNativeInput[store.id] ? (
+                  !(mode === "domains" || showEnableNativeInput[store.id]) ? (
                     <button
                       onClick={() => setShowEnableNativeInput((prev) => ({ ...prev, [store.id]: true }))}
                       style={{
@@ -1073,9 +1080,9 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
                             cursor: (!enableNativeAvailability[store.id]?.available || enableNativeBusy[store.id]) ? "not-allowed" : "pointer",
                           }}
                         >
-                          {enableNativeBusy[store.id] ? t("store.creatingNativeStore") : t("store.createNativeStore")}
+                          {enableNativeBusy[store.id] ? t("store.creatingNativeStore") : t("store.createAddress")}
                         </button>
-                        <button
+                        {mode !== "domains" && <button
                           onClick={() => setShowEnableNativeInput((prev) => ({ ...prev, [store.id]: false }))}
                           style={{
                             background: "transparent", border: "1px solid var(--ne-border)", color: "var(--ne-text)",
@@ -1083,7 +1090,7 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
                           }}
                         >
                           <Icon name="close" size={13} />
-                        </button>
+                        </button>}
                       </div>
                       {(enableNativeInputs[store.id] || "").trim() && (
                         <p style={{

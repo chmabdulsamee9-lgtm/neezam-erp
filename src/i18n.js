@@ -443,6 +443,7 @@ export const translations = {
     'store.subdomainTooShort': 'Kam az kam 3 characters',
     'store.subdomainTooLong': '30 characters se zyada nahi',
     'store.createNativeStore': 'Store Banao',
+    'store.createAddress': 'Address Banao',
     'store.creatingNativeStore': 'Store ban raha hai...',
     'store.nativeStoreCreated': 'Native store ban gaya!',
     'store.platformNative': 'Native Store',
@@ -796,7 +797,7 @@ export const translations = {
     'store.shopifyPausedNote': 'Shopify sync paused hai — Shopify mode par switch karo resume karne ke liye.',
     'store.toggleFailed': 'Toggle nahi hua',
     'store.shopifyConnectionHeading': 'Shopify Connection',
-    'store.nativeStorefrontHeading': 'Native Storefront',
+    'store.nativeStorefrontHeading': 'eNeezam Storefront',
 
     'activityLog.title': 'Activity Log',
     'activityLog.entries': 'entries',
@@ -3045,6 +3046,7 @@ export const translations = {
     'store.subdomainTooShort': 'At least 3 characters',
     'store.subdomainTooLong': 'No more than 30 characters',
     'store.createNativeStore': 'Create Store',
+    'store.createAddress': 'Create address',
     'store.creatingNativeStore': 'Creating store...',
     'store.nativeStoreCreated': 'Native store created!',
     'store.platformNative': 'Native Store',
@@ -3398,7 +3400,7 @@ export const translations = {
     'store.shopifyPausedNote': 'Shopify sync paused — switch to Shopify mode to resume.',
     'store.toggleFailed': 'Toggle failed',
     'store.shopifyConnectionHeading': 'Shopify Connection',
-    'store.nativeStorefrontHeading': 'Native Storefront',
+    'store.nativeStorefrontHeading': 'eNeezam Storefront',
 
     'activityLog.title': 'Activity Log',
     'activityLog.entries': 'entries',
