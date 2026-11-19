@@ -1281,23 +1281,29 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
                                 const name = d.startsWith("www.") ? "www" : apex ? "@" : labels[0];
                                 const main = [{ type: "CNAME", name, target: dnsTargets.cname || "custom.eneezam.com" }];
                                 const alt = name === "@" ? (dnsTargets.a || []).map((ip) => ({ type: "A", name: "@", target: ip })) : [];
+                                // one DNS record per row: Type | Name [Copy] | Value [Copy] — name on one line, value aligned under its header
+                                const COLS = isMobile ? "52px 1fr" : "52px minmax(150px, max-content) 1fr";
+                                const copyBtn = (key, text) => (
+                                  <button onClick={() => handleCopy(key, text)} style={{ flexShrink: 0, background: "transparent", border: "1px solid var(--ne-border)", color: "var(--ne-text)", borderRadius: 6, padding: "2px 8px", fontSize: 11, cursor: "pointer" }}>
+                                    {copiedKey === key ? t("store.copiedLabel") : t("store.copyButton")}
+                                  </button>
+                                );
+                                const cell = { display: "flex", alignItems: "center", gap: 6, minWidth: 0 };
+                                const code = { fontSize: 12, background: "var(--ne-bg)", padding: "3px 8px", borderRadius: 6 };
                                 const recRow = (r, i, group) => {
                                   const copyKey = `${slotKey}-${group}-${i}`;
                                   return (
-                                    <div key={copyKey} style={{ display: "grid", gridTemplateColumns: "70px 70px 1fr auto", gap: 8, alignItems: "center", marginBottom: 6 }}>
-                                      <code style={{ fontSize: 12 }}>{r.type}</code>
-                                      <code style={{ fontSize: 12 }}>{r.name}</code>
-                                      <code style={{ fontSize: 12, background: "var(--ne-bg)", padding: "2px 8px", borderRadius: 6, overflowWrap: "anywhere" }}>{r.target}</code>
-                                      <button onClick={() => handleCopy(copyKey, r.target)} style={{ background: "transparent", border: "1px solid var(--ne-border)", color: "var(--ne-text)", borderRadius: 6, padding: "2px 8px", fontSize: 11, cursor: "pointer" }}>
-                                        {copiedKey === copyKey ? t("store.copiedLabel") : t("store.copyButton")}
-                                      </button>
+                                    <div key={copyKey} style={{ display: "grid", gridTemplateColumns: COLS, gap: 10, alignItems: "center", marginBottom: 8 }}>
+                                      <code style={{ fontSize: 12, fontWeight: 700 }}>{r.type}</code>
+                                      <div style={cell}><code style={{ ...code, whiteSpace: "nowrap" }}>{r.name}</code>{copyBtn(`${copyKey}-n`, r.name)}</div>
+                                      <div style={{ ...cell, gridColumn: isMobile ? "1 / -1" : undefined }}><code style={{ ...code, flex: 1, overflowWrap: "anywhere" }}>{r.target}</code>{copyBtn(`${copyKey}-v`, r.target)}</div>
                                     </div>
                                   );
                                 };
                                 return (
                                   <div style={{ marginTop: 12, padding: "12px 14px", background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 9 }}>
                                     <p style={{ margin: "0 0 8px", fontSize: 12.5, fontWeight: 700, color: "var(--ne-text)" }}>Add this record where you bought {d.replace(/^www\./, "")} (Hostinger, GoDaddy, Namecheap…)</p>
-                                    <div style={{ display: "grid", gridTemplateColumns: "70px 70px 1fr auto", gap: 8, fontSize: 11, color: "var(--ne-muted)", marginBottom: 4 }}><span>Type</span><span>Name</span><span>Target / Value</span><span /></div>
+                                    {!isMobile && <div style={{ display: "grid", gridTemplateColumns: COLS, gap: 10, fontSize: 11, color: "var(--ne-muted)", marginBottom: 4 }}><span>Type</span><span>Name / Host</span><span>Value / Target</span></div>}
                                     {main.map((r, i) => recRow(r, i, "c"))}
                                     {alt.length > 0 && (
                                       <>
