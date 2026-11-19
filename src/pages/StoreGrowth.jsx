@@ -270,7 +270,7 @@ function campaignState(c) {
   const now = Date.now();
   if (!c.active) return ["Off", "var(--ne-muted)"];
   if (c.starts_at && Date.parse(c.starts_at) > now) return ["Scheduled", "#d97706"];
-  if (c.ends_at && Date.parse(c.ends_at) <= now) return ["Ended", "var(--ne-muted)"];
+  if (!c.config?.renew && c.ends_at && Date.parse(c.ends_at) <= now) return ["Ended", "var(--ne-muted)"];
   return ["Live", "#16a34a"];
 }
 
@@ -292,7 +292,19 @@ export function CampaignsPage({ storeId }) {
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 12 }}>
             <Field l="Name (shoppers may see it)"><input style={input} value={edit.title} onChange={(e) => setEdit({ ...edit, title: e.target.value })} /></Field>
             <Field l="Starts"><input type="datetime-local" style={input} value={toLocal(edit.starts_at)} onChange={(e) => setEdit({ ...edit, starts_at: fromLocal(e.target.value) })} /></Field>
-            <Field l="Ends (countdown shows on products)"><input type="datetime-local" style={input} value={toLocal(edit.ends_at)} onChange={(e) => setEdit({ ...edit, ends_at: fromLocal(e.target.value) })} /></Field>
+            <Field l="Ends (countdown shows on products)"><input type="datetime-local" style={input} value={toLocal(edit.ends_at)} disabled={!!edit.config?.renew} onChange={(e) => setEdit({ ...edit, ends_at: fromLocal(e.target.value) })} /></Field>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12, alignItems: "end" }}>
+            <Field l="Repeat (never ends)"><select style={input} value={edit.config?.renew || ""} onChange={(e) => setEdit({ ...edit, config: { ...edit.config, renew: e.target.value || undefined } })}>
+              <option value="">No, end on the date above</option><option value="hourly">Every hour (countdown to the next hour)</option><option value="daily">Every day (ends at midnight, starts again)</option><option value="weekly">Every week (ends Sunday midnight)</option>
+            </select></Field>
+            <Field l="Campaign banner on product pages (optional, wide picture)">
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {edit.config?.banner_url && <img src={edit.config.banner_url} alt="" style={{ height: 40, borderRadius: 6 }} />}
+                <label style={{ ...btn(false), cursor: "pointer" }}><Icon name="upload" size={12} /> {edit.config?.banner_url ? "Change" : "Upload"}<input type="file" accept="image/*" hidden onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; const { data: { session } } = await supabase.auth.getSession(); const r = await fetch(`${CF}/growth/upload-image?store_id=${storeId}&kind=banner`, { method: "POST", headers: { Authorization: `Bearer ${session?.access_token}`, "Content-Type": file.type }, body: file }); const d = await r.json().catch(() => ({})); if (d.url) setEdit((x) => ({ ...x, config: { ...x.config, banner_url: d.url } })); else setMsg({ kind: "error", text: d.error || "Upload failed" }); }} /></label>
+                {edit.config?.banner_url && <button type="button" style={btn(false)} onClick={() => setEdit({ ...edit, config: { ...edit.config, banner_url: undefined } })}>Remove</button>}
+              </div>
+            </Field>
           </div>
           {edit.kind === "sale" && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -346,7 +358,7 @@ export function CampaignsPage({ storeId }) {
             return (
               <div key={c.id} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto auto auto", gap: 12, alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--ne-border)", fontSize: 13 }}>
                 <Icon name={KIND[c.kind][1]} size={15} />
-                <div><b>{c.title}</b> <span style={{ color: "var(--ne-muted)", fontSize: 12 }}>{what}{c.ends_at ? ` · ends ${new Date(c.ends_at).toLocaleString("en-PK", { dateStyle: "medium", timeStyle: "short" })}` : ""}</span></div>
+                <div><b>{c.title}</b> <span style={{ color: "var(--ne-muted)", fontSize: 12 }}>{what}{c.config?.renew ? ` · repeats ${c.config.renew === "hourly" ? "every hour" : c.config.renew === "daily" ? "every day" : "every week"}` : ""}{!c.config?.renew && c.ends_at ? ` · ends ${new Date(c.ends_at).toLocaleString("en-PK", { dateStyle: "medium", timeStyle: "short" })}` : ""}</span></div>
                 <span style={{ fontSize: 12, fontWeight: 700, color: col }}>{st}</span>
                 <Toggle on={c.active} onChange={async (v) => { await L.save({ ...c, active: v }); }} />
                 <span style={{ display: "flex", gap: 6 }}><button style={btn(false)} onClick={() => setEdit(c)}><Icon name="edit" size={12} /></button><button style={btn(false)} onClick={async () => { if (window.confirm(`Delete "${c.title}"?`)) await L.remove(c.id); }}><Icon name="trash" size={12} /></button></span>

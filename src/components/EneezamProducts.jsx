@@ -3,6 +3,7 @@ import { supabase } from "../supabase";
 import Icon from "./Icon";
 import { useLanguage, useTranslation } from "../i18n";
 import { upsertProduct } from "../productsCache";
+import ProductEditor from "./ProductEditor";
 
 // eNeezam-native catalog (store_products) for stores with a connected custom domain.
 // Talks only to the worker's admin endpoints; never reads store_products directly.
@@ -143,6 +144,49 @@ export default function EneezamProducts({ storeId, ordersStore, cfUrl }) {
     if (status >= 400 || data.error || !data.success) { setDeleteError(data.error || t("products.eneezam.errorGeneric")); return; }
     logActivity("product_delete", { product_id: deleteTarget.id, title: deleteTarget.title, source: "eneezam", removed_files: data.removed_files ?? 0 });
     setDeleteTarget(null);
+    loadList();
+  };
+
+  // ---------- bulk Neezi (selected products, one at a time so each result is checked) ----------
+  const [picked, setPicked] = useState(new Set());
+  const [bulk, setBulk] = useState(null); // { kind, done, total, ok, failed, log: [] }
+  const [bulkStyle, setBulkStyle] = useState("studio");
+  const [bulkMain, setBulkMain] = useState(false);
+  const togglePick = (id) => setPicked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const productPayload = (p, patch = {}) => ({
+    id: p.id, title: p.title, description_html: p.description_html || undefined, description: p.description, status: p.status, vendor: p.vendor, product_type: p.product_type, tags: p.tags,
+    images: (p.images || []).map(normalizeImage), options: p.options || [], details: p.details || {}, variants: p.variants, ...patch,
+  });
+  const runBulk = async (kind) => {
+    const list = items.filter((p) => picked.has(p.id));
+    if (!list.length) return;
+    const state = { kind, done: 0, total: list.length, ok: 0, failed: 0, log: [] };
+    setBulk({ ...state });
+    for (const p of list) {
+      let line;
+      if (kind === "copy") {
+        const { data } = await api("/growth/neezi-product-copy", { method: "POST", body: JSON.stringify({ store_id: storeId, product: { title: p.title, description: p.description, vendor: p.vendor, product_type: p.product_type, tags: p.tags, variants: p.variants } }) });
+        if (data.copy) {
+          const c = data.copy;
+          const save = await api("/save-store-product", { method: "POST", body: JSON.stringify({ store_id: storeId, product: productPayload(p, { title: c.title, description_html: c.description_html, details: { ...(p.details || {}), ...c.details } }) }) });
+          if (save.data?.product) { state.ok++; line = `✓ ${c.title}`; } else { state.failed++; line = `✗ ${p.title}: ${save.data?.error || "save failed"}`; }
+        } else { state.failed++; line = `✗ ${p.title}: ${data.error || "Neezi failed"}`; }
+      } else {
+        const ref = (p.images || [])[0];
+        const { data } = await api("/growth/neezi-product-photo", { method: "POST", body: JSON.stringify({ store_id: storeId, image_url: typeof ref === "string" ? ref : ref?.url, title: p.title, style: bulkStyle }) });
+        if (data.url) {
+          const img = { url: data.url, source_url: null, mirrored: true, alt: p.title, error: null };
+          const imgs = (p.images || []).map(normalizeImage);
+          const save = await api("/save-store-product", { method: "POST", body: JSON.stringify({ store_id: storeId, product: productPayload(p, { images: bulkMain ? [img, ...imgs] : [...imgs, img] }) }) });
+          if (save.data?.product) { state.ok++; line = `✓ ${p.title}`; } else { state.failed++; line = `✗ ${p.title}: ${save.data?.error || "save failed"}`; }
+        } else { state.failed++; line = `✗ ${p.title}: ${data.error || "photo failed"}`; }
+      }
+      state.done++;
+      state.log = [line, ...state.log].slice(0, 30);
+      setBulk({ ...state });
+    }
+    setBulk({ ...state, finished: true });
+    logActivity(kind === "copy" ? "neezi_bulk_copy" : "neezi_bulk_photos", { ok: state.ok, failed: state.failed });
     loadList();
   };
 
@@ -440,30 +484,67 @@ export default function EneezamProducts({ storeId, ordersStore, cfUrl }) {
 
       {listError && <p style={{ color: "var(--ne-danger)", fontSize: 12 }}>{listError}</p>}
 
-      {/* list */}
-      <div style={{ ...card, overflow: "hidden" }}>
+      {/* bulk bar */}
+      {picked.size > 0 && (
+        <div style={{ ...card, padding: "10px 12px", marginBottom: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <b style={{ fontSize: 12.5 }}>{picked.size} selected</b>
+          <button type="button" style={btn(true)} disabled={!!bulk && !bulk.finished} onClick={() => runBulk("copy")}><Icon name="sparkle" size={12} /> Neezi: write listings</button>
+          <select value={bulkStyle} onChange={(e) => setBulkStyle(e.target.value)} style={{ ...input, padding: "6px 8px" }} title="One style for all, so the store looks like one brand">
+            {[["studio", "Clean studio"], ["pastel", "Pastel colour"], ["lifestyle", "Lifestyle"], ["dark", "Dark tech"], ["marble", "Marble luxury"]].map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+          <label style={{ fontSize: 12, display: "inline-flex", gap: 4, alignItems: "center" }}><input type="checkbox" checked={bulkMain} onChange={(e) => setBulkMain(e.target.checked)} /> make it the main photo</label>
+          <button type="button" style={btn(false)} disabled={!!bulk && !bulk.finished} onClick={() => runBulk("photo")}><Icon name="sparkle" size={12} /> Neezi: brand photos</button>
+          <button type="button" style={btn(false)} onClick={() => setPicked(new Set())}>Clear</button>
+        </div>
+      )}
+      {bulk && (
+        <div style={{ ...card, padding: 12, marginBottom: 10, fontSize: 12.5, display: "grid", gap: 6 }}>
+          <div style={{ display: "flex", justifyContent: "space-between" }}><b>{bulk.kind === "copy" ? "Neezi is writing listings" : "Neezi is making brand photos"} · {bulk.done}/{bulk.total}</b><span>{bulk.ok} done{bulk.failed ? ` · ${bulk.failed} failed` : ""}{bulk.finished ? " · finished" : ""}</span></div>
+          <div style={{ height: 6, borderRadius: 99, background: "var(--ne-border)", overflow: "hidden" }}><div style={{ width: `${Math.round((bulk.done / Math.max(1, bulk.total)) * 100)}%`, height: "100%", background: "var(--ne-grad)", transition: "width .4s" }} /></div>
+          <div style={{ maxHeight: 120, overflowY: "auto", color: "var(--ne-muted)" }}>{bulk.log.map((l, i) => <div key={i}>{l}</div>)}</div>
+          {bulk.finished && <div><button type="button" style={btn(false)} onClick={() => { setBulk(null); setPicked(new Set()); }}>Close</button></div>}
+        </div>
+      )}
+
+      {/* list: Shopify-style table */}
+      <div style={{ ...card, overflow: "auto" }}>
         {loading ? (
           <p style={{ padding: 16, margin: 0, fontSize: 12.5, color: "var(--ne-muted)" }}>{t("products.eneezam.loading")}</p>
         ) : items.length === 0 ? (
           <p style={{ padding: 20, margin: 0, fontSize: 12.5, color: "var(--ne-muted)", textAlign: "center" }}>{t("products.eneezam.empty")}</p>
-        ) : items.map((p, i) => (
-          <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderTop: i ? "1px solid var(--ne-border)" : "none", flexWrap: "wrap" }}>
-            {thumb(p.thumbnail)}
-            <div style={{ flex: "1 1 200px", minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.title}</div>
-              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: 4, fontSize: 11.5, color: "var(--ne-muted)" }}>
-                <span style={statusPill(p.status)}>{t(`products.eneezam.status.${p.status}`)}</span>
-                <span>{fmt(t, "products.eneezam.variantsCount", { n: p.variants_count ?? (p.variants || []).length })}</span>
-                <span>{priceRange(p.price_min, p.price_max)}</span>
-                {imageStatus(p)}
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <button type="button" onClick={() => openEdit(p)} style={btn(false)}><Icon name="edit" size={12} /> {t("products.eneezam.edit")}</button>
-              <button type="button" onClick={() => { setDeleteError(""); setDeleteTarget(p); }} style={{ ...btn(false), color: "var(--ne-danger)", borderColor: "var(--ne-danger)" }}><Icon name="trash" size={12} /> {t("products.eneezam.delete")}</button>
-            </div>
-          </div>
-        ))}
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 720 }}>
+            <thead><tr style={{ textAlign: "left", color: "var(--ne-muted)", background: "var(--ne-surface)" }}>
+              <th style={{ padding: "8px 10px", width: 28 }}><input type="checkbox" aria-label="Select all" checked={items.length > 0 && items.every((p) => picked.has(p.id))} onChange={(e) => setPicked(e.target.checked ? new Set(items.map((p) => p.id)) : new Set())} /></th>
+              <th style={{ padding: "8px 6px" }}>Product</th><th style={{ padding: "8px 6px" }}>Status</th><th style={{ padding: "8px 6px" }}>Inventory</th><th style={{ padding: "8px 6px" }}>Type</th><th style={{ padding: "8px 6px" }}>Price</th><th style={{ padding: "8px 6px" }}>Images</th><th />
+            </tr></thead>
+            <tbody>
+              {items.map((p) => {
+                const vs = p.variants || [];
+                const tracked = vs.filter((v) => v.inventory_quantity !== null && v.inventory_quantity !== undefined && v.inventory_quantity !== "");
+                const stock = tracked.reduce((a, v) => a + (Number(v.inventory_quantity) || 0), 0);
+                const inv = !tracked.length ? "Not tracked" : `${stock} in stock${vs.length > 1 ? ` for ${vs.length} variants` : ""}`;
+                return (
+                  <tr key={p.id} style={{ borderTop: "1px solid var(--ne-border)", background: picked.has(p.id) ? "var(--ne-accent-soft)" : "transparent" }}>
+                    <td style={{ padding: "8px 10px" }}><input type="checkbox" aria-label={`Select ${p.title}`} checked={picked.has(p.id)} onChange={() => togglePick(p.id)} /></td>
+                    <td style={{ padding: "8px 6px", cursor: "pointer" }} onClick={() => openEdit(p)}>
+                      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>{thumb(p.thumbnail, 40)}<div style={{ minWidth: 0 }}><div style={{ fontWeight: 700, maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.title}</div>{(p.details?.card_points || []).length > 0 && <div style={{ display: "flex", gap: 4, marginTop: 3 }}>{p.details.card_points.map((c) => <span key={c} style={pill("var(--ne-surface)", "var(--ne-muted)")}>{c}</span>)}</div>}</div></div>
+                    </td>
+                    <td style={{ padding: "8px 6px" }}><span style={statusPill(p.status)}>{t(`products.eneezam.status.${p.status}`)}</span></td>
+                    <td style={{ padding: "8px 6px", color: tracked.length && stock <= 0 ? "var(--ne-danger)" : "var(--ne-muted)" }}>{inv}{vs.some((v) => v.continue_selling) ? " · sells at 0" : ""}</td>
+                    <td style={{ padding: "8px 6px", color: "var(--ne-muted)" }}>{p.product_type || "–"}</td>
+                    <td style={{ padding: "8px 6px", whiteSpace: "nowrap" }}>{priceRange(p.price_min, p.price_max)}</td>
+                    <td style={{ padding: "8px 6px" }}>{imageStatus(p)}</td>
+                    <td style={{ padding: "8px 10px", whiteSpace: "nowrap", textAlign: "right" }}>
+                      <button type="button" onClick={() => openEdit(p)} style={btn(false)}><Icon name="edit" size={12} /> {t("products.eneezam.edit")}</button>{" "}
+                      <button type="button" onClick={() => { setDeleteError(""); setDeleteTarget(p); }} style={{ ...btn(false), color: "var(--ne-danger)", borderColor: "var(--ne-danger)" }} aria-label={t("products.eneezam.delete")}><Icon name="trash" size={12} /></button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
 
       {total > LIMIT && (
@@ -503,8 +584,15 @@ export default function EneezamProducts({ storeId, ordersStore, cfUrl }) {
         </div>
       )}
 
-      {/* add / edit form */}
-      {formOpen && (
+      {/* add / edit: Shopify-style editor for eNeezam products */}
+      {formOpen && (editing || listOn === "eneezam") && (
+        <ProductEditor storeId={storeId} cfUrl={cfUrl} product={editing}
+          onClose={() => { setFormOpen(false); loadList(); }}
+          onSaved={(p) => { logActivity(editing ? "product_update" : "product_create", { product_id: p.id, title: p.title, source: "eneezam" }); setEditing(p); loadList(); }}
+          onListOnShopify={() => setListOn("shopify")} />
+      )}
+      {/* new product listed on Shopify (old form) */}
+      {formOpen && !editing && listOn === "shopify" && (
         <div style={overlay}>
           <form onSubmit={saveForm} style={modal}>
             <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
