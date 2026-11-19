@@ -1846,6 +1846,7 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const [connected, setConnected] = useState(false);
+  const [storeUrl, setStoreUrl] = useState("");
   const [tab, setTab] = useState("shopify");
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
 
@@ -1864,7 +1865,9 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
       .then(({ data }) => {
         if (cancelled) return;
         const domains = data?.store_custom_domains || [];
-        setConnected(domains.some((d) => d.role === "primary" && d.status === "active"));
+        const primary = domains.find((d) => d.role === "primary" && d.status === "active");
+        setConnected(!!primary);
+        setStoreUrl(primary ? `https://${primary.domain}` : "");
       }, () => {});
     return () => { cancelled = true; };
   }, [storeId]);
@@ -1884,7 +1887,7 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
         </div>
       )}
       {connected && tab === "eneezam"
-        ? <div style={{ padding: pad }}><EneezamProducts storeId={storeId} ordersStore={ordersStore} cfUrl={cfUrl} /></div>
+        ? <div style={{ padding: pad }}><EneezamProducts storeId={storeId} ordersStore={ordersStore} cfUrl={cfUrl} storeUrl={storeUrl} isMobile={isMobile} /></div>
         : <ShopifyProductsPanel storeId={storeId} ordersStore={ordersStore} cfUrl={cfUrl} />}
     </>
   );

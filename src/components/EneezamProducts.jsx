@@ -4,6 +4,7 @@ import Icon from "./Icon";
 import { useLanguage, useTranslation } from "../i18n";
 import { upsertProduct } from "../productsCache";
 import ProductEditor from "./ProductEditor";
+import EneezamProductCard from "./EneezamProductCard";
 
 // eNeezam-native catalog (store_products) for stores with a connected custom domain.
 // Talks only to the worker's admin endpoints; never reads store_products directly.
@@ -27,7 +28,7 @@ function useDebounced(value, ms = 350) {
   return v;
 }
 
-export default function EneezamProducts({ storeId, ordersStore, cfUrl }) {
+export default function EneezamProducts({ storeId, ordersStore, cfUrl, storeUrl = "", isMobile = false }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const eneezamId = ordersStore?.eneezam_id;
@@ -506,46 +507,29 @@ export default function EneezamProducts({ storeId, ordersStore, cfUrl }) {
         </div>
       )}
 
-      {/* list: Shopify-style table */}
-      <div style={{ ...card, overflow: "auto" }}>
-        {loading ? (
-          <p style={{ padding: 16, margin: 0, fontSize: 12.5, color: "var(--ne-muted)" }}>{t("products.eneezam.loading")}</p>
-        ) : items.length === 0 ? (
-          <p style={{ padding: 20, margin: 0, fontSize: 12.5, color: "var(--ne-muted)", textAlign: "center" }}>{t("products.eneezam.empty")}</p>
-        ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, minWidth: 720 }}>
-            <thead><tr style={{ textAlign: "left", color: "var(--ne-muted)", background: "var(--ne-surface)" }}>
-              <th style={{ padding: "8px 10px", width: 28 }}><input type="checkbox" aria-label="Select all" checked={items.length > 0 && items.every((p) => picked.has(p.id))} onChange={(e) => setPicked(e.target.checked ? new Set(items.map((p) => p.id)) : new Set())} /></th>
-              <th style={{ padding: "8px 6px" }}>Product</th><th style={{ padding: "8px 6px" }}>Status</th><th style={{ padding: "8px 6px" }}>Inventory</th><th style={{ padding: "8px 6px" }}>Type</th><th style={{ padding: "8px 6px" }}>Price</th><th style={{ padding: "8px 6px" }}>Images</th><th />
-            </tr></thead>
-            <tbody>
-              {items.map((p) => {
-                const vs = p.variants || [];
-                const tracked = vs.filter((v) => v.inventory_quantity !== null && v.inventory_quantity !== undefined && v.inventory_quantity !== "");
-                const stock = tracked.reduce((a, v) => a + (Number(v.inventory_quantity) || 0), 0);
-                const inv = !tracked.length ? "Not tracked" : `${stock} in stock${vs.length > 1 ? ` for ${vs.length} variants` : ""}`;
-                return (
-                  <tr key={p.id} style={{ borderTop: "1px solid var(--ne-border)", background: picked.has(p.id) ? "var(--ne-accent-soft)" : "transparent" }}>
-                    <td style={{ padding: "8px 10px" }}><input type="checkbox" aria-label={`Select ${p.title}`} checked={picked.has(p.id)} onChange={() => togglePick(p.id)} /></td>
-                    <td style={{ padding: "8px 6px", cursor: "pointer" }} onClick={() => openEdit(p)}>
-                      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>{thumb(p.thumbnail, 40)}<div style={{ minWidth: 0 }}><div style={{ fontWeight: 700, maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.title}</div>{(p.details?.card_points || []).length > 0 && <div style={{ display: "flex", gap: 4, marginTop: 3 }}>{p.details.card_points.map((c) => <span key={c} style={pill("var(--ne-surface)", "var(--ne-muted)")}>{c}</span>)}</div>}</div></div>
-                    </td>
-                    <td style={{ padding: "8px 6px" }}><span style={statusPill(p.status)}>{t(`products.eneezam.status.${p.status}`)}</span></td>
-                    <td style={{ padding: "8px 6px", color: tracked.length && stock <= 0 ? "var(--ne-danger)" : "var(--ne-muted)" }}>{inv}{vs.some((v) => v.continue_selling) ? " · sells at 0" : ""}</td>
-                    <td style={{ padding: "8px 6px", color: "var(--ne-muted)" }}>{p.product_type || "–"}</td>
-                    <td style={{ padding: "8px 6px", whiteSpace: "nowrap" }}>{priceRange(p.price_min, p.price_max)}</td>
-                    <td style={{ padding: "8px 6px" }}>{imageStatus(p)}</td>
-                    <td style={{ padding: "8px 10px", whiteSpace: "nowrap", textAlign: "right" }}>
-                      <button type="button" onClick={() => openEdit(p)} style={btn(false)}><Icon name="edit" size={12} /> {t("products.eneezam.edit")}</button>{" "}
-                      <button type="button" onClick={() => { setDeleteError(""); setDeleteTarget(p); }} style={{ ...btn(false), color: "var(--ne-danger)", borderColor: "var(--ne-danger)" }} aria-label={t("products.eneezam.delete")}><Icon name="trash" size={12} /></button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
+      {/* list: same card layout as the Shopify products tab, edited in place */}
+      {loading ? (
+        <p style={{ ...card, padding: 16, margin: 0, fontSize: 12.5, color: "var(--ne-muted)" }}>{t("products.eneezam.loading")}</p>
+      ) : items.length === 0 ? (
+        <p style={{ ...card, padding: 20, margin: 0, fontSize: 12.5, color: "var(--ne-muted)", textAlign: "center" }}>{t("products.eneezam.empty")}</p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <label style={{ fontSize: 12, color: "var(--ne-muted)", display: "inline-flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={items.length > 0 && items.every((p) => picked.has(p.id))} onChange={(e) => setPicked(e.target.checked ? new Set(items.map((p) => p.id)) : new Set())} /> Select all on this page</label>
+          {items.map((p) => (
+            <EneezamProductCard key={`${p.id}-${p.updated_at}`} p={p} isMobile={isMobile} storeUrl={storeUrl}
+              allSkus={new Set(items.flatMap((x) => (x.variants || []).map((v) => v.sku).filter(Boolean)))}
+              selected={picked.has(p.id)} onSelect={() => togglePick(p.id)} onOpen={() => openEdit(p)}
+              onDelete={() => { setDeleteError(""); setDeleteTarget(p); }}
+              onSave={async (prod, patch) => {
+                const { data } = await api("/save-store-product", { method: "POST", body: JSON.stringify({ store_id: storeId, product: productPayload(prod, patch) }) });
+                if (!data?.product) return { error: data?.error || "Could not save" };
+                logActivity("product_update", { product_id: prod.id, title: data.product.title, source: "eneezam", inline: true });
+                setItems((list) => list.map((x) => (x.id === prod.id ? data.product : x)));
+                return {};
+              }} />
+          ))}
+        </div>
+      )}
 
       {total > LIMIT && (
         <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginTop: 10, fontSize: 12 }}>
