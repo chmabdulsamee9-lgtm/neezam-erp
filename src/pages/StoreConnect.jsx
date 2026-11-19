@@ -1282,7 +1282,7 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
                                 const main = [{ type: "CNAME", name, target: dnsTargets.cname || "custom.eneezam.com" }];
                                 const alt = name === "@" ? (dnsTargets.a || []).map((ip) => ({ type: "A", name: "@", target: ip })) : [];
                                 // one DNS record per row: Type | Name [Copy] | Value [Copy] — name on one line, value aligned under its header
-                                const COLS = isMobile ? "52px 1fr" : "52px minmax(150px, max-content) 1fr";
+                                const COLS = isMobile ? "52px 1fr" : "52px 250px 1fr";
                                 const copyBtn = (key, text) => (
                                   <button onClick={() => handleCopy(key, text)} style={{ flexShrink: 0, background: "transparent", border: "1px solid var(--ne-border)", color: "var(--ne-text)", borderRadius: 6, padding: "2px 8px", fontSize: 11, cursor: "pointer" }}>
                                     {copiedKey === key ? t("store.copiedLabel") : t("store.copyButton")}
