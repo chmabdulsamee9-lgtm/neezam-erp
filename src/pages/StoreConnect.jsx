@@ -305,10 +305,11 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
         setDomainError((prev) => ({ ...prev, [slotKey]: data.error || t("store.customDomainInvalid") }));
         return;
       }
-      setDomainCname((prev) => ({ ...prev, [`${store.id}:${data.role}`]: data.cname_instructions }));
+      // the worker adds the www twin itself (www.brand.com -> brand.com); show its DNS record in the alt slot
+      setDomainCname((prev) => ({ ...prev, [`${store.id}:${data.role}`]: data.cname_instructions, ...(data.www_domain ? { [`${store.id}:alt`]: (data.dns_records || [])[1] } : {}) }));
       setStores((prev) => prev.map((s) => (
         s.id === store.id
-          ? { ...s, store_custom_domains: [...(s.store_custom_domains || []), { domain: data.domain, role: data.role, status: "pending" }] }
+          ? { ...s, store_custom_domains: [...(s.store_custom_domains || []), { domain: data.domain, role: data.role, status: "pending" }, ...(data.www_domain ? [{ domain: data.www_domain, role: "alt", status: "pending" }] : [])] }
           : s
       )));
       setDomainInputs((prev) => ({ ...prev, [slotKey]: "" }));

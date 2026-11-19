@@ -449,7 +449,7 @@ export const translations = {
     'store.platformNative': 'Native Store',
 
     'store.customDomainTitle': 'Apna Domain Connect Karo',
-    'store.customDomainPlaceholder': 'yourdomain.com ya www.yourdomain.com',
+    'store.customDomainPlaceholder': 'yourdomain.com (www khud add ho jayega)',
     'store.customDomainWwwHint': 'Apna domain www. ke bina type karo — "www." automatically add ho jayega (root/apex domains support nahi hain).',
     'store.primaryDomainLabel': 'Primary Domain',
     'store.altDomainLabel': 'Alt Domain (optional)',
@@ -3052,7 +3052,7 @@ export const translations = {
     'store.platformNative': 'Native Store',
 
     'store.customDomainTitle': 'Connect Your Domain',
-    'store.customDomainPlaceholder': 'yourdomain.com or www.yourdomain.com',
+    'store.customDomainPlaceholder': 'yourdomain.com (www is added for you)',
     'store.customDomainWwwHint': 'Type your domain without "www." — it is added automatically (root/apex domains are not supported).',
     'store.primaryDomainLabel': 'Primary Domain',
     'store.altDomainLabel': 'Alt Domain (optional)',
