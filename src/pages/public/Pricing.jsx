@@ -36,7 +36,7 @@ function PricingCurrent() {
   useEffect(() => {
     (async () => {
       const [{ data: planRows }, { data: addonRows }] = await Promise.all([
-        supabase.from("plans").select("*").order("display_order", { ascending: true }),
+        supabase.from("plans").select("*").is("monthly_price", null).order("display_order", { ascending: true }), // old per-order page: per-order plans only
         supabase.from("addons").select("*"),
       ]);
       setPlans(planRows || []);

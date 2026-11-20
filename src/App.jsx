@@ -725,8 +725,8 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
                       <select value={currentPlanId || ''} onChange={(e) => setPlanOverrides(prev => ({ ...prev, [p.id]: e.target.value }))}
                         style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--ne-border)', background: 'var(--ne-bg)', color: 'var(--ne-text)', fontSize: 12, marginBottom: 8 }}>
                         <option value="">{t('master.choosePlanPlaceholder')}</option>
-                        {allPlansList.map((pl) => (
-                          <option key={pl.id} value={pl.id}>{pl.name} (Rs. {Number(pl.rate_per_order).toLocaleString()}/order)</option>
+                        {allPlansList.filter((pl) => pl.monthly_price != null || pl.id === currentPlanId).map((pl) => (
+                          <option key={pl.id} value={pl.id}>{pl.monthly_price != null ? `${pl.name} (Rs. ${Number(pl.monthly_price).toLocaleString()} / month)` : `${pl.name} (old plan)`}</option>
                         ))}
                       </select>
                       {allAddonsList.length > 0 && (
@@ -936,7 +936,10 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
             <select value={accessPlanId} onChange={(e) => setAccessPlanId(e.target.value)}
               style={{ width: '100%', padding: '9px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'var(--ne-bg)', color: 'var(--ne-text)', fontSize: 13, marginBottom: 4 }}>
               {!accessPlanId && <option value="">No plan set (Neezi Essential)</option>}
-              {(allPlansList || []).map((p) => <option key={p.id} value={p.id}>{p.name} · Rs {p.rate_per_order}/order</option>)}
+              {/* current plans (Essential / Grow / Advance) have a monthly price; an old per-order plan shows only if this store still has it */}
+              {(allPlansList || []).filter((p) => p.monthly_price != null || p.id === accessPlanId).map((p) => (
+                <option key={p.id} value={p.id}>{p.monthly_price != null ? `${p.name} · Rs ${Number(p.monthly_price).toLocaleString()} / month` : `${p.name} (old plan)`}</option>
+              ))}
             </select>
             <p style={{ fontSize: 11.5, color: 'var(--ne-muted)', margin: '0 0 14px' }}>
               {NEEZI_LEVELS[neeziLevelOf((allPlansList || []).find((p) => p.id === accessPlanId)?.name)]}
@@ -1609,7 +1612,7 @@ function App() {
       // Ye sab queries ek doosre par depend nahi karti: pehle ek ke baad ek chalti theen (~2-3 sec
       // tak Orders/Home ruke rehte the), ab ek saath.
       const [{ data: plansData }, { data: addonsData }, { data: stores }, { data: adminLinks }, { data: pending }] = await Promise.all([
-        supabase.from('plans').select('id, name, rate_per_order').order('rate_per_order', { ascending: false }),
+        supabase.from('plans').select('id, name, rate_per_order, monthly_price, display_order').order('display_order', { ascending: true }),
         supabase.from('addons').select('id, name, monthly_price'),
         fetchStoreRows(supabase),
         supabase
