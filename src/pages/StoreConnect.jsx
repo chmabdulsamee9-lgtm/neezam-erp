@@ -1312,9 +1312,11 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
                                 const nsBox = ns.length > 0 && (
                                   <div style={{ marginTop: 12, padding: "12px 14px", background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 9 }}>
                                     <p style={{ margin: "0 0 4px", fontSize: 12.5, fontWeight: 700, color: "var(--ne-text)" }}>One step: change the nameservers of {base}</p>
-                                    <p style={{ margin: "0 0 10px", fontSize: 12, color: "var(--ne-muted)" }}>
-                                      Where you bought {base} (Hostinger, GoDaddy, Namecheap…) open <b>DNS / Nameservers</b> → <b>Change nameservers</b>, choose custom nameservers and put these two:
-                                    </p>
+                                    <ol style={{ margin: "0 0 10px", paddingLeft: 18, fontSize: 12, color: "var(--ne-muted)", lineHeight: 1.7 }}>
+                                      <li>Where you bought {base} (Hostinger, GoDaddy, IONOS, Namecheap…) open <b>DNS / Nameservers</b> → <b>Change nameservers</b> (or <b>Use custom nameservers</b>).</li>
+                                      <li><b style={{ color: "var(--ne-text)" }}>Delete all the nameservers already there</b> (for example dns-parking.com, ui-dns.com, domaincontrol.com).</li>
+                                      <li>Put <b style={{ color: "var(--ne-text)" }}>only these two</b>, leave the other boxes empty, and save:</li>
+                                    </ol>
                                     {ns.map((n, i) => (
                                       <div key={n} style={{ ...cell, marginBottom: 8 }}>
                                         <code style={{ fontSize: 12, fontWeight: 700, width: 52 }}>NS {i + 1}</code>
@@ -1322,7 +1324,7 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
                                       </div>
                                     ))}
                                     <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--ne-muted-2)" }}>
-                                      That&apos;s all. Your email and other records are copied over automatically, and it works even if the domain is still attached to Shopify or another platform. We check every 20 minutes and switch your store on by ourselves (usually within an hour, at most 24 hours).
+                                      Don&apos;t mix them with the old nameservers, or your store will open only some of the time. If your provider warns that your email or DNS settings will stop working there, that&apos;s fine: your email and other records are already copied over to us automatically, and it works even if the domain is still attached to Shopify or another platform. We check every 20 minutes and switch your store on by ourselves (usually within an hour, at most 24 hours).
                                     </p>
                                   </div>
                                 );
