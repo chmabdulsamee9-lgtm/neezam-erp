@@ -93,28 +93,68 @@ export async function removeWhiteBackground(src) {
 }
 
 /**
- * A 256x256 favicon from the logo; returns a PNG blob. A square-ish logo is fitted into the square. A wide logo
- * (name written out) would be unreadable that small, so the favicon becomes the brand's first letter on the brand colour.
+ * The icon part of a wide logo ("[icon] BRAND NAME"): the logo's ink (not transparent, not white) is split into
+ * parts by empty columns; the first or last part is the icon when it is roughly square and clearly narrower than the
+ * whole logo. Returns { x, y, w, h } in image pixels, or null.
+ */
+function iconBox(img) {
+  const W = img.naturalWidth, H = img.naturalHeight;
+  const k = Math.min(1, 400 / W), w = Math.max(1, Math.round(W * k)), h = Math.max(1, Math.round(H * k));
+  const c = canvasOf(w, h), ctx = c.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0, w, h);
+  const d = ctx.getImageData(0, 0, w, h).data;
+  const ink = (x, y) => { const i = (y * w + x) * 4; return d[i + 3] > 30 && !(d[i] > 235 && d[i + 1] > 235 && d[i + 2] > 235); };
+  const col = Array.from({ length: w }, (_, x) => { for (let y = 0; y < h; y++) if (ink(x, y)) return true; return false; });
+  const minGap = Math.max(3, Math.round(w * 0.02));
+  const parts = [];
+  let s0 = -1, gap = 0;
+  for (let x = 0; x <= w; x++) {
+    const on = x < w && col[x];
+    if (on) { if (s0 < 0) s0 = x; gap = 0; }
+    else if (s0 >= 0) { gap++; if (gap >= minGap || x === w) { parts.push([s0, x - gap]); s0 = -1; gap = 0; } }
+  }
+  if (parts.length < 2) return null;
+  const total = parts[parts.length - 1][1] - parts[0][0] + 1;
+  for (const [a, b] of [parts[0], parts[parts.length - 1]]) {
+    let top = h, bottom = 0;
+    for (let x = a; x <= b; x++) for (let y = 0; y < h; y++) if (ink(x, y)) { if (y < top) top = y; if (y > bottom) bottom = y; }
+    const pw = b - a + 1, ph = bottom - top + 1;
+    const ratio = pw / ph;
+    if (pw < total * 0.45 && ratio > 0.45 && ratio < 2.2 && ph > h * 0.35) return { x: a / k, y: top / k, w: pw / k, h: ph / k };
+  }
+  return null;
+}
+
+/**
+ * A 256x256 favicon from the logo; returns a PNG blob. A square-ish logo is fitted into the square. A wide logo uses
+ * its icon part; a wide logo without a separate icon (just the name) gets the brand's first letter on the brand colour.
  */
 export async function faviconFromLogo(src, { name = "", color = "" } = {}) {
   const img = await loadImage(src);
-  const S = 256, pad = 20, c = canvasOf(S, S), ctx = c.getContext("2d");
-  if (img.naturalWidth / img.naturalHeight > 1.6 && name.trim()) {
-    const bg = /^#[0-9a-f]{6}$/i.test(color) ? color : "#141414";
-    ctx.fillStyle = bg;
-    ctx.beginPath();
-    ctx.roundRect ? ctx.roundRect(0, 0, S, S, 56) : ctx.rect(0, 0, S, S);
-    ctx.fill();
-    ctx.fillStyle = onColor(bg);
-    ctx.font = "800 170px system-ui, -apple-system, 'Segoe UI', sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(name.trim()[0].toUpperCase(), S / 2, S / 2 + 10);
-    return toBlob(c);
+  const S = 256, pad = 18, c = canvasOf(S, S), ctx = c.getContext("2d");
+  const fit = (sx, sy, sw, sh) => {
+    const scale = Math.min((S - pad * 2) / sw, (S - pad * 2) / sh);
+    const w = sw * scale, h = sh * scale;
+    ctx.drawImage(img, sx, sy, sw, sh, (S - w) / 2, (S - h) / 2, w, h);
+  };
+  if (img.naturalWidth / img.naturalHeight > 1.6) {
+    const box = iconBox(img);
+    if (box) { fit(box.x, box.y, box.w, box.h); return toBlob(c); }
+    if (name.trim()) {
+      const bg = /^#[0-9a-f]{6}$/i.test(color) ? color : "#141414";
+      ctx.fillStyle = bg;
+      ctx.beginPath();
+      ctx.roundRect ? ctx.roundRect(0, 0, S, S, 56) : ctx.rect(0, 0, S, S);
+      ctx.fill();
+      ctx.fillStyle = onColor(bg);
+      ctx.font = "800 170px system-ui, -apple-system, 'Segoe UI', sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(name.trim()[0].toUpperCase(), S / 2, S / 2 + 10);
+      return toBlob(c);
+    }
   }
-  const scale = Math.min((S - pad * 2) / img.naturalWidth, (S - pad * 2) / img.naturalHeight);
-  const w = img.naturalWidth * scale, h = img.naturalHeight * scale;
-  ctx.drawImage(img, (S - w) / 2, (S - h) / 2, w, h);
+  fit(0, 0, img.naturalWidth, img.naturalHeight);
   return toBlob(c);
 }
 
