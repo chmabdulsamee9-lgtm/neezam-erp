@@ -89,7 +89,8 @@
   .ne-content-settings .ne-settings-body{animation:ne-fade-in .2s ease-out;}
 }
 @keyframes ne-settings-in{from{opacity:0; transform:translateX(-12px);} to{opacity:1; transform:none;}}
-.ne-settings-column{max-width:var(--ne-content-width); margin:0 auto; padding:24px 20px 48px; box-sizing:border-box;}
+/* settings pages use the width of the screen (normal side margins) so cards stay short instead of tall and narrow */
+.ne-settings-column{max-width:1200px; margin:0 auto; padding:24px 32px 48px; box-sizing:border-box;}
 /* sections are full pages elsewhere: inside Settings they take the shared column instead of their own width/padding */
 .ne-settings-column > div, .ne-settings-column > section{max-width:none !important; width:100% !important; margin-left:0 !important; margin-right:0 !important; padding-left:0 !important; padding-right:0 !important; box-sizing:border-box;}
 .ne-settings-column > div > h1:first-child, .ne-settings-column > div > h2:first-child{margin-top:0;}
