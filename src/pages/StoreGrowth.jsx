@@ -630,10 +630,11 @@ function Timeline({ items }) {
 function NeeziSetup({ job }) {
   const { theme, version, plan, tier, res, picked = {}, banners = [], created, error, phase } = job;
   useEffect(() => {
-    if (!job.plan) api(`/growth/plan?store_id=${job.storeId}`).then((d) => patchNeeziJob({ plan: d, tier: getNeeziJob()?.tier || d.tier || "essential" }));
+    // always re-read: the plan is set in the master dashboard and can change between visits
+    if (!isNeeziBusy(job)) api(`/growth/plan?store_id=${job.storeId}`).then((d) => { if (d && d.tier) patchNeeziJob({ plan: d, tier: d.tier }); });
   }, [job.storeId]); // eslint-disable-line react-hooks/exhaustive-deps
   const versions = THEME_VERSIONS[theme] || [];
-  const effTier = tier || plan?.tier || "essential";
+  const effTier = plan?.tier || tier || "essential";
   const busy = isNeeziBusy(job);
   const close = () => setNeeziOpen(false);
   const setProposal = (patch) => patchNeeziJob((j) => ({ res: { ...j.res, proposal: { ...j.res.proposal, ...patch(j.res.proposal) } } }));
@@ -664,7 +665,12 @@ function NeeziSetup({ job }) {
               <Field l="Version"><select style={input} value={version} onChange={(e) => patchNeeziJob({ version: e.target.value })}>{versions.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</select></Field>
             </div>
             <DemoFrame src={`${job.liveUrl}/__demo/${theme}/${version}`} height={260} />
-            {plan?.is_creator && <Field l="Test as plan (eNeezam owner only)"><select style={input} value={tier} onChange={(e) => patchNeeziJob({ tier: e.target.value })}><option value="essential">Essential</option><option value="grow">Grow</option><option value="advance">Advance</option></select></Field>}
+            {plan && (
+              <div style={{ fontSize: 12, color: "var(--ne-muted)", background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 9, padding: "8px 10px" }}>
+                Plan: <b style={{ color: "var(--ne-text)" }}>{plan.plan_name || "No plan set"}</b> · {effTier === "essential" ? "Neezi builds your store; AI banners and photos come with Grow and Advance." : "includes AI banners and product photos."}
+                {plan.is_creator && <span> To test another plan, change it in Master Dashboard → Manage access.</span>}
+              </div>
+            )}
             <Toggle on={!!job.auto} onChange={(v) => patchNeeziJob({ auto: v })} text={`Let Neezi do everything without stopping for review${effTier === "essential" ? "" : " (including AI banners)"}`} />
             <div style={{ display: "flex", justifyContent: "flex-end" }}><button style={btn(true)} onClick={neeziPropose}><Icon name="sparkle" size={13} /> {job.auto ? "Set up my store" : "Let Neezi read my products"}</button></div>
           </>

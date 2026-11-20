@@ -339,6 +339,15 @@ function PendingApprovalScreen({ onSignOut, t }) {
   )
 }
 
+// Which Neezi level a plan unlocks — same rule as the worker's tierOf() (shared/growth-core.js)
+const NEEZI_LEVELS = { essential: 'Neezi Essential: store launch, product writer', grow: 'Neezi Grow: + AI banners and product photos', advance: 'Neezi Advance: + AI banners and product photos' }
+function neeziLevelOf(planName) {
+  const n = String(planName || '').toLowerCase()
+  if (/advance|diamond|platinum|enterprise/.test(n)) return 'advance'
+  if (/grow|gold|silver|pro/.test(n)) return 'grow'
+  return 'essential'
+}
+
 function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, onSignOut, userEmail, cfUrl, onDataChanged, allPlansList, onDenyOrDelete, allAddonsList, t, session, logActivity }) {
   const navigate = useNavigate()
   const [editingAdmin, setEditingAdmin] = useState(null)
@@ -363,7 +372,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
     if (eneezamIds.length === 0) { setSubsByEneezamId({}); return }
     const { data } = await supabase
       .from('store_subscriptions')
-      .select('store_id, monthly_order_limit, quota_consumed_count, approved_at')
+      .select('store_id, monthly_order_limit, quota_consumed_count, approved_at, plan_id, plans(name)')
       .in('store_id', eneezamIds)
       .eq('status', 'approved')
       .order('approved_at', { ascending: false })
@@ -378,6 +387,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
   const [accessReminderEnabled, setAccessReminderEnabled] = useState(false)
   const [accessReminderMessage, setAccessReminderMessage] = useState('')
   const [accessExistingSubId, setAccessExistingSubId] = useState(null)
+  const [accessPlanId, setAccessPlanId] = useState('')
   const [accessPrevMonthlyLimit, setAccessPrevMonthlyLimit] = useState('')
   const [accessSaving, setAccessSaving] = useState(false)
   const [accessError, setAccessError] = useState('')
@@ -550,6 +560,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
     setAccessReminderEnabled(false)
     setAccessReminderMessage('')
     setAccessExistingSubId(null)
+    setAccessPlanId('')
     setAccessError('')
     const { data: sub } = await supabase
       .from('store_subscriptions')
@@ -561,6 +572,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
       .maybeSingle()
     if (sub) {
       setAccessExistingSubId(sub.id)
+      setAccessPlanId(sub.plan_id || '')
       setAccessDisabledIds(Array.isArray(sub.disabled_modules) ? sub.disabled_modules : [])
       setAccessMonthlyLimit(sub.monthly_order_limit == null ? '' : String(sub.monthly_order_limit))
       setAccessPrevMonthlyLimit(sub.monthly_order_limit == null ? '' : String(sub.monthly_order_limit))
@@ -578,6 +590,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
     setAccessError('')
     const newLimitValue = accessMonthlyLimit === '' ? null : Number(accessMonthlyLimit)
     const payload = {
+      ...(accessPlanId ? { plan_id: accessPlanId } : {}),
       disabled_modules: accessDisabledIds,
       monthly_order_limit: newLimitValue,
       reminder_enabled: accessReminderEnabled,
@@ -611,7 +624,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
     }
     refreshSubsMap()
     setAccessModalStore(null)
-    logActivity(accessModalStore.id, 'access_modified', { disabled_modules: accessDisabledIds, monthly_order_limit: newLimitValue, reminder_enabled: accessReminderEnabled })
+    logActivity(accessModalStore.id, 'access_modified', { plan_id: accessPlanId || null, disabled_modules: accessDisabledIds, monthly_order_limit: newLimitValue, reminder_enabled: accessReminderEnabled })
   }
 
   const closeEditAdmin = () => { setEditingAdmin(null); setEditingStore(null); setEditError(''); setEditPasswordSuccess(false) }
@@ -867,6 +880,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
               </div>
               {s.eneezam_id && subsByEneezamId[s.eneezam_id] && (
                 <div style={{ fontSize: 11, color: 'var(--ne-muted)' }}>
+                  <b style={{ color: 'var(--ne-text)' }}>{subsByEneezamId[s.eneezam_id].plans?.name || 'No plan'}</b> · {NEEZI_LEVELS[neeziLevelOf(subsByEneezamId[s.eneezam_id].plans?.name)].split(':')[0]} ·{' '}
                   {Number(subsByEneezamId[s.eneezam_id].quota_consumed_count) || 0} / {subsByEneezamId[s.eneezam_id].monthly_order_limit ?? t('master.unlimited')} {t('master.quotaUsedLabel')}
                 </div>
               )}
@@ -917,6 +931,16 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000000 }}>
           <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 16, width: 420, maxWidth: '92vw', padding: '20px', maxHeight: '85vh', overflowY: 'auto' }}>
             <h3 style={{ margin: '0 0 14px', fontSize: 15, color: 'var(--ne-text)' }}>{t('master.manageAccessFor')} — {accessModalStore.store_name}</h3>
+
+            <label style={{ fontSize: 12, color: 'var(--ne-muted)', display: 'block', marginBottom: 4 }}>Plan</label>
+            <select value={accessPlanId} onChange={(e) => setAccessPlanId(e.target.value)}
+              style={{ width: '100%', padding: '9px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'var(--ne-bg)', color: 'var(--ne-text)', fontSize: 13, marginBottom: 4 }}>
+              {!accessPlanId && <option value="">No plan set (Neezi Essential)</option>}
+              {(allPlansList || []).map((p) => <option key={p.id} value={p.id}>{p.name} · Rs {p.rate_per_order}/order</option>)}
+            </select>
+            <p style={{ fontSize: 11.5, color: 'var(--ne-muted)', margin: '0 0 14px' }}>
+              {NEEZI_LEVELS[neeziLevelOf((allPlansList || []).find((p) => p.id === accessPlanId)?.name)]}
+            </p>
 
             <label style={{ fontSize: 12, color: 'var(--ne-muted)', display: 'block', marginBottom: 6 }}>{t('master.modulesLabel')}</label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16, maxHeight: 200, overflowY: 'auto', padding: '2px 4px' }}>
