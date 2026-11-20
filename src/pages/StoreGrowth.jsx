@@ -667,9 +667,7 @@ function NeeziSetup({ job }) {
             <DemoFrame src={`${job.liveUrl}/__demo/${theme}/${version}`} height={260} />
             {plan && (
               <div style={{ fontSize: 12, color: "var(--ne-muted)", background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 9, padding: "8px 10px" }}>
-                Plan: <b style={{ color: "var(--ne-text)" }}>{plan.plan_name || "No plan set"}</b> · {effTier === "essential" ? "Neezi builds your store; AI banners and photos come with Grow and Advance." : "includes AI banners and product photos."}
-                {plan.is_creator && <span> To test another plan, change it in Master Dashboard → Manage access.</span>}
-              </div>
+                Plan: <b style={{ color: "var(--ne-text)" }}>{plan.plan_name || "No plan set"}</b> · {effTier === "essential" ? "Neezi builds your store; AI banners and photos come with Grow and Advance." : "includes AI banners and product photos."}              </div>
             )}
             <Toggle on={!!job.auto} onChange={(v) => patchNeeziJob({ auto: v })} text={`Let Neezi do everything without stopping for review${effTier === "essential" ? "" : " (including AI banners)"}`} />
             <div style={{ display: "flex", justifyContent: "flex-end" }}><button style={btn(true)} onClick={neeziPropose}><Icon name="sparkle" size={13} /> {job.auto ? "Set up my store" : "Let Neezi read my products"}</button></div>
