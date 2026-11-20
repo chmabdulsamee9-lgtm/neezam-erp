@@ -32,7 +32,7 @@ export default function EneezamProductCard({ p, selected, onSelect, onOpen, onDe
     if (r?.error) setErr(r.error); else { setD(null); setEditTitle(false); }
   };
   const img = p.thumbnail;
-  const url = storeUrl && p.handle ? `${storeUrl}/product/${p.handle}` : null;
+  const url = storeUrl && p.handle ? `${storeUrl}/products/${p.handle}` : null;
   const pending = (p.pending_images || 0) + (p.failed_images || 0);
 
   const statusZone = (

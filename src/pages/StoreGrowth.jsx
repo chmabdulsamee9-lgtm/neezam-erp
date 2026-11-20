@@ -189,7 +189,7 @@ export function CollectionsPage({ storeId }) {
 /* ================================================================== Menus */
 function LinkPicker({ value, onChange, collections, products }) {
   const options = [["/", "Home"], ["/collection", "Shop all"], ["/reviews", "Reviews"], ["/cart", "Cart"],
-    ...collections.map((c) => [`/collection?c=${c.handle}`, `Collection: ${c.title}`]), ...products.slice(0, 80).map((p) => [`/product/${p.handle}`, `Product: ${p.title}`])];
+    ...collections.map((c) => [`/collection?c=${c.handle}`, `Collection: ${c.title}`]), ...products.slice(0, 80).map((p) => [`/products/${p.handle}`, `Product: ${p.title}`])];
   const known = options.some(([v]) => v === value);
   return (
     <div style={{ display: "flex", gap: 6 }}>

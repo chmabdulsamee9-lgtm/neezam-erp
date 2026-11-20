@@ -350,7 +350,7 @@ export default function ProductEditor({ storeId, cfUrl, product, onClose, onSave
             </div>
             <div style={card}>
               <b style={{ fontSize: 13.5 }}>Search preview</b>
-              <div style={{ fontSize: 12 }}><div style={{ color: "#1a0dab", fontSize: 14 }}>{f.title || "Product title"}</div><div style={{ color: "#006621" }}>/product/{product?.handle || handle}</div><div style={{ color: "var(--ne-muted)" }}>{(f.subtitle || htmlText(f.html)).slice(0, 150)}</div></div>
+              <div style={{ fontSize: 12 }}><div style={{ color: "#1a0dab", fontSize: 14 }}>{f.title || "Product title"}</div><div style={{ color: "#006621" }}>/products/{product?.handle || handle}</div><div style={{ color: "var(--ne-muted)" }}>{(f.subtitle || htmlText(f.html)).slice(0, 150)}</div></div>
             </div>
             {!product?.id && onListOnShopify && <button type="button" style={{ ...btn(false), justifyContent: "center" }} onClick={onListOnShopify}>List this on Shopify instead</button>}
           </div>

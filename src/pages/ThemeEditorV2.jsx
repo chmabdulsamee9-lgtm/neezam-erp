@@ -291,7 +291,7 @@ export default function ThemeEditorV2({ storeId, themeId, onNavigate, onOpenThem
   const liveHost = primaryDomain || (store?.subdomain ? `${store.subdomain}.eneezam.com` : "");
   const liveUrl = liveHost ? `https://${liveHost}` : null;
   const liveOrigin = liveUrl ? new URL(liveUrl).origin : null;
-  const pagePath = page === "product" ? (productHandle ? `/product/${encodeURIComponent(productHandle)}` : null) : TEMPLATES.find((tp) => tp.key === page)?.url || "/";
+  const pagePath = page === "product" ? (productHandle ? `/products/${encodeURIComponent(productHandle)}` : null) : TEMPLATES.find((tp) => tp.key === page)?.url || "/";
   const frameSrc = liveUrl && pagePath ? `${liveUrl}${pagePath}?preview=1&engine=v2` : null;
 
   useEffect(() => { latest.current = { draft, token, sel, lang, liveOrigin, inspector, dualOn }; });

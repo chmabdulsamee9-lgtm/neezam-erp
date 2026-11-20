@@ -70,7 +70,7 @@ function LinkV2Control({ label, value, onChange, t, catalog, external }) {
       { value: "/collection", label: t("themeEditor.v2.linkShopAll") },
       { value: "/cart", label: t("themeEditor.v2.linkCart") },
       ...cats.map((c) => ({ value: `/collection?category=${encodeURIComponent(c)}`, label: `${t("themeEditor.v2.category")}: ${c}` })),
-      ...catalog.slice(0, 40).map((p) => ({ value: `/product/${encodeURIComponent(p.handle)}`, label: `${t("themeEditor.v2.product")}: ${p.title}` })),
+      ...catalog.slice(0, 40).map((p) => ({ value: `/products/${encodeURIComponent(p.handle)}`, label: `${t("themeEditor.v2.product")}: ${p.title}` })),
     ];
   }, [catalog, t, external]);
   return (
