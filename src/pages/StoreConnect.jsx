@@ -316,6 +316,7 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
           ? { ...s, store_custom_domains: [...(s.store_custom_domains || []), { domain: data.domain, role: data.role, status: "pending" }, ...(data.www_domain ? [{ domain: data.www_domain, role: "alt", status: "pending" }] : [])] }
           : s
       )));
+      if ((data.nameservers || []).length) setDomainInfo((prev) => ({ ...prev, [`${store.id}:${data.role}`]: { records: [], errors: [], nameservers: data.nameservers } }));
       setDomainInputs((prev) => ({ ...prev, [slotKey]: "" }));
       logActivity(store.id, "custom_domain_connected", { domain: data.domain, role: data.role });
     } catch (err) {
@@ -337,7 +338,7 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
         { headers: { Authorization: `Bearer ${session?.access_token}` } }
       );
       const data = await res.json();
-      setDomainInfo((prev) => ({ ...prev, [slotKey]: { records: data.records || [], errors: data.errors || [] } }));
+      setDomainInfo((prev) => ({ ...prev, [slotKey]: { records: data.records || [], errors: data.errors || [], nameservers: data.nameservers || prev[slotKey]?.nameservers || [] } }));
       if (data.status) {
         setStores((prev) => prev.map((s) => (
           s.id === store.id
@@ -1300,7 +1301,32 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
                                     </div>
                                   );
                                 };
-                                return (
+                                const base = d.replace(/^www\./, "");
+                                // root domains: we host their DNS (created automatically when the domain was added), so the
+                                // merchant only switches two nameservers; www rides along with the root domain
+                                const rootRow = (store.store_custom_domains || []).find((x) => x.domain === base);
+                                const ns = rootRow ? (domainInfo[`${store.id}:${rootRow.role}`]?.nameservers || []) : [];
+                                if (ns.length && rootRow.domain !== row.domain) {
+                                  return <p style={{ margin: "10px 0 0", fontSize: 12, color: "var(--ne-muted)" }}>Turns on together with {base}. Nothing to add for www.</p>;
+                                }
+                                const nsBox = ns.length > 0 && (
+                                  <div style={{ marginTop: 12, padding: "12px 14px", background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 9 }}>
+                                    <p style={{ margin: "0 0 4px", fontSize: 12.5, fontWeight: 700, color: "var(--ne-text)" }}>One step: change the nameservers of {base}</p>
+                                    <p style={{ margin: "0 0 10px", fontSize: 12, color: "var(--ne-muted)" }}>
+                                      Where you bought {base} (Hostinger, GoDaddy, Namecheap…) open <b>DNS / Nameservers</b> → <b>Change nameservers</b>, choose custom nameservers and put these two:
+                                    </p>
+                                    {ns.map((n, i) => (
+                                      <div key={n} style={{ ...cell, marginBottom: 8 }}>
+                                        <code style={{ fontSize: 12, fontWeight: 700, width: 52 }}>NS {i + 1}</code>
+                                        <code style={{ ...code, flex: 1, overflowWrap: "anywhere" }}>{n}</code>{copyBtn(`${slotKey}-ns-${i}`, n)}
+                                      </div>
+                                    ))}
+                                    <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--ne-muted-2)" }}>
+                                      That&apos;s all. Your email and other records are copied over automatically, and it works even if the domain is still attached to Shopify or another platform. We check every 20 minutes and switch your store on by ourselves (usually within an hour, at most 24 hours).
+                                    </p>
+                                  </div>
+                                );
+                                const recordsBox = (
                                   <div style={{ marginTop: 12, padding: "12px 14px", background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 9 }}>
                                     <p style={{ margin: "0 0 8px", fontSize: 12.5, fontWeight: 700, color: "var(--ne-text)" }}>Add this record where you bought {d.replace(/^www\./, "")} (Hostinger, GoDaddy, Namecheap…)</p>
                                     {!isMobile && <div style={{ display: "grid", gridTemplateColumns: COLS, gap: 10, fontSize: 11, color: "var(--ne-muted)", marginBottom: 4 }}><span>Type</span><span>Name / Host</span><span>Value / Target</span></div>}
@@ -1328,6 +1354,16 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
                                       We check again every 20 minutes and turn it on by ourselves. Delete any old {name === "@" ? "@ (A / CNAME)" : `${name} (A / CNAME)`} records for this name first. In the Target box write only the value shown, not the word CNAME. {t("store.propagationNote")}
                                     </p>
                                   </div>
+                                );
+                                if (!nsBox) return recordsBox;
+                                return (
+                                  <>
+                                    {nsBox}
+                                    <details style={{ marginTop: 8 }}>
+                                      <summary style={{ fontSize: 12, color: "var(--ne-muted)", cursor: "pointer" }}>Can&apos;t change nameservers? Add DNS records instead</summary>
+                                      {recordsBox}
+                                    </details>
+                                  </>
                                 );
                               })()}
                             </div>
