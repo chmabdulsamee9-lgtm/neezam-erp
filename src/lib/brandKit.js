@@ -92,10 +92,26 @@ export async function removeWhiteBackground(src) {
   return toBlob(out);
 }
 
-/** a 256x256 favicon from the logo: the logo fitted into a square with a little padding; returns a PNG blob */
-export async function faviconFromLogo(src) {
+/**
+ * A 256x256 favicon from the logo; returns a PNG blob. A square-ish logo is fitted into the square. A wide logo
+ * (name written out) would be unreadable that small, so the favicon becomes the brand's first letter on the brand colour.
+ */
+export async function faviconFromLogo(src, { name = "", color = "" } = {}) {
   const img = await loadImage(src);
   const S = 256, pad = 20, c = canvasOf(S, S), ctx = c.getContext("2d");
+  if (img.naturalWidth / img.naturalHeight > 1.6 && name.trim()) {
+    const bg = /^#[0-9a-f]{6}$/i.test(color) ? color : "#141414";
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(0, 0, S, S, 56) : ctx.rect(0, 0, S, S);
+    ctx.fill();
+    ctx.fillStyle = onColor(bg);
+    ctx.font = "800 170px system-ui, -apple-system, 'Segoe UI', sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(name.trim()[0].toUpperCase(), S / 2, S / 2 + 10);
+    return toBlob(c);
+  }
   const scale = Math.min((S - pad * 2) / img.naturalWidth, (S - pad * 2) / img.naturalHeight);
   const w = img.naturalWidth * scale, h = img.naturalHeight * scale;
   ctx.drawImage(img, (S - w) / 2, (S - h) / 2, w, h);

@@ -55,7 +55,7 @@ export default function NeeziWizard({ job, api, themeInfo, themeOrder, DemoFrame
   useEffect(() => {
     if (w.loaded) return;
     api(`/growth/neezi-brand?store_id=${job.storeId}`).then((d) => {
-      set((x) => ({ loaded: true, name: x.name || d.brand_name || job.storeName || "", about: x.about || d.about || "", policies: d.policies ? { ...x.policies, ...d.policies } : x.policies }));
+      set((x) => ({ loaded: true, name: x.name || d.brand_name || job.storeName || "", about: x.about || d.about || "", policies: d.policies ? { ...x.policies, ...d.policies } : { ...x.policies, free_over: d.free_over ? String(d.free_over) : x.policies.free_over } }));
     });
   }, [job.storeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -70,7 +70,8 @@ export default function NeeziWizard({ job, api, themeInfo, themeOrder, DemoFrame
   const onLogo = (file) => file && run("logo", async () => { const url = await upload(job.storeId, file); set({ logo: url, brandColor: "", draftLogo: "" }); });
   const onFav = (file) => file && run("fav", async () => { const url = await upload(job.storeId, file); set({ favicon: url }); });
   const onRef = (file) => file && run("ref", async () => { const url = await upload(job.storeId, file); set({ refUrl: url }); });
-  const makeFavicon = () => run("fav", async () => { const blob = await faviconFromLogo(w.logo); set({ favicon: await upload(job.storeId, blob) }); });
+  const favOpts = () => ({ name: w.name, color: w.brandColor });
+  const makeFavicon = () => run("fav", async () => { const blob = await faviconFromLogo(w.logo, favOpts()); set({ favicon: await upload(job.storeId, blob) }); });
   const makeLogo = () => run("ai", async () => {
     const d = await api("/growth/neezi-logo", { method: "POST", body: { store_id: job.storeId, brand_name: w.name, about: w.logoNote, ref_url: w.refUrl || undefined } });
     if (d.error) throw new Error(d.error);
@@ -79,7 +80,7 @@ export default function NeeziWizard({ job, api, themeInfo, themeOrder, DemoFrame
   const useDraft = () => run("use", async () => {
     const png = await removeWhiteBackground(w.draftLogo);
     const url = await upload(job.storeId, png);
-    const favBlob = await faviconFromLogo(url).catch(() => null);
+    const favBlob = await faviconFromLogo(url, { name: w.name, color: await brandColorFrom(url).catch(() => "") }).catch(() => null);
     const fav = !w.favicon && favBlob ? await upload(job.storeId, favBlob) : w.favicon;
     set({ logo: url, favicon: fav, draftLogo: "", brandColor: "" });
   });
@@ -88,7 +89,7 @@ export default function NeeziWizard({ job, api, themeInfo, themeOrder, DemoFrame
     if (w.step === "brand") {
       if (!w.name.trim()) { setErr("Write your brand name."); return; }
       // a logo but no favicon: Neezi makes the favicon from the logo
-      if (w.logo && !w.favicon) { await run("fav", async () => { const blob = await faviconFromLogo(w.logo); set({ favicon: await upload(job.storeId, blob) }); }); }
+      if (w.logo && !w.favicon) { await run("fav", async () => { const blob = await faviconFromLogo(w.logo, favOpts()); set({ favicon: await upload(job.storeId, blob) }); }); }
     }
     if (w.step === "about" && w.about.trim().length < 15) { setErr("Tell Neezi a little more about your brand (one or two sentences)."); return; }
     setErr("");
@@ -240,11 +241,11 @@ export default function NeeziWizard({ job, api, themeInfo, themeOrder, DemoFrame
           </button>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(230px,1fr))", gap: 12 }}>
             {themeOrder.map((id) => (
-              <button key={id} onClick={() => set({ themeChoice: id })} style={{ ...tile, textAlign: "left", cursor: "pointer", outline: w.themeChoice === id ? "2px solid var(--ne-accent, #6366f1)" : "none" }}>
-                <div style={{ pointerEvents: "none" }}><DemoFrame src={`${job.liveUrl}/__demo/${id}/${firstVersion(id)}`} height={150} /></div>
+              <div key={id} role="button" tabIndex={0} onClick={() => set({ themeChoice: id })} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") set({ themeChoice: id }); }} style={{ ...tile, minWidth: 0, overflow: "hidden", cursor: "pointer", outline: w.themeChoice === id ? "2px solid var(--ne-accent, #6366f1)" : "none" }}>
+                <div style={{ pointerEvents: "none", minWidth: 0, width: "100%" }}><DemoFrame src={`${job.liveUrl}/__demo/${id}/${firstVersion(id)}`} height={150} /></div>
                 <b style={{ fontSize: 13 }}>{w.themeChoice === id ? "✓ " : ""}{themeInfo[id].name}</b>
                 <span style={{ fontSize: 11.5, color: "var(--ne-muted)" }}>{themeInfo[id].ref}</span>
-              </button>
+              </div>
             ))}
           </div>
           <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12.5 }}><input type="checkbox" checked={!!job.auto} onChange={(e) => patchNeeziJob({ auto: e.target.checked })} /> Let Neezi do everything without stopping for review{paid ? " (including AI banners)" : ""}</label>
