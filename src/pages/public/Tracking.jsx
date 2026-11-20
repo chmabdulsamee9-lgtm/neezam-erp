@@ -4,7 +4,7 @@ import { useLanguage, useTranslation } from "../../i18n";
 import PublicHeader from "./PublicHeader";
 import PublicFooter from "./PublicFooter";
 
-const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
+const CF_URL = "https://api.eneezam.com";
 
 // NOTE (dev-flag): Koi public/anonymous tracking-endpoint abhi worker mein
 // exist nahi karta — "/dex-track-shipment" hai lekin woh authenticated

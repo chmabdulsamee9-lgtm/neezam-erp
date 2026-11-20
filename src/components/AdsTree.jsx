@@ -5,7 +5,7 @@ import { workerFetch } from "../lib/storeApi";
 import { getCachedProducts } from "../productsCache";
 import { useLanguage, useTranslation } from "../i18n";
 
-const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
+const CF_URL = "https://api.eneezam.com";
 const rs = (n) => (n === null || n === undefined || !Number.isFinite(Number(n)) ? "—" : `Rs ${Math.round(Number(n)).toLocaleString()}`);
 const num = (n) => (Number(n) || 0).toLocaleString();
 const roas = (rev, spend) => (spend > 0 ? (rev / spend).toFixed(2) : "—");

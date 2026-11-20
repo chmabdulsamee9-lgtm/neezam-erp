@@ -15,7 +15,7 @@ test("only armed (user-started) loading counts; a running bar keeps chained call
 
 test("tracks our backends, ignores logs, realtime and other hosts", () => {
   assert.equal(isTrackedUrl("https://x.supabase.co/rest/v1/orders"), true);
-  assert.equal(isTrackedUrl("https://neezam-erp.chmabdulsamee9.workers.dev/orders-page"), true);
+  assert.equal(isTrackedUrl("https://api.eneezam.com/orders-page"), true);
   assert.equal(isTrackedUrl("https://x.supabase.co/rest/v1/dev_monitoring_log"), false);
   assert.equal(isTrackedUrl("wss://x.supabase.co/realtime/v1/websocket"), false);
   assert.equal(isTrackedUrl("https://cdn.shopify.com/a.png"), false);

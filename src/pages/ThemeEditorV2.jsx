@@ -15,7 +15,7 @@ import {
   createScrollSync, onScrollReport, scrollPairTo, thumbGeometry, topFromThumb, saveAsDraft,
 } from "../lib/themeV2/editorLogic";
 
-const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
+const CF_URL = "https://api.eneezam.com";
 const TOKEN_REFRESH_MS = 15 * 60 * 1000; // the worker's edit token lives 20 minutes
 const PREVIEW_DEBOUNCE_MS = 250;
 

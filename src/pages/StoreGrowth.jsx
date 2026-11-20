@@ -10,7 +10,7 @@ import NeeziWizard from "../components/NeeziWizard";
 import { schemesFor, luminance } from "../lib/brandKit";
 import { useNeeziJob, getNeeziJob, startNeeziJob, patchNeeziJob, clearNeeziJob, setNeeziOpen, stepStart, stepDone, stepFailed, stepNote, creep, isNeeziBusy } from "../lib/neeziJob";
 
-const CF = "https://neezam-erp.chmabdulsamee9.workers.dev";
+const CF = "https://api.eneezam.com";
 const THEME_INFO = {
   glow: { name: "Aura", tag: "Beauty and skincare: soft cards, pack offers, bundles, benefit points, trust grid, tabs, floating cart", ref: "Skincare and personal care" },
   botanica: { name: "Bloom", tag: "Playful and colourful: best seller badges, Helps and Targets chips, sticky add to cart, pill tabs", ref: "Natural and K-beauty stores" },

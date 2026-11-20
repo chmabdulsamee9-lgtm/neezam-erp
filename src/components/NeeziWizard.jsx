@@ -7,7 +7,7 @@ import Icon from "./Icon";
 import { patchNeeziJob } from "../lib/neeziJob";
 import { brandColorFrom, removeWhiteBackground, faviconFromLogo, swatchesFor } from "../lib/brandKit";
 
-const CF = "https://neezam-erp.chmabdulsamee9.workers.dev";
+const CF = "https://api.eneezam.com";
 const STEPS = [
   ["brand", "Brand"],
   ["about", "About"],

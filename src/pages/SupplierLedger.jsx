@@ -4,7 +4,7 @@ import Icon from "../components/Icon";
 import { SkelCardList, SkelTable } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 
-const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
+const CF_URL = "https://api.eneezam.com";
 const rupees = (n) => `Rs. ${Math.round(Number(n) || 0).toLocaleString()}`;
 
 // ProfitLoss.jsx ke date-filter row ka exact wahi pattern (label keys + button set) —

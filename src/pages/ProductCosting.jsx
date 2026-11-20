@@ -7,7 +7,7 @@ import { useLanguage, useTranslation } from "../i18n";
 import { getCachedProducts, upsertProduct } from "../productsCache";
 import { thumbUrl } from "../lib/shopifyImage";
 
-const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
+const CF_URL = "https://api.eneezam.com";
 const PER_PAGE_OPTIONS = [10, 20, 50];
 const DEFAULT_COMPONENT_KEYS = ["component_1", "component_2", "component_3"];
 const DEFAULT_LABELS = { component_1: "Raw Material", component_2: "Packaging", component_3: "Other" };

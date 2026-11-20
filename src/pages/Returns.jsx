@@ -4,7 +4,7 @@ import Icon from "../components/Icon";
 import { SkelCardList } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 
-const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
+const CF_URL = "https://api.eneezam.com";
 const SCANNER_ELEMENT_ID = "returns-barcode-reader";
 
 const cardStyle = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "14px 16px" };

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 
-const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev"
+const CF_URL = "https://api.eneezam.com"
 
 export default function ShopifyCallback() {
   const [status, setStatus] = useState("🔄 Processing...");

@@ -5,7 +5,7 @@ import { useLanguage, useTranslation } from "../i18n";
 import { useSyncContext } from "../context/SyncContext";
 
 const REDIRECT_URI = "https://neezam-erp.pages.dev/auth/callback";
-const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
+const CF_URL = "https://api.eneezam.com";
 
 const SCOPES = [
   "read_orders",

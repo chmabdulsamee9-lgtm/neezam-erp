@@ -3,7 +3,7 @@ import Icon from "../components/Icon";
 import { useLanguage } from "../i18n";
 import { workerFetch } from "../lib/storeApi";
 
-const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
+const CF_URL = "https://api.eneezam.com";
 
 // Strings live here (not in i18n.js) so this page does not collide with other work on the shared dictionary.
 const S = {

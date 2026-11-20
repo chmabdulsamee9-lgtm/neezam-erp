@@ -8,7 +8,7 @@ import { generateSku, isDuplicateSku } from "../utils/skuGenerator";
 import EneezamProducts from "../components/EneezamProducts";
 import { thumbUrl } from "../lib/shopifyImage";
 
-const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
+const CF_URL = "https://api.eneezam.com";
 const PAGE_SIZE = 500;
 const PER_PAGE_OPTIONS = [20, 50, 100];
 const BULK_FIELDS = ["vendor", "product_type", "tags", "status", "collection"];

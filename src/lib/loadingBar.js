@@ -41,7 +41,7 @@ export function isTrackedUrl(url) {
   const u = String(url || "");
   if (u.includes("dev_monitoring_log")) return false;
   if (u.includes("/realtime/")) return false;
-  return u.includes(".supabase.co/rest/") || u.includes(".supabase.co/functions/") || u.includes(".workers.dev/");
+  return u.includes(".supabase.co/rest/") || u.includes(".supabase.co/functions/") || u.includes(".workers.dev/") || u.includes("//api.eneezam.com/");
 }
 
 let installed = false;

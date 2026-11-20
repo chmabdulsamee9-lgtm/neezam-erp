@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
 
-const CF = "https://neezam-erp.chmabdulsamee9.workers.dev";
+const CF = "https://api.eneezam.com";
 async function api(path, method = "GET", body) {
   const { data: { session } } = await supabase.auth.getSession();
   const res = await fetch(`${CF}${path}`, { method, headers: { Authorization: `Bearer ${session?.access_token}`, "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
