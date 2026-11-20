@@ -9,6 +9,7 @@ import Tree, { AddSectionPopup, SelectionMenu } from "../components/themeEditorV
 import { SchemaFields, ThemeSettingsV2 } from "../components/themeEditorV2/SchemaForm";
 import Tip from "../components/themeEditorV2/Tip";
 import * as V2 from "../lib/themeV2/engine.generated";
+import { fetchJsonRetry } from "../lib/fetchRetry";
 import {
   TEMPLATES, SHORTCUTS, matchShortcut, isTypingTarget, readInspector, writeInspector,
   createScrollSync, onScrollReport, scrollPairTo, thumbGeometry, topFromThumb, saveAsDraft,
@@ -240,8 +241,8 @@ export default function ThemeEditorV2({ storeId, themeId, onNavigate, onOpenThem
         const { data: storeRow } = await supabase.from("stores").select("id, store_name, subdomain, store_custom_domains(domain, role, status)").eq("id", storeId).maybeSingle();
         const headers = await authHeaders();
         const [themeData, tokenData, prodData] = await Promise.all([
-          initialTheme ? Promise.resolve({ theme: initialTheme }) : fetch(`${CF_URL}/get-store-theme?theme_id=${encodeURIComponent(themeId)}`, { headers }).then((r) => r.json()),
-          fetch(`${CF_URL}/generate-theme-edit-token`, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify({ store_id: storeId }) }).then((r) => r.json()),
+          initialTheme ? Promise.resolve({ theme: initialTheme }) : fetchJsonRetry(`${CF_URL}/get-store-theme?theme_id=${encodeURIComponent(themeId)}`, { headers }),
+          fetchJsonRetry(`${CF_URL}/generate-theme-edit-token`, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify({ store_id: storeId }) }),
           fetch(`${CF_URL}/get-store-products?store_id=${encodeURIComponent(storeId)}`).then((r) => r.json()).catch(() => ({})),
         ]);
         if (!themeData.theme) throw new Error(themeData.error || t("themeEditor.loadFailed"));

@@ -79,7 +79,7 @@ export default function ProductEditor({ storeId, cfUrl, product, onClose, onSave
     if (fileRef.current) fileRef.current.value = "";
   };
   const neeziPhoto = async (i) => {
-    setBusy(`ai-${i}`); setMsg({ kind: "info", text: "Neezi is making a brand photo with Agnes (20 to 60 seconds)…" });
+    setBusy(`ai-${i}`); setMsg({ kind: "info", text: "Neezi is making a brand photo (20 to 60 seconds)…" });
     const d = await api("/growth/neezi-product-photo", { store_id: storeId, image_url: f.images[i]?.url, title: f.title, style });
     if (d.url) { upd("images", [...f.images, { url: d.url, mirrored: true, alt: "" }]); setMsg({ kind: "ok", text: "Neezi photo added at the end. Drag it to the first place to make it the main photo." }); }
     else setMsg({ kind: "error", text: d.error || "Neezi could not make the photo" });
@@ -127,7 +127,7 @@ export default function ProductEditor({ storeId, cfUrl, product, onClose, onSave
     setBusy("write"); setMsg({ kind: "info", text: "Neezi is reading your product and your other listings…" });
     const d = await api("/growth/neezi-product-copy", { store_id: storeId, product: { title: f.title, description: htmlText(f.html), vendor: f.vendor, product_type: f.product_type, tags: f.tags, variants: f.variants } });
     setBusy("");
-    if (d.copy) { setSuggest(d.copy); setMsg({ kind: "ok", text: `Neezi wrote a new listing (${d.engine === "agnes" ? "Agnes AI" : "Gemini"}). Check it on the right and apply what you like.` }); }
+    if (d.copy) { setSuggest(d.copy); setMsg({ kind: "ok", text: "Neezi wrote a new listing. Check it on the right and apply what you like." }); }
     else setMsg({ kind: "error", text: d.error || "Neezi could not write right now" });
   };
   const applySuggest = (which = "all") => {

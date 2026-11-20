@@ -549,8 +549,7 @@ async function neeziPropose() {
   const d = await api("/growth/neezi-setup", { method: "POST", body: { store_id: j.storeId, action: "propose", tier: j.plan?.is_creator ? j.tier : undefined } });
   stop();
   if (d.error) { stepFailed(s1, `Could not read products: ${d.error}`); patchNeeziJob({ phase: "choose", error: d.error }); return; }
-  const eng = d.engine === "agnes" ? "Agnes AI" : d.engine === "gemini" ? "Gemini" : "keyword rules (AI busy)";
-  stepDone(s1, `Read ${d.product_count} products with ${eng}`, 36);
+  stepDone(s1, `Neezi read ${d.product_count} products`, 36);
   const p = d.proposal;
   stepNote(`Planned ${p.collections.length} collections: ${p.collections.map((c) => c.title).slice(0, 6).join(", ")}${p.collections.length > 6 ? "…" : ""}`, "done");
   stepNote(`Planned menus: header (${p.menus.main.length} links), footer (${p.menus.footer.length} links)`, "done");
@@ -571,7 +570,7 @@ async function neeziBanners() {
   const out = [];
   const prompts = BANNER_PROMPTS(j);
   for (let i = 0; i < prompts.length; i++) {
-    const sid = stepStart(`Agnes is designing banner ${i + 1} of ${prompts.length}`);
+    const sid = stepStart(`Neezi is designing banner ${i + 1} of ${prompts.length}`);
     const stop = creep(40 + ((i + 1) * 25) / prompts.length, 0.6);
     const d = await api("/growth/neezi-banner", { method: "POST", body: { store_id: j.storeId, prompt: prompts[i], tier: j.plan?.is_creator ? j.tier : undefined } });
     stop();
@@ -675,7 +674,7 @@ function NeeziSetup({ job }) {
         )}
         {phase === "review" && res && (
           <>
-            <Note>Neezi read {res.product_count} products{res.engine === "rules" ? " (AI was not available, so it grouped them by keywords; you can edit everything later)" : ` with ${res.engine === "agnes" ? "Agnes AI" : "Gemini"}`}. Untick anything you don't want.</Note>
+            <Note>Neezi read {res.product_count} products. Untick anything you don't want; you can edit everything later.</Note>
             <div><span style={label}>Collections</span>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(220px,1fr))", gap: 8 }}>
                 {res.proposal.collections.map((c) => (
@@ -696,10 +695,10 @@ function NeeziSetup({ job }) {
               <Field l="Homepage text"><input style={input} value={res.proposal.home.hero_text} onChange={(e) => setProposal((p) => ({ home: { ...p.home, hero_text: e.target.value } }))} /></Field>
             </div>
             <div style={{ ...card, background: "var(--ne-surface)" }}>
-              <b style={{ fontSize: 13 }}>AI banners (Agnes)</b>
+              <b style={{ fontSize: 13 }}>AI banners</b>
               {effTier === "essential" ? <p style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ne-muted)" }}>Banners designed by AI are part of the Grow and Advance plans. Your theme uses its built-in banners for now.</p> : (
                 <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-                  <p style={{ margin: 0, fontSize: 12.5, color: "var(--ne-muted)" }}>Neezi asks Agnes to design a hero and a sale banner for your brand.</p>
+                  <p style={{ margin: 0, fontSize: 12.5, color: "var(--ne-muted)" }}>Neezi designs a hero and a sale banner for your brand.</p>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{banners.map((u) => <img key={u} src={u} alt="" style={{ width: 220, height: 92, objectFit: "cover", borderRadius: 8 }} />)}</div>
                   <div><button style={btn(false)} onClick={neeziBanners}>{banners.length ? "Make new banners" : "Design my banners"}</button></div>
                 </div>

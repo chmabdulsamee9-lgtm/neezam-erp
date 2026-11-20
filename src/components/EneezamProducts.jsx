@@ -258,7 +258,7 @@ export default function EneezamProducts({ storeId, ordersStore, cfUrl, storeUrl 
   };
   // Neezi photo (Agnes, Grow/Advance): a clean studio shot made from this picture; added as a new image.
   const aiPhoto = async (i, style = "studio") => {
-    setImgBusy(`ai-${i}`); setFormError(""); setImgNote("Neezi is designing a studio photo with Agnes (about 20 to 60 seconds)…");
+    setImgBusy(`ai-${i}`); setFormError(""); setImgNote("Neezi is designing a studio photo (about 20 to 60 seconds)…");
     const { data } = await api("/growth/neezi-product-photo", { method: "POST", body: JSON.stringify({ store_id: storeId, image_url: form.images[i]?.url, title: form.title, style }) });
     if (data.url) { setForm((f) => ({ ...f, images: [...f.images, savedImg(data.url)] })); setImgNote(`Neezi photo added (WebP, ${kb(data.after || 0)}). Move it up to make it the main picture.`); }
     else { setImgNote(""); setFormError(data.error || "Neezi could not make the photo"); }
@@ -628,7 +628,7 @@ export default function EneezamProducts({ storeId, ordersStore, cfUrl, storeUrl 
                       <span style={{ flex: "1 1 160px", minWidth: 0, fontSize: 11.5, color: "var(--ne-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{img.url}</span>
                       <span style={img.mirrored ? pill("var(--ne-success-soft)", "var(--ne-success)") : pill("var(--ne-surface)", "var(--ne-muted)")}>{img.mirrored ? t("products.eneezam.imageSaved") : t("products.eneezam.imageExternal")}</span>
                       {!/\.webp(\?|$)/i.test(img.url) && <button type="button" onClick={() => toWebp(i)} disabled={!!imgBusy} style={btn(false)} title="Make a small WebP copy in eNeezam">{imgBusy === `webp-${i}` ? "…" : "WebP"}</button>}
-                      <button type="button" onClick={() => aiPhoto(i)} disabled={!!imgBusy} style={btn(false)} title="Neezi studio photo with Agnes (Grow and Advance plans)"><Icon name="sparkle" size={11} /> {imgBusy === `ai-${i}` ? "Designing…" : "Neezi photo"}</button>
+                      <button type="button" onClick={() => aiPhoto(i)} disabled={!!imgBusy} style={btn(false)} title="Neezi studio photo (Grow and Advance plans)"><Icon name="sparkle" size={11} /> {imgBusy === `ai-${i}` ? "Designing…" : "Neezi photo"}</button>
                       <button type="button" onClick={() => moveImage(i, -1)} disabled={i === 0} style={btn(false)} aria-label={t("products.eneezam.moveUp")}><Icon name="arrowUp" size={11} /></button>
                       <button type="button" onClick={() => moveImage(i, 1)} disabled={i === form.images.length - 1} style={btn(false)} aria-label={t("products.eneezam.moveDown")}><Icon name="arrowDown" size={11} /></button>
                       <button type="button" onClick={() => setField("images", form.images.filter((_, j) => j !== i))} style={{ ...btn(false), color: "var(--ne-danger)" }} aria-label={t("products.eneezam.remove")}><Icon name="close" size={11} /></button>
