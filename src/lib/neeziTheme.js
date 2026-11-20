@@ -4,7 +4,7 @@ import {
   createDefaultConfig, listSections, listBlocks, setSectionSetting, setBlockSetting, addBlock, removeBlock, setThemeSetting,
 } from "./themeV2/engine.generated.js";
 
-export function buildNeeziConfig({ themeId, versionId, storeName, proposal, banners = [] }) {
+export function buildNeeziConfig({ themeId, versionId, storeName, proposal, banners = [], brand = null }) {
   let cfg = createDefaultConfig(themeId, versionId);
   if (!cfg) return null;
   const home = proposal?.home || {};
@@ -12,6 +12,10 @@ export function buildNeeziConfig({ themeId, versionId, storeName, proposal, bann
   const best = cols.find((c) => c.handle === "best-sellers") || cols[0];
   const other = cols.find((c) => c !== best) || null;
   if (storeName) cfg = setThemeSetting(cfg, "store_name", storeName);
+  // brand kit from the setup wizard: logo, favicon and the colour schemes made from the logo
+  if (brand?.logo) cfg = setThemeSetting(cfg, "logo", { url: brand.logo, alt: storeName || "" });
+  if (brand?.favicon) cfg = setThemeSetting(cfg, "favicon", { url: brand.favicon, alt: "" });
+  for (const [k, v] of Object.entries(brand?.colors || {})) cfg = setThemeSetting(cfg, k, v);
 
   for (const sec of listSections(cfg, "header")) {
     if (sec.type === "header") cfg = setSectionSetting(cfg, "header", sec.id, "menu", "main-menu");
