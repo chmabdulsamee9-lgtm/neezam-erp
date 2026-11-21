@@ -15,6 +15,7 @@ test("only repeat-safe requests are repeated", () => {
   assert.equal(isRepeatable("GET", "https://x.supabase.co/rest/v1/orders"), true);
   assert.equal(isRepeatable("POST", `${API}/save-checkout-settings`), true);
   assert.equal(isRepeatable("POST", `${API}/get-store-extras`), true);
+  assert.equal(isRepeatable("POST", `${API}/home-overview`), true);
   assert.equal(isRepeatable("POST", `${API}/dex-book-order`), false);
   assert.equal(isRepeatable("POST", `${API}/whatsapp/send`), false);
   assert.equal(isRepeatable("DELETE", `${API}/remove-custom-domain`), false);
