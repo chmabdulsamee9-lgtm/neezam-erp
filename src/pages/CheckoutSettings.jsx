@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useLanguage, useTranslation } from "../i18n";
 import { SettingsCard, settingsInputStyle } from "../components/SettingsUI";
 import { workerFetch, logStoreActivity } from "../lib/storeApi";
@@ -22,7 +22,7 @@ const DEFAULT_PLACEHOLDERS = {
   area: "Search area or sub area…", subarea: "Search subarea…", address: "House, street, landmark…", address2: "Apartment, floor, building", postal_code: "e.g. 54000", order_notes: "e.g. Leave with the guard",
 };
 const DEFAULT_LAYOUT = () => {
-  const one = () => ({ order: [...FIELD_ORDER], span: Object.fromEntries(FIELD_ORDER.map((n) => [n, 12])), gap: 20, input_height: 44 });
+  const one = () => ({ order: [...FIELD_ORDER], span: Object.fromEntries(FIELD_ORDER.map((n) => [n, 12])), gap: 20, input_height: 44, title_size: 100 });
   return { mobile: one(), desktop: one() };
 };
 const SPAN_NAME = { 3: "1/4", 4: "1/3", 6: "1/2", 8: "2/3", 9: "3/4", 12: "Full" };
@@ -48,7 +48,12 @@ function themeLook(cfg, storeName, host) {
   const sc = s.checkout_scheme || s.body_scheme || "scheme_1";
   const c = (k, d) => s[`${sc}_${k}`] || d;
   const fam = (key) => (key && key !== "system" ? key.split("-").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ") : "");
+  // the checkout template's own heading ("Cash on delivery" + "Checkout"), and the logo shown in place of the removed header
+  const co = Object.values(cfg?.templates?.checkout?.sections || {}).find((x) => x?.type === "main-checkout")?.settings || {};
+  const logo = s.checkout_logo?.url || s.logo?.url || "";
   return {
+    title: typeof co.title === "string" ? co.title : "Checkout", subtitle: typeof co.subtitle === "string" ? co.subtitle : "Cash on delivery", showTitle: co.show_title !== false,
+    logoUrl: logo, hScale: (Number(s.type_heading_scale) || 115) / 100, hWeight: Number(s.type_heading_weight) || 700, hUpper: !!s.type_heading_uppercase,
     bg: c("bg", "#ffffff"), text: c("text", "#141414"), muted: c("muted", "#5f5f66"), border: c("border", "#e4e4e7"),
     surface: c("surface", "#f6f6f4"), inputBg: c("bg", "#ffffff"), button: c("button", "#141414"), buttonText: c("button_text", "#ffffff"),
     accentUi: "#6366f1", radius: Number(s.input_radius ?? 10), fontBody: fam(s.font_body || "inter"), fontHeading: fam(s.font_heading || ""),
@@ -70,6 +75,24 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
   const [selected, setSelected] = useState(null);
   const [history, setHistory] = useState([]);
   const [look, setLook] = useState(() => themeLook(null));
+  const cardRef = useRef(null);
+  const [cardH, setCardH] = useState(0);
+  const [narrow, setNarrow] = useState(() => typeof window !== "undefined" && window.innerWidth < 1180);
+
+  useEffect(() => {
+    const on = () => setNarrow(window.innerWidth < 1180);
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, []);
+  // mobile mode: the phone preview is exactly as tall as the details card (its width follows the phone's ratio)
+  useEffect(() => {
+    if (loading || device === "desktop") return undefined;
+    const el = cardRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(() => { const h = Math.round(el.getBoundingClientRect().height); setCardH((p) => (Math.abs(p - h) >= 2 ? h : p)); });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [loading, device, narrow]);
 
   useEffect(() => {
     let alive = true;
@@ -174,9 +197,53 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
   const lay = draft.layout[device];
   const shown = (n) => LOCKED.includes(n) || F[n].visible;
   const sel = selected && shown(selected) ? selected : null;
-  // mobile: table (label, placeholder, visible, required) | phone preview. desktop: toggles only | wide preview
-  const COLS = desktop ? "260px minmax(0,1fr)" : "minmax(0,1fr) 400px";
+  const PHONE_RATIO = 9 / 19.5;
+  const phoneH = cardH || 720;
+  const phoneW = Math.max(290, Math.min(420, Math.round(phoneH * PHONE_RATIO)));
+  const RAIL_W = 190;
+  // wide: details | controls | preview. narrow: controls above, details | preview (desktop mode stacks)
+  const COLS = narrow
+    ? (desktop ? "minmax(0,1fr)" : `minmax(0,1fr) ${phoneW}px`)
+    : (desktop ? `260px ${RAIL_W}px minmax(0,1fr)` : `minmax(0,1fr) ${RAIL_W}px ${phoneW}px`);
   const ROW = desktop ? "minmax(0,1fr) 34px 34px" : "minmax(0,1fr) minmax(0,1fr) 34px 34px";
+  const sliderRow = (label, min, max, step, value, unit, onChange) => (
+    <label style={{ display: "grid", gap: 4, fontSize: 11.5, color: "var(--ne-muted)" }}>
+      <span style={{ display: "flex", justifyContent: "space-between" }}>{label}<b style={{ color: "var(--ne-text)" }}>{value}{unit}</b></span>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} style={{ width: "100%" }} />
+    </label>
+  );
+  // controls: device, undo / reset, spacing, field height, heading size, width of the selected field
+  const rail = (
+    <div style={{ display: "flex", flexDirection: narrow ? "row" : "column", flexWrap: "wrap", gap: 12, padding: 12, border: "1px solid var(--ne-border)", borderRadius: 14, background: "var(--ne-surface-2)", minWidth: 0, alignItems: narrow ? "flex-start" : "stretch", marginBottom: narrow ? 14 : 0 }}>
+      <div style={{ display: "flex", flexDirection: narrow ? "row" : "column", gap: 4, border: "1px solid var(--ne-border)", borderRadius: 10, padding: 3, background: "var(--ne-surface)" }}>
+        {[["mobile", "📱 Mobile"], ["desktop", "🖥 Desktop"]].map(([k, l]) => (
+          <button key={k} type="button" onClick={() => { setDevice(k); setSelected(null); }} style={{ border: "none", borderRadius: 8, padding: "7px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer", textAlign: "left", background: device === k ? "var(--ne-grad)" : "transparent", color: device === k ? "#fff" : "var(--ne-text)" }}>{l}</button>
+        ))}
+      </div>
+      <div style={{ display: "flex", flexDirection: narrow ? "row" : "column", gap: 6 }}>
+        <button type="button" title="Undo" style={{ ...btn(false, !history.length), textAlign: "left" }} disabled={!history.length} onClick={undo}>↶ Undo</button>
+        <button type="button" style={{ ...btn(false), textAlign: "left" }} onClick={() => { setLayout(device, defaults.layout[device]); setSelected(null); }}>Reset layout</button>
+      </div>
+      <div style={{ display: "grid", gap: 12, minWidth: narrow ? 180 : 0, flex: narrow ? "1 1 180px" : undefined }}>
+        {sliderRow("Space between fields", 4, 40, 1, lay.gap, "px", (v) => setLayout(device, { ...lay, gap: v }))}
+        {sliderRow("Field height", 34, 64, 1, lay.input_height, "px", (v) => setLayout(device, { ...lay, input_height: v }))}
+        {sliderRow("Heading size", 50, 130, 5, lay.title_size ?? 100, "%", (v) => setLayout(device, { ...lay, title_size: v }))}
+      </div>
+      <div style={{ minWidth: 0, flex: narrow ? "1 1 200px" : undefined }}>
+        {sel ? (
+          <>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--ne-text)", marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{F[sel].label.trim() || DEFAULT_LABELS[sel]} · width</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 5 }}>
+              {SPANS.map((sp) => (
+                <button key={sp} type="button" onClick={() => setLayout(device, { ...lay, span: { ...lay.span, [sel]: sp } })}
+                  style={{ border: "1px solid var(--ne-border)", borderRadius: 7, padding: "5px 0", fontSize: 11.5, fontWeight: 700, cursor: "pointer", background: lay.span[sel] === sp ? "var(--ne-grad)" : "transparent", color: lay.span[sel] === sp ? "#fff" : "var(--ne-text)" }}>{SPAN_NAME[sp]}</button>
+              ))}
+            </div>
+          </>
+        ) : <span style={{ fontSize: 11.5, color: "var(--ne-muted)", lineHeight: 1.5 }}>Tap a field in the preview to move or resize it.</span>}
+      </div>
+    </div>
+  );
 
   return (
     <div style={{ padding: "1.5rem" }}>
@@ -205,9 +272,11 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
       {!contactOk && <p style={{ color: "var(--ne-danger)", fontSize: 12.5, margin: "0 0 12px" }}>{t("checkoutSettings.contactRule")}</p>}
       {notice && <p style={{ color: notice.type === "ok" ? "var(--ne-success)" : "var(--ne-danger)", fontSize: 12.5, margin: "0 0 12px" }}>{notice.text}</p>}
 
-      <div className="ne-co-cols" style={{ display: "grid", gridTemplateColumns: COLS, gap: 18, alignItems: "start" }}>
+      {narrow && rail}
+      <div className="ne-co-cols" style={{ display: "grid", gridTemplateColumns: COLS, gap: 18, alignItems: desktop ? "stretch" : "start" }}>
         {/* fields: label, placeholder, visible, required (desktop: name + toggles only) */}
-        <SettingsCard style={{ padding: "0.75rem", marginBottom: 0, minWidth: 0, order: desktop ? 0 : 0 }}>
+        <div ref={cardRef} style={{ minWidth: 0, display: "flex", flexDirection: "column" }}>
+        <SettingsCard style={{ padding: "0.75rem", marginBottom: 0, minWidth: 0, flex: 1 }}>
           <div className="ne-co-row" style={{ display: "grid", gridTemplateColumns: ROW, gap: 8, padding: "4px 4px 8px" }}>
             <span style={th}>{desktop ? "Field" : t("checkoutSettings.colLabel")}</span>
             {!desktop && <span style={th}>{t("checkoutSettings.colPlaceholder")}</span>}
@@ -239,40 +308,12 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
             </div>
           </div>
         </SettingsCard>
+        </div>
 
-        {/* live, editable preview */}
-        <div key={device} className={desktop ? "ne-co-swipe-desktop" : "ne-co-swipe-mobile"} style={{ minWidth: 0, position: desktop ? "static" : "sticky", top: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-            <div style={{ display: "inline-flex", border: "1px solid var(--ne-border)", borderRadius: 10, padding: 3, background: "var(--ne-surface)" }}>
-              {[["mobile", "📱 Mobile"], ["desktop", "🖥 Desktop"]].map(([k, l]) => (
-                <button key={k} type="button" onClick={() => { setDevice(k); setSelected(null); }} style={{ border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", background: device === k ? "var(--ne-grad)" : "transparent", color: device === k ? "#fff" : "var(--ne-text)" }}>{l}</button>
-              ))}
-            </div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <button type="button" title="Undo" style={btn(false, !history.length)} disabled={!history.length} onClick={undo}>↶ Undo</button>
-              <button type="button" style={btn(false)} onClick={() => { setLayout(device, defaults.layout[device]); setSelected(null); }}>Reset layout</button>
-            </div>
-          </div>
+        {!narrow && rail}
 
-          {/* selected field: quick widths + spacing */}
-          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10, fontSize: 12 }}>
-            {sel ? (
-              <>
-                <b style={{ color: "var(--ne-text)" }}>{F[sel].label.trim() || DEFAULT_LABELS[sel]}:</b>
-                {SPANS.map((s) => (
-                  <button key={s} type="button" onClick={() => setLayout(device, { ...lay, span: { ...lay.span, [sel]: s } })}
-                    style={{ border: "1px solid var(--ne-border)", borderRadius: 7, padding: "3px 8px", fontSize: 11.5, fontWeight: 700, cursor: "pointer", background: lay.span[sel] === s ? "var(--ne-grad)" : "transparent", color: lay.span[sel] === s ? "#fff" : "var(--ne-text)" }}>{SPAN_NAME[s]}</button>
-                ))}
-              </>
-            ) : <span style={{ color: "var(--ne-muted)" }}>Tap a field in the preview to move or resize it.</span>}
-          </div>
-          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 12, fontSize: 11.5, color: "var(--ne-muted)" }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>Space between fields
-              <input type="range" min={4} max={40} value={lay.gap} onChange={(e) => setLayout(device, { ...lay, gap: Number(e.target.value) })} /> <b style={{ color: "var(--ne-text)" }}>{lay.gap}px</b></label>
-            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>Field height
-              <input type="range" min={34} max={64} value={lay.input_height} onChange={(e) => setLayout(device, { ...lay, input_height: Number(e.target.value) })} /> <b style={{ color: "var(--ne-text)" }}>{lay.input_height}px</b></label>
-          </div>
-
+        {/* live, editable preview: same height as the details card (mobile: width from the phone ratio) */}
+        <div key={device} className={desktop ? "ne-co-swipe-desktop" : "ne-co-swipe-mobile"} style={{ minWidth: 0, position: "relative", ...(desktop ? { minHeight: 560, height: narrow ? 560 : undefined } : { height: phoneH }) }}>
           <CheckoutCanvas
             device={device}
             layout={lay}
@@ -286,11 +327,9 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
             selected={sel}
             onSelect={setSelected}
           />
-          <p style={{ margin: "10px 0 0", fontSize: 11, color: "var(--ne-muted)", textAlign: "center" }}>
-            {desktop ? "Desktop checkout (wide screens)." : "Mobile checkout (phones and small screens)."} Mobile and desktop are arranged separately. The real checkout uses this exact grid.
-          </p>
         </div>
       </div>
+      <p style={{ margin: "10px 0 0", fontSize: 11, color: "var(--ne-muted)" }}>{desktop ? "Desktop checkout (wide screens)." : "Mobile checkout (phones and small screens)."} Mobile and desktop are arranged separately. The real checkout uses this exact grid; it has no header or announcement bar, so the form gets all the room.</p>
     </div>
   );
 }

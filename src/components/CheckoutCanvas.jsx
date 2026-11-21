@@ -145,6 +145,10 @@ export default function CheckoutCanvas({ device, layout, fields, names, labelOf,
     );
   };
 
+  const ts = (lay.title_size || 100) / 100;
+  const hFont = headFont;
+  const titlePx = (isDesktop ? 36 : 28) * (t.hScale || 1) * ts;
+
   const form = (
     <div style={{ background: t.surface, border: `1px solid ${t.border}`, borderRadius: 14, padding: isDesktop ? 22 : 16 }}>
       <div style={{ fontFamily: headFont, fontSize: isDesktop ? 20 : 17, fontWeight: 700, color: t.text, marginBottom: 14 }}>Delivery address</div>
@@ -172,19 +176,42 @@ export default function CheckoutCanvas({ device, layout, fields, names, labelOf,
     </div>
   );
 
+  // the checkout page has no header or announcement bar: a small logo / store name, then "Cash on delivery" + "Checkout"
+  const topBlock = (
+    <div style={{ padding: isDesktop ? "18px 22px 0" : "8px 14px 0" }}>
+      <div style={{ marginBottom: 12 }}>
+        {t.logoUrl
+          ? <img src={t.logoUrl} alt="" style={{ height: isDesktop ? 30 : 24, maxWidth: "60%", objectFit: "contain", display: "block" }} />
+          : <span style={{ fontFamily: hFont, fontWeight: 800, fontSize: 15, color: t.text }}>{t.storeName}</span>}
+      </div>
+      {t.showTitle && (
+        <div style={{ marginBottom: 4 }}>
+          <div style={{ fontSize: 11 * ts, letterSpacing: ".14em", textTransform: "uppercase", color: t.muted, marginBottom: 4, transition: "font-size .15s" }}>{t.subtitle}</div>
+          <div style={{ fontFamily: hFont, fontWeight: t.hWeight || 700, fontSize: titlePx, lineHeight: 1.15, color: t.text, textTransform: t.hUpper ? "uppercase" : "none", transition: "font-size .15s" }}>{t.title}</div>
+        </div>
+      )}
+    </div>
+  );
+  const body = (
+    <div style={{ padding: isDesktop ? 22 : 12, paddingTop: isDesktop ? 14 : 10, display: "grid", gridTemplateColumns: isDesktop ? "minmax(0,1fr) 260px" : "1fr", gap: 16, alignItems: "start" }}>
+      {form}
+      {summary}
+    </div>
+  );
+
+  // fills its parent completely (the editor gives the parent the same height as the details card)
   return (
-    <div style={{ position: "relative" }}>
+    <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column" }}>
       <div style={isDesktop
-        ? { border: "1px solid var(--ne-border)", borderRadius: 14, overflow: "hidden", background: t.bg, boxShadow: "0 10px 30px -18px rgba(0,0,0,.4)" }
-        : { width: 372, maxWidth: "100%", margin: "0 auto", borderRadius: 38, padding: 10, background: "#0f0f14", boxShadow: "0 16px 40px -18px rgba(0,0,0,.55)" }}>
-        {isDesktop && <div style={{ display: "flex", gap: 6, padding: "9px 12px", background: "var(--ne-surface)", borderBottom: "1px solid var(--ne-border)" }}>{["#ef4444", "#f59e0b", "#22c55e"].map((c) => <span key={c} style={{ width: 10, height: 10, borderRadius: "50%", background: c }} />)}<span style={{ marginLeft: 10, fontSize: 11, color: "var(--ne-muted)" }}>{t.host}/checkout</span></div>}
-        <div style={{ background: t.bg, borderRadius: isDesktop ? 0 : 30, overflow: "hidden", fontFamily: font, maxHeight: isDesktop ? "none" : 720, overflowY: isDesktop ? "visible" : "auto" }}>
-          {!isDesktop && <div style={{ height: 26, display: "flex", justifyContent: "center", alignItems: "center" }}><span style={{ width: 90, height: 18, borderRadius: 12, background: "#0f0f14" }} /></div>}
-          <div style={{ padding: isDesktop ? "14px 22px" : "8px 14px", borderBottom: `1px solid ${t.border}`, fontFamily: headFont, fontWeight: 800, color: t.text, textAlign: "center", fontSize: 15 }}>{t.storeName}</div>
-          <div style={{ padding: isDesktop ? 22 : 12, display: "grid", gridTemplateColumns: isDesktop ? "minmax(0,1fr) 260px" : "1fr", gap: 16, alignItems: "start" }}>
-            {form}
-            {summary}
-          </div>
+        ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", border: "1px solid var(--ne-border)", borderRadius: 14, overflow: "hidden", background: t.bg, boxShadow: "0 10px 30px -18px rgba(0,0,0,.4)" }
+        : { flex: 1, minHeight: 0, display: "flex", borderRadius: 38, padding: 10, background: "#0f0f14", boxShadow: "0 16px 40px -18px rgba(0,0,0,.55)" }}>
+        {isDesktop && <div style={{ display: "flex", gap: 6, padding: "9px 12px", background: "var(--ne-surface)", borderBottom: "1px solid var(--ne-border)", flexShrink: 0 }}>{["#ef4444", "#f59e0b", "#22c55e"].map((c) => <span key={c} style={{ width: 10, height: 10, borderRadius: "50%", background: c }} />)}<span style={{ marginLeft: 10, fontSize: 11, color: "var(--ne-muted)" }}>{t.host}/checkout</span></div>}
+        <div style={isDesktop
+          ? { flex: 1, minHeight: 0, background: t.bg, fontFamily: font, overflowY: "auto" }
+          : { flex: 1, minHeight: 0, width: "100%", background: t.bg, borderRadius: 30, overflowY: "auto", overflowX: "hidden", fontFamily: font }}>
+          {!isDesktop && <div style={{ height: 24, display: "flex", justifyContent: "center", alignItems: "center" }}><span style={{ width: 90, height: 16, borderRadius: 12, background: "#0f0f14" }} /></div>}
+          {topBlock}
+          {body}
         </div>
       </div>
       {drag && (
@@ -193,7 +220,7 @@ export default function CheckoutCanvas({ device, layout, fields, names, labelOf,
           <div style={{ height: Math.min(drag.h - 24, ih), borderRadius: t.radius, border: `1px solid ${t.border}`, background: t.inputBg }} />
         </div>
       )}
-      {heightDrag && <div style={{ position: "absolute", top: 8, left: "50%", transform: "translateX(-50%)", background: t.accentUi, color: "#fff", fontSize: 11, fontWeight: 800, borderRadius: 8, padding: "3px 8px" }}>Field height {heightDrag}px</div>}
+      {heightDrag && <div style={{ position: "absolute", top: 8, left: "50%", transform: "translateX(-50%)", background: t.accentUi, color: "#fff", fontSize: 11, fontWeight: 800, borderRadius: 8, padding: "3px 8px", zIndex: 4 }}>Field height {heightDrag}px</div>}
     </div>
   );
 }
