@@ -199,7 +199,7 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
   const sel = selected && shown(selected) ? selected : null;
   const PHONE_RATIO = 9 / 19.5;
   const phoneH = cardH || 720;
-  const phoneW = Math.max(290, Math.min(420, Math.round(phoneH * PHONE_RATIO)));
+  const phoneW = Math.max(260, Math.min(420, Math.round(phoneH * PHONE_RATIO)));
   const RAIL_W = 190;
   // wide: details | controls | preview. narrow: controls above, details | preview (desktop mode stacks)
   const COLS = narrow
