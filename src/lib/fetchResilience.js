@@ -1,26 +1,67 @@
-// Some networks in Pakistan drop Chrome's HTTP/3 (QUIC) connections to Cloudflare now and then
-// (ERR_QUIC_PROTOCOL_ERROR / "Failed to fetch"), although the internet itself works. Chrome then retries over a normal
-// connection, so a read request that fails with a network error is simply tried again (twice, after 0.4s and 1.2s).
-// Only GET/HEAD: they never change data, so repeating them is always safe. Aborted or timed-out requests are not retried.
-let installed = false;
+// Some networks in Pakistan drop connections to Cloudflare now and then (ERR_QUIC_PROTOCOL_ERROR, ERR_CONNECTION_RESET,
+// "Failed to fetch") although the internet itself works, and often only for ONE hostname. So a request that fails with a
+// network error is tried again, and a call to our worker alternates between its two addresses
+// (api.eneezam.com and the workers.dev address), which are different hostnames and IPs.
+//
+// Only requests that are safe to repeat are retried: GET / HEAD, and POSTs of the read/save kind (get-, list-, check-,
+// save-, update-, preview-, quote-: repeating them changes nothing twice). Anything else (booking a courier, sending a
+// WhatsApp message, placing an order...) is never repeated automatically. Aborted requests are not retried.
+// If every try fails, the error says in plain words that the connection dropped, instead of "Failed to fetch".
+const API = "https://api.eneezam.com";
+const WORKER = "https://neezam-erp.chmabdulsamee9.workers.dev";
+const SAFE_POST = /^\/(save|update|get|list|check|preview|quote)-/;
+const WAITS = [0, 300, 900, 1800];
+
+/** the same call on the worker's other address, or null for any other host */
+export function otherAddress(url) {
+  if (typeof url !== "string") return null;
+  if (url.startsWith(API + "/") || url === API) return WORKER + url.slice(API.length);
+  if (url.startsWith(WORKER + "/") || url === WORKER) return API + url.slice(WORKER.length);
+  return null;
+}
+
+/** is this request safe to repeat after a network error? */
+export function isRepeatable(method, url) {
+  if (method === "GET" || method === "HEAD") return true;
+  if (method !== "POST") return false;
+  try {
+    const u = new URL(url);
+    return (u.origin === API || u.origin === WORKER) && SAFE_POST.test(u.pathname);
+  } catch {
+    return false;
+  }
+}
+
+export const FRIENDLY_NETWORK_ERROR = "Connection problem: could not reach the server. Please try again.";
 
 export function installFetchRetry() {
-  if (installed || typeof window === "undefined" || typeof window.fetch !== "function") return;
-  installed = true;
+  if (typeof window === "undefined" || typeof window.fetch !== "function" || window.__neFetchRetry) return;
+  window.__neFetchRetry = true;
   const original = window.fetch.bind(window);
   window.fetch = async (input, init) => {
-    const method = String(init?.method || (typeof input === "object" && input?.method) || "GET").toUpperCase();
-    if (method !== "GET" && method !== "HEAD") return original(input, init);
-    const signal = init?.signal || (typeof input === "object" ? input?.signal : undefined);
-    const waits = [400, 1200];
-    for (let attempt = 0; ; attempt++) {
+    const isReq = typeof Request !== "undefined" && input instanceof Request;
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : isReq ? input.url : "";
+    const method = String(init?.method || (isReq && input.method) || "GET").toUpperCase();
+    const signal = init?.signal || (isReq ? input.signal : undefined);
+    const repeatable = isRepeatable(method, url);
+    const alt = repeatable && !isReq ? otherAddress(url) : null;
+    let lastErr = null;
+    for (let attempt = 0; attempt < (repeatable ? WAITS.length : 1); attempt++) {
+      if (attempt) await new Promise((r) => setTimeout(r, WAITS[attempt]));
+      // 1st try as asked, 2nd on the other address, then both again
+      const target = alt && attempt % 2 === 1 ? alt : input;
       try {
-        return await original(typeof input === "object" && input instanceof Request ? input.clone() : input, init);
+        return await original(isReq ? input.clone() : target, init);
       } catch (err) {
-        const network = err instanceof TypeError && !signal?.aborted;
-        if (!network || attempt >= waits.length) throw err;
-        await new Promise((r) => setTimeout(r, waits[attempt]));
+        lastErr = err;
+        if (!(err instanceof TypeError) || signal?.aborted) throw err;
       }
     }
+    if (lastErr instanceof TypeError) {
+      const e = new TypeError(FRIENDLY_NETWORK_ERROR);
+      e.cause = lastErr;
+      throw e;
+    }
+    throw lastErr;
   };
 }
