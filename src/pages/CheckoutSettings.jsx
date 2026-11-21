@@ -14,12 +14,12 @@ const LOCKED = ["full_name", "province", "city", "address"]; // always shown + r
 const MAX_TEXT = 80;
 // mirrors the storefront's built-in texts (shown as the hint when a label/placeholder is blank)
 const DEFAULT_LABELS = {
-  full_name: "Full name", email: "Email", phone: "Mobile number", province: "Province", city: "City", area: "Area", subarea: "Subarea",
+  full_name: "Full name", email: "Email", phone: "Mobile number", province: "Province", city: "City", area: "Area / Sub Area", subarea: "Subarea",
   address: "Street address", address2: "Apartment, floor (optional)", postal_code: "Postal code", order_notes: "Delivery notes (optional)",
 };
 const DEFAULT_PLACEHOLDERS = {
   full_name: "e.g. Ayesha Khan", email: "you@example.com", phone: "03XXXXXXXXX", province: "Search province…", city: "Search city…",
-  area: "Search area…", subarea: "Search subarea…", address: "House, street, landmark…", address2: "Apartment, floor, building", postal_code: "e.g. 54000", order_notes: "e.g. Leave with the guard",
+  area: "Search area or sub area…", subarea: "Search subarea…", address: "House, street, landmark…", address2: "Apartment, floor, building", postal_code: "e.g. 54000", order_notes: "e.g. Leave with the guard",
 };
 const DEFAULT_LAYOUT = () => {
   const one = () => ({ order: [...FIELD_ORDER], span: Object.fromEntries(FIELD_ORDER.map((n) => [n, 12])), gap: 20, input_height: 44 });
@@ -214,7 +214,7 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
             <span style={{ ...th, textAlign: "center" }} title={t("checkoutSettings.colVisible")}>Show</span>
             <span style={{ ...th, textAlign: "center" }} title={t("checkoutSettings.colRequired")}>Req.</span>
           </div>
-          {lay.order.map((n) => {
+          {lay.order.filter((n) => n !== "subarea").map((n) => {
             const f = F[n];
             const locked = LOCKED.includes(n);
             const isSel = sel === n;
@@ -225,7 +225,7 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
                   ? <span style={{ fontSize: 12.5, fontWeight: 600, color: shown(n) ? "var(--ne-text)" : "var(--ne-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={locked ? t("checkoutSettings.lockedNote") : ""}>{f.label.trim() || DEFAULT_LABELS[n]}{locked ? " 🔒" : ""}</span>
                   : <input className="ne-co-text" style={inp} maxLength={MAX_TEXT} value={f.label} placeholder={DEFAULT_LABELS[n]} title={locked ? `${DEFAULT_LABELS[n]}: ${t("checkoutSettings.lockedNote")}` : DEFAULT_LABELS[n]} onChange={(e) => setField(n, { label: e.target.value })} onFocus={() => shown(n) && setSelected(n)} />}
                 {!desktop && <input className="ne-co-text" style={inp} maxLength={MAX_TEXT} value={f.placeholder} placeholder={DEFAULT_PLACEHOLDERS[n]} onChange={(e) => setField(n, { placeholder: e.target.value })} onFocus={() => shown(n) && setSelected(n)} />}
-                <span style={{ display: "flex", justifyContent: "center" }}><Toggle on={locked ? true : f.visible} disabled={locked} label={`${t("checkoutSettings.colVisible")}: ${DEFAULT_LABELS[n]}`} onChange={(v) => setField(n, { visible: v })} /></span>
+                <span style={{ display: "flex", justifyContent: "center" }}><Toggle on={locked ? true : f.visible} disabled={locked} label={`${t("checkoutSettings.colVisible")}: ${DEFAULT_LABELS[n]}`} onChange={(v) => { setField(n, { visible: v }); if (n === "area") setField("subarea", { visible: v }); }} /></span>
                 <span style={{ display: "flex", justifyContent: "center" }}><Toggle on={locked ? true : f.required} disabled={locked} label={`${t("checkoutSettings.colRequired")}: ${DEFAULT_LABELS[n]}`} onChange={(v) => setField(n, { required: v })} /></span>
               </div>
             );
@@ -277,7 +277,7 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
             device={device}
             layout={lay}
             fields={F}
-            names={FIELD_ORDER.filter(shown)}
+            names={FIELD_ORDER.filter((n) => shown(n) && n !== "subarea")}
             labelOf={(n) => F[n].label.trim() || DEFAULT_LABELS[n].replace(/ \(optional\)$/, "")}
             placeholderOf={(n) => F[n].placeholder.trim() || DEFAULT_PLACEHOLDERS[n]}
             required={(n) => LOCKED.includes(n) || F[n].required}
