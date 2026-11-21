@@ -14,11 +14,11 @@ const LOCKED = ["full_name", "province", "city", "address"]; // always shown + r
 const MAX_TEXT = 80;
 // mirrors the storefront's built-in texts (shown as the hint when a label/placeholder is blank)
 const DEFAULT_LABELS = {
-  full_name: "Full name", email: "Email", phone: "Mobile number", province: "Province", city: "City", area: "Area / Sub Area", subarea: "Subarea",
+  full_name: "Full name", email: "Email", phone: "Mobile number", province: "Province", city: "City / Province", area: "Area / Sub Area", subarea: "Subarea",
   address: "Street address", address2: "Apartment, floor (optional)", postal_code: "Postal code", order_notes: "Delivery notes (optional)",
 };
 const DEFAULT_PLACEHOLDERS = {
-  full_name: "e.g. Ayesha Khan", email: "you@example.com", phone: "03XXXXXXXXX", province: "Search province…", city: "Search city…",
+  full_name: "e.g. Ayesha Khan", email: "you@example.com", phone: "03XXXXXXXXX", province: "Search province…", city: "Search your city…",
   area: "Search area or sub area…", subarea: "Search subarea…", address: "House, street, landmark…", address2: "Apartment, floor, building", postal_code: "e.g. 54000", order_notes: "e.g. Leave with the guard",
 };
 const DEFAULT_LAYOUT = () => {
@@ -283,7 +283,7 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
             <span style={{ ...th, textAlign: "center" }} title={t("checkoutSettings.colVisible")}>Show</span>
             <span style={{ ...th, textAlign: "center" }} title={t("checkoutSettings.colRequired")}>Req.</span>
           </div>
-          {lay.order.filter((n) => n !== "subarea").map((n) => {
+          {lay.order.filter((n) => n !== "subarea" && n !== "province").map((n) => {
             const f = F[n];
             const locked = LOCKED.includes(n);
             const isSel = sel === n;
@@ -318,7 +318,7 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
             device={device}
             layout={lay}
             fields={F}
-            names={FIELD_ORDER.filter((n) => shown(n) && n !== "subarea")}
+            names={FIELD_ORDER.filter((n) => shown(n) && n !== "subarea" && n !== "province")}
             labelOf={(n) => F[n].label.trim() || DEFAULT_LABELS[n].replace(/ \(optional\)$/, "")}
             placeholderOf={(n) => F[n].placeholder.trim() || DEFAULT_PLACEHOLDERS[n]}
             required={(n) => LOCKED.includes(n) || F[n].required}
