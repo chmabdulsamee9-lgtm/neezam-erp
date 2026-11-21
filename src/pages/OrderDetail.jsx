@@ -5,6 +5,7 @@ import Icon from "../components/Icon";
 import ChipsInput from "../components/ChipsInput";
 import { workerFetch, publicFetch, logStoreActivity } from "../lib/storeApi";
 import { formatStoreDate, useStoreTimeZone } from "../lib/dates";
+import OrderConversion from "../components/OrderConversion";
 import { toWhatsAppPhone } from "../lib/phone";
 import { supabase } from "../supabase";
 import dexLogo from "../assets/couriers/dex.png";
@@ -221,6 +222,7 @@ export default function OrderDetail({ orderId, storeId, cfUrl }) {
           <NotesCard order={order} t={t} busy={busy} onSave={(note) => act("update_note", { note }, { okText: t("orderDetail.noteSaved") })} />
           <CustomerCard order={order} phone={phone} wa={wa} locked={readOnlyAll} t={t} busy={busy} onSave={(p) => act("update_customer", p, { okText: t("orderDetail.customerSaved") })} />
           <AddressCard order={order} locked={locked} t={t} busy={busy} cfUrl={cfUrl} onSave={(address) => act("update_address", { address }, { okText: t("orderDetail.addressSaved") })} />
+          <OrderConversion order={order} fmtDate={(d) => formatStoreDate(d, tz)} />
           <div style={card}>
             <h3 style={h3}><span>{t("orderDetail.tags")}</span></h3>
             <ChipsInput t={t} values={order.tags || []} options={[]} allowFree placeholder={t("orderDetail.addTag")} onChange={(tags) => act("update_tags", { tags }, { okText: t("orderDetail.tagsSaved") })} />
