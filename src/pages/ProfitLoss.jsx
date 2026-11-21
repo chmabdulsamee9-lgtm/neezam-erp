@@ -35,7 +35,7 @@ const PERIOD_OPTIONS = [
   { value: "all", labelKey: "orders.periodAll" },
 ]
 
-const CF_URL = "https://api.eneezam.com";
+const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 const META_DATE_PRESETS = { today: "today", yesterday: "yesterday", "7days": "last_7d", "30days": "last_30d" };
 
 export default function ProfitLoss({ ordersData, storeId, ordersStore, cfUrl = CF_URL, activePeriod, onPeriodChange }) {

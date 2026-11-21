@@ -4,7 +4,7 @@ import { supabase } from '../supabase'
 import Logo, { Monogram, Wordmark } from '../components/Logo'
 import { useLanguage, useTranslation } from '../i18n'
 
-const CF_URL = 'https://api.eneezam.com'
+const CF_URL = 'https://neezam-erp.chmabdulsamee9.workers.dev'
 const isValidPhone = (p) => /^\d{11}$/.test(p.trim())
 
 // ---------- SPLIT-LAYOUT SHELL (PostEx-style, Aurora Ledger theme) ----------

@@ -3,7 +3,7 @@ import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
 import { workerFetch } from "../lib/storeApi";
 
-const CF_URL = "https://api.eneezam.com";
+const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 const PIXEL_RE = /^[0-9]{5,20}$/;
 
 // the result of the OAuth round trip comes back as ?meta=connected | cancelled | error&reason=...

@@ -1,7 +1,7 @@
 // Some networks in Pakistan drop connections to Cloudflare now and then (ERR_QUIC_PROTOCOL_ERROR, ERR_CONNECTION_RESET,
 // "Failed to fetch") although the internet itself works, and often only for ONE hostname. So a request that fails with a
 // network error is tried again, and a call to our worker alternates between its two addresses
-// (api.eneezam.com and the workers.dev address), which are different hostnames and IPs.
+// (the workers.dev address first, api.eneezam.com as the backup), which are different hostnames and IPs.
 //
 // Only requests that are safe to repeat are retried: GET / HEAD, and POSTs of the read/save kind (get-, list-, check-,
 // save-, update-, preview-, quote-: repeating them changes nothing twice). Anything else (booking a courier, sending a

@@ -11,7 +11,7 @@ import { useLanguage, useTranslation } from "../i18n";
 import { AUTO_REMARK_VARIATIONS } from "../shipperRemarksConstants";
 import { csvEscapeCell, downloadCsv, sanitizeFilenamePart, buildCsvFromRows } from "../utils/csvExport";
 
-const CF_URL = "https://api.eneezam.com";
+const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 
 const PER_PAGE_OPTIONS = [20, 50, 100];
 

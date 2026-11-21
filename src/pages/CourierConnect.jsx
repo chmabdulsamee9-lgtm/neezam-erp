@@ -4,7 +4,7 @@ import { fetchStoreRow } from "../lib/storeColumns";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
 
-const CF_URL = "https://api.eneezam.com";
+const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 
 // Dex ke 43-column Excel export mein se sirf woh headers jo order_statuses ke courier-overlay
 // columns ke liye zaroori hain (price/address/warehouse/product-list waghera is naye architecture

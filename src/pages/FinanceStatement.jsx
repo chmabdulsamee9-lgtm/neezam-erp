@@ -5,7 +5,7 @@ import { SkelBar, SkelTable } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 import { csvEscapeCell, downloadCsv, sanitizeFilenamePart } from "../utils/csvExport";
 
-const CF_URL = "https://api.eneezam.com";
+const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 const PERIODS_PER_PAGE = 10;
 
 // Worker ke getDexStatementPeriod() ka EXACT wahi PKT (UTC+5, no DST) logic — dono taraf

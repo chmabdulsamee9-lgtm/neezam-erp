@@ -7,7 +7,7 @@ import ThemeEditorV2 from "./ThemeEditorV2";
 import { isV2 } from "../lib/themeV2/engine.generated";
 import { fetchJsonRetry } from "../lib/fetchRetry";
 
-const CF_URL = "https://api.eneezam.com";
+const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 
 // Theme editor entry. Nova (theme_config version 2) is the only theme engine: a theme in any other format cannot be
 // edited, published or duplicated any more, so it gets a clear message here (it can still be deleted from the Online Store list).

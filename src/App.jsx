@@ -211,7 +211,7 @@ const MetaCallback = lazyPage(() => import('./pages/MetaCallback'), null)
 const AdsAnalytics = lazyPage(() => import('./pages/AdsAnalytics'), 'ads')
 const Returns = lazyPage(() => import('./pages/Returns'), 'returns')
 
-const CF_URL = "https://api.eneezam.com"
+const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev"
 
 // Manage Access modal ki module-checklist aur sidebar ka allMenuItems — same set, 'home'/'settings'
 // dono jagah excluded (sidebar apne hisaab se alag se add karta hai, checklist unhe disable-able nahi rakhti).

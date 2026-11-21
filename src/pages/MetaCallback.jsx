@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 
-const CF_URL = "https://api.eneezam.com"
+const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev"
 
 export default function MetaCallback() {
   const [status, setStatus] = useState("🔄 Processing...");

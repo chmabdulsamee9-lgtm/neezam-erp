@@ -7,7 +7,7 @@ import { formatStoreDate, useStoreTimeZone } from "../lib/dates";
 import StoreMetricsStrip from "../components/StoreMetricsStrip";
 import { ThemeLibrary } from "./StoreGrowth";
 
-const CF_URL = "https://api.eneezam.com";
+const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 const PREVIEW_W = 1280;
 
 const btnPrimary = (disabled) => ({

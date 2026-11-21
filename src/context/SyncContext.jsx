@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useCallback, useRef } from "react";
 import { supabase } from "../supabase";
 
-const CF_URL = "https://api.eneezam.com";
+const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 
 // Ultimate failsafe only — real stop conditions are data.done and the bounded-retry
 // failure path below, not this cap.
