@@ -9,7 +9,8 @@
 // If every try fails, the error says in plain words that the connection dropped, instead of "Failed to fetch".
 const API = "https://api.eneezam.com";
 const WORKER = "https://neezam-erp.chmabdulsamee9.workers.dev";
-const SAFE_POST = /^\/(save|update|get|list|check|preview|quote)-/;
+// POSTs that only read (or save the same thing again): safe to repeat after a dropped connection
+const SAFE_POST = /^\/(?:(?:save|update|get|list|check|preview|quote|home)-[a-z0-9-]+|dashboard-stats|booked-page|orders-page|orders-filter-options|finance-statement(?:-orders)?|returns-list|supplier-ledger-entries|meta-(?:insights|ads-tree|status|campaigns|ad-accounts|businesses|pixels|catalogs|catalog-status|account-balance)|order-tracking-history|rate-card|dex-track-shipment|dex-finance-transactions|store-extras|copy-candidates)$/;
 const WAITS = [0, 300, 900, 1800];
 
 /** the same call on the worker's other address, or null for any other host */

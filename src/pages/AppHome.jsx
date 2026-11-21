@@ -85,6 +85,8 @@ export default function AppHome({ storeId, storeName, apiBase, fetcher, onNaviga
   const reqId = useRef(0);
   const lastFetchAtRef = useRef(0);
   const lastLiveRef = useRef(liveVersion);
+  const autoRetry = useRef(0);
+  const loadRef = useRef(null);
 
   useEffect(() => { setData(null); }, [storeId]);
 
@@ -122,16 +124,24 @@ export default function AppHome({ storeId, storeName, apiBase, fetcher, onNaviga
     try {
       const overview = await netP;
       if (myReq !== reqId.current) return; // purani request ka jawab ignore
+      autoRetry.current = 0;
       setView(cacheKey, overview).catch(() => {});
       if (!shown || JSON.stringify(shown) !== JSON.stringify(overview)) setData(overview);
       setError(false);
     } catch (e) {
       if (myReq !== reqId.current) return;
+      // a dropped connection: try again by itself (twice, 2.5s apart) before showing "Could not load stats"
+      if (!shown && autoRetry.current < 2) {
+        autoRetry.current += 1;
+        setTimeout(() => { if (myReq === reqId.current) loadRef.current?.(); }, 2500);
+        return;
+      }
       if (!shown) setError(true);
     } finally {
       if (myReq === reqId.current) setLoading(false);
     }
   }, [storeId, apiBase, fetcher, preset, customFrom, customTo]);
+  useEffect(() => { loadRef.current = load; }, [load]);
 
   // liveVersion-triggered refetch kam az kam 4s ke gap se (Dashboard.jsx wala pattern)
   useEffect(() => {
@@ -200,7 +210,7 @@ export default function AppHome({ storeId, storeName, apiBase, fetcher, onNaviga
       {error ? (
         <div style={{ display: "flex", alignItems: "center", gap: 10, color: "var(--ne-muted)", fontSize: 13 }}>
           <span>{t("home.loadError")}</span>
-          <button onClick={load} style={pill(true)}>{t("home.retry")}</button>
+          <button onClick={() => { autoRetry.current = 0; load(); }} style={pill(true)}>{t("home.retry")}</button>
         </div>
       ) : (
         <>
