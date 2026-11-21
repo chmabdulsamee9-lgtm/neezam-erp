@@ -5,7 +5,7 @@ import WhatsNew from './components/WhatsNew'
 import { hasSeenWhatsNew } from './lib/whatsNew'
 import { readSidebarOpen, writeSidebarOpen, clearSidebarOpen, createIdleCollapse } from './lib/sidebarState'
 import { placeTip } from './lib/popoverPosition'
-import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react'
+import { useState, useEffect, useMemo, useRef, lazy, Suspense, Component } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import './theme.css'
 import './look.css'
@@ -44,7 +44,9 @@ installFetchTracking()
 installEditMode()
 const loadWithRetry = (loader) => () => {
   const done = startLoading()
+  // a dropped connection often comes back a second later: one patient retry before reloading the page
   return loader()
+    .catch(() => new Promise((r) => setTimeout(r, 1200)).then(loader))
     .finally(done)
     .then((m) => { try { sessionStorage.removeItem(CHUNK_RELOAD_KEY) } catch (e) {} return m })
     .catch((err) => {
@@ -68,15 +70,60 @@ const prefetchPage = (id) => {
   const f = PAGE_PREFETCH[id]
   if (f) f()
 }
+// Once a user is signed in and the app has been idle for a few seconds, the other pages' code is downloaded one by one in the
+// background (while the connection is working), so opening a page later never has to depend on the network at that moment.
+let idlePrefetchStarted = false
+function startIdlePrefetch() {
+  if (idlePrefetchStarted || typeof window === 'undefined') return
+  idlePrefetchStarted = true
+  const c = navigator.connection
+  if (c && (c.saveData || /2g/.test(c.effectiveType || ''))) return
+  let signedIn = false
+  try { signedIn = !!localStorage.getItem('sb-zrdmzmhogykhtrvjdqko-auth-token') } catch (e) {}
+  if (!signedIn) return
+  const queue = Object.values(PAGE_PREFETCH)
+  const next = () => {
+    const f = queue.shift()
+    if (!f) return
+    if (!document.hidden) f()
+    setTimeout(next, 350)
+  }
+  setTimeout(next, 5000)
+}
+if (typeof window !== 'undefined') window.addEventListener('load', () => setTimeout(startIdlePrefetch, 2000))
+
+// Shown in place of ONE page when its code could not be downloaded (the connection dropped): the rest of the app keeps working.
+class PageLoadBoundary extends Component {
+  constructor(props) { super(props); this.state = { failed: false } }
+  static getDerivedStateFromError() { return { failed: true } }
+  render() {
+    if (!this.state.failed) return this.props.children
+    return <PageLoadFailed />
+  }
+}
+function PageLoadFailed() {
+  const [lang] = useLanguage()
+  const t = useTranslation(lang)
+  return (
+    <div role="alert" style={{ margin: '48px auto', maxWidth: 380, textAlign: 'center', padding: '24px 20px', background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 14 }}>
+      <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ne-text)', marginBottom: 6 }}>{t('pageLoad.title')}</div>
+      <p style={{ margin: '0 0 16px', fontSize: 13, lineHeight: 1.5, color: 'var(--ne-muted)' }}>{t('pageLoad.body')}</p>
+      <button onClick={() => { try { sessionStorage.removeItem(CHUNK_RELOAD_KEY) } catch (e) {} window.location.reload() }} style={{ padding: '9px 20px', borderRadius: 10, border: 'none', background: 'var(--ne-grad)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{t('pageLoad.retry')}</button>
+    </div>
+  )
+}
+
 // skeleton: false for pages that should show nothing (only the top loading bar) while their code loads
 function lazyPage(loader, menu, { skeleton = true } = {}) {
   if (menu) PAGE_PREFETCH[menu] = () => { loader().catch(() => {}) }
   const Lazy = lazy(loadWithRetry(loader))
   return function LazyPage(props) {
     return (
-      <Suspense fallback={menu && skeleton ? <PageSkeletonFor menu={menu} /> : null}>
-        <Lazy {...props} />
-      </Suspense>
+      <PageLoadBoundary>
+        <Suspense fallback={menu && skeleton ? <PageSkeletonFor menu={menu} /> : null}>
+          <Lazy {...props} />
+        </Suspense>
+      </PageLoadBoundary>
     )
   }
 }
