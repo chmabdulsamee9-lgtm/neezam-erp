@@ -119,6 +119,18 @@ export default function GeneralSettings({ storeId, cfUrl, canEdit, onOpenOnlineS
     setSaving(false);
   };
 
+  const [testing, setTesting] = useState(false);
+  const [testMsg, setTestMsg] = useState("");
+  const sendTest = async () => {
+    setTesting(true);
+    setTestMsg("");
+    const { data } = await workerFetch(cfUrl, "/test-order-email", { method: "POST", body: JSON.stringify({ store_id: storeId }) });
+    setTesting(false);
+    const bad = (data.sent || []).find((x) => !x.ok);
+    const q = data.quota?.daily != null ? ` (${data.quota.daily}/100, ${data.quota.monthly ?? "?"}/3000)` : "";
+    setTestMsg(data.error || (bad ? bad.error : (data.sent || []).length ? `${t("storeGeneral.mailTestSent").replace("{email}", data.sent[0].to)}${q}` : t("storeGeneral.errorSave")));
+  };
+
   const inp = { ...settingsInputStyle, marginBottom: 0 };
   const lab = settingsLabelStyle;
   const help = { fontSize: 10.5, color: "var(--ne-muted)", marginTop: 4, lineHeight: 1.45 };
@@ -184,6 +196,7 @@ export default function GeneralSettings({ storeId, cfUrl, canEdit, onOpenOnlineS
               <input type="checkbox" disabled={ro} checked={draft[k]} onChange={(e) => set({ [k]: e.target.checked })} /> {t(label)}
             </label>
           ))}
+          {!ro && <div><button type="button" style={btn(false, testing)} disabled={testing} onClick={sendTest}>{testing ? t("common.loading") : t("storeGeneral.mailTest")}</button>{testMsg && <span role="status" style={{ ...help, marginLeft: 10 }}>{testMsg}</span>}</div>}
         </div>
       </SettingsCard>
 
