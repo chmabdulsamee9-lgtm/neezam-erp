@@ -37,6 +37,7 @@ const emptyDraft = (settings, storeName, nextOrder) => ({
   legal_name: settings.business.legal_name, address1: settings.business.address1, address2: settings.business.address2, city: settings.business.city,
   province: settings.business.province, postal_code: settings.business.postal_code,
   email: settings.contact.email, phone: settings.contact.phone,
+  customerInvoice: settings.notifications?.customer_invoice !== false, merchantOrder: settings.notifications?.merchant_order !== false,
   weight_unit: settings.defaults.weight_unit, time_zone: settings.defaults.time_zone,
   prefix: settings.order_id.prefix, suffix: settings.order_id.suffix, nextOrder: String(nextOrder),
 });
@@ -96,6 +97,7 @@ export default function GeneralSettings({ storeId, cfUrl, canEdit, onOpenOnlineS
       settings: {
         business: { legal_name: draft.legal_name, address1: draft.address1, address2: draft.address2, city: draft.city, province: draft.province, postal_code: draft.postal_code, country: "Pakistan" },
         contact: { email: draft.email, phone: draft.phone },
+        notifications: { customer_invoice: draft.customerInvoice, merchant_order: draft.merchantOrder },
         defaults: { unit_system: "metric", weight_unit: draft.weight_unit, time_zone: draft.time_zone, currency: "PKR" },
         order_id: { prefix: draft.prefix, suffix: draft.suffix },
       },
@@ -176,6 +178,13 @@ export default function GeneralSettings({ storeId, cfUrl, canEdit, onOpenOnlineS
           <div><label style={lab}>{t("storeGeneral.phone")}</label><input style={inp} inputMode="tel" maxLength={20} disabled={ro} value={draft.phone} onChange={(e) => set({ phone: e.target.value })} /></div>
         </div>
         <div style={help}>{t("storeGeneral.emailHelp")}</div>
+        <div style={{ display: "grid", gap: 8, marginTop: 14 }}>
+          {[["customerInvoice", "storeGeneral.mailCustomer"], ["merchantOrder", "storeGeneral.mailMerchant"]].map(([k, label]) => (
+            <label key={k} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12.5, color: "var(--ne-text)" }}>
+              <input type="checkbox" disabled={ro} checked={draft[k]} onChange={(e) => set({ [k]: e.target.checked })} /> {t(label)}
+            </label>
+          ))}
+        </div>
       </SettingsCard>
 
       <SettingsCard>
