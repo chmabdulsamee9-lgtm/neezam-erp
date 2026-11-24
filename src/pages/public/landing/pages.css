@@ -57,7 +57,7 @@
 .pg-contact-i{display:flex;flex-direction:column;align-items:center;gap:8px;padding:30px;border-radius:22px;border:1px solid var(--lp-line);background:var(--lp-surface);color:var(--lp-text);text-decoration:none;transition:transform .3s,border-color .3s;}
 .pg-contact-i:hover{transform:translateY(-4px);border-color:var(--lp-a);}
 .pg-contact-i svg{color:var(--lp-a);}
-.pg-contact-i span{color:var(--lp-muted);}
+.pg-contact-i span{color:var(--lp-muted);text-align:center;}
 .pg-contact{padding-bottom:110px;}
 
 /* product mega menu in the nav */

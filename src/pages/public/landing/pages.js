@@ -432,6 +432,6 @@ const aboutEn = {
 export const PAGES = { ur, en };
 export const ABOUT = { ur: aboutUr, en: aboutEn };
 export const CONTACT = {
-  ur: { title: "Baat karein", sub: "Demo, pricing ya setup: hum madad ke liye haazir hain.", email: "Email", phone: "Phone / WhatsApp" },
-  en: { title: "Talk to us", sub: "Demo, pricing or setup: we're here to help.", email: "Email", phone: "Phone / WhatsApp" },
+  ur: { title: "Baat karein", sub: "Demo, pricing ya setup: hum madad ke liye haazir hain.", email: "Email", phone: "Phone / WhatsApp", hours: "Customer service ke auqaat", address: "Business ka pata" },
+  en: { title: "Talk to us", sub: "Demo, pricing or setup: we're here to help.", email: "Email", phone: "Phone / WhatsApp", hours: "Customer service hours", address: "Business address" },
 };
