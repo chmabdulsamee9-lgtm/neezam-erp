@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../supabase'
 import Logo, { Monogram, Wordmark } from '../components/Logo'
 import { useLanguage, useTranslation } from '../i18n'
+import { rememberSignupChoice } from '../lib/billingApi'
 
 const CF_URL = 'https://neezam-erp.chmabdulsamee9.workers.dev'
 const isValidPhone = (p) => /^\d{11}$/.test(p.trim())
@@ -81,6 +82,8 @@ export default function Login() {
   const [forgotOtp, setForgotOtp] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmNewPassword, setConfirmNewPassword] = useState('')
+
+  useEffect(() => { rememberSignupChoice(location.search) }, [location.search])
 
   useEffect(() => {
     const savedEmail = localStorage.getItem('neezam_email')
@@ -193,14 +196,9 @@ export default function Login() {
       const createData = await createRes.json().catch(() => ({}))
       if (!createRes.ok || !createData.success) { setError(signupError(createData)); setLoading(false); return }
 
-      // Welcome email best-effort hai — fail ho to bhi signup complete maana jayega
-      fetch(`${CF_URL}/send-welcome-email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, fullName: fullName.trim() }),
-      }).catch(() => {})
-
-      setSignupDone(true)
+      // signed in straight away: App shows the plan checkout until a plan or trial is active (its email is the welcome email)
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password })
+      if (signInError) setSignupDone(true)
     } catch (err) {
       setError(err.message)
     }
@@ -305,11 +303,9 @@ export default function Login() {
     return (
       <Shell isMobile={isMobile}>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }}>⏳</div>
           <h2 style={{ color: 'var(--ne-text)', margin: '0 0 8px', fontSize: 18 }}>Account ban gaya!</h2>
           <p style={{ color: 'var(--ne-muted)', fontSize: 13, lineHeight: 1.6 }}>
-            Aapka account abhi <strong style={{ color: 'var(--ne-warning)' }}>approval ke liye pending</strong> hai.
-            Jaise hi admin approve karega, aap login karke eNeezam use kar sakenge.
+            Ab login karke apna plan ya trial shuru karein.
           </p>
           <button
             onClick={() => { setSignupDone(false); switchMode('login'); setEmail(''); setPassword(''); setConfirmPassword(''); setBrandName(''); setFullName(''); setPhone('') }}
@@ -467,13 +463,6 @@ export default function Login() {
           <button type="button" onClick={() => setMode('signup')} style={{ background: 'none', border: 'none', color: 'var(--ne-muted)', fontSize: 12, cursor: 'pointer', padding: 0, marginBottom: 14 }}>
             ← Wapas
           </button>
-          <div style={{ border: '1px solid var(--ne-accent)', borderRadius: 12, padding: '14px', marginBottom: '1.25rem', background: 'var(--ne-accent-soft)' }}>
-            <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--ne-text)', margin: '0 0 8px' }}>Bank Transfer Details</p>
-            <p style={{ fontSize: 12, color: 'var(--ne-text)', margin: '0 0 3px' }}>Muhammad Abdul Samee</p>
-            <p style={{ fontSize: 12, color: 'var(--ne-text)', margin: '0 0 3px' }}>MCB (Muslim Commercial Bank)</p>
-            <p style={{ fontSize: 12, color: 'var(--ne-text)', margin: '0 0 8px', fontFamily: 'monospace' }}>PK75MUCB1101500011009142</p>
-            <p style={{ fontSize: 11, color: 'var(--ne-muted)', margin: 0 }}>Payment Invoice Screenshot share karein <strong>support@eneezam.com</strong> par</p>
-          </div>
           <p style={{ color: 'var(--ne-muted)', fontSize: '13px', margin: '0 0 1rem', lineHeight: 1.6 }}>
             <strong style={{ color: 'var(--ne-text)' }}>{email}</strong> pe 6-digit code bheja gaya hai — daal do.
           </p>

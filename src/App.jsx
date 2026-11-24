@@ -1,14 +1,15 @@
 import useIsMobile from './hooks/useIsMobile'
-import { MobileBottomNav, MobileTopBar, MobileMenuSheet } from './components/MobileNav'
-import { pickBottomTabs, activeTabFor } from './lib/mobile'
+import { useCallback, MobileBottomNav, MobileTopBar, MobileMenuSheet } from './components/MobileNav'
+import { useCallback, pickBottomTabs, activeTabFor } from './lib/mobile'
 import WhatsNew from './components/WhatsNew'
-import { hasSeenWhatsNew } from './lib/whatsNew'
-import { readSidebarOpen, writeSidebarOpen, clearSidebarOpen, createIdleCollapse } from './lib/sidebarState'
-import { placeTip } from './lib/popoverPosition'
-import { useState, useEffect, useMemo, useRef, lazy, Suspense, Component } from 'react'
+import { useCallback, hasSeenWhatsNew } from './lib/whatsNew'
+import { useCallback, readSidebarOpen, writeSidebarOpen, clearSidebarOpen, createIdleCollapse } from './lib/sidebarState'
+import { useCallback, placeTip } from './lib/popoverPosition'
+import { useCallback, useState, useEffect, useMemo, useRef, lazy, Suspense, Component } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import './theme.css'
 import './look.css'
+import { billingApi } from './lib/billingApi'
 import { supabase } from './supabase'
 import LoadingBar from './components/LoadingBar'
 import PullToRefresh from './components/PullToRefresh'
@@ -195,6 +196,8 @@ const GeminiUsageMonitor = lazyPage(() => import('./pages/GeminiUsageMonitor'), 
 const UiEditor = lazyPage(() => import('./pages/UiEditor'), 'master-dashboard/ui-editor', { skeleton: false })
 import NeeziJobPill from './components/NeeziJobPill'
 const AgnesMonitor = lazyPage(() => import('./pages/AgnesMonitor'), 'master-dashboard/agnes-monitor')
+const PlanCheckout = lazyPage(() => import('./pages/PlanCheckout'), 'billing', { skeleton: false })
+const BillingAdmin = lazyPage(() => import('./pages/BillingAdmin'), 'master-dashboard/billing', { skeleton: false })
 const StoreGrowthPage = lazyPage(() => import('./pages/StoreGrowth'), 'online-store/collections')
 const ShopifyCallback = lazyPage(() => import('./pages/ShopifyCallback'), null)
 const Orders = lazyPage(() => import('./pages/Orders'), 'orders')
@@ -866,6 +869,10 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
             style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Icon name="sparkle" size={13} /> Agnes AI
           </button>
+          <button onClick={() => navigate('/master-dashboard/billing')}
+            style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="card" size={13} /> Payments
+          </button>
           <button onClick={() => navigate('/master-dashboard/ui-editor')}
             style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Icon name="palette" size={13} /> UI Editor
@@ -1421,6 +1428,20 @@ function App() {
   // URL/store ko ignore karte hue. Master Dashboard ka apna route (/master-dashboard) hai.
   const isMasterView = activeMenu === 'master-dashboard'
   const [isAdminMasterView, setIsAdminMasterView] = useState(false)
+  // plan state (worker /billing/state): 'none' for stores from before billing and whenever it cannot be read (never locks by mistake)
+  const [billingAccess, setBillingAccess] = useState({ state: 'none' })
+  useEffect(() => {
+    if (!selectedStoreId || !profile?.approved || profile.role === 'creator') return undefined
+    let stop = false
+    const check = async () => {
+      const d = await billingApi('state', { store_id: selectedStoreId })
+      if (!stop && !d.error) setBillingAccess(d.access || { state: 'none' })
+    }
+    check()
+    const iv = setInterval(check, 30 * 60 * 1000)
+    return () => { stop = true; clearInterval(iv) }
+  }, [selectedStoreId, profile?.approved, profile?.role])
+  const planActivated = useCallback(() => { window.location.href = '/home' }, [])
   const [adminStoreStats, setAdminStoreStats] = useState({})
   const [notifCount, setNotifCount] = useState(0)
 
@@ -1698,7 +1719,7 @@ function App() {
           persistStoreId(fallbackStoreId)
         }
         const isProductionDomain = window.location.hostname.includes('portal.eneezam.com')
-        if (location.pathname === '/accounts') {
+        if (['/accounts', '/billing', '/master-dashboard/billing'].includes(location.pathname)) {
           // store-independent page — don't bounce a direct load of it
         } else if (isProductionDomain) {
           if (location.pathname !== '/home') {
@@ -2240,7 +2261,14 @@ function App() {
   }
   if (!profileLoaded) return <SplashScreen />
   if (!profile) return <PendingApprovalScreen onSignOut={() => supabase.auth.signOut()} t={t} />
-  if (profile.role !== 'creator' && !profile.approved) return <PendingApprovalScreen onSignOut={() => supabase.auth.signOut()} t={t} />
+  if (profile.role !== 'creator' && !profile.approved) {
+    if (profile.role !== 'admin') return <PendingApprovalScreen onSignOut={() => supabase.auth.signOut()} t={t} />
+    return <PlanCheckout onSignOut={() => supabase.auth.signOut()} onActivated={planActivated} />
+  }
+  if (activeMenu === 'billing' || (profile.role !== 'creator' && billingAccess.state === 'locked')) {
+    return <PlanCheckout key={selectedStoreId} storeId={selectedStoreId} locked={billingAccess.state === 'locked'} onExit={() => navigate('/home')} onSignOut={() => supabase.auth.signOut()} onActivated={planActivated} />
+  }
+  if (activeMenu === 'master-dashboard/billing' && profile.role === 'creator') return <BillingAdmin onExit={() => navigate('/master-dashboard')} />
 
   // /accounts is store-independent (account identity, not store access), so it renders here —
   // behind the session/profile/approval gates above but before the master-view and store gates.
@@ -2523,6 +2551,12 @@ function App() {
           </div>
         )}
 
+        {(billingAccess.state === 'ending' || billingAccess.state === 'grace') && profile?.role === 'admin' && (
+          <button onClick={() => navigate('/billing')} style={{ position: 'fixed', bottom: isMobile ? 76 : 16, left: '50%', transform: 'translateX(-50%)', zIndex: 2000000, maxWidth: '92vw', padding: '10px 16px', borderRadius: 10, background: 'var(--ne-warning-soft)', border: '1px solid var(--ne-warning)', color: 'var(--ne-warning)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', boxShadow: '0 8px 24px rgba(0,0,0,.3)' }}>
+            {billingAccess.state === 'grace' ? t('billing.ended') : t('billing.ending').replace('{days}', billingAccess.days)}
+          </button>
+        )}
+
         {reminderPopupOpen && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000001 }}>
             <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 16, width: 380, maxWidth: '92vw', padding: '20px' }}>
@@ -2698,6 +2732,7 @@ function App() {
             settingsSections={[
               { id: 'accounts-profile', label: t('settings.myProfile'), menu: 'accounts' },
               { id: 'accounts-password', label: t('settings.changePassword'), menu: 'accounts' },
+              { id: 'plan-billing', label: t('billing.title'), menu: 'billing' },
               { id: 'whatsapp', label: t('nav.whatsapp'), menu: 'settings?section=whatsapp' },
               { id: 'courier-connect', label: t('nav.courier-connect'), menu: 'settings?section=courier-connect' },
               { id: 'meta-connect', label: t('nav.meta-connect'), menu: 'settings?section=meta-connect' },
