@@ -121,7 +121,7 @@ export default function PlanCheckout({ storeId, locked, onExit, onSignOut, onAct
   const a = state?.access;
 
   return (
-    <div className="ne-app-shell" style={{ height: "100%", overflow: "auto" }}>
+    <div className="ne-app-shell ne-master" style={{ height: "100%", overflow: "auto" }}>
       <style>{`.pc-wrap{max-width:1040px;margin:0 auto;padding:20px 16px 60px;display:grid;gap:16px}.pc-plans{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.pc-cols{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;align-items:start}@media(max-width:820px){.pc-plans,.pc-cols{grid-template-columns:1fr}}`}</style>
       <div className="pc-wrap">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
