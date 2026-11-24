@@ -144,7 +144,14 @@ const PublicTerms = lazyPage(() => import('./pages/public/Terms'), null)
 const PublicPrivacy = lazyPage(() => import('./pages/public/Privacy'), null)
 const PublicDataDeletion = lazyPage(() => import('./pages/public/DataDeletion'), null)
 // Legal pages that Meta (and everybody else) must be able to open without logging in, on any host, with or without a session
-const LEGAL_ROUTES = { '/privacy': PublicPrivacy, '/terms': PublicTerms, '/data-deletion': PublicDataDeletion }
+const PublicRefund = lazyPage(() => import('./pages/public/PolicyPage').then((m) => ({ default: m.RefundPolicy })), null)
+const PublicShipping = lazyPage(() => import('./pages/public/PolicyPage').then((m) => ({ default: m.ShippingPolicy })), null)
+const PublicFaq = lazyPage(() => import('./pages/public/PolicyPage').then((m) => ({ default: m.FaqPage })), null)
+const LEGAL_ROUTES = {
+  '/privacy': PublicPrivacy, '/terms': PublicTerms, '/data-deletion': PublicDataDeletion,
+  // payment-gateway (State Bank) website checks: refund/return, shipping and FAQ pages (Nov 2026)
+  '/refund-policy': PublicRefund, '/shipping-policy': PublicShipping, '/faq': PublicFaq,
+}
 
 // Public marketing-site routes — sirf logged-out visitors ke liye (jaisa
 // pehle sirf "/" ke liye Homepage tha, ab poori 12-page site isi pattern

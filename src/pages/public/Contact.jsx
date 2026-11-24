@@ -4,6 +4,7 @@ import Icon from "../../components/Icon";
 import { useLanguage, useTranslation } from "../../i18n";
 import PublicHeader from "./PublicHeader";
 import PublicFooter from "./PublicFooter";
+import { LEGAL } from "./legal";
 
 // NOTE: "contact_submissions" table abhi Supabase mein nahi bani — is form
 // ka insert() tabhi kaam karega jab woh table + insert-policy bann jaye
@@ -96,7 +97,9 @@ export default function Contact() {
             </div>
             <div>
               <div style={{ fontSize: 11, color: "var(--ne-muted)", fontWeight: 600, textTransform: "uppercase" }}>{t("mkt.contact.phoneLabel")}</div>
-              <div style={{ fontSize: 13.5, fontWeight: 700 }}>03152433123</div>
+              <div style={{ fontSize: 13.5, fontWeight: 700 }}>{LEGAL.phone}</div>
+              <div style={{ fontSize: 12, color: "var(--ne-muted)", marginTop: 4 }}>{LEGAL.hours[lang === "en" ? "en" : "ur"]}</div>
+              <div style={{ fontSize: 12, color: "var(--ne-muted)", marginTop: 2 }}>{LEGAL.address}</div>
             </div>
           </div>
         </div>

@@ -6,6 +6,7 @@ import { useLP, useReveal, useHashScroll, usePointerVars, LPNav, LPFooter, Faq, 
 import { AppWindow } from "./AppUI";
 import { PAGES, PAGE_ORDER, PAGE_ICONS, PAGE_PATH, ABOUT, CONTACT } from "./pages";
 import Neezi from "./Neezi";
+import { LEGAL } from "../legal";
 import "./pages.css";
 
 export const isContentPage = (page) => page !== "home";
@@ -131,7 +132,9 @@ function ContactPage({ lang }) {
         <p data-rv="up" style={{ "--d": "100ms" }}>{k.sub}</p>
         <div className="pg-contact-grid">
           <a className="pg-contact-i" href="mailto:support@eneezam.com" data-rv="up"><Icon name="send" size={18} /><b>{k.email}</b><span>support@eneezam.com</span></a>
-          <a className="pg-contact-i" href="https://wa.me/923152433123" target="_blank" rel="noreferrer" data-rv="up" style={{ "--d": "100ms" }}><Icon name="comment" size={18} /><b>{k.phone}</b><span>0315 2433123</span></a>
+          <a className="pg-contact-i" href={LEGAL.whatsappLink} target="_blank" rel="noreferrer" data-rv="up" style={{ "--d": "100ms" }}><Icon name="comment" size={18} /><b>{k.phone}</b><span>{LEGAL.phone}</span></a>
+          <div className="pg-contact-i" data-rv="up" style={{ "--d": "200ms" }}><Icon name="clock" size={18} /><b>{k.hours}</b><span>{LEGAL.hours[lang === "en" ? "en" : "ur"]}</span></div>
+          <div className="pg-contact-i" data-rv="up" style={{ "--d": "300ms" }}><Icon name="pin" size={18} /><b>{k.address}</b><span>{LEGAL.address}</span></div>
         </div>
       </div>
     </section>

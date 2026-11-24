@@ -10,6 +10,7 @@ import { isDevEnv } from "../../../App";
 import { CONTENT, PLANS, COMPARE } from "./content";
 import { PAGES, PAGE_ORDER, PAGE_ICONS, PAGE_PATH } from "./pages";
 import Neezi from "./Neezi";
+import { LEGAL } from "../legal";
 import "./landing.css";
 
 export function useLP() {
@@ -265,7 +266,9 @@ export function LPFooter({ c, logoDark = false }) {
         <div className="lp-foot-brand">
           <div className="lp-foot-logo"><Monogram size={24} /><Wordmark size={16} dark={logoDark} /></div>
           <p>{c.footer.blurb}</p>
-          <p className="lp-foot-contact">support@eneezam.com · 03152433123</p>
+          <p className="lp-foot-contact">{LEGAL.contactEmail} · {LEGAL.phone}</p>
+          <p className="lp-foot-contact">{LEGAL.hours[c === CONTENT.en ? "en" : "ur"]}</p>
+          <p className="lp-foot-contact">{LEGAL.address}</p>
         </div>
         <div><h4>{c.footer.product}</h4>
           {PAGE_ORDER.slice(0, 8).map((s) => <button key={s} onClick={() => navigate(PAGE_PATH[s])}>{PAGES[c === CONTENT.en ? "en" : "ur"][s].nav}</button>)}
@@ -279,6 +282,9 @@ export function LPFooter({ c, logoDark = false }) {
         <div><h4>{c.footer.legal}</h4>
           <button onClick={() => navigate("/terms")}>{c.footer.terms}</button>
           <button onClick={() => navigate("/privacy")}>{c.footer.privacy}</button>
+          <button onClick={() => navigate("/refund-policy")}>{c === CONTENT.en ? "Refund & Return Policy" : "Refund aur Return Policy"}</button>
+          <button onClick={() => navigate("/shipping-policy")}>{c === CONTENT.en ? "Shipping & Delivery" : "Shipping aur Delivery"}</button>
+          <button onClick={() => navigate("/faq")}>FAQ</button>
           <button onClick={() => navigate("/data-deletion")}>{c.footer.deletion}</button>
         </div>
       </div>

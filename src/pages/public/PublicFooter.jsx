@@ -3,6 +3,7 @@ import { Monogram, Wordmark } from "../../components/Logo";
 import Icon from "../../components/Icon";
 import { useLanguage, useTranslation } from "../../i18n";
 import { SOLUTIONS_LINKS } from "./solutionsLinks";
+import { LEGAL } from "./legal";
 
 export default function PublicFooter() {
   const navigate = useNavigate();
@@ -38,6 +39,9 @@ export default function PublicFooter() {
           <button onClick={() => navigate("/pricing")} style={linkStyle}>{t("mkt.nav.pricing")}</button>
           <button onClick={() => navigate("/terms")} style={linkStyle}>{t("mkt.footer.terms")}</button>
           <button onClick={() => navigate("/privacy")} style={linkStyle}>{t("mkt.footer.privacy")}</button>
+          <button onClick={() => navigate("/refund-policy")} style={linkStyle}>{lang === "en" ? "Refund & Return Policy" : "Refund aur Return Policy"}</button>
+          <button onClick={() => navigate("/shipping-policy")} style={linkStyle}>{lang === "en" ? "Shipping & Delivery" : "Shipping aur Delivery"}</button>
+          <button onClick={() => navigate("/faq")} style={linkStyle}>FAQ</button>
           <button onClick={() => navigate("/data-deletion")} style={linkStyle}>{t("mkt.footer.dataDeletion")}</button>
         </div>
 
@@ -47,7 +51,13 @@ export default function PublicFooter() {
             <Icon name="send" size={12} /> support@eneezam.com
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "var(--ne-muted)" }}>
-            <Icon name="comment" size={12} /> 03152433123
+            <Icon name="comment" size={12} /> {LEGAL.phone}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "var(--ne-muted)", marginTop: 8 }}>
+            <Icon name="clock" size={12} /> {LEGAL.hours[lang === "en" ? "en" : "ur"]}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "var(--ne-muted)", marginTop: 8 }}>
+            <Icon name="pin" size={12} /> {LEGAL.address}
           </div>
         </div>
       </div>
