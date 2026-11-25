@@ -45,7 +45,7 @@ const ur = {
       { t: "Orders seedha eNeezam mein", d: "Store ka har order foran Orders list mein, WhatsApp confirm aur booking ke liye tayyar." },
     ],
     steps: [{ t: "Theme chunein", d: "Ya Neezi se banwayein." }, { t: "Products daalein", d: "Price, images aur stock." }, { t: "Domain jorein", d: "Aur bechna shuru." }],
-    faq: [{ q: "Kya Shopify bhi saath chal sakta hai?", a: "Ji. Dono ek saath chal sakte hain, orders ek hi list mein aate hain." }, { q: "Sirf Shopify chahiye, store nahi?", a: "Sirf Shopify connect wala plan Rs 3,000 / mahina hai." }],
+    faq: [{ q: "Kya Shopify bhi saath chal sakta hai?", a: "Ji. Dono ek saath chal sakte hain, orders ek hi list mein aate hain." }, { q: "Sirf Shopify chahiye, store nahi?", a: "Shopify connect Essential plan (Rs 5,000 / mahina) mein shamil hai, alag plan ki zaroorat nahi." }],
   },
   shopify: {
     nav: "Shopify connect", screen: "orders",
@@ -242,7 +242,7 @@ const en = {
       { t: "Orders straight into eNeezam", d: "Every store order is in the Orders list at once, ready for WhatsApp confirmation and booking." },
     ],
     steps: [{ t: "Pick a theme", d: "Or let Neezi build one." }, { t: "Add products", d: "Price, images and stock." }, { t: "Connect a domain", d: "And start selling." }],
-    faq: [{ q: "Can Shopify run alongside?", a: "Yes. Both can run together and orders arrive in one list." }, { q: "Only Shopify, no store?", a: "The Shopify-only plan is Rs 3,000 / month." }],
+    faq: [{ q: "Can Shopify run alongside?", a: "Yes. Both can run together and orders arrive in one list." }, { q: "Only Shopify, no store?", a: "Shopify connect is included in the Essential plan (Rs 5,000 / month), no separate plan needed." }],
   },
   shopify: {
     nav: "Shopify connect", screen: "orders",

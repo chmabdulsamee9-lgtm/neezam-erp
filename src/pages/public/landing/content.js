@@ -4,7 +4,7 @@
 
 export const PLANS = [
   {
-    id: "essential", price: 5000, alt: 3000,
+    id: "essential", price: 5000,
     limits: { staff: 1, ads: 3, budget: 15000, wa: 2000 },
   },
   {
@@ -96,12 +96,11 @@ const ur = {
   pricingSub: "Plan sirf staff, ads, WhatsApp messages aur website setup ke level se badalta hai.",
   perMonth: "/ mahina",
   popular: "Sab se zyada pasand",
-  shopifyOnly: "Sirf Shopify connect: Rs 3,000 / mahina (eNeezam store aur domain ke baghair)",
   planName: { essential: "Essential", grow: "Grow", advance: "Advance" },
   planTag: { essential: "Naya brand: Neezi AI aap ka poora store launch karta hai", grow: "Chalta hua brand: team, zyada ads, custom design", advance: "Bara brand: bari team, heavy ad spend" },
   limit: { staff: "Staff", ads: "Ads (max)", budget: "Ad budget / din", wa: "WhatsApp messages*" },
   planHi: {
-    essential: ["Unlimited orders", "eNeezam store + apna domain", "Courier + Nex", "PnL aur supplier ledger", "Neezi AI Store Launch: tayyar store, aap ke brand ke saath"],
+    essential: ["Unlimited orders", "eNeezam store + apna domain", "Shopify connect shamil", "Courier + Nex", "PnL aur supplier ledger", "Neezi AI Store Launch: tayyar store, aap ke brand ke saath"],
     grow: ["Essential ka sab kuch", "Neezi AI Design Studio: har section apni marzi ka", "Logo se color scheme", "Apne prompt se design", "3x staff, 3x ads"],
     advance: ["Grow ka sab kuch", "5 staff accounts", "20 ads, Rs 1.5 lakh / din", "30,000 WhatsApp messages", "Sab se zyada limits"],
   },
@@ -122,7 +121,7 @@ const ur = {
   faqTitle: "Aksar pooche jane wale sawal",
   faq: [
     { q: "Kya orders ki koi limit hai?", a: "Nahi. Har plan mein unlimited orders. Plan sirf staff, ads aur WhatsApp messages ki limit se badalta hai." },
-    { q: "Mera Shopify store hai, kya woh chalega?", a: "Ji. Shopify connect karein, orders khud aa jayenge. Sirf Shopify wala option Rs 3,000 / mahina hai." },
+    { q: "Mera Shopify store hai, kya woh chalega?", a: "Ji. Shopify connect karein, orders khud aa jayenge. Shopify connect har plan mein shamil hai, Essential (Rs 5,000 / mahina) se." },
     { q: "WhatsApp messages ka kharcha kaise hota hai?", a: "eNeezam sirf apna plan charge karta hai. Aap apna number jorte hain aur Meta apni per-message fee seedha aap ke Meta account se leta hai. Customer ke jawab wale messages aksar free hote hain." },
     { q: "Courier kaun sa?", a: "Apna courier account jorein, ya Nex (Neezam Express) ke zariye eNeezam ka account use karein." },
     { q: "Kya plan baad mein badal sakte hain?", a: "Ji, kisi bhi waqt upar ya neeche." },
@@ -188,12 +187,11 @@ const en = {
   pricingSub: "Plans differ only in staff, ads, WhatsApp messages and the level of website setup.",
   perMonth: "/ month",
   popular: "Most popular",
-  shopifyOnly: "Shopify connect only: Rs 3,000 / month (without the eNeezam store and domain)",
   planName: { essential: "Essential", grow: "Grow", advance: "Advance" },
   planTag: { essential: "New brand: Neezi AI launches your whole store", grow: "Running brand: a team, more ads, custom design", advance: "Big brand: a large team, heavy ad spend" },
   limit: { staff: "Staff", ads: "Ads (max)", budget: "Ad budget / day", wa: "WhatsApp messages*" },
   planHi: {
-    essential: ["Unlimited orders", "eNeezam store + your domain", "Courier + Nex", "PnL and supplier ledger", "Neezi AI Store Launch: a ready store in your brand"],
+    essential: ["Unlimited orders", "eNeezam store + your domain", "Shopify connect included", "Courier + Nex", "PnL and supplier ledger", "Neezi AI Store Launch: a ready store in your brand"],
     grow: ["Everything in Essential", "Neezi AI Design Studio: every section your way", "Colour scheme from your logo", "Design from your own prompt", "3x staff, 3x ads"],
     advance: ["Everything in Grow", "5 staff accounts", "20 ads, Rs 1.5 lakh / day", "30,000 WhatsApp messages", "The highest limits"],
   },
@@ -214,7 +212,7 @@ const en = {
   faqTitle: "Frequently asked questions",
   faq: [
     { q: "Is there a limit on orders?", a: "No. Unlimited orders on every plan. Plans differ only in staff, ads and WhatsApp messages." },
-    { q: "I have a Shopify store. Will it work?", a: "Yes. Connect Shopify and orders come in on their own. The Shopify-only option is Rs 3,000 / month." },
+    { q: "I have a Shopify store. Will it work?", a: "Yes. Connect Shopify and orders come in on their own. Shopify connect is included in every plan, from Essential (Rs 5,000 / month)." },
     { q: "How are WhatsApp messages charged?", a: "eNeezam charges only its plan. You connect your own number and Meta bills its per-message fee directly to your Meta account. Replies within a customer's chat are usually free." },
     { q: "Which courier?", a: "Connect your own courier account, or use eNeezam's through Nex (Neezam Express)." },
     { q: "Can I change plans later?", a: "Yes, up or down at any time." },
