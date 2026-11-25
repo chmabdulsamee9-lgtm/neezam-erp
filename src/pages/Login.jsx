@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../supabase'
 import Logo, { Monogram, Wordmark } from '../components/Logo'
 import { useLanguage, useTranslation } from '../i18n'
+import { rememberSignupChoice } from '../lib/billingApi'
 
 const CF_URL = 'https://neezam-erp.chmabdulsamee9.workers.dev'
 const isValidPhone = (p) => /^\d{11}$/.test(p.trim())
@@ -81,6 +82,8 @@ export default function Login() {
   const [forgotOtp, setForgotOtp] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmNewPassword, setConfirmNewPassword] = useState('')
+
+  useEffect(() => { rememberSignupChoice(location.search) }, [location.search])
 
   useEffect(() => {
     const savedEmail = localStorage.getItem('neezam_email')
@@ -193,14 +196,9 @@ export default function Login() {
       const createData = await createRes.json().catch(() => ({}))
       if (!createRes.ok || !createData.success) { setError(signupError(createData)); setLoading(false); return }
 
-      // Welcome email best-effort hai — fail ho to bhi signup complete maana jayega
-      fetch(`${CF_URL}/send-welcome-email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, fullName: fullName.trim() }),
-      }).catch(() => {})
-
-      setSignupDone(true)
+      // signed in straight away: App shows the plan checkout until a plan or trial is active (its email is the welcome email)
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password })
+      if (signInError) setSignupDone(true)
     } catch (err) {
       setError(err.message)
     }
@@ -305,11 +303,9 @@ export default function Login() {
     return (
       <Shell isMobile={isMobile}>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }}>⏳</div>
           <h2 style={{ color: 'var(--ne-text)', margin: '0 0 8px', fontSize: 18 }}>Account ban gaya!</h2>
           <p style={{ color: 'var(--ne-muted)', fontSize: 13, lineHeight: 1.6 }}>
-            Aapka account abhi <strong style={{ color: 'var(--ne-warning)' }}>approval ke liye pending</strong> hai.
-            Jaise hi admin approve karega, aap login karke eNeezam use kar sakenge.
+            Ab login karke apna plan ya trial shuru karein.
           </p>
           <button
             onClick={() => { setSignupDone(false); switchMode('login'); setEmail(''); setPassword(''); setConfirmPassword(''); setBrandName(''); setFullName(''); setPhone('') }}

@@ -19,7 +19,11 @@ export function useLP() {
   return { lang, setLang, c };
 }
 
-export const goSignup = () => { window.location.href = isDevEnv() ? "/signup" : "https://portal.eneezam.com/signup"; };
+// used as an onClick too, so only a plain string counts as a plan id
+export const goSignup = (plan) => {
+  const q = typeof plan === "string" ? `?plan=${encodeURIComponent(plan)}` : "";
+  window.location.href = `${isDevEnv() ? "" : "https://portal.eneezam.com"}/signup${q}`;
+};
 // the plan buttons: buy without an account
 export const goBuy = (plan) => { window.location.href = `${isDevEnv() ? "" : "https://eneezam.com"}/checkout?plan=${encodeURIComponent(plan)}`; };
 export const goLogin = () => { window.location.href = isDevEnv() ? "/login" : "https://portal.eneezam.com/login"; };
