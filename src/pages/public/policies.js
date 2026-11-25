@@ -7,8 +7,8 @@ const price = (id) => {
   const p = PLANS.find((x) => x.id === id);
   return p ? `Rs ${p.price.toLocaleString("en-PK")}` : "";
 };
-const PRICES_EN = `Essential ${price("essential")}, Grow ${price("grow")} and Advance ${price("advance")} per month, and Shopify Connect only Rs 3,000 per month. All prices are in Pakistani Rupees (PKR).`;
-const PRICES_UR = `Essential ${price("essential")}, Grow ${price("grow")} aur Advance ${price("advance")} mahana, aur sirf Shopify Connect Rs 3,000 mahana. Tamam qeematein Pakistani Rupee (PKR) mein hain.`;
+const PRICES_EN = `Essential ${price("essential")}, Grow ${price("grow")} and Advance ${price("advance")} per month. Shopify Connect is included in every plan. All prices are in Pakistani Rupees (PKR).`;
+const PRICES_UR = `Essential ${price("essential")}, Grow ${price("grow")} aur Advance ${price("advance")} mahana. Shopify Connect har plan mein shamil hai. Tamam qeematein Pakistani Rupee (PKR) mein hain.`;
 
 export const POLICIES = {
   en: {

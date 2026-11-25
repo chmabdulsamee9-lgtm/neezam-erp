@@ -10,7 +10,7 @@ const input = { width: "100%", padding: "10px 12px", borderRadius: 9, border: "1
 const btn = (primary, off) => ({ padding: "11px 18px", borderRadius: 10, border: primary ? "none" : "1px solid var(--ne-border)", background: primary ? "var(--ne-grad)" : "transparent", color: primary ? "#fff" : "var(--ne-text)", fontSize: 14, fontWeight: 700, cursor: off ? "default" : "pointer", opacity: off ? 0.55 : 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 });
 const muted = { color: "var(--ne-muted)", fontSize: 13, lineHeight: 1.6, margin: 0 };
 const PLAN_POINTS = {
-  essential: ["Neezi AI Store Launch", "3 ads, Rs 15,000 / din", "2,000 WhatsApp messages", "1 staff"],
+  essential: ["eNeezam store + Shopify connect", "Neezi AI Store Launch", "3 ads, Rs 15,000 / din", "2,000 WhatsApp messages", "1 staff"],
   grow: ["Neezi AI Design Studio", "10 ads, Rs 50,000 / din", "10,000 WhatsApp messages", "3 staff"],
   advance: ["Neezi AI Design Studio", "20 ads, Rs 1.5 lakh / din", "30,000 WhatsApp messages", "5 staff"],
 };
@@ -40,7 +40,7 @@ export default function PlanCheckout({ storeId, locked, onExit, onSignOut, onAct
       const want = signupChoice().plan;
       return d.billing?.plan_id || d.plans.find((p) => p.name.toLowerCase() === want)?.id || d.plans.find((p) => p.name === "Grow")?.id || d.plans[0]?.id || "";
     });
-    setMethod((cur) => cur || (d.methods.rapid ? "rapid" : d.methods.bank ? "bank" : ""));
+    setMethod((cur) => cur || (d.methods.rapid && !d.methods.rapid_test ? "rapid" : d.methods.bank ? "bank" : ""));
   }, [storeId]);
   useEffect(() => { load(); }, [load]);
 

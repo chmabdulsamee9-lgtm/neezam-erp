@@ -103,7 +103,6 @@
 .lp-plan-tag{font-size:13px;color:var(--lp-muted);line-height:1.45;min-height:38px;}
 .lp-plan-price{font-size:34px;font-weight:800;letter-spacing:-.03em;margin-top:10px;}
 .lp-plan-price small{font-size:13px;font-weight:500;color:var(--lp-muted);letter-spacing:0;}
-.lp-plan-alt{font-size:12px;background:var(--lp-bg2);border-radius:10px;padding:8px 10px;line-height:1.45;color:var(--lp-muted);}
 .lp-plan-lims{display:grid;gap:7px;margin:14px 0 8px;}
 .lp-plan-lims div{display:flex;justify-content:space-between;font-size:13px;border-bottom:1px dashed var(--lp-line);padding-bottom:6px;}
 .lp-plan-lims span{color:var(--lp-muted);}
@@ -174,5 +173,4 @@
 .lp-root .lp-plan.pid-advance .lp-plan-lims div{border-bottom-color:rgba(255,255,255,.12);}
 .lp-root .lp-plan.pid-advance .lp-plan-name,.lp-root .lp-plan.pid-advance .lp-plan-feat li svg{color:#F472B6;}
 .lp-root .lp-plan.pid-advance .lp-btn{background:linear-gradient(120deg,#A855F7,#F472B6);color:#fff;border:none;box-shadow:0 10px 26px rgba(244,114,182,.3);}
-.lp-root .lp-plan.pid-essential .lp-plan-alt,.lp-root .lp-plan.pid-advance .lp-plan-alt{background:rgba(127,127,170,.12);}
 @media (max-width:900px){.lp-root .lp-plan.pid-grow{transform:none;}}

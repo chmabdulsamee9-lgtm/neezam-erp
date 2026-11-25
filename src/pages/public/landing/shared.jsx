@@ -311,7 +311,6 @@ export function PriceCards({ c }) {
           <div className="lp-plan-name">{c.planName[p.id]}</div>
           <div className="lp-plan-tag">{c.planTag[p.id]}</div>
           <div className="lp-plan-price">{rs(p.price)}<small> {c.perMonth}</small></div>
-          {p.alt && <div className="lp-plan-alt">{c.shopifyOnly}</div>}
           <div className="lp-plan-lims">
             <div><span>{c.limit.staff}</span><b>{p.limits.staff}</b></div>
             <div><span>{c.limit.ads}</span><b>{p.limits.ads}</b></div>
