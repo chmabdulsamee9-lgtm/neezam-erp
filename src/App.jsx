@@ -146,11 +146,14 @@ const PublicDataDeletion = lazyPage(() => import('./pages/public/DataDeletion'),
 // Legal pages that Meta (and everybody else) must be able to open without logging in, on any host, with or without a session
 const PublicRefund = lazyPage(() => import('./pages/public/PolicyPage').then((m) => ({ default: m.RefundPolicy })), null)
 const PublicShipping = lazyPage(() => import('./pages/public/PolicyPage').then((m) => ({ default: m.ShippingPolicy })), null)
+const PlanBuy = lazyPage(() => import('./pages/public/PlanBuy'), null)
 const PublicFaq = lazyPage(() => import('./pages/public/PolicyPage').then((m) => ({ default: m.FaqPage })), null)
 const LEGAL_ROUTES = {
   '/privacy': PublicPrivacy, '/terms': PublicTerms, '/data-deletion': PublicDataDeletion,
   // payment-gateway (State Bank) website checks: refund/return, shipping and FAQ pages (Nov 2026)
   '/refund-policy': PublicRefund, '/shipping-policy': PublicShipping, '/faq': PublicFaq,
+  // plan checkout without an account
+  '/checkout': PlanBuy,
 }
 
 // Public marketing-site routes — sirf logged-out visitors ke liye (jaisa
