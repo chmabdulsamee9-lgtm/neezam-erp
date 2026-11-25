@@ -46,7 +46,21 @@ test("a GET that fails on api.eneezam.com succeeds on the other address", async 
 test("a risky POST is tried once, and the error is readable", async () => {
   const { calls, fetch } = install(() => down());
   await assert.rejects(() => fetch(`${API}/dex-book-order`, { method: "POST", body: "{}" }), (e) => e instanceof TypeError && e.message === FRIENDLY_NETWORK_ERROR);
-  assert.equal(calls.length, 1);
+  assert.equal(calls.filter((u) => u.endsWith("/dex-book-order")).length, 0); // no address answered: the risky call was never sent
+  const b = install((u) => (u.endsWith("/ping") ? Promise.resolve({ ok: true }) : down()));
+  await assert.rejects(() => b.fetch(`${API}/dex-book-order`, { method: "POST", body: "{}" }), (e) => e.message === FRIENDLY_NETWORK_ERROR);
+  assert.equal(b.calls.filter((u) => u.endsWith("/dex-book-order")).length, 1);
+});
+
+test("a sign-up after a quiet time goes to the address that answers, once; no ping right after", async () => {
+  const a = install((u) => (u.startsWith(WORKER) ? down() : Promise.resolve({ ok: true })));
+  await a.fetch(`${WORKER}/send-otp`, { method: "POST", body: "{}" });
+  assert.deepEqual(a.calls, [`${WORKER}/ping`, `${API}/ping`, `${API}/send-otp`]);
+  await a.fetch(`${API}/verify-otp`, { method: "POST", body: "{}" });
+  assert.equal(a.calls.length, 4);
+  const c = install(() => Promise.resolve({ ok: true }));
+  await c.fetch("https://example.com/x", { method: "POST", body: "{}" });
+  assert.deepEqual(c.calls, ["https://example.com/x"]);
 });
 
 test("a save POST is retried; an aborted request is not", async () => {
