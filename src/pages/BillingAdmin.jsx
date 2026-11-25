@@ -64,7 +64,7 @@ export default function BillingAdmin({ onExit }) {
           <div><h1 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>Payments</h1><p style={{ ...muted, margin: "4px 0 0" }}>Plan ki payments, payment methods aur promo codes.</p></div>
           <button style={btn(false)} onClick={onExit}>Master Dashboard</button>
         </div>
-        {msg && <div role="status" style={{ ...card, padding: 10, fontSize: 13 }}>{msg}</div>}
+        {msg && <div role="status" style={{ ...card, padding: 10, fontSize: 13 }}>{msg} {!data && <button type="button" style={btn(false)} onClick={() => { setMsg(""); load(); }}>Dobara koshish karein</button>}</div>}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {[["payments", "Payments"], ["methods", "Payment methods"], ["promos", "Promo codes"], ["stores", "Plans ki muddat"]].map(([id, label]) => <button key={id} aria-pressed={tab === id} style={btn(tab === id)} onClick={() => setTab(id)}>{label}</button>)}
         </div>

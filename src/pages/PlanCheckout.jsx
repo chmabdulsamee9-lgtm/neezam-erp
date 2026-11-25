@@ -111,7 +111,8 @@ export default function PlanCheckout({ storeId, locked, onExit, onSignOut, onAct
     f.append("store_id", sid); f.append("plan_id", planId); f.append("code", code); f.append("reference", reference); f.append("proof", proof);
     const d = await billingApi("bank-submit", f);
     setBusy("");
-    if (d.error) { setError(d.error); return; }
+    // the answer can be lost although the screenshot arrived: look again before showing the error
+    if (d.error) { await load(); setError(d.error); return; }
     setProof(null); load();
   };
 
@@ -132,7 +133,7 @@ export default function PlanCheckout({ storeId, locked, onExit, onSignOut, onAct
           </div>
         </div>
 
-        {error && <div role="alert" style={{ ...card, padding: 12, borderColor: "var(--ne-danger)", color: "var(--ne-danger)", fontSize: 13.5, display: "flex", justifyContent: "space-between", gap: 10 }}><span>{error}</span>{!state && <button style={btn(false)} onClick={load}>Dobara</button>}</div>}
+        {error && !open && <div role="alert" style={{ ...card, padding: 12, borderColor: "var(--ne-danger)", color: "var(--ne-danger)", fontSize: 13.5, display: "flex", justifyContent: "space-between", gap: 10 }}><span>{error}</span>{!state && <button style={btn(false)} onClick={load}>Dobara</button>}</div>}
         {payNote && <div style={{ ...card, padding: 12, fontSize: 13.5 }}>{payNote}</div>}
         {!state && !error && <div style={{ ...card, textAlign: "center" }}><p style={muted}>Load ho raha hai...</p></div>}
 

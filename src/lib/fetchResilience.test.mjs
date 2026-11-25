@@ -16,6 +16,10 @@ test("only repeat-safe requests are repeated", () => {
   assert.equal(isRepeatable("POST", `${API}/save-checkout-settings`), true);
   assert.equal(isRepeatable("POST", `${API}/get-store-extras`), true);
   assert.equal(isRepeatable("POST", `${API}/home-overview`), true);
+  assert.equal(isRepeatable("POST", `${API}/billing/admin/overview`), true);
+  assert.equal(isRepeatable("POST", `${API}/billing/pay-rapid`), false);
+  assert.equal(isRepeatable("POST", `${API}/billing/guest/order`), false);
+  assert.equal(isRepeatable("POST", `${API}/billing/admin/review`), false);
   assert.equal(isRepeatable("POST", `${API}/dex-book-order`), false);
   assert.equal(isRepeatable("POST", `${API}/whatsapp/send`), false);
   assert.equal(isRepeatable("DELETE", `${API}/remove-custom-domain`), false);
