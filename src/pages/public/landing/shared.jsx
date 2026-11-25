@@ -24,6 +24,8 @@ export const goSignup = (plan) => {
   const q = typeof plan === "string" ? `?plan=${encodeURIComponent(plan)}` : "";
   window.location.href = `${isDevEnv() ? "" : "https://portal.eneezam.com"}/signup${q}`;
 };
+// the plan buttons: buy without an account
+export const goBuy = (plan) => { window.location.href = `${isDevEnv() ? "" : "https://eneezam.com"}/checkout?plan=${encodeURIComponent(plan)}`; };
 export const goLogin = () => { window.location.href = isDevEnv() ? "/login" : "https://portal.eneezam.com/login"; };
 
 const reduceMotion = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -317,7 +319,7 @@ export function PriceCards({ c }) {
             <div><span>{c.limit.wa}</span><b>{p.limits.wa.toLocaleString("en-PK")}</b></div>
           </div>
           <ul className="lp-plan-feat">{c.planHi[p.id].map((f) => <li key={f}><Icon name="check" size={12} />{f}</li>)}</ul>
-          <button className={`lp-btn ${p.popular ? "" : "lp-btn-ghost"}`} onClick={() => goSignup(p.id)}>{c.choose}</button>
+          <button className={`lp-btn ${p.popular ? "" : "lp-btn-ghost"}`} onClick={() => goBuy(p.id)}>{c.choose}</button>
         </div>
       ))}
     </div>
