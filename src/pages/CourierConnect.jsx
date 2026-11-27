@@ -3,6 +3,9 @@ import { supabase } from "../supabase";
 import { fetchStoreRow } from "../lib/storeColumns";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
+import { nexApi, NEX_LOGO } from "../lib/nexApi";
+import NexKyc from "./NexKyc";
+import dexLogo from "../assets/couriers/dex.png";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 
@@ -154,6 +157,12 @@ export default function CourierConnect({ storeId }) {
   const [savingWeight, setSavingWeight] = useState(false);
   const [labelDisplayMode, setLabelDisplayMode] = useState("both");
   const [savingLabelMode, setSavingLabelMode] = useState(false);
+  // NeX / DEX cards (worker nex.js)
+  const [nex, setNex] = useState(null);
+  const [nexError, setNexError] = useState("");
+  const [kycOpen, setKycOpen] = useState(false);
+  const [toggling, setToggling] = useState("");
+  const [openCard, setOpenCard] = useState("");
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
@@ -166,6 +175,7 @@ export default function CourierConnect({ storeId }) {
   }, [storeId]);
 
   useEffect(() => { if (storeId) fetchPickupAddresses(); }, [storeId]);
+  useEffect(() => { if (storeId) loadCouriers(); }, [storeId]);
 
   // Activity-log ke "author" field ke liye current user ka naam (BookedOrders.jsx/Orders.jsx
   // ke currentProfile fetch jaisa hi pattern)
@@ -204,6 +214,23 @@ export default function CourierConnect({ storeId }) {
     setDefaultHeight(data?.default_height_cm ?? "10");
     setLabelDisplayMode(data?.label_display_mode ?? "both");
     setLoading(false);
+  };
+
+  const loadCouriers = async () => {
+    const d = await nexApi("state", { store_id: storeId });
+    if (d.error) { setNexError(d.error); return; }
+    setNexError(""); setNex(d);
+  };
+
+  const toggleCourier = async (courier, on) => {
+    // NeX needs the one-time KYC before it can be switched on
+    if (courier === "nex" && on && (!nex?.kyc || nex.kyc.status === "rejected")) { setKycOpen(true); return; }
+    setToggling(courier);
+    const d = await nexApi("toggle", { store_id: storeId, courier, on });
+    setToggling("");
+    if (d.error) { setNexError(d.error); return; }
+    logActivity("courier_toggled", { courier, on });
+    loadCouriers();
   };
 
   const fetchPickupAddresses = async () => {
@@ -418,31 +445,84 @@ export default function CourierConnect({ storeId }) {
         <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{t("courier.subtitle")}</p>
       </div>
 
-      {loading ? (
-        <div style={{ textAlign: "center", padding: "3rem", color: "var(--ne-muted)" }}>{t("courier.loading")}</div>
-      ) : (
-        <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1.5rem" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: "1.25rem" }}>
-            <div style={{ width: 48, height: 48, borderRadius: 12, background: "var(--ne-surface)", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--ne-border)" }}>
-              <Icon name="package" size={22} />
+      {loading || !nex ? (
+        <div style={{ textAlign: "center", padding: "3rem", color: "var(--ne-muted)" }}>{nexError ? <span style={{ color: "var(--ne-danger)" }}>{nexError} <button onClick={loadCouriers} style={{ marginLeft: 6 }}>Dobara</button></span> : t("courier.loading")}</div>
+      ) : (() => {
+        const cards = [
+          {
+            id: "nex", name: "NeX", full: "Neezam Express · eNeezam ki apni courier service", logo: NEX_LOGO,
+            on: nex.couriers.nex.enabled, connected: nex.couriers.nex.ready,
+            status: nex.couriers.nex.ready ? ["ok", "Connected: booking mein NeX dikhega"]
+              : !nex.kyc ? ["wait", "On karein aur ek dafa KYC bharein"]
+              : nex.kyc.status === "submitted" ? ["wait", "KYC check ho rahi hai. Approve hote hi NeX chal jayega"]
+              : nex.kyc.status === "rejected" ? ["bad", `KYC wapas aayi: ${nex.kyc.review_note || "dobara bharein"}`]
+              : !nex.couriers.nex.service ? ["wait", "KYC approve. NeX service jald shuru ho rahi hai"]
+              : !nex.couriers.nex.enabled ? ["off", "KYC approve hai magar NeX band hai"] : ["wait", "..."],
+          },
+          {
+            id: "dex", name: "DEX", full: "Daraz Express · aap ke apne DEX account se", logo: dexLogo,
+            on: nex.couriers.dex.enabled, connected: nex.couriers.dex.connected,
+            status: nex.couriers.dex.ready ? ["ok", "Connected: booking mein DEX dikhega"]
+              : !nex.couriers.dex.connected ? ["wait", "Connected nahi: integration code se jorein"]
+              : ["off", "Connected hai magar band: booking mein nahi aayega"],
+          },
+        ];
+        const tone = { ok: "var(--ne-success)", wait: "var(--ne-warning)", bad: "var(--ne-danger)", off: "var(--ne-muted)" };
+        const open = cards.find((c) => c.id === openCard);
+        return (
+          <>
+            <style>{".cc-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,200px));gap:16px}.cc-tile:hover .cc-box{border-color:var(--ne-accent)}@media(max-width:420px){.cc-tiles{grid-template-columns:1fr 1fr;gap:10px}}"}</style>
+            {nexError && <p style={{ color: "var(--ne-danger)", fontSize: 12, margin: "0 0 10px" }}>{nexError}</p>}
+            <div className="cc-tiles">
+              {cards.map((c) => (
+                <div key={c.id} className="cc-tile" style={{ display: "grid", gap: 8, justifyItems: "center" }}>
+                  <button className="cc-box" onClick={() => setOpenCard(c.id)} aria-label={`${c.name} ki tafseel`}
+                    style={{ width: "100%", aspectRatio: "1 / 1", borderRadius: 18, background: "var(--ne-surface-2)", border: `2px solid ${c.on && c.connected ? "var(--ne-success)" : "var(--ne-border)"}`, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, padding: 14, boxSizing: "border-box", color: "var(--ne-text)", font: "inherit" }}>
+                    <div style={{ width: "58%", aspectRatio: "1 / 1", borderRadius: 16, background: "#fff", border: "1px solid var(--ne-border)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                      <img src={c.logo} alt="" style={{ maxWidth: "86%", maxHeight: "86%", objectFit: "contain" }} />
+                    </div>
+                    <span style={{ fontWeight: 800, fontSize: 16 }}>{c.name}</span>
+                  </button>
+                  <button role="switch" aria-checked={c.on} aria-label={`${c.name} on/off`} disabled={toggling === c.id} onClick={() => toggleCourier(c.id, !c.on)}
+                    style={{ width: 50, height: 28, borderRadius: 14, border: "none", cursor: "pointer", position: "relative", background: c.on ? "var(--ne-success)" : "var(--ne-border)", transition: "background .15s" }}>
+                    <span style={{ position: "absolute", top: 3, left: c.on ? 25 : 3, width: 22, height: 22, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+                  </button>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: c.connected ? "var(--ne-success)" : "var(--ne-muted)", display: "flex", alignItems: "center", gap: 5 }}>
+                    <Icon name={c.connected ? "check" : "pending"} size={11} /> {c.connected ? "Connected" : "Not connected"}{c.on ? " · ON" : " · OFF"}
+                  </span>
+                </div>
+              ))}
             </div>
-            <div style={{ flex: 1 }}>
-              <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: "var(--ne-text)" }}>{t("courier.dexName")}</p>
-              <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--ne-muted-2)" }}>
-                {isConnected ? `${t("courier.sellerIdPrefix")} ${store.dex_seller_id}` : t("courier.notConnectedYet")}
-              </p>
-            </div>
-            {isConnected ? (
-              <span style={{ fontSize: 11, padding: "4px 12px", background: "var(--ne-success-soft)", color: "var(--ne-success)", borderRadius: 20, fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 5 }}>
-                <Icon name="check" size={10} /> {t("courier.connected")}
-              </span>
-            ) : (
-              <span style={{ fontSize: 11, padding: "4px 12px", background: "var(--ne-warning-soft)", color: "var(--ne-warning)", borderRadius: 20, fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 5 }}>
-                <Icon name="pending" size={10} /> {t("courier.notConnected")}
-              </span>
-            )}
-          </div>
+            <p style={{ margin: "14px 0 0", fontSize: 11.5, color: "var(--ne-muted-2)" }}>Box par click karein tafseel ke liye. Jo courier ON aur connected ho, booking karte waqt wohi dikhega; dono hon to booking par chunein.</p>
 
+            {open && (
+              <div onClick={(e) => { if (e.target === e.currentTarget) setOpenCard(""); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", zIndex: 999999, display: "flex", alignItems: "flex-start", justifyContent: "center", overflowY: "auto", padding: "24px 12px" }}>
+                <div role="dialog" aria-label={`${open.name} ki tafseel`} style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 560, maxWidth: "100%", padding: 20, boxSizing: "border-box", color: "var(--ne-text)", display: "grid", gap: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ width: 52, height: 52, borderRadius: 12, background: "#fff", border: "1px solid var(--ne-border)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 }}><img src={open.logo} alt="" style={{ maxWidth: "86%", maxHeight: "86%", objectFit: "contain" }} /></div>
+                    <div style={{ flex: 1 }}><b style={{ fontSize: 17 }}>{open.name}</b><div style={{ fontSize: 12, color: "var(--ne-muted)" }}>{open.full}</div></div>
+                    <button aria-label="Band karein" onClick={() => setOpenCard("")} style={{ background: "transparent", border: "none", color: "var(--ne-muted)", fontSize: 22, cursor: "pointer" }}>×</button>
+                  </div>
+                  <div style={{ fontSize: 13, color: tone[open.status[0]], display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <Icon name={open.status[0] === "ok" ? "check" : open.status[0] === "bad" ? "warning" : "pending"} size={12} /> {open.status[1]}
+                  </div>
+
+                  {open.id === "nex" && (
+                    <div style={{ display: "grid", gap: 10, fontSize: 13 }}>
+                      <p style={{ margin: 0, color: "var(--ne-muted)", lineHeight: 1.6 }}>NeX eNeezam ki apni courier service hai. Booking eNeezam ke courier partners (Daraz Express (DEX), TCS, Leopards, PostEx aur FastEx) se hoti hai, COD eNeezam ko aati hai aur courier ke cycle par charges kaat kar aap ke bank mein bhej di jati hai.</p>
+                      {nex.kyc ? (
+                        <div style={{ background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "12px 14px", display: "grid", gap: 4 }}>
+                          <span>Brand: <b>{nex.kyc.brand_name}</b></span>
+                          <span>Bank: <b>{nex.kyc.bank_name}</b> · Account {nex.kyc.account_number} · IBAN {nex.kyc.iban}</span>
+                          <span>KYC: <b>{nex.kyc.status === "approved" ? "Approved" : nex.kyc.status === "rejected" ? "Wapas aayi" : "Check ho rahi hai"}</b> · {new Date(nex.kyc.updated_at || nex.kyc.created_at).toLocaleDateString("en-PK")}</span>
+                        </div>
+                      ) : <p style={{ margin: 0 }}>Abhi KYC nahi bhari. NeX on karne ke liye ek dafa KYC aur <a href="/nex-terms" target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)" }}>NeX terms</a> zaroori hain.</p>}
+                      {(!nex.kyc || nex.kyc.status === "rejected") && <button onClick={() => { setOpenCard(""); setKycOpen(true); }} style={{ padding: "10px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontWeight: 700, cursor: "pointer" }}>{nex.kyc ? "KYC dobara bharein" : "KYC bharein aur NeX shuru karein"}</button>}
+                    </div>
+                  )}
+
+                  {open.id === "dex" && (
+                    <>
           {isConnected ? (
             <div style={{ background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "12px 14px", fontSize: 12, color: "var(--ne-muted)" }}>
               {t("courier.platform")} <strong style={{ color: "var(--ne-text)" }}>{store.dex_platform_name || "eNeezam"}</strong><br />
@@ -472,14 +552,8 @@ export default function CourierConnect({ storeId }) {
               </button>
             </form>
           )}
-        </div>
-      )}
 
-      {/* Dex manual Excel upload — order_statuses ke courier-overlay columns ko update karta hai
-          (order_number_match se Shopify order dhoond kar). Live-API binding (upar wala card) se
-          bilkul alag/independent hai. */}
-      {!loading && (
-        <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1.5rem", marginTop: "1rem" }}>
+                      <div style={{ borderTop: "1px solid var(--ne-border)", paddingTop: 14 }}>
           <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="chart" size={14} /> {t("courier.excelUploadTitle")}</p>
           <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--ne-muted-2)" }}>
             {t("courier.excelUploadHint")}
@@ -510,8 +584,17 @@ export default function CourierConnect({ storeId }) {
               )}
             </div>
           )}
-        </div>
-      )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+          </>
+        );
+      })()}
+      {kycOpen && nex && <NexKyc storeId={storeId} state={nex} onClose={() => setKycOpen(false)} onDone={() => { setKycOpen(false); logActivity("nex_kyc_submitted", {}); loadCouriers(); }} />}
+
 
       {importResultModalOpen && uploadResult && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}>

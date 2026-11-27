@@ -1840,12 +1840,14 @@ function ShopifyProductsPanel({ storeId, ordersStore, cfUrl = CF_URL }) {
   );
 }
 
-// Shopify/eNeezam tabs appear only for stores with a connected custom domain (same rule as
-// OnlineStore: an active primary domain). Otherwise the Shopify panel renders exactly as before.
+// eNeezam products appear once the store has somewhere to sell them: an eneezam.com subdomain (native store) or
+// an active primary domain. Stores with Shopify get both tabs; native stores without Shopify get eNeezam products only.
 export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_URL }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const [connected, setConnected] = useState(false);
+  const [storeUrl, setStoreUrl] = useState("");
+  const [hasShopify, setHasShopify] = useState(true);
   const [tab, setTab] = useState("shopify");
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth <= 760);
 
@@ -1860,11 +1862,16 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
     setConnected(false);
     setTab("shopify");
     if (!storeId) return;
-    supabase.from("stores").select("id, store_custom_domains(domain, role, status)").eq("id", storeId).maybeSingle()
+    supabase.from("stores").select("id, subdomain, shopify_url, store_custom_domains(domain, role, status)").eq("id", storeId).maybeSingle()
       .then(({ data }) => {
         if (cancelled) return;
         const domains = data?.store_custom_domains || [];
-        setConnected(domains.some((d) => d.role === "primary" && d.status === "active"));
+        const primary = domains.find((d) => d.role === "primary" && d.status === "active");
+        // eNeezam products need a storefront to sell on: an eneezam.com subdomain or a connected domain
+        setConnected(!!primary || !!data?.subdomain);
+        setHasShopify(!!data?.shopify_url);
+        setStoreUrl(primary ? `https://${primary.domain}` : data?.subdomain ? `https://${data.subdomain}.eneezam.com` : "");
+        if (!data?.shopify_url && (primary || data?.subdomain)) setTab("eneezam");
       }, () => {});
     return () => { cancelled = true; };
   }, [storeId]);
@@ -1877,14 +1884,14 @@ export default function ProductsManagement({ storeId, ordersStore, cfUrl = CF_UR
 
   return (
     <>
-      {connected && (
+      {connected && hasShopify && (
         <div style={{ paddingTop: pad, margin: `0 ${pad}`, display: "flex", gap: 4, borderBottom: "1px solid var(--ne-border)", overflowX: "auto" }}>
           <button type="button" onClick={() => setTab("shopify")} style={tabBtn("shopify")}>{t("products.tabShopify")}</button>
           <button type="button" onClick={() => setTab("eneezam")} style={tabBtn("eneezam")}>{t("products.tabEneezam")}</button>
         </div>
       )}
       {connected && tab === "eneezam"
-        ? <div style={{ padding: pad }}><EneezamProducts storeId={storeId} ordersStore={ordersStore} cfUrl={cfUrl} /></div>
+        ? <div style={{ padding: pad }}><EneezamProducts storeId={storeId} ordersStore={ordersStore} cfUrl={cfUrl} storeUrl={storeUrl} isMobile={isMobile} hasShopify={hasShopify} /></div>
         : <ShopifyProductsPanel storeId={storeId} ordersStore={ordersStore} cfUrl={cfUrl} />}
     </>
   );

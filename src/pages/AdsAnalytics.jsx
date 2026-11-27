@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
+import AdsTree from "../components/AdsTree";
 import { useLanguage, useTranslation } from "../i18n";
 
 const DATE_FILTER_LABEL_KEYS = { today: "dashboard.dateFilter.today", yesterday: "dashboard.dateFilter.yesterday", "7days": "dashboard.dateFilter.7days", "30days": "dashboard.dateFilter.30days" };
@@ -300,6 +301,9 @@ export default function AdsAnalytics({ ordersData, storeId, ordersStore, cfUrl }
           <button key={f.value} style={dateBtnStyle(f.value)} onClick={() => setDateFilter(f.value)}>{t(DATE_FILTER_LABEL_KEYS[f.value])}</button>
         ))}
       </div>
+
+      <AdsTree storeId={storeId} ordersStore={ordersStore} datePreset={DATE_FILTERS.find((f) => f.value === dateFilter)?.metaPreset || "today"} />
+
 
       {/* Hero Card */}
       <div style={{ background: "var(--ne-grad)", borderRadius: 18, padding: "1.4rem", marginBottom: "0.75rem", display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "center", flexWrap: "wrap", gap: 16 }}>

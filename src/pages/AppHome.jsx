@@ -14,6 +14,11 @@ const DATE_FILTER_LABEL_KEYS = {
   custom: "dashboard.dateFilter.custom",
 };
 
+// native (eNeezam) stores also get storefront sessions and the conversion rate (orders / sessions)
+const NATIVE_METRICS = [
+  { key: "sessions", labelKey: "home.stat.sessions", kind: "num", color: "#0ea5e9" },
+  { key: "conversion", labelKey: "home.stat.conversion", kind: "pct", color: "#a855f7" },
+];
 const METRICS = [
   { key: "orders", labelKey: "home.stat.orders", kind: "num", color: "var(--ne-accent)" },
   { key: "sales", labelKey: "home.stat.totalSales", kind: "money", color: "var(--ne-accent2)" },
@@ -45,7 +50,7 @@ const dateInput = {
 const card = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14 };
 
 const num = (v) => Number(v || 0);
-const fmtValue = (kind, v) => (kind === "money" ? `Rs. ${Math.round(num(v)).toLocaleString()}` : Math.round(num(v)).toLocaleString());
+const fmtValue = (kind, v) => (kind === "money" ? `Rs. ${Math.round(num(v)).toLocaleString()}` : kind === "pct" ? `${num(v).toFixed(2)}%` : Math.round(num(v)).toLocaleString());
 
 function changeOf(cur, prev) {
   const c = num(cur), p = num(prev);
@@ -152,7 +157,8 @@ export default function AppHome({ storeId, storeName, apiBase, fetcher, onNaviga
   const vsNote = preset === "today" ? t("home.vsSameTime") : preset === "yesterday" ? t("home.vsDayBefore") : t("home.vsPrevPeriod");
 
   const series = data?.series || {};
-  const metric = METRICS.find((m) => m.key === selected) || METRICS[0];
+  const metricsList = data?.native ? [NATIVE_METRICS[0], METRICS[0], METRICS[1], NATIVE_METRICS[1], ...METRICS.slice(2)] : METRICS;
+  const metric = metricsList.find((m) => m.key === selected) || METRICS[0];
   const curSeries = series[metric.key]?.cur || [];
   const prevSeries = series[metric.key]?.prev || [];
   const labels = data ? buildLabels(data.start, data.step_secs, data.n) : [];
@@ -172,6 +178,8 @@ export default function AppHome({ storeId, storeName, apiBase, fetcher, onNaviga
     <div style={{ padding: "1rem", color: "var(--ne-text)", maxWidth: 1200, margin: "0 auto" }}>
       <style>{`
         .ne-home-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+        .ne-home-grid.is-native{grid-template-columns:repeat(4,1fr)}
+        @media (max-width:900px){.ne-home-grid.is-native{grid-template-columns:repeat(2,1fr)}}
         .ne-home-split{display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-top:12px}
         @media (max-width:900px){.ne-home-split{grid-template-columns:1fr}}
         @media (max-width:640px){.ne-home-grid{grid-template-columns:repeat(2,1fr)}}
@@ -208,8 +216,8 @@ export default function AppHome({ storeId, storeName, apiBase, fetcher, onNaviga
         <>
           <div style={{ fontSize: 11, color: "var(--ne-muted)", marginBottom: 8, minHeight: 14 }}>{data ? vsNote : ""}</div>
 
-          <div className="ne-home-grid" style={{ opacity: loading && data ? 0.6 : 1, transition: "opacity .15s" }}>
-            {METRICS.map((m) => {
+          <div className={`ne-home-grid${data?.native ? " is-native" : ""}`} style={{ opacity: loading && data ? 0.6 : 1, transition: "opacity .15s" }}>
+            {metricsList.map((m) => {
               const ch = data ? changeOf(data.cur?.[m.key], data.prev?.[m.key]) : null;
               const good = ch && ch.pct !== undefined && ch.pct !== 0 ? (ch.pct > 0) !== !!m.invert : null;
               const chColor = good === null ? "var(--ne-muted)" : good ? "var(--ne-success)" : "var(--ne-danger)";

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useId, useRef } from "react";
 import { supabase } from "../supabase";
+import { nexApi } from "../lib/nexApi";
 import { bucketFinalStatus } from "../bookedOrdersData";
 import { getView, setView } from "../viewCache";
 import { printEneezamLabel, printEneezamLabelsMerged } from "../components/EneezamLabel";
@@ -596,6 +597,8 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
   const [showBookModal, setShowBookModal] = useState(false);
   const [bookCourier, setBookCourier] = useState("dex");
   const [bookAddressId, setBookAddressId] = useState("");
+  // couriers this store can book with now (worker /nex/state): [{ id, name }]
+  const [readyCouriers, setReadyCouriers] = useState(null);
   const [pickupAddresses, setPickupAddresses] = useState([]);
   const [booking, setBooking] = useState(false);
   const [bookError, setBookError] = useState("");
@@ -1090,6 +1093,20 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
     });
   };
 
+  // on opening the booking dialog: which couriers are on and connected (NeX first)
+  useEffect(() => {
+    if (!showBookModal || !storeId) return undefined;
+    let alive = true;
+    setReadyCouriers(null);
+    nexApi("state", { store_id: storeId }).then((d) => {
+      if (!alive) return;
+      const list = d.couriers ? [["nex", "NeX (Neezam Express)"], ["dex", "DEX (Daraz Express)"]].filter(([id]) => d.couriers[id]?.ready).map(([id, name]) => ({ id, name })) : [{ id: "dex", name: "DEX (Daraz Express)" }];
+      setReadyCouriers(list);
+      setBookCourier((cur) => (list.some((c) => c.id === cur) ? cur : list[0]?.id || ""));
+    });
+    return () => { alive = false; };
+  }, [showBookModal, storeId]);
+
   const handleBookSingle = async (orderId) => {
     setSelectedIds(new Set([orderId]));
     setShowBookModal(true);
@@ -1106,7 +1123,7 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
         const res = await fetch(`${CF_URL}/dex-book-order`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-          body: JSON.stringify({ store_id: storeId, order_id: orderId, pickup_address_id: bookAddressId }),
+          body: JSON.stringify({ store_id: storeId, order_id: orderId, pickup_address_id: bookAddressId, courier: bookCourier }),
         });
         const data = await res.json();
         if (data.error) {
@@ -2376,10 +2393,15 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
             <h3 style={{ margin: "0 0 14px", fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="package" size={14} /> {t("booked.bookShipment")} ({selectedIds.size} {selectedIds.size > 1 ? t("booked.orders") : t("booked.order")})</h3>
 
             <label style={{ fontSize: 12, color: "var(--ne-muted)", display: "block", marginBottom: 4 }}>{t("booked.courier")}</label>
-            <select value={bookCourier} onChange={(e) => setBookCourier(e.target.value)}
-              style={{ width: "100%", padding: "9px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, marginBottom: 12 }}>
-              <option value="dex">Dex</option>
-            </select>
+            {readyCouriers === null ? <p style={{ fontSize: 12, color: "var(--ne-muted)", margin: "0 0 12px" }}>{t("courier.loading")}</p>
+              : readyCouriers.length === 0 ? <p style={{ fontSize: 12, color: "var(--ne-warning)", margin: "0 0 12px" }}>Koi courier ON aur connected nahi. Settings › Courier Connect mein NeX ya DEX on karein.</p>
+              : readyCouriers.length === 1 ? <p style={{ fontSize: 13, fontWeight: 700, color: "var(--ne-text)", margin: "0 0 12px" }}>{readyCouriers[0].name}</p>
+              : (
+                <select value={bookCourier} onChange={(e) => setBookCourier(e.target.value)}
+                  style={{ width: "100%", padding: "9px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 13, marginBottom: 12 }}>
+                  {readyCouriers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              )}
 
             {pickupAddresses.length > 1 && (
               <>
@@ -2398,7 +2420,7 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
                 style={{ flex: 1, padding: "10px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", fontSize: 13, cursor: "pointer" }}>
                 {t("action.cancel")}
               </button>
-              <button onClick={handleBookConfirm} disabled={booking}
+              <button onClick={handleBookConfirm} disabled={booking || !readyCouriers?.length}
                 style={{ flex: 1, padding: "10px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
                 {booking ? t("booked.bookingDots") : t("booked.bookNow")}
               </button>

@@ -149,6 +149,7 @@ const PublicDataDeletion = lazyPage(() => import('./pages/public/DataDeletion'),
 const PublicRefund = lazyPage(() => import('./pages/public/PolicyPage').then((m) => ({ default: m.RefundPolicy })), null)
 const PublicShipping = lazyPage(() => import('./pages/public/PolicyPage').then((m) => ({ default: m.ShippingPolicy })), null)
 const PlanBuy = lazyPage(() => import('./pages/public/PlanBuy'), null)
+const NexTermsPage = lazyPage(() => import('./pages/public/NexTermsPage'), null)
 const PublicFaq = lazyPage(() => import('./pages/public/PolicyPage').then((m) => ({ default: m.FaqPage })), null)
 const LEGAL_ROUTES = {
   '/privacy': PublicPrivacy, '/terms': PublicTerms, '/data-deletion': PublicDataDeletion,
@@ -156,6 +157,8 @@ const LEGAL_ROUTES = {
   '/refund-policy': PublicRefund, '/shipping-policy': PublicShipping, '/faq': PublicFaq,
   // plan checkout without an account
   '/checkout': PlanBuy,
+  // NeX courier terms (linked from the NeX KYC)
+  '/nex-terms': NexTermsPage,
 }
 
 // Public marketing-site routes — sirf logged-out visitors ke liye (jaisa
@@ -198,10 +201,14 @@ const FinanceStatement = lazyPage(() => import('./pages/FinanceStatement'), 'fin
 const DevMonitorDetailed = lazyPage(() => import('./pages/DevMonitorDetailed'), 'master-dashboard/dev-monitor')
 const GeminiUsageMonitor = lazyPage(() => import('./pages/GeminiUsageMonitor'), 'master-dashboard/gemini-monitor')
 const UiEditor = lazyPage(() => import('./pages/UiEditor'), 'master-dashboard/ui-editor', { skeleton: false })
+import NeeziJobPill from './components/NeeziJobPill'
+const AgnesMonitor = lazyPage(() => import('./pages/AgnesMonitor'), 'master-dashboard/agnes-monitor')
 const PlanCheckout = lazyPage(() => import('./pages/PlanCheckout'), 'billing', { skeleton: false })
 const BillingAdmin = lazyPage(() => import('./pages/BillingAdmin'), 'master-dashboard/billing', { skeleton: false })
 const PartnersAdmin = lazyPage(() => import('./pages/PartnersAdmin'), 'master-dashboard/partners', { skeleton: false })
+const NexAdmin = lazyPage(() => import('./pages/NexAdmin'), 'master-dashboard/nex', { skeleton: false })
 const PartnerPortal = lazyPage(() => import('./pages/PartnerPortal'), null, { skeleton: false })
+const StoreGrowthPage = lazyPage(() => import('./pages/StoreGrowth'), 'online-store/collections')
 const ShopifyCallback = lazyPage(() => import('./pages/ShopifyCallback'), null)
 const Orders = lazyPage(() => import('./pages/Orders'), 'orders')
 const OrderDetail = lazyPage(() => import('./pages/OrderDetail'), 'orders')
@@ -399,6 +406,15 @@ function PendingApprovalScreen({ onSignOut, t }) {
   )
 }
 
+// Which Neezi level a plan unlocks — same rule as the worker's tierOf() (shared/growth-core.js)
+const NEEZI_LEVELS = { essential: 'Neezi Essential: store launch, product writer', grow: 'Neezi Grow: + AI banners and product photos', advance: 'Neezi Advance: + AI banners and product photos' }
+function neeziLevelOf(planName) {
+  const n = String(planName || '').toLowerCase()
+  if (/advance|diamond|platinum|enterprise/.test(n)) return 'advance'
+  if (/grow|gold|silver|pro/.test(n)) return 'grow'
+  return 'essential'
+}
+
 function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, onSignOut, userEmail, cfUrl, onDataChanged, allPlansList, onDenyOrDelete, allAddonsList, t, session, logActivity }) {
   const navigate = useNavigate()
   const [editingAdmin, setEditingAdmin] = useState(null)
@@ -423,7 +439,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
     if (eneezamIds.length === 0) { setSubsByEneezamId({}); return }
     const { data } = await supabase
       .from('store_subscriptions')
-      .select('store_id, monthly_order_limit, quota_consumed_count, approved_at')
+      .select('store_id, monthly_order_limit, quota_consumed_count, approved_at, plan_id, plans(name)')
       .in('store_id', eneezamIds)
       .eq('status', 'approved')
       .order('approved_at', { ascending: false })
@@ -438,6 +454,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
   const [accessReminderEnabled, setAccessReminderEnabled] = useState(false)
   const [accessReminderMessage, setAccessReminderMessage] = useState('')
   const [accessExistingSubId, setAccessExistingSubId] = useState(null)
+  const [accessPlanId, setAccessPlanId] = useState('')
   const [accessPrevMonthlyLimit, setAccessPrevMonthlyLimit] = useState('')
   const [accessSaving, setAccessSaving] = useState(false)
   const [accessError, setAccessError] = useState('')
@@ -610,6 +627,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
     setAccessReminderEnabled(false)
     setAccessReminderMessage('')
     setAccessExistingSubId(null)
+    setAccessPlanId('')
     setAccessError('')
     const { data: sub } = await supabase
       .from('store_subscriptions')
@@ -621,6 +639,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
       .maybeSingle()
     if (sub) {
       setAccessExistingSubId(sub.id)
+      setAccessPlanId(sub.plan_id || '')
       setAccessDisabledIds(Array.isArray(sub.disabled_modules) ? sub.disabled_modules : [])
       setAccessMonthlyLimit(sub.monthly_order_limit == null ? '' : String(sub.monthly_order_limit))
       setAccessPrevMonthlyLimit(sub.monthly_order_limit == null ? '' : String(sub.monthly_order_limit))
@@ -638,6 +657,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
     setAccessError('')
     const newLimitValue = accessMonthlyLimit === '' ? null : Number(accessMonthlyLimit)
     const payload = {
+      ...(accessPlanId ? { plan_id: accessPlanId } : {}),
       disabled_modules: accessDisabledIds,
       monthly_order_limit: newLimitValue,
       reminder_enabled: accessReminderEnabled,
@@ -671,7 +691,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
     }
     refreshSubsMap()
     setAccessModalStore(null)
-    logActivity(accessModalStore.id, 'access_modified', { disabled_modules: accessDisabledIds, monthly_order_limit: newLimitValue, reminder_enabled: accessReminderEnabled })
+    logActivity(accessModalStore.id, 'access_modified', { plan_id: accessPlanId || null, disabled_modules: accessDisabledIds, monthly_order_limit: newLimitValue, reminder_enabled: accessReminderEnabled })
   }
 
   const closeEditAdmin = () => { setEditingAdmin(null); setEditingStore(null); setEditError(''); setEditPasswordSuccess(false) }
@@ -772,8 +792,8 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
                       <select value={currentPlanId || ''} onChange={(e) => setPlanOverrides(prev => ({ ...prev, [p.id]: e.target.value }))}
                         style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--ne-border)', background: 'var(--ne-bg)', color: 'var(--ne-text)', fontSize: 12, marginBottom: 8 }}>
                         <option value="">{t('master.choosePlanPlaceholder')}</option>
-                        {allPlansList.map((pl) => (
-                          <option key={pl.id} value={pl.id}>{pl.name} (Rs. {Number(pl.rate_per_order).toLocaleString()}/order)</option>
+                        {allPlansList.filter((pl) => pl.monthly_price != null || pl.id === currentPlanId).map((pl) => (
+                          <option key={pl.id} value={pl.id}>{pl.monthly_price != null ? `${pl.name} (Rs. ${Number(pl.monthly_price).toLocaleString()} / month)` : `${pl.name} (old plan)`}</option>
                         ))}
                       </select>
                       {allAddonsList.length > 0 && (
@@ -855,6 +875,10 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
             style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Icon name="zap" size={13} /> {t('nav.gemini-monitor')}
           </button>
+          <button onClick={() => navigate('/master-dashboard/agnes-monitor')}
+            style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="sparkle" size={13} /> Agnes AI
+          </button>
           <button onClick={() => navigate('/master-dashboard/billing')}
             style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Icon name="card" size={13} /> Payments
@@ -862,6 +886,10 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
           <button onClick={() => navigate('/master-dashboard/partners')}
             style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Icon name="team" size={13} /> Partners
+          </button>
+          <button onClick={() => navigate('/master-dashboard/nex')}
+            style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="truck" size={13} /> NeX
           </button>
           <button onClick={() => navigate('/master-dashboard/ui-editor')}
             style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -931,6 +959,7 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
               </div>
               {s.eneezam_id && subsByEneezamId[s.eneezam_id] && (
                 <div style={{ fontSize: 11, color: 'var(--ne-muted)' }}>
+                  <b style={{ color: 'var(--ne-text)' }}>{subsByEneezamId[s.eneezam_id].plans?.name || 'No plan'}</b> · {NEEZI_LEVELS[neeziLevelOf(subsByEneezamId[s.eneezam_id].plans?.name)].split(':')[0]} ·{' '}
                   {Number(subsByEneezamId[s.eneezam_id].quota_consumed_count) || 0} / {subsByEneezamId[s.eneezam_id].monthly_order_limit ?? t('master.unlimited')} {t('master.quotaUsedLabel')}
                 </div>
               )}
@@ -981,6 +1010,19 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000000 }}>
           <div style={{ background: 'var(--ne-surface-2)', border: '1px solid var(--ne-border)', borderRadius: 16, width: 420, maxWidth: '92vw', padding: '20px', maxHeight: '85vh', overflowY: 'auto' }}>
             <h3 style={{ margin: '0 0 14px', fontSize: 15, color: 'var(--ne-text)' }}>{t('master.manageAccessFor')} — {accessModalStore.store_name}</h3>
+
+            <label style={{ fontSize: 12, color: 'var(--ne-muted)', display: 'block', marginBottom: 4 }}>Plan</label>
+            <select value={accessPlanId} onChange={(e) => setAccessPlanId(e.target.value)}
+              style={{ width: '100%', padding: '9px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'var(--ne-bg)', color: 'var(--ne-text)', fontSize: 13, marginBottom: 4 }}>
+              {!accessPlanId && <option value="">No plan set (Neezi Essential)</option>}
+              {/* current plans (Essential / Grow / Advance) have a monthly price; an old per-order plan shows only if this store still has it */}
+              {(allPlansList || []).filter((p) => p.monthly_price != null || p.id === accessPlanId).map((p) => (
+                <option key={p.id} value={p.id}>{p.monthly_price != null ? `${p.name} · Rs ${Number(p.monthly_price).toLocaleString()} / month` : `${p.name} (old plan)`}</option>
+              ))}
+            </select>
+            <p style={{ fontSize: 11.5, color: 'var(--ne-muted)', margin: '0 0 14px' }}>
+              {NEEZI_LEVELS[neeziLevelOf((allPlansList || []).find((p) => p.id === accessPlanId)?.name)]}
+            </p>
 
             <label style={{ fontSize: 12, color: 'var(--ne-muted)', display: 'block', marginBottom: 6 }}>{t('master.modulesLabel')}</label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16, maxHeight: 200, overflowY: 'auto', padding: '2px 4px' }}>
@@ -1663,7 +1705,7 @@ function App() {
       // Ye sab queries ek doosre par depend nahi karti: pehle ek ke baad ek chalti theen (~2-3 sec
       // tak Orders/Home ruke rehte the), ab ek saath.
       const [{ data: plansData }, { data: addonsData }, { data: stores }, { data: adminLinks }, { data: pending }] = await Promise.all([
-        supabase.from('plans').select('id, name, rate_per_order').order('rate_per_order', { ascending: false }),
+        supabase.from('plans').select('id, name, rate_per_order, monthly_price, display_order').order('display_order', { ascending: true }),
         supabase.from('addons').select('id, name, monthly_price'),
         fetchStoreRows(supabase),
         supabase
@@ -1695,7 +1737,7 @@ function App() {
           persistStoreId(fallbackStoreId)
         }
         const isProductionDomain = window.location.hostname.includes('portal.eneezam.com')
-        if (['/accounts', '/billing', '/master-dashboard/billing', '/master-dashboard/partners'].includes(location.pathname)) {
+        if (['/accounts', '/billing', '/master-dashboard/billing', '/master-dashboard/partners', '/master-dashboard/nex'].includes(location.pathname)) {
           // store-independent page — don't bounce a direct load of it
         } else if (isProductionDomain) {
           if (location.pathname !== '/home') {
@@ -2249,6 +2291,7 @@ function App() {
   }
   if (activeMenu === 'master-dashboard/billing' && profile.role === 'creator') return <BillingAdmin onExit={() => navigate('/master-dashboard')} />
   if (activeMenu === 'master-dashboard/partners' && profile.role === 'creator') return <PartnersAdmin onExit={() => navigate('/master-dashboard')} />
+  if (activeMenu === 'master-dashboard/nex' && profile.role === 'creator') return <NexAdmin onExit={() => navigate('/master-dashboard')} />
 
   // /accounts is store-independent (account identity, not store access), so it renders here —
   // behind the session/profile/approval gates above but before the master-view and store gates.
@@ -2344,7 +2387,7 @@ function App() {
 
   if (!selectedStoreId) return <SplashScreen />
   const isAdminOnlyPage = activeMenu === 'master-dashboard/dev-monitor' ||
-    activeMenu === 'master-dashboard/gemini-monitor' || activeMenu === 'master-dashboard/ui-editor'
+    activeMenu === 'master-dashboard/gemini-monitor' || activeMenu === 'master-dashboard/ui-editor' || activeMenu === 'master-dashboard/agnes-monitor'
   // Orders load hone tak poori app block nahi hoti: shell (sidebar/topbar) foran dikhta hai, aur sirf
   // orders-dependent pages ke content area mein PageSkeleton dikhta hai.
   const ordersPending = !ordersLoaded && !isAdminOnlyPage
@@ -2383,6 +2426,11 @@ function App() {
     { id: 'finance-statement', label: t('nav.finance-statement'), parent: 'group:courier-payments' },
     { id: 'group:sales-channels', label: t('nav.group.salesChannels'), isGroup: true },
     { id: 'online-store', label: t('nav.online-store'), parent: 'group:sales-channels' },
+    { id: 'online-store/collections', label: 'Collections', parent: 'group:sales-channels' },
+    { id: 'online-store/menus', label: 'Menus', parent: 'group:sales-channels' },
+    { id: 'online-store/campaigns', label: 'Campaigns & Upsell', parent: 'group:sales-channels' },
+    { id: 'online-store/social-proof', label: 'Social proof', parent: 'group:sales-channels' },
+    { id: 'online-store/reviews', label: 'Reviews', parent: 'group:sales-channels' },
     { id: 'store-connect', label: t('nav.store-connect'), parent: 'group:sales-channels' },
     { id: 'ads', label: t('nav.ads'), parent: 'group:sales-channels' },
     { id: 'suggestions', label: t('nav.suggestions') },
@@ -2807,7 +2855,7 @@ function App() {
             {activeMenu === 'finance-statement' && hasAccess('finance-statement') && !storePending && (
               <FinanceStatement storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} isCreator={profile.role === 'creator'} />
             )}
-            {activeMenu === 'meta-connect' && hasAccess('meta-connect') && <MetaConnect storeId={selectedStoreId} />}
+            {activeMenu === 'meta-connect' && hasAccess('meta-connect') && <MetaConnect storeId={selectedStoreId} storeName={currentStoreInfo?.store_name} />}
             {activeMenu === 'ads' && hasAccess('ads') && !ordersPending && (
               <AdsAnalytics ordersData={ordersData} storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
             )}
@@ -2817,7 +2865,7 @@ function App() {
             {activeMenu === 'courier-connect' && hasAccess('courier-connect') && (
               <CourierConnect storeId={selectedStoreId} />
             )}
-            {activeMenu === 'whatsapp' && hasAccess('whatsapp') && <WhatsApp />}
+            {activeMenu === 'whatsapp' && hasAccess('whatsapp') && <WhatsApp storeId={selectedStoreId} role={profile?.role} />}
             {activeMenu === 'team' && (profile.role === 'admin' || profile.role === 'creator') && (
               <Team storeId={selectedStoreId} storeName={currentStoreInfo?.store_name || ordersStore?.store_name} eneezamId={currentStoreInfo?.eneezam_id || ordersStore?.eneezam_id} cfUrl={CF_URL} />
             )}
@@ -2864,7 +2912,12 @@ function App() {
               <GeminiUsageMonitor cfUrl={CF_URL} session={session} />
             )}
             {activeMenu === 'master-dashboard/ui-editor' && profile.role === 'creator' && <UiEditor />}
-            {!['home', 'dashboard', 'store-connect', 'online-store', 'theme-editor', 'products', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'returns', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor', 'master-dashboard/ui-editor'].includes(navMenu) && (
+            {activeMenu === 'master-dashboard/agnes-monitor' && profile.role === 'creator' && <AgnesMonitor />}
+            {activeMenu.startsWith('online-store/') && hasAccess('online-store') && (
+              <StoreGrowthPage storeId={selectedStoreId} page={activeMenu.slice('online-store/'.length)} />
+            )}
+            <NeeziJobPill onOpen={() => { if (activeMenu !== 'online-store') navigate('/online-store') }} />
+            {!['home', 'dashboard', 'store-connect', 'online-store', 'theme-editor', 'products', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'returns', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor', 'master-dashboard/ui-editor', 'master-dashboard/agnes-monitor', 'online-store/collections', 'online-store/menus', 'online-store/campaigns', 'online-store/social-proof', 'online-store/reviews'].includes(navMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{pageTitleLookup.find(m => m.id === navMenu)?.label}</h2>

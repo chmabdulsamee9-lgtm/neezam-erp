@@ -188,9 +188,9 @@ export default function Settings({ profile, onBack, hasAccess, currentStoreInfo,
         {embeddedSections.some((s) => s.id === activeSection) && (
           <Suspense fallback={null}>
             {activeSection === "domains" && <StoreConnect storeId={storeId} mode="domains" />}
-            {activeSection === "whatsapp" && <WhatsApp />}
+            {activeSection === "whatsapp" && <WhatsApp storeId={storeId} role={profile?.role} />}
             {activeSection === "courier-connect" && <CourierConnect storeId={storeId} />}
-            {activeSection === "meta-connect" && <MetaConnect storeId={storeId} />}
+            {activeSection === "meta-connect" && <MetaConnect storeId={storeId} storeName={cardName} />}
             {activeSection === "general" && (
               <GeneralSettings storeId={storeId} cfUrl={cfUrl} canEdit={isPrivileged} onOpenOnlineStore={onOpenOnlineStore}
                 onSaved={({ storeName: n }) => { setBrand((b) => ({ ...b, name: n })); onStoreNameChanged?.(n); }} />

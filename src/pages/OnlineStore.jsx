@@ -5,6 +5,7 @@ import { useLanguage, useTranslation } from "../i18n";
 import { NOVA_ID, NOVA_NAME, createDefaultConfig } from "../lib/themeV2/engine.generated";
 import { formatStoreDate, useStoreTimeZone } from "../lib/dates";
 import StoreMetricsStrip from "../components/StoreMetricsStrip";
+import { ThemeLibrary } from "./StoreGrowth";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 const PREVIEW_W = 1280;
@@ -421,6 +422,11 @@ export default function OnlineStore({ storeId, onOpenThemeEditor }) {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Theme library (5 themes x 4 versions, live demo) and Neezi setup */}
+      <div style={{ marginBottom: 24 }}>
+        <ThemeLibrary store={store} liveUrl={liveUrl} onCreated={() => fetchThemes()} onOpenThemeEditor={onOpenThemeEditor} />
       </div>
 
       {/* C) Draft themes */}

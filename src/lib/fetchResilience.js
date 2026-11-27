@@ -1,7 +1,7 @@
 // Some networks in Pakistan drop connections to Cloudflare now and then (ERR_QUIC_PROTOCOL_ERROR, ERR_CONNECTION_RESET,
 // "Failed to fetch") although the internet itself works, and often only for ONE hostname. So a request that fails with a
 // network error is tried again, and a call to our worker alternates between its two addresses
-// (api.eneezam.com and the workers.dev address), which are different hostnames and IPs.
+// (the workers.dev address first, api.eneezam.com as the backup), which are different hostnames and IPs.
 //
 // Only requests that are safe to repeat are retried: GET / HEAD, and POSTs of the read/save kind (get-, list-, check-,
 // save-, update-, preview-, quote-: repeating them changes nothing twice). Anything else (booking a courier, sending a
@@ -11,7 +11,7 @@ const API = "https://api.eneezam.com";
 const WORKER = "https://neezam-erp.chmabdulsamee9.workers.dev";
 // POSTs that only read (or save the same thing again): safe to repeat after a dropped connection
 // (billing/bank-submit: the server keeps one transfer waiting per store, a repeat is refused)
-const SAFE_POST = /^\/(?:(?:save|update|get|list|check|preview|quote|home)-[a-z0-9-]+|dashboard-stats|booked-page|orders-page|orders-filter-options|finance-statement(?:-orders)?|returns-list|supplier-ledger-entries|meta-(?:insights|ads-tree|status|campaigns|ad-accounts|businesses|pixels|catalogs|catalog-status|account-balance)|order-tracking-history|rate-card|dex-track-shipment|dex-finance-transactions|store-extras|copy-candidates|partners\/(?:me|agreement|admin\/(?:overview|agreement-view|settings))|billing\/(?:state|quote|payment-status|bank-submit|guest\/(?:info|status)|admin\/(?:overview|settings|proof)))$/;
+const SAFE_POST = /^\/(?:(?:save|update|get|list|check|preview|quote|home)-[a-z0-9-]+|dashboard-stats|booked-page|orders-page|orders-filter-options|finance-statement(?:-orders)?|returns-list|supplier-ledger-entries|meta-(?:insights|ads-tree|status|campaigns|ad-accounts|businesses|pixels|catalogs|catalog-status|account-balance)|order-tracking-history|rate-card|dex-track-shipment|dex-finance-transactions|store-extras|copy-candidates|nex\/(?:state|admin\/(?:overview|kyc-file))|partners\/(?:me|agreement|admin\/(?:overview|agreement-view|settings))|billing\/(?:state|quote|payment-status|bank-submit|guest\/(?:info|status)|admin\/(?:overview|settings|proof)))$/;
 const WAITS = [0, 300, 900, 1800];
 // A request that must not be repeated (sign-up, booking...) often failed because the browser sent it on a connection that had
 // died while the page was idle. So after a quiet time a tiny GET first finds a live address; that one is safe to repeat.

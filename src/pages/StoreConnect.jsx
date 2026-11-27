@@ -63,6 +63,10 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
   const t = useTranslation(lang);
   const [currentProfile, setCurrentProfile] = useState(null);
   const [stores, setStores] = useState([]);
+  const [dnsTargets, setDnsTargets] = useState({ cname: "custom.eneezam.com", a: [] });
+  const [domainInfo, setDomainInfo] = useState({}); // {[storeId:role]: { records: [TXT...], errors: [] }} from Cloudflare
+  const autoChecked = useRef(new Set());
+  useEffect(() => { fetch(`${CF_URL}/dns-targets`).then((r) => r.json()).then((d) => { if (d && d.cname) setDnsTargets(d); }).catch(() => {}); }, []);
   const [loading, setLoading] = useState(true);
   const [shopUrl, setShopUrl] = useState("");
   const [error, setError] = useState("");
@@ -78,7 +82,7 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
   const [domainBusy, setDomainBusy] = useState({}); // {[storeId]: bool} — add/remove in flight
   const [domainChecking, setDomainChecking] = useState({}); // {[storeId]: bool} — status check in flight
   const [domainError, setDomainError] = useState({}); // {[storeId]: string}
-  const [domainCname, setDomainCname] = useState({}); // {[storeId]: {type, name, target} | null}
+  const [, setDomainCname] = useState({}); // {[storeId]: {type, name, target} | null}
   const [copiedKey, setCopiedKey] = useState(""); // which copy button last showed "copied"
   const [showEnableNativeInput, setShowEnableNativeInput] = useState({}); // {[storeId]: bool}
   const [enableNativeInputs, setEnableNativeInputs] = useState({}); // {[storeId]: string}
@@ -305,12 +309,14 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
         setDomainError((prev) => ({ ...prev, [slotKey]: data.error || t("store.customDomainInvalid") }));
         return;
       }
-      setDomainCname((prev) => ({ ...prev, [`${store.id}:${data.role}`]: data.cname_instructions }));
+      // the worker adds the www twin itself (www.brand.com -> brand.com); show its DNS record in the alt slot
+      setDomainCname((prev) => ({ ...prev, [`${store.id}:${data.role}`]: data.cname_instructions, ...(data.www_domain ? { [`${store.id}:alt`]: (data.dns_records || [])[1] } : {}) }));
       setStores((prev) => prev.map((s) => (
         s.id === store.id
-          ? { ...s, store_custom_domains: [...(s.store_custom_domains || []), { domain: data.domain, role: data.role, status: "pending" }] }
+          ? { ...s, store_custom_domains: [...(s.store_custom_domains || []), { domain: data.domain, role: data.role, status: "pending" }, ...(data.www_domain ? [{ domain: data.www_domain, role: "alt", status: "pending" }] : [])] }
           : s
       )));
+      if ((data.nameservers || []).length) setDomainInfo((prev) => ({ ...prev, [`${store.id}:${data.role}`]: { records: [], errors: [], nameservers: data.nameservers } }));
       setDomainInputs((prev) => ({ ...prev, [slotKey]: "" }));
       logActivity(store.id, "custom_domain_connected", { domain: data.domain, role: data.role });
     } catch (err) {
@@ -332,6 +338,7 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
         { headers: { Authorization: `Bearer ${session?.access_token}` } }
       );
       const data = await res.json();
+      setDomainInfo((prev) => ({ ...prev, [slotKey]: { records: data.records || [], errors: data.errors || [], nameservers: data.nameservers || prev[slotKey]?.nameservers || [] } }));
       if (data.status) {
         setStores((prev) => prev.map((s) => (
           s.id === store.id
@@ -345,6 +352,15 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
       setDomainChecking((prev) => ({ ...prev, [slotKey]: false }));
     }
   };
+
+  // pending domains are checked as soon as the page opens (and every 20 minutes by the server), so the merchant
+  // sees the latest state and any TXT record Cloudflare still needs without pressing "Check status"
+  useEffect(() => {
+    for (const st of stores) for (const d of st.store_custom_domains || []) {
+      const key = `${st.id}:${d.role}`;
+      if (d.status !== "active" && !autoChecked.current.has(key)) { autoChecked.current.add(key); handleCheckCustomDomainStatus(st, d.role); }
+    }
+  }, [stores]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRemoveCustomDomain = async (store, role) => {
     const row = getDomainRow(store, role);
@@ -652,7 +668,10 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
       )}
 
       {/* Create Native Store — additive alongside Connect Shopify, never replacing it */}
-      {mode !== "shopify" && !loading && !showNativeInput && (
+      {/* one native store per account: once a store has its eneezam.com subdomain, it is managed below */}
+      {/* a new native store only when there is no store yet; an existing (Shopify) store gets its eneezam.com
+          address from its own card below, which turns it into a native store too */}
+      {mode !== "shopify" && !loading && !showNativeInput && stores.length === 0 && (
         <button
           onClick={() => setShowNativeInput(true)}
           style={{
@@ -845,9 +864,11 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
                       {store.eneezam_id || "—"}
                     </p>
                     <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--ne-muted-2)" }}>
-                      {store.platform === "native"
-                        ? `${store.subdomain}.eneezam.com`
-                        : (store.shopify_url || t("store.notConnectedYet"))}
+                      {mode === "domains"
+                        ? (store.subdomain ? `${store.subdomain}.eneezam.com` : "No eneezam.com address yet")
+                        : store.platform === "native"
+                          ? `${store.subdomain}.eneezam.com`
+                          : (store.shopify_url || t("store.notConnectedYet"))}
                     </p>
                   </div>
                 </div>
@@ -1035,8 +1056,11 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
                 {/* Enable Native Storefront — additive, for an existing Shopify store that
                     doesn't have a subdomain yet (never creates a new store, just reserves a
                     subdomain on this one) */}
+                {store.platform === "shopify" && !store.subdomain && mode === "domains" && (
+                  <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "var(--ne-muted)" }}>Choose your free eneezam.com address. Your eNeezam storefront is created on it right away; after that you can switch your store between Shopify and eNeezam, and connect your own domain.</p>
+                )}
                 {store.platform === "shopify" && !store.subdomain && (
-                  !showEnableNativeInput[store.id] ? (
+                  !(mode === "domains" || showEnableNativeInput[store.id]) ? (
                     <button
                       onClick={() => setShowEnableNativeInput((prev) => ({ ...prev, [store.id]: true }))}
                       style={{
@@ -1072,9 +1096,9 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
                             cursor: (!enableNativeAvailability[store.id]?.available || enableNativeBusy[store.id]) ? "not-allowed" : "pointer",
                           }}
                         >
-                          {enableNativeBusy[store.id] ? t("store.creatingNativeStore") : t("store.createNativeStore")}
+                          {enableNativeBusy[store.id] ? t("store.creatingNativeStore") : t("store.createAddress")}
                         </button>
-                        <button
+                        {mode !== "domains" && <button
                           onClick={() => setShowEnableNativeInput((prev) => ({ ...prev, [store.id]: false }))}
                           style={{
                             background: "transparent", border: "1px solid var(--ne-border)", color: "var(--ne-text)",
@@ -1082,7 +1106,7 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
                           }}
                         >
                           <Icon name="close" size={13} />
-                        </button>
+                        </button>}
                       </div>
                       {(enableNativeInputs[store.id] || "").trim() && (
                         <p style={{
@@ -1250,43 +1274,100 @@ export default function StoreConnect({ storeId, mode = "shopify" }) {
                                 )}
                               </div>
 
-                              {domainCname[slotKey] && (
-                                <div style={{
-                                  marginTop: 12, padding: "12px 14px", background: "var(--ne-surface-2)",
-                                  border: "1px solid var(--ne-border)", borderRadius: 9,
-                                }}>
-                                  <p style={{ margin: "0 0 8px", fontSize: 12.5, fontWeight: 700, color: "var(--ne-text)" }}>
-                                    {t("store.cnameInstructionsTitle")}
-                                  </p>
-                                  {[
-                                    { labelKey: "store.cnameType", value: domainCname[slotKey].type },
-                                    { labelKey: "store.cnameName", value: domainCname[slotKey].name },
-                                    { labelKey: "store.cnameTarget", value: domainCname[slotKey].target },
-                                  ].map((r) => {
-                                    const copyKey = `${slotKey}-${r.labelKey}`;
-                                    return (
-                                      <div key={r.labelKey} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-                                        <span style={{ fontSize: 12, color: "var(--ne-muted)", minWidth: 50 }}>{t(r.labelKey)}:</span>
-                                        <code style={{ fontSize: 12, color: "var(--ne-text)", background: "var(--ne-bg)", padding: "2px 8px", borderRadius: 6 }}>
-                                          {r.value}
-                                        </code>
-                                        <button
-                                          onClick={() => handleCopy(copyKey, r.value)}
-                                          style={{
-                                            background: "transparent", border: "1px solid var(--ne-border)", color: "var(--ne-text)",
-                                            borderRadius: 6, padding: "2px 8px", fontSize: 11, cursor: "pointer",
-                                          }}
-                                        >
-                                          {copiedKey === copyKey ? t("store.copiedLabel") : t("store.copyButton")}
-                                        </button>
+                              {row.status !== "active" && (() => {
+                                // DNS records for this domain, always visible while it is not active (also after a reload)
+                                const d = row.domain;
+                                const labels = d.split(".");
+                                const apex = labels.length === 2 || (labels.length === 3 && /^(com|net|org|edu|gov|co)\.(pk|uk|in|ae|sa|au|nz)$/.test(labels.slice(1).join(".")));
+                                const name = d.startsWith("www.") ? "www" : apex ? "@" : labels[0];
+                                const main = [{ type: "CNAME", name, target: dnsTargets.cname || "custom.eneezam.com" }];
+                                const alt = name === "@" ? (dnsTargets.a || []).map((ip) => ({ type: "A", name: "@", target: ip })) : [];
+                                // one DNS record per row: Type | Name [Copy] | Value [Copy] — name on one line, value aligned under its header
+                                const COLS = isMobile ? "52px 1fr" : "52px 250px 1fr";
+                                const copyBtn = (key, text) => (
+                                  <button onClick={() => handleCopy(key, text)} style={{ flexShrink: 0, background: "transparent", border: "1px solid var(--ne-border)", color: "var(--ne-text)", borderRadius: 6, padding: "2px 8px", fontSize: 11, cursor: "pointer" }}>
+                                    {copiedKey === key ? t("store.copiedLabel") : t("store.copyButton")}
+                                  </button>
+                                );
+                                const cell = { display: "flex", alignItems: "center", gap: 6, minWidth: 0 };
+                                const code = { fontSize: 12, background: "var(--ne-bg)", padding: "3px 8px", borderRadius: 6 };
+                                const recRow = (r, i, group) => {
+                                  const copyKey = `${slotKey}-${group}-${i}`;
+                                  return (
+                                    <div key={copyKey} style={{ display: "grid", gridTemplateColumns: COLS, gap: 10, alignItems: "center", marginBottom: 8 }}>
+                                      <code style={{ fontSize: 12, fontWeight: 700 }}>{r.type}</code>
+                                      <div style={cell}><code style={{ ...code, whiteSpace: "nowrap" }}>{r.name}</code>{copyBtn(`${copyKey}-n`, r.name)}</div>
+                                      <div style={{ ...cell, gridColumn: isMobile ? "1 / -1" : undefined }}><code style={{ ...code, flex: 1, overflowWrap: "anywhere" }}>{r.target}</code>{copyBtn(`${copyKey}-v`, r.target)}</div>
+                                    </div>
+                                  );
+                                };
+                                const base = d.replace(/^www\./, "");
+                                // root domains: we host their DNS (created automatically when the domain was added), so the
+                                // merchant only switches two nameservers; www rides along with the root domain
+                                const rootRow = (store.store_custom_domains || []).find((x) => x.domain === base);
+                                const ns = rootRow ? (domainInfo[`${store.id}:${rootRow.role}`]?.nameservers || []) : [];
+                                if (ns.length && rootRow.domain !== row.domain) {
+                                  return <p style={{ margin: "10px 0 0", fontSize: 12, color: "var(--ne-muted)" }}>Turns on together with {base}. Nothing to add for www.</p>;
+                                }
+                                const nsBox = ns.length > 0 && (
+                                  <div style={{ marginTop: 12, padding: "12px 14px", background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 9 }}>
+                                    <p style={{ margin: "0 0 4px", fontSize: 12.5, fontWeight: 700, color: "var(--ne-text)" }}>One step: change the nameservers of {base}</p>
+                                    <ol style={{ margin: "0 0 10px", paddingLeft: 18, fontSize: 12, color: "var(--ne-muted)", lineHeight: 1.7 }}>
+                                      <li>Where you bought {base} (Hostinger, GoDaddy, IONOS, Namecheap…) open <b>DNS / Nameservers</b> → <b>Change nameservers</b> (or <b>Use custom nameservers</b>).</li>
+                                      <li><b style={{ color: "var(--ne-text)" }}>Delete all the nameservers already there</b> (for example dns-parking.com, ui-dns.com, domaincontrol.com).</li>
+                                      <li>Put <b style={{ color: "var(--ne-text)" }}>only these two</b>, leave the other boxes empty, and save:</li>
+                                    </ol>
+                                    {ns.map((n, i) => (
+                                      <div key={n} style={{ ...cell, marginBottom: 8 }}>
+                                        <code style={{ fontSize: 12, fontWeight: 700, width: 52 }}>NS {i + 1}</code>
+                                        <code style={{ ...code, flex: 1, overflowWrap: "anywhere" }}>{n}</code>{copyBtn(`${slotKey}-ns-${i}`, n)}
                                       </div>
-                                    );
-                                  })}
-                                  <p style={{ margin: "6px 0 0", fontSize: 11.5, color: "var(--ne-muted-2)" }}>
-                                    {t("store.propagationNote")}
-                                  </p>
-                                </div>
-                              )}
+                                    ))}
+                                    <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--ne-muted-2)" }}>
+                                      Don&apos;t mix them with the old nameservers, or your store will open only some of the time. If your provider warns that your email or DNS settings will stop working there, that&apos;s fine: your email and other records are already copied over to us automatically, and it works even if the domain is still attached to Shopify or another platform. We check every 20 minutes and switch your store on by ourselves (usually within an hour, at most 24 hours).
+                                    </p>
+                                  </div>
+                                );
+                                const recordsBox = (
+                                  <div style={{ marginTop: 12, padding: "12px 14px", background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 9 }}>
+                                    <p style={{ margin: "0 0 8px", fontSize: 12.5, fontWeight: 700, color: "var(--ne-text)" }}>Add this record where you bought {d.replace(/^www\./, "")} (Hostinger, GoDaddy, Namecheap…)</p>
+                                    {!isMobile && <div style={{ display: "grid", gridTemplateColumns: COLS, gap: 10, fontSize: 11, color: "var(--ne-muted)", marginBottom: 4 }}><span>Type</span><span>Name / Host</span><span>Value / Target</span></div>}
+                                    {main.map((r, i) => recRow(r, i, "c"))}
+                                    {alt.length > 0 && (
+                                      <>
+                                        <p style={{ margin: "10px 0 6px", fontSize: 12, color: "var(--ne-text)" }}><b>Provider doesn&apos;t allow CNAME on @?</b> (Hostinger and GoDaddy often don&apos;t.) Skip the CNAME above and add these A records instead:</p>
+                                        {alt.map((r, i) => recRow(r, i, "a"))}
+                                      </>
+                                    )}
+                                    {(domainInfo[slotKey]?.records || []).length > 0 && (() => {
+                                      const base = d.replace(/^www\./, "");
+                                      const short = (n) => n.replace(new RegExp(`\\.${base.replace(/\./g, "\\.")}$`), "");
+                                      const stuck = (domainInfo[slotKey]?.errors || []).some((e) => /cname|point/i.test(e));
+                                      return (
+                                        <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px dashed var(--ne-border)" }}>
+                                          <p style={{ margin: "0 0 6px", fontSize: 12, color: "var(--ne-text)" }}>
+                                            <b>Also add {domainInfo[slotKey].records.length > 1 ? "these TXT records" : "this TXT record"}</b> — it proves {base} is yours.{stuck ? " Your domain still reaches its old platform (for example Shopify). You don't have to remove it there: this record is enough." : ""}
+                                          </p>
+                                          {domainInfo[slotKey].records.map((r, i) => recRow({ type: "TXT", name: short(r.name), target: r.value }, i, "t"))}
+                                        </div>
+                                      );
+                                    })()}
+                                    <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--ne-muted-2)" }}>
+                                      We check again every 20 minutes and turn it on by ourselves. Delete any old {name === "@" ? "@ (A / CNAME)" : `${name} (A / CNAME)`} records for this name first. In the Target box write only the value shown, not the word CNAME. {t("store.propagationNote")}
+                                    </p>
+                                  </div>
+                                );
+                                if (!nsBox) return recordsBox;
+                                return (
+                                  <>
+                                    {nsBox}
+                                    <details style={{ marginTop: 8 }}>
+                                      <summary style={{ fontSize: 12, color: "var(--ne-muted)", cursor: "pointer" }}>Can&apos;t change nameservers? Add DNS records instead</summary>
+                                      {recordsBox}
+                                    </details>
+                                  </>
+                                );
+                              })()}
                             </div>
                           )}
 

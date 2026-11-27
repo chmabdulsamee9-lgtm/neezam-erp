@@ -3,6 +3,8 @@ import { supabase } from "../supabase";
 import Icon from "./Icon";
 import { useLanguage, useTranslation } from "../i18n";
 import { upsertProduct } from "../productsCache";
+import ProductEditor from "./ProductEditor";
+import EneezamProductCard from "./EneezamProductCard";
 
 // eNeezam-native catalog (store_products) for stores with a connected custom domain.
 // Talks only to the worker's admin endpoints; never reads store_products directly.
@@ -26,7 +28,7 @@ function useDebounced(value, ms = 350) {
   return v;
 }
 
-export default function EneezamProducts({ storeId, ordersStore, cfUrl }) {
+export default function EneezamProducts({ storeId, ordersStore, cfUrl, storeUrl = "", isMobile = false, hasShopify = true }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const eneezamId = ordersStore?.eneezam_id;
@@ -146,12 +148,60 @@ export default function EneezamProducts({ storeId, ordersStore, cfUrl }) {
     loadList();
   };
 
+  // ---------- bulk Neezi (selected products, one at a time so each result is checked) ----------
+  const [picked, setPicked] = useState(new Set());
+  const [bulk, setBulk] = useState(null); // { kind, done, total, ok, failed, log: [] }
+  const [bulkStyle, setBulkStyle] = useState("studio");
+  const [bulkMain, setBulkMain] = useState(false);
+  const togglePick = (id) => setPicked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const productPayload = (p, patch = {}) => ({
+    id: p.id, title: p.title, description_html: p.description_html || undefined, description: p.description, status: p.status, vendor: p.vendor, product_type: p.product_type, tags: p.tags,
+    images: (p.images || []).map(normalizeImage), options: p.options || [], details: p.details || {}, variants: p.variants, ...patch,
+  });
+  const runBulk = async (kind) => {
+    const list = items.filter((p) => picked.has(p.id));
+    if (!list.length) return;
+    const state = { kind, done: 0, total: list.length, ok: 0, failed: 0, log: [] };
+    setBulk({ ...state });
+    for (const p of list) {
+      let line;
+      if (kind === "copy") {
+        const { data } = await api("/growth/neezi-product-copy", { method: "POST", body: JSON.stringify({ store_id: storeId, product: { title: p.title, description: p.description, vendor: p.vendor, product_type: p.product_type, tags: p.tags, variants: p.variants } }) });
+        if (data.copy) {
+          const c = data.copy;
+          const save = await api("/save-store-product", { method: "POST", body: JSON.stringify({ store_id: storeId, product: productPayload(p, { title: c.title, description_html: c.description_html, details: { ...(p.details || {}), ...c.details } }) }) });
+          if (save.data?.product) { state.ok++; line = `✓ ${c.title}`; } else { state.failed++; line = `✗ ${p.title}: ${save.data?.error || "save failed"}`; }
+        } else { state.failed++; line = `✗ ${p.title}: ${data.error || "Neezi failed"}`; }
+      } else {
+        const ref = (p.images || [])[0];
+        const { data } = await api("/growth/neezi-product-photo", { method: "POST", body: JSON.stringify({ store_id: storeId, image_url: typeof ref === "string" ? ref : ref?.url, title: p.title, style: bulkStyle }) });
+        if (data.url) {
+          const img = { url: data.url, source_url: null, mirrored: true, alt: p.title, error: null };
+          const imgs = (p.images || []).map(normalizeImage);
+          const save = await api("/save-store-product", { method: "POST", body: JSON.stringify({ store_id: storeId, product: productPayload(p, { images: bulkMain ? [img, ...imgs] : [...imgs, img] }) }) });
+          if (save.data?.product) { state.ok++; line = `✓ ${p.title}`; } else { state.failed++; line = `✗ ${p.title}: ${save.data?.error || "save failed"}`; }
+        } else { state.failed++; line = `✗ ${p.title}: ${data.error || "photo failed"}`; }
+      }
+      state.done++;
+      state.log = [line, ...state.log].slice(0, 30);
+      setBulk({ ...state });
+    }
+    setBulk({ ...state, finished: true });
+    logActivity(kind === "copy" ? "neezi_bulk_copy" : "neezi_bulk_photos", { ok: state.ok, failed: state.failed });
+    loadList();
+  };
+
   // ---------- add / edit form ----------
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm());
   const [listOn, setListOn] = useState("eneezam");
   const [newImageUrl, setNewImageUrl] = useState("");
+  const [imgBusy, setImgBusy] = useState(""); // "" | "upload" | "ai-<i>" | "webp-<i>"
+  const [imgNote, setImgNote] = useState("");
+  const fileRef = useRef(null);
+  const kb = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+  const savedImg = (url) => ({ url, source_url: null, mirrored: true, alt: "", error: null });
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
 
@@ -186,6 +236,41 @@ export default function EneezamProducts({ storeId, ordersStore, cfUrl }) {
     setForm((f) => ({ ...f, images: [...f.images, { url, source_url: null, mirrored: false, alt: "", error: null }] }));
     setNewImageUrl("");
     setFormError("");
+  };
+
+  // Upload from the computer: the worker resizes and saves every picture as WebP (images.js in the worker).
+  const uploadFiles = async (files) => {
+    const list = [...(files || [])].slice(0, 10);
+    if (!list.length) return;
+    setImgBusy("upload"); setFormError(""); setImgNote("");
+    const { data: { session } } = await supabase.auth.getSession();
+    let before = 0, after = 0, added = 0;
+    for (const file of list) {
+      const res = await fetch(`${cfUrl}/growth/upload-image?store_id=${storeId}&kind=product`, { method: "POST", headers: { Authorization: `Bearer ${session?.access_token}`, "Content-Type": file.type || "image/jpeg" }, body: file });
+      let d = {}; try { d = await res.json(); } catch { /* */ }
+      if (!d.url) { setFormError(d.error || `Upload failed (HTTP ${res.status})`); break; }
+      before += d.before || file.size; after += d.after || file.size; added++;
+      setForm((f) => ({ ...f, images: [...f.images, savedImg(d.url)] }));
+    }
+    if (added) setImgNote(`${added} picture${added > 1 ? "s" : ""} saved as WebP: ${kb(before)} → ${kb(after)}`);
+    setImgBusy("");
+    if (fileRef.current) fileRef.current.value = "";
+  };
+  // Neezi photo (Agnes, Grow/Advance): a clean studio shot made from this picture; added as a new image.
+  const aiPhoto = async (i, style = "studio") => {
+    setImgBusy(`ai-${i}`); setFormError(""); setImgNote("Neezi is designing a studio photo (about 20 to 60 seconds)…");
+    const { data } = await api("/growth/neezi-product-photo", { method: "POST", body: JSON.stringify({ store_id: storeId, image_url: form.images[i]?.url, title: form.title, style }) });
+    if (data.url) { setForm((f) => ({ ...f, images: [...f.images, savedImg(data.url)] })); setImgNote(`Neezi photo added (WebP, ${kb(data.after || 0)}). Move it up to make it the main picture.`); }
+    else { setImgNote(""); setFormError(data.error || "Neezi could not make the photo"); }
+    setImgBusy("");
+  };
+  // Convert an existing (Shopify / external / PNG) picture to a WebP copy in eNeezam storage.
+  const toWebp = async (i) => {
+    setImgBusy(`webp-${i}`); setFormError(""); setImgNote("");
+    const { data } = await api("/growth/convert-image", { method: "POST", body: JSON.stringify({ store_id: storeId, url: form.images[i]?.url, kind: "product" }) });
+    if (data.url) { setForm((f) => ({ ...f, images: f.images.map((img, j) => (j === i ? { ...img, ...savedImg(data.url), alt: img.alt } : img)) })); setImgNote(`Converted to WebP: ${kb(data.before || 0)} → ${kb(data.after || 0)}`); }
+    else setFormError(data.error || "Could not convert this picture");
+    setImgBusy("");
   };
 
   const validate = () => {
@@ -361,7 +446,7 @@ export default function EneezamProducts({ storeId, ordersStore, cfUrl }) {
     <div style={{ color: "var(--ne-text)" }}>
       {/* header: storefront source + actions */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        {hasShopify ? <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{ fontSize: 12, color: "var(--ne-muted)", fontWeight: 700 }}>{t("products.eneezam.storefrontShows")}</span>
           <div style={{ display: "inline-flex", border: "1px solid var(--ne-border)", borderRadius: 9, overflow: "hidden" }}>
             {["shopify", "eneezam"].map((src) => (
@@ -372,14 +457,14 @@ export default function EneezamProducts({ storeId, ordersStore, cfUrl }) {
               </button>
             ))}
           </div>
-        </div>
+        </div> : <span style={{ fontSize: 12.5, color: "var(--ne-muted)" }}>Products you add here sell on your store{storeUrl ? ` (${storeUrl.replace("https://", "")})` : ""}. Set them to Active to show them.</span>}
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {pendingTotal > 0 && (
             <button type="button" onClick={runPageMirror} disabled={mirrorState?.running} style={btn(false)}>
               <Icon name="upload" size={12} /> {mirrorState?.running ? fmt(t, "products.eneezam.savingImages", { done: mirrorState.done || 0, total: mirrorState.total || 0 }) : t("products.eneezam.saveImages")}
             </button>
           )}
-          <button type="button" onClick={openCopy} style={btn(false)}><Icon name="download" size={12} /> {t("products.eneezam.copyFromShopify")}</button>
+          {hasShopify && <button type="button" onClick={openCopy} style={btn(false)}><Icon name="download" size={12} /> {t("products.eneezam.copyFromShopify")}</button>}
           <button type="button" onClick={openAdd} style={btn(true)}><Icon name="plus" size={12} /> {t("products.eneezam.addProduct")}</button>
         </div>
       </div>
@@ -400,31 +485,51 @@ export default function EneezamProducts({ storeId, ordersStore, cfUrl }) {
 
       {listError && <p style={{ color: "var(--ne-danger)", fontSize: 12 }}>{listError}</p>}
 
-      {/* list */}
-      <div style={{ ...card, overflow: "hidden" }}>
-        {loading ? (
-          <p style={{ padding: 16, margin: 0, fontSize: 12.5, color: "var(--ne-muted)" }}>{t("products.eneezam.loading")}</p>
-        ) : items.length === 0 ? (
-          <p style={{ padding: 20, margin: 0, fontSize: 12.5, color: "var(--ne-muted)", textAlign: "center" }}>{t("products.eneezam.empty")}</p>
-        ) : items.map((p, i) => (
-          <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderTop: i ? "1px solid var(--ne-border)" : "none", flexWrap: "wrap" }}>
-            {thumb(p.thumbnail)}
-            <div style={{ flex: "1 1 200px", minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.title}</div>
-              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: 4, fontSize: 11.5, color: "var(--ne-muted)" }}>
-                <span style={statusPill(p.status)}>{t(`products.eneezam.status.${p.status}`)}</span>
-                <span>{fmt(t, "products.eneezam.variantsCount", { n: p.variants_count ?? (p.variants || []).length })}</span>
-                <span>{priceRange(p.price_min, p.price_max)}</span>
-                {imageStatus(p)}
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <button type="button" onClick={() => openEdit(p)} style={btn(false)}><Icon name="edit" size={12} /> {t("products.eneezam.edit")}</button>
-              <button type="button" onClick={() => { setDeleteError(""); setDeleteTarget(p); }} style={{ ...btn(false), color: "var(--ne-danger)", borderColor: "var(--ne-danger)" }}><Icon name="trash" size={12} /> {t("products.eneezam.delete")}</button>
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* bulk bar */}
+      {picked.size > 0 && (
+        <div style={{ ...card, padding: "10px 12px", marginBottom: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <b style={{ fontSize: 12.5 }}>{picked.size} selected</b>
+          <button type="button" style={btn(true)} disabled={!!bulk && !bulk.finished} onClick={() => runBulk("copy")}><Icon name="sparkle" size={12} /> Neezi: write listings</button>
+          <select value={bulkStyle} onChange={(e) => setBulkStyle(e.target.value)} style={{ ...input, padding: "6px 8px" }} title="One style for all, so the store looks like one brand">
+            {[["studio", "Clean studio"], ["pastel", "Pastel colour"], ["lifestyle", "Lifestyle"], ["dark", "Dark tech"], ["marble", "Marble luxury"]].map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+          <label style={{ fontSize: 12, display: "inline-flex", gap: 4, alignItems: "center" }}><input type="checkbox" checked={bulkMain} onChange={(e) => setBulkMain(e.target.checked)} /> make it the main photo</label>
+          <button type="button" style={btn(false)} disabled={!!bulk && !bulk.finished} onClick={() => runBulk("photo")}><Icon name="sparkle" size={12} /> Neezi: brand photos</button>
+          <button type="button" style={btn(false)} onClick={() => setPicked(new Set())}>Clear</button>
+        </div>
+      )}
+      {bulk && (
+        <div style={{ ...card, padding: 12, marginBottom: 10, fontSize: 12.5, display: "grid", gap: 6 }}>
+          <div style={{ display: "flex", justifyContent: "space-between" }}><b>{bulk.kind === "copy" ? "Neezi is writing listings" : "Neezi is making brand photos"} · {bulk.done}/{bulk.total}</b><span>{bulk.ok} done{bulk.failed ? ` · ${bulk.failed} failed` : ""}{bulk.finished ? " · finished" : ""}</span></div>
+          <div style={{ height: 6, borderRadius: 99, background: "var(--ne-border)", overflow: "hidden" }}><div style={{ width: `${Math.round((bulk.done / Math.max(1, bulk.total)) * 100)}%`, height: "100%", background: "var(--ne-grad)", transition: "width .4s" }} /></div>
+          <div style={{ maxHeight: 120, overflowY: "auto", color: "var(--ne-muted)" }}>{bulk.log.map((l, i) => <div key={i}>{l}</div>)}</div>
+          {bulk.finished && <div><button type="button" style={btn(false)} onClick={() => { setBulk(null); setPicked(new Set()); }}>Close</button></div>}
+        </div>
+      )}
+
+      {/* list: same card layout as the Shopify products tab, edited in place */}
+      {loading ? (
+        <p style={{ ...card, padding: 16, margin: 0, fontSize: 12.5, color: "var(--ne-muted)" }}>{t("products.eneezam.loading")}</p>
+      ) : items.length === 0 ? (
+        <p style={{ ...card, padding: 20, margin: 0, fontSize: 12.5, color: "var(--ne-muted)", textAlign: "center" }}>{t("products.eneezam.empty")}</p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <label style={{ fontSize: 12, color: "var(--ne-muted)", display: "inline-flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={items.length > 0 && items.every((p) => picked.has(p.id))} onChange={(e) => setPicked(e.target.checked ? new Set(items.map((p) => p.id)) : new Set())} /> Select all on this page</label>
+          {items.map((p) => (
+            <EneezamProductCard key={`${p.id}-${p.updated_at}`} p={p} isMobile={isMobile} storeUrl={storeUrl}
+              allSkus={new Set(items.flatMap((x) => (x.variants || []).map((v) => v.sku).filter(Boolean)))}
+              selected={picked.has(p.id)} onSelect={() => togglePick(p.id)} onOpen={() => openEdit(p)}
+              onDelete={() => { setDeleteError(""); setDeleteTarget(p); }}
+              onSave={async (prod, patch) => {
+                const { data } = await api("/save-store-product", { method: "POST", body: JSON.stringify({ store_id: storeId, product: productPayload(prod, patch) }) });
+                if (!data?.product) return { error: data?.error || "Could not save" };
+                logActivity("product_update", { product_id: prod.id, title: data.product.title, source: "eneezam", inline: true });
+                setItems((list) => list.map((x) => (x.id === prod.id ? data.product : x)));
+                return {};
+              }} />
+          ))}
+        </div>
+      )}
 
       {total > LIMIT && (
         <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, marginTop: 10, fontSize: 12 }}>
@@ -463,8 +568,15 @@ export default function EneezamProducts({ storeId, ordersStore, cfUrl }) {
         </div>
       )}
 
-      {/* add / edit form */}
-      {formOpen && (
+      {/* add / edit: Shopify-style editor for eNeezam products */}
+      {formOpen && (editing || listOn === "eneezam") && (
+        <ProductEditor storeId={storeId} cfUrl={cfUrl} product={editing}
+          onClose={() => { setFormOpen(false); loadList(); }}
+          onSaved={(p) => { logActivity(editing ? "product_update" : "product_create", { product_id: p.id, title: p.title, source: "eneezam" }); setEditing(p); loadList(); }}
+          onListOnShopify={hasShopify ? () => setListOn("shopify") : null} />
+      )}
+      {/* new product listed on Shopify (old form) */}
+      {formOpen && !editing && listOn === "shopify" && (
         <div style={overlay}>
           <form onSubmit={saveForm} style={modal}>
             <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -515,6 +627,8 @@ export default function EneezamProducts({ storeId, ordersStore, cfUrl }) {
                       {thumb(img.url, 40)}
                       <span style={{ flex: "1 1 160px", minWidth: 0, fontSize: 11.5, color: "var(--ne-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{img.url}</span>
                       <span style={img.mirrored ? pill("var(--ne-success-soft)", "var(--ne-success)") : pill("var(--ne-surface)", "var(--ne-muted)")}>{img.mirrored ? t("products.eneezam.imageSaved") : t("products.eneezam.imageExternal")}</span>
+                      {!/\.webp(\?|$)/i.test(img.url) && <button type="button" onClick={() => toWebp(i)} disabled={!!imgBusy} style={btn(false)} title="Make a small WebP copy in eNeezam">{imgBusy === `webp-${i}` ? "…" : "WebP"}</button>}
+                      <button type="button" onClick={() => aiPhoto(i)} disabled={!!imgBusy} style={btn(false)} title="Neezi studio photo (Grow and Advance plans)"><Icon name="sparkle" size={11} /> {imgBusy === `ai-${i}` ? "Designing…" : "Neezi photo"}</button>
                       <button type="button" onClick={() => moveImage(i, -1)} disabled={i === 0} style={btn(false)} aria-label={t("products.eneezam.moveUp")}><Icon name="arrowUp" size={11} /></button>
                       <button type="button" onClick={() => moveImage(i, 1)} disabled={i === form.images.length - 1} style={btn(false)} aria-label={t("products.eneezam.moveDown")}><Icon name="arrowDown" size={11} /></button>
                       <button type="button" onClick={() => setField("images", form.images.filter((_, j) => j !== i))} style={{ ...btn(false), color: "var(--ne-danger)" }} aria-label={t("products.eneezam.remove")}><Icon name="close" size={11} /></button>
@@ -524,7 +638,10 @@ export default function EneezamProducts({ storeId, ordersStore, cfUrl }) {
                     <input value={newImageUrl} onChange={(e) => setNewImageUrl(e.target.value)} placeholder={t("products.eneezam.imageUrlPlaceholder")} style={{ ...input, flex: 1 }}
                       onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addImage(); } }} />
                     <button type="button" onClick={addImage} style={btn(false)}><Icon name="plus" size={11} /> {t("products.eneezam.addImage")}</button>
+                    <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/gif" multiple hidden onChange={(e) => uploadFiles(e.target.files)} />
+                    <button type="button" onClick={() => fileRef.current?.click()} disabled={!!imgBusy} style={btn(true)}><Icon name="upload" size={11} /> {imgBusy === "upload" ? "Uploading…" : "Upload"}</button>
                   </div>
+                  {imgNote && <div style={{ fontSize: 11.5, color: "var(--ne-muted)" }}>{imgNote}</div>}
                 </div>
               </div>
 
