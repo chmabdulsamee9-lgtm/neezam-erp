@@ -297,7 +297,7 @@ function StatementRow({ period, t, cfUrl, storeId, ordersStore, courier }) {
   );
 }
 
-function RateCardModal({ t, cfUrl, onClose, canEdit }) {
+export function RateCardModal({ t, cfUrl, onClose, canEdit }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -627,17 +627,6 @@ export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL,
     setExportingAll(false);
   };
 
-  if (!ordersStore?.shopify_url) {
-    return (
-      <div style={{ padding: isMobile ? "1rem" : "1.5rem", color: "var(--ne-text)" }}>
-        <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><Icon name="calculator" size={17} /> {t("finance.title")}</h1>
-        <div style={{ ...cardStyle, marginTop: "1.5rem", textAlign: "center", color: "var(--ne-muted)" }}>
-          {t("finance.connectStoreFirst")}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div style={{ padding: isMobile ? "1rem" : "1.5rem", color: "var(--ne-text)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: 8 }}>
@@ -681,6 +670,11 @@ export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL,
             </button>
           </div>
 
+          {earliestDate === null && (
+            <div style={{ ...cardStyle, textAlign: "center", color: "var(--ne-muted)" }}>
+              {courier === "nex" ? "Abhi NeX ka koi parcel deliver ya return nahi hua. Pehla parcel deliver ya return hote hi statement yahan ban jayegi." : "Abhi DEX ka koi parcel deliver ya return nahi hua. Pehla parcel deliver ya return hote hi statement yahan ban jayegi."}
+            </div>
+          )}
           <div>
             {pagedPeriods.map((p) => (
               <StatementRow key={`${courier}-${periodKey(p)}`} period={p} t={t} cfUrl={cfUrl} storeId={storeId} ordersStore={ordersStore} courier={courier} />

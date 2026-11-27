@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import Icon from "../components/Icon";
 import { nexApi, NEX_LOGO } from "../lib/nexApi";
 import { NexTerms } from "./NexKyc";
+import { RateCardModal } from "./FinanceStatement";
+import { useLanguage, useTranslation } from "../i18n";
 
 const card = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: 18 };
 const input = { width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface)", color: "var(--ne-text)", fontSize: 13, boxSizing: "border-box" };
@@ -19,6 +21,9 @@ export default function NexAdmin({ onExit }) {
   const [code, setCode] = useState("");
   const [onlyOpen, setOnlyOpen] = useState(true);
   const [showTerms, setShowTerms] = useState(false);
+  const [showRates, setShowRates] = useState(false);
+  const [lang] = useLanguage();
+  const t = useTranslation(lang);
 
   const load = useCallback(async () => {
     const d = await nexApi("admin/overview");
@@ -75,6 +80,15 @@ export default function NexAdmin({ onExit }) {
             {showTerms && <div style={{ border: "1px solid var(--ne-border)", borderRadius: 10, padding: 12, background: "var(--ne-surface)" }}><NexTerms /></div>}
           </div>
         )}
+
+        {data && (
+          <div style={{ ...card, display: "grid", gap: 8 }}>
+            <b>Rate card (rates aur taxes)</b>
+            <p style={{ ...muted, margin: 0 }}>Har province ki shipping fee, VAT, income tax aur sales tax. DEX aur NeX dono ki Courier Statements isi se hisaab lagati hain. Yahan badlein, sab stores par lag jayega.</p>
+            <div><button style={btn(true)} onClick={() => setShowRates(true)}><Icon name="card" size={13} /> Rate card kholein</button></div>
+          </div>
+        )}
+        {showRates && <RateCardModal t={t} cfUrl="https://neezam-erp.chmabdulsamee9.workers.dev" canEdit onClose={() => setShowRates(false)} />}
 
         {data && (
           <div style={{ ...card, display: "grid", gap: 12 }}>
