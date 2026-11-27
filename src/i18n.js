@@ -356,7 +356,7 @@ export const translations = {
     'booked.trackingEmpty': 'Abhi tak is order ke liye koi tracking event nahi mila.',
 
     'courier.title': 'Courier Connect',
-    'courier.subtitle': 'Daraz Express (Dex) Logistics',
+    'courier.subtitle': 'NeX (Neezam Express) aur Daraz Express (DEX)',
     'courier.loading': 'Load ho raha hai...',
     'courier.dexName': 'Daraz Express (Dex)',
     'courier.notConnectedYet': 'Abhi tak connected nahi',
@@ -2971,7 +2971,7 @@ export const translations = {
     'booked.trackingEmpty': 'No tracking events found for this order yet.',
 
     'courier.title': 'Courier Connect',
-    'courier.subtitle': 'Daraz Express (Dex) Logistics',
+    'courier.subtitle': 'NeX (Neezam Express) aur Daraz Express (DEX)',
     'courier.loading': 'Loading...',
     'courier.dexName': 'Daraz Express (Dex)',
     'courier.notConnectedYet': 'Not connected yet',
