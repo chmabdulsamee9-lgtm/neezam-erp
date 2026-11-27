@@ -1100,9 +1100,10 @@ export default function BookedOrders({ storeId, ordersStore, fetcher, liveVersio
     setReadyCouriers(null);
     nexApi("state", { store_id: storeId }).then((d) => {
       if (!alive) return;
-      const list = d.couriers ? [["nex", "NeX (Neezam Express)"], ["dex", "DEX (Daraz Express)"]].filter(([id]) => d.couriers[id]?.ready).map(([id, name]) => ({ id, name })) : [{ id: "dex", name: "DEX (Daraz Express)" }];
+      const order = d.default_courier === "dex" ? [["dex", "DEX (Daraz Express)"], ["nex", "NeX (Neezam Express)"]] : [["nex", "NeX (Neezam Express)"], ["dex", "DEX (Daraz Express)"]];
+      const list = d.couriers ? order.filter(([id]) => d.couriers[id]?.ready).map(([id, name]) => ({ id, name })) : [{ id: "dex", name: "DEX (Daraz Express)" }];
       setReadyCouriers(list);
-      setBookCourier((cur) => (list.some((c) => c.id === cur) ? cur : list[0]?.id || ""));
+      setBookCourier(list[0]?.id || "");
     });
     return () => { alive = false; };
   }, [showBookModal, storeId]);

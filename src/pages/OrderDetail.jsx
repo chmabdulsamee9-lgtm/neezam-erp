@@ -102,7 +102,7 @@ export default function OrderDetail({ orderId, storeId, cfUrl }) {
   useEffect(() => {
     let alive = true;
     nexApi("state", { store_id: storeId }).then((d) => {
-      if (alive) setReady(d.couriers ? ["nex", "dex"].filter((id) => d.couriers[id]?.ready) : ["dex"]);
+      if (alive) setReady(d.couriers ? (d.default_courier === "dex" ? ["dex", "nex"] : ["nex", "dex"]).filter((id) => d.couriers[id]?.ready) : ["dex"]);
     });
     return () => { alive = false; };
   }, [storeId]);

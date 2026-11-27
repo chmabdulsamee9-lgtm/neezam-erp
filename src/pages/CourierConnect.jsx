@@ -163,6 +163,25 @@ export default function CourierConnect({ storeId }) {
   const [kycOpen, setKycOpen] = useState(false);
   const [toggling, setToggling] = useState("");
   const [openCard, setOpenCard] = useState("");
+  // the full KYC as submitted (read-only), loaded when the NeX details open
+  const [kycFull, setKycFull] = useState(null);
+  useEffect(() => {
+    if (openCard !== "nex" || !nex?.kyc) return undefined;
+    let alive = true;
+    nexApi("kyc-get", { store_id: storeId }).then((d) => { if (alive) setKycFull(d.kyc || null); });
+    return () => { alive = false; };
+  }, [openCard, nex?.kyc, storeId]);
+  const viewCnic = async (side) => {
+    const w = window.open("", "_blank");
+    const d = await nexApi("kyc-file", { store_id: storeId, side });
+    if (d.error) { w?.close(); setNexError(d.error); } else if (w) w.location.href = d.url;
+  };
+  const setDefaultCourier = async (courier) => {
+    const d = await nexApi("default", { store_id: storeId, courier });
+    if (d.error) { setNexError(d.error); return; }
+    logActivity("courier_default_set", { courier });
+    loadCouriers();
+  };
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
@@ -493,6 +512,19 @@ export default function CourierConnect({ storeId }) {
                 </div>
               ))}
             </div>
+            <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 13 }}>
+              <b>Booking mein pehle:</b>
+              {[["nex", "NeX"], ["dex", "DEX"]].map(([id, name]) => {
+                const on = (nex.default_courier || "nex") === id;
+                return (
+                  <button key={id} type="button" aria-pressed={on} onClick={() => !on && setDefaultCourier(id)}
+                    style={{ padding: "6px 14px", borderRadius: 999, fontSize: 12.5, fontWeight: 700, cursor: on ? "default" : "pointer", border: `1px solid ${on ? "var(--ne-accent)" : "var(--ne-border)"}`, background: on ? "var(--ne-accent)" : "transparent", color: on ? "#fff" : "var(--ne-text)" }}>
+                    {on ? "✓ " : ""}{name}
+                  </button>
+                );
+              })}
+              <span style={{ fontSize: 11.5, color: "var(--ne-muted)" }}>Default courier booking ke dropdown mein sab se upar aata hai (ON aur connected ho to).</span>
+            </div>
             <p style={{ margin: "14px 0 0", fontSize: 11.5, color: "var(--ne-muted-2)" }}>Box par click karein tafseel ke liye. Jo courier ON aur connected ho, booking karte waqt wohi dikhega; dono hon to booking par chunein.</p>
 
             {open && (
@@ -511,10 +543,20 @@ export default function CourierConnect({ storeId }) {
                     <div style={{ display: "grid", gap: 10, fontSize: 13 }}>
                       <p style={{ margin: 0, color: "var(--ne-muted)", lineHeight: 1.6 }}>NeX eNeezam ki apni courier service hai. Booking eNeezam ke courier partners (Daraz Express (DEX), TCS, Leopards, PostEx aur FastEx) se hoti hai, COD eNeezam ko aati hai aur courier ke cycle par charges kaat kar aap ke bank mein bhej di jati hai.</p>
                       {nex.kyc ? (
-                        <div style={{ background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "12px 14px", display: "grid", gap: 4 }}>
-                          <span>Brand: <b>{nex.kyc.brand_name}</b></span>
-                          <span>Bank: <b>{nex.kyc.bank_name}</b> · Account {nex.kyc.account_number} · IBAN {nex.kyc.iban}</span>
-                          <span>KYC: <b>{nex.kyc.status === "approved" ? "Approved" : nex.kyc.status === "rejected" ? "Wapas aayi" : "Check ho rahi hai"}</b> · {new Date(nex.kyc.updated_at || nex.kyc.created_at).toLocaleDateString("en-PK")}</span>
+                        <div style={{ background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "12px 14px", display: "grid", gap: 6 }}>
+                          <span>KYC: <b style={{ color: nex.kyc.status === "approved" ? "var(--ne-success)" : nex.kyc.status === "rejected" ? "var(--ne-danger)" : "var(--ne-warning)" }}>{nex.kyc.status === "approved" ? "Approved" : nex.kyc.status === "rejected" ? "Wapas aayi" : "Check ho rahi hai"}</b> · {new Date(nex.kyc.updated_at || nex.kyc.created_at).toLocaleDateString("en-PK")}</span>
+                          {!kycFull ? <span style={{ color: "var(--ne-muted)" }}>{t("courier.loading")}</span> : (
+                            <div style={{ display: "grid", gridTemplateColumns: "minmax(110px,auto) 1fr", gap: "4px 12px" }}>
+                              {[["Contact person", kycFull.contact_name], ["Mobile", kycFull.mobile], ["Email", kycFull.email], ["Brand", kycFull.brand_name], ["Category", kycFull.category], ["Address", [kycFull.address, kycFull.city].filter(Boolean).join(", ")], ["Bank", kycFull.bank_name], ["Account title", kycFull.account_title], ["Account number", kycFull.account_number], ["IBAN", kycFull.iban]].map(([a, b]) => (
+                                <div key={a} style={{ display: "contents" }}><span style={{ color: "var(--ne-muted)" }}>{a}</span><b style={{ wordBreak: "break-word" }}>{b || "-"}</b></div>
+                              ))}
+                            </div>
+                          )}
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+                            <button type="button" onClick={() => viewCnic("front")} style={{ fontSize: 12, padding: "6px 12px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", cursor: "pointer", display: "inline-flex", gap: 6, alignItems: "center" }}><Icon name="eye" size={12} /> CNIC saamne</button>
+                            <button type="button" onClick={() => viewCnic("back")} style={{ fontSize: 12, padding: "6px 12px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", cursor: "pointer", display: "inline-flex", gap: 6, alignItems: "center" }}><Icon name="eye" size={12} /> CNIC peeche</button>
+                          </div>
+                          {nex.kyc.status !== "rejected" && <span style={{ fontSize: 11.5, color: "var(--ne-muted)" }}>Yeh maloomat badalni ho to support@eneezam.com par likhein.</span>}
                         </div>
                       ) : <p style={{ margin: 0 }}>Abhi KYC nahi bhari. NeX on karne ke liye ek dafa KYC aur <a href="/nex-terms" target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)" }}>NeX terms</a> zaroori hain.</p>}
                       {(!nex.kyc || nex.kyc.status === "rejected") && <button onClick={() => { setOpenCard(""); setKycOpen(true); }} style={{ padding: "10px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontWeight: 700, cursor: "pointer" }}>{nex.kyc ? "KYC edit karke theek karein" : "KYC bharein aur NeX shuru karein"}</button>}
