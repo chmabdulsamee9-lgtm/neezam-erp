@@ -8,6 +8,7 @@ import { formatStoreDate, useStoreTimeZone } from "../lib/dates";
 import OrderConversion from "../components/OrderConversion";
 import { toWhatsAppPhone } from "../lib/phone";
 import { supabase } from "../supabase";
+import { nexApi } from "../lib/nexApi";
 import dexLogo from "../assets/couriers/dex.png";
 import { getOrderSource } from "../lib/orderSource";
 import OrderSourceIcon from "../components/OrderSourceIcon";
@@ -96,7 +97,17 @@ export default function OrderDetail({ orderId, storeId, cfUrl }) {
     return () => { alive = false; };
   }, [storeId]);
 
-  const bookWithDex = async () => {
+  // couriers this store can book with now (worker /nex/state), NeX first
+  const [ready, setReady] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    nexApi("state", { store_id: storeId }).then((d) => {
+      if (alive) setReady(d.couriers ? ["nex", "dex"].filter((id) => d.couriers[id]?.ready) : ["dex"]);
+    });
+    return () => { alive = false; };
+  }, [storeId]);
+
+  const bookWithDex = async (courier) => {
     setBooking(true);
     const { data: { session } } = await supabase.auth.getSession();
     const pickup = pickups.find((a) => a.is_default) || pickups[0];
@@ -104,7 +115,7 @@ export default function OrderDetail({ orderId, storeId, cfUrl }) {
       const res = await fetch(`${cfUrl}/dex-book-order`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ store_id: storeId, order_id: orderId, pickup_address_id: pickup?.id }),
+        body: JSON.stringify({ store_id: storeId, order_id: orderId, pickup_address_id: pickup?.id, courier }),
       });
       const data = await res.json().catch(() => ({}));
       if (data.error) { setBanner({ type: "error", text: `${t("orderDetail.bookFailed")}: ${data.error}` }); logStoreActivity(storeId, "booking_failed", { order: order.name, error: data.error }); }
@@ -198,7 +209,7 @@ export default function OrderDetail({ orderId, storeId, cfUrl }) {
           <ItemsCard order={order} items={items} editMode={editMode && !locked} busy={busy} t={t} storeId={storeId} cfUrl={cfUrl}
             onSave={async (lines) => { const r = await act("set_items", { lines }, { okText: t("orderDetail.itemsSaved") }); if (r.ok) setEditMode(false); return r; }} onCancelEdit={() => setEditMode(false)} />
 
-          <CourierCard order={order} agent={agent} dexCities={dexCities} pickups={pickups} booking={booking} busy={busy} onBook={bookWithDex} t={t} />
+          <CourierCard order={order} agent={agent} dexCities={dexCities} pickups={pickups} booking={booking} busy={busy} onBook={bookWithDex} ready={ready} t={t} />
 
           <div style={card}>
             <h3 style={h3}><span>{t("orderDetail.totals")}</span></h3>
@@ -271,7 +282,7 @@ export default function OrderDetail({ orderId, storeId, cfUrl }) {
 }
 
 /* ------------------------------ courier ------------------------------ */
-function CourierCard({ order, agent, dexCities, pickups, booking, busy, onBook, t }) {
+function CourierCard({ order, agent, dexCities, pickups, booking, busy, onBook, ready, t }) {
   const city = String(order.shipping_address?.city || "").trim().toLowerCase();
   const serviceable = !!dexCities && !!city && dexCities.has(city);
   const closed = order.status !== "open" || agent.agent_status === "Cancelled";
@@ -287,7 +298,12 @@ function CourierCard({ order, agent, dexCities, pickups, booking, busy, onBook, 
         <>
           <p style={{ margin: "0 0 10px", fontSize: 12.5, color: serviceable ? "var(--ne-accent)" : "var(--ne-muted)" }}>{serviceable ? t("orderDetail.dexRecommended") : t("orderDetail.dexNotListed")}</p>
           {pickups.length === 0 && <p style={{ margin: "0 0 10px", fontSize: 11.5, color: "var(--ne-warning)" }}>{t("orderDetail.noPickup")}</p>}
-          <button type="button" style={btn(true, false, booking || busy || closed || pickups.length === 0)} disabled={booking || busy || closed || pickups.length === 0} onClick={onBook}>{booking ? t("common.loading") : t("orderDetail.bookDex")}</button>
+          {ready && ready.length === 0 && <p style={{ margin: "0 0 10px", fontSize: 11.5, color: "var(--ne-warning)" }}>Koi courier ON aur connected nahi (Settings › Courier Connect).</p>}
+          <div style={{ display: "grid", gap: 8 }}>
+            {(ready || []).map((c) => (
+              <button key={c} type="button" style={btn(c === ready[0], false, booking || busy || closed || pickups.length === 0)} disabled={booking || busy || closed || pickups.length === 0} onClick={() => onBook(c)}>{booking ? t("common.loading") : c === "nex" ? "NeX se book karein" : t("orderDetail.bookDex")}</button>
+            ))}
+          </div>
         </>
       )}
     </div>

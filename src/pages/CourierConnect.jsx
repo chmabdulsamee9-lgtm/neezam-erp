@@ -3,6 +3,9 @@ import { supabase } from "../supabase";
 import { fetchStoreRow } from "../lib/storeColumns";
 import Icon from "../components/Icon";
 import { useLanguage, useTranslation } from "../i18n";
+import { nexApi, NEX_LOGO } from "../lib/nexApi";
+import NexKyc from "./NexKyc";
+import dexLogo from "../assets/couriers/dex.png";
 
 const CF_URL = "https://neezam-erp.chmabdulsamee9.workers.dev";
 
@@ -154,6 +157,11 @@ export default function CourierConnect({ storeId }) {
   const [savingWeight, setSavingWeight] = useState(false);
   const [labelDisplayMode, setLabelDisplayMode] = useState("both");
   const [savingLabelMode, setSavingLabelMode] = useState(false);
+  // NeX / DEX cards (worker nex.js)
+  const [nex, setNex] = useState(null);
+  const [nexError, setNexError] = useState("");
+  const [kycOpen, setKycOpen] = useState(false);
+  const [toggling, setToggling] = useState("");
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 760);
@@ -166,6 +174,7 @@ export default function CourierConnect({ storeId }) {
   }, [storeId]);
 
   useEffect(() => { if (storeId) fetchPickupAddresses(); }, [storeId]);
+  useEffect(() => { if (storeId) loadCouriers(); }, [storeId]);
 
   // Activity-log ke "author" field ke liye current user ka naam (BookedOrders.jsx/Orders.jsx
   // ke currentProfile fetch jaisa hi pattern)
@@ -204,6 +213,23 @@ export default function CourierConnect({ storeId }) {
     setDefaultHeight(data?.default_height_cm ?? "10");
     setLabelDisplayMode(data?.label_display_mode ?? "both");
     setLoading(false);
+  };
+
+  const loadCouriers = async () => {
+    const d = await nexApi("state", { store_id: storeId });
+    if (d.error) { setNexError(d.error); return; }
+    setNexError(""); setNex(d);
+  };
+
+  const toggleCourier = async (courier, on) => {
+    // NeX needs the one-time KYC before it can be switched on
+    if (courier === "nex" && on && (!nex?.kyc || nex.kyc.status === "rejected")) { setKycOpen(true); return; }
+    setToggling(courier);
+    const d = await nexApi("toggle", { store_id: storeId, courier, on });
+    setToggling("");
+    if (d.error) { setNexError(d.error); return; }
+    logActivity("courier_toggled", { courier, on });
+    loadCouriers();
   };
 
   const fetchPickupAddresses = async () => {
@@ -418,31 +444,56 @@ export default function CourierConnect({ storeId }) {
         <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{t("courier.subtitle")}</p>
       </div>
 
-      {loading ? (
-        <div style={{ textAlign: "center", padding: "3rem", color: "var(--ne-muted)" }}>{t("courier.loading")}</div>
+      {loading || !nex ? (
+        <div style={{ textAlign: "center", padding: "3rem", color: "var(--ne-muted)" }}>{nexError ? <span style={{ color: "var(--ne-danger)" }}>{nexError} <button onClick={loadCouriers} style={{ marginLeft: 6 }}>Dobara</button></span> : t("courier.loading")}</div>
       ) : (
-        <div style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: "1.5rem" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: "1.25rem" }}>
-            <div style={{ width: 48, height: 48, borderRadius: 12, background: "var(--ne-surface)", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--ne-border)" }}>
-              <Icon name="package" size={22} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: "var(--ne-text)" }}>{t("courier.dexName")}</p>
-              <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--ne-muted-2)" }}>
-                {isConnected ? `${t("courier.sellerIdPrefix")} ${store.dex_seller_id}` : t("courier.notConnectedYet")}
-              </p>
-            </div>
-            {isConnected ? (
-              <span style={{ fontSize: 11, padding: "4px 12px", background: "var(--ne-success-soft)", color: "var(--ne-success)", borderRadius: 20, fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 5 }}>
-                <Icon name="check" size={10} /> {t("courier.connected")}
-              </span>
-            ) : (
-              <span style={{ fontSize: 11, padding: "4px 12px", background: "var(--ne-warning-soft)", color: "var(--ne-warning)", borderRadius: 20, fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 5 }}>
-                <Icon name="pending" size={10} /> {t("courier.notConnected")}
-              </span>
-            )}
-          </div>
-
+        <div style={{ display: "grid", gap: "1rem" }}>
+          {nexError && <p style={{ color: "var(--ne-danger)", fontSize: 12, margin: 0 }}>{nexError}</p>}
+          {[
+            {
+              id: "nex", name: "NeX", full: "Neezam Express · eNeezam ki apni courier service", logo: NEX_LOGO,
+              on: nex.couriers.nex.enabled,
+              status: nex.couriers.nex.ready ? ["ok", "Connected: booking mein NeX dikhega"]
+                : !nex.kyc ? ["wait", "On karein aur ek dafa KYC bharein"]
+                : nex.kyc.status === "submitted" ? ["wait", "KYC check ho rahi hai. Approve hote hi NeX chal jayega"]
+                : nex.kyc.status === "rejected" ? ["bad", `KYC wapas aayi: ${nex.kyc.review_note || "dobara bharein"}`]
+                : !nex.couriers.nex.service ? ["wait", "KYC approve. NeX service jald shuru ho rahi hai"]
+                : !nex.couriers.nex.enabled ? ["off", "Connected hai magar band: booking mein nahi aayega"] : ["wait", "..."],
+            },
+            {
+              id: "dex", name: "DEX", full: "Daraz Express · aap ke apne DEX account se", logo: dexLogo,
+              on: nex.couriers.dex.enabled,
+              status: nex.couriers.dex.ready ? ["ok", "Connected: booking mein DEX dikhega"]
+                : !nex.couriers.dex.connected ? ["wait", "Connected nahi: neeche integration code se jorein"]
+                : ["off", "Connected hai magar band: booking mein nahi aayega"],
+            },
+          ].map((c) => {
+            const color = { ok: "var(--ne-success)", wait: "var(--ne-warning)", bad: "var(--ne-danger)", off: "var(--ne-muted)" }[c.status[0]];
+            return (
+              <div key={c.id} style={{ background: "var(--ne-surface-2)", border: `1px solid ${c.status[0] === "ok" ? "var(--ne-success)" : "var(--ne-border)"}`, borderRadius: 14, padding: "1.25rem" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <div style={{ width: 56, height: 56, borderRadius: 12, background: "#fff", border: "1px solid var(--ne-border)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 }}>
+                    <img src={c.logo} alt={`${c.name} logo`} style={{ maxWidth: "88%", maxHeight: "88%", objectFit: "contain" }} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ margin: 0, fontWeight: 800, fontSize: 16 }}>{c.name}</p>
+                    <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--ne-muted)" }}>{c.full}</p>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                    <button role="switch" aria-checked={c.on} aria-label={`${c.name} on/off`} disabled={toggling === c.id} onClick={() => toggleCourier(c.id, !c.on)}
+                      style={{ width: 46, height: 26, borderRadius: 13, border: "none", cursor: "pointer", position: "relative", background: c.on ? "var(--ne-success)" : "var(--ne-border)", transition: "background .15s" }}>
+                      <span style={{ position: "absolute", top: 3, left: c.on ? 23 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+                    </button>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: c.on ? "var(--ne-success)" : "var(--ne-muted)" }}>{c.on ? "ON" : "OFF"}</span>
+                  </div>
+                </div>
+                <div style={{ marginTop: 10, fontSize: 12.5, color, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  <Icon name={c.status[0] === "ok" ? "check" : c.status[0] === "bad" ? "warning" : "pending"} size={12} /> {c.status[1]}
+                  {c.id === "nex" && nex.kyc?.status === "rejected" && <button onClick={() => setKycOpen(true)} style={{ fontSize: 12, padding: "4px 10px", borderRadius: 7, border: "1px solid var(--ne-border)", background: "transparent", color: "var(--ne-text)", cursor: "pointer" }}>KYC dobara bharein</button>}
+                </div>
+                {c.id === "nex" && nex.kyc && <p style={{ margin: "6px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{nex.kyc.brand_name} · {nex.kyc.bank_name} {nex.kyc.account_number}</p>}
+                {c.id === "dex" && (
+                  <div style={{ marginTop: 12 }}>
           {isConnected ? (
             <div style={{ background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "12px 14px", fontSize: 12, color: "var(--ne-muted)" }}>
               {t("courier.platform")} <strong style={{ color: "var(--ne-text)" }}>{store.dex_platform_name || "eNeezam"}</strong><br />
@@ -472,8 +523,15 @@ export default function CourierConnect({ storeId }) {
               </button>
             </form>
           )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <p style={{ margin: 0, fontSize: 11.5, color: "var(--ne-muted-2)" }}>Jo courier ON aur connected ho, booking karte waqt wohi dikhega. Dono on hon to booking par chunein.</p>
         </div>
       )}
+      {kycOpen && nex && <NexKyc storeId={storeId} state={nex} onClose={() => setKycOpen(false)} onDone={() => { setKycOpen(false); logActivity("nex_kyc_submitted", {}); loadCouriers(); }} />}
 
       {/* Dex manual Excel upload — order_statuses ke courier-overlay columns ko update karta hai
           (order_number_match se Shopify order dhoond kar). Live-API binding (upar wala card) se

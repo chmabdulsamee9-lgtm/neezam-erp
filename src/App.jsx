@@ -203,6 +203,7 @@ const AgnesMonitor = lazyPage(() => import('./pages/AgnesMonitor'), 'master-dash
 const PlanCheckout = lazyPage(() => import('./pages/PlanCheckout'), 'billing', { skeleton: false })
 const BillingAdmin = lazyPage(() => import('./pages/BillingAdmin'), 'master-dashboard/billing', { skeleton: false })
 const PartnersAdmin = lazyPage(() => import('./pages/PartnersAdmin'), 'master-dashboard/partners', { skeleton: false })
+const NexAdmin = lazyPage(() => import('./pages/NexAdmin'), 'master-dashboard/nex', { skeleton: false })
 const PartnerPortal = lazyPage(() => import('./pages/PartnerPortal'), null, { skeleton: false })
 const StoreGrowthPage = lazyPage(() => import('./pages/StoreGrowth'), 'online-store/collections')
 const ShopifyCallback = lazyPage(() => import('./pages/ShopifyCallback'), null)
@@ -882,6 +883,10 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
           <button onClick={() => navigate('/master-dashboard/partners')}
             style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Icon name="team" size={13} /> Partners
+          </button>
+          <button onClick={() => navigate('/master-dashboard/nex')}
+            style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="truck" size={13} /> NeX
           </button>
           <button onClick={() => navigate('/master-dashboard/ui-editor')}
             style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -1729,7 +1734,7 @@ function App() {
           persistStoreId(fallbackStoreId)
         }
         const isProductionDomain = window.location.hostname.includes('portal.eneezam.com')
-        if (['/accounts', '/billing', '/master-dashboard/billing', '/master-dashboard/partners'].includes(location.pathname)) {
+        if (['/accounts', '/billing', '/master-dashboard/billing', '/master-dashboard/partners', '/master-dashboard/nex'].includes(location.pathname)) {
           // store-independent page — don't bounce a direct load of it
         } else if (isProductionDomain) {
           if (location.pathname !== '/home') {
@@ -2283,6 +2288,7 @@ function App() {
   }
   if (activeMenu === 'master-dashboard/billing' && profile.role === 'creator') return <BillingAdmin onExit={() => navigate('/master-dashboard')} />
   if (activeMenu === 'master-dashboard/partners' && profile.role === 'creator') return <PartnersAdmin onExit={() => navigate('/master-dashboard')} />
+  if (activeMenu === 'master-dashboard/nex' && profile.role === 'creator') return <NexAdmin onExit={() => navigate('/master-dashboard')} />
 
   // /accounts is store-independent (account identity, not store access), so it renders here —
   // behind the session/profile/approval gates above but before the master-view and store gates.
