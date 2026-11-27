@@ -75,7 +75,7 @@ export default function RateCard({ storeId = null, courier, title, onClose }) {
           {msg && <div role="status" style={{ color: "var(--ne-success)", fontSize: 12.5 }}>{msg}</div>}
           <p style={{ margin: 0, fontSize: 12, color: "var(--ne-muted)", lineHeight: 1.6 }}>
             Shipping = base fee (0.5 kg tak) + har agle 0.5 kg ka fee. Fuel adjustment shipping fee par lagta hai, VAT shipping + fuel par, income aur sales tax deliver hone wale parcel ki COD par.
-            {!edit && (courier === "nex" ? " Yeh NeX ke rates eNeezam ne aap ke liye rakhe hain; badal nahi sakte." : " Yeh rates sirf store owner badal sakta hai.")}
+            {data && !edit && (courier === "nex" ? " Yeh NeX ke rates eNeezam ne aap ke liye rakhe hain; badal nahi sakte." : " Yeh rates sirf store owner badal sakta hai.")}
           </p>
           {!data ? <p style={{ fontSize: 12.5, color: "var(--ne-muted)" }}>Load ho raha hai...</p> : (
             <table style={{ borderCollapse: "collapse", fontSize: 12, minWidth: 720 }}>
