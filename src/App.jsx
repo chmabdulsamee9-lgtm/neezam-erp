@@ -10,6 +10,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import './theme.css'
 import './look.css'
 import { billingApi } from './lib/billingApi'
+import { isPartnerSite } from './lib/partnerApi'
 import { supabase } from './supabase'
 import LoadingBar from './components/LoadingBar'
 import PullToRefresh from './components/PullToRefresh'
@@ -201,6 +202,8 @@ import NeeziJobPill from './components/NeeziJobPill'
 const AgnesMonitor = lazyPage(() => import('./pages/AgnesMonitor'), 'master-dashboard/agnes-monitor')
 const PlanCheckout = lazyPage(() => import('./pages/PlanCheckout'), 'billing', { skeleton: false })
 const BillingAdmin = lazyPage(() => import('./pages/BillingAdmin'), 'master-dashboard/billing', { skeleton: false })
+const PartnersAdmin = lazyPage(() => import('./pages/PartnersAdmin'), 'master-dashboard/partners', { skeleton: false })
+const PartnerPortal = lazyPage(() => import('./pages/PartnerPortal'), null, { skeleton: false })
 const StoreGrowthPage = lazyPage(() => import('./pages/StoreGrowth'), 'online-store/collections')
 const ShopifyCallback = lazyPage(() => import('./pages/ShopifyCallback'), null)
 const Orders = lazyPage(() => import('./pages/Orders'), 'orders')
@@ -875,6 +878,10 @@ function MasterDashboard({ allStores, pendingProfiles, onApprove, onEnterStore, 
           <button onClick={() => navigate('/master-dashboard/billing')}
             style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Icon name="card" size={13} /> Payments
+          </button>
+          <button onClick={() => navigate('/master-dashboard/partners')}
+            style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="team" size={13} /> Partners
           </button>
           <button onClick={() => navigate('/master-dashboard/ui-editor')}
             style={{ padding: '8px 16px', borderRadius: 9, border: '1px solid var(--ne-border)', background: 'transparent', color: 'var(--ne-text)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -1722,7 +1729,7 @@ function App() {
           persistStoreId(fallbackStoreId)
         }
         const isProductionDomain = window.location.hostname.includes('portal.eneezam.com')
-        if (['/accounts', '/billing', '/master-dashboard/billing'].includes(location.pathname)) {
+        if (['/accounts', '/billing', '/master-dashboard/billing', '/master-dashboard/partners'].includes(location.pathname)) {
           // store-independent page — don't bounce a direct load of it
         } else if (isProductionDomain) {
           if (location.pathname !== '/home') {
@@ -2238,6 +2245,9 @@ function App() {
     return <MetaCallback />
   }
 
+  // partners.eneezam.com: its own sign-in and pages (PartnerPortal), never the ERP
+  if (isPartnerSite()) return <PartnerPortal />
+
   const LegalPage = LEGAL_ROUTES[location.pathname]
   if (LegalPage) return <div className="ne-public"><LegalPage /></div>
 
@@ -2272,6 +2282,7 @@ function App() {
     return <PlanCheckout key={selectedStoreId} storeId={selectedStoreId} locked={billingAccess.state === 'locked'} onExit={() => navigate('/home')} onSignOut={() => supabase.auth.signOut()} onActivated={planActivated} />
   }
   if (activeMenu === 'master-dashboard/billing' && profile.role === 'creator') return <BillingAdmin onExit={() => navigate('/master-dashboard')} />
+  if (activeMenu === 'master-dashboard/partners' && profile.role === 'creator') return <PartnersAdmin onExit={() => navigate('/master-dashboard')} />
 
   // /accounts is store-independent (account identity, not store access), so it renders here —
   // behind the session/profile/approval gates above but before the master-view and store gates.
