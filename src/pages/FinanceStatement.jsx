@@ -297,7 +297,7 @@ function StatementRow({ period, t, cfUrl, storeId, ordersStore, courier }) {
   );
 }
 
-export function RateCardModal({ t, cfUrl, onClose, canEdit }) {
+export function RateCardModal({ t, cfUrl, onClose, canEdit, courier = "dex" }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -309,7 +309,7 @@ export function RateCardModal({ t, cfUrl, onClose, canEdit }) {
       setLoading(true);
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        const res = await fetch(`${cfUrl}/rate-card`, { headers: { Authorization: `Bearer ${session?.access_token}` } });
+        const res = await fetch(`${cfUrl}/rate-card?courier=${courier}`, { headers: { Authorization: `Bearer ${session?.access_token}` } });
         const json = await res.json();
         if (json.error) setError(json.error);
         else setRows(json.rows || []);
@@ -318,7 +318,7 @@ export function RateCardModal({ t, cfUrl, onClose, canEdit }) {
       }
       setLoading(false);
     })();
-  }, [cfUrl]);
+  }, [cfUrl, courier]);
 
   const draftKey = (id, field) => `${id}::${field}`;
   const getValue = (row, field) => {
@@ -339,7 +339,7 @@ export function RateCardModal({ t, cfUrl, onClose, canEdit }) {
     setError("");
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`${cfUrl}/rate-card`, {
+      const res = await fetch(`${cfUrl}/rate-card?courier=${courier}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
         body: JSON.stringify({ id: row.id, [field]: value }),
@@ -569,7 +569,8 @@ function PackageOverviewTab({ storeId, cfUrl, ordersStore, t, courier }) {
   );
 }
 
-export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL, isCreator = false }) {
+/** Courier Payments: courier "dex" (Dex Statement page) or "nex" (NeX Statement page); both on the DEX cycle */
+export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL, isCreator = false, courier = "dex" }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const [showRateCard, setShowRateCard] = useState(false);
@@ -578,8 +579,6 @@ export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL,
   const [page, setPage] = useState(1);
   const [activeTab, setActiveTab] = useState("overview"); // 'overview' | 'packages'
   const [exportingAll, setExportingAll] = useState(false);
-  // DEX: parcels on the store's own DEX account; NeX: parcels booked through NeX (same DEX statement cycle)
-  const [courier, setCourier] = useState("dex");
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 900);
@@ -595,11 +594,16 @@ export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL,
     setEarliestDate(undefined);
     setPage(1);
     (async () => {
-      const only = (q) => (courier === "nex" ? q.eq("courier_name", "NeX") : q.or("courier_name.is.null,courier_name.neq.NeX"));
-      const [{ data: delivered }, { data: returned }] = await Promise.all([
-        only(supabase.from("order_statuses").select("delivered_at").eq("store_id", storeId).not("delivered_at", "is", null)).order("delivered_at", { ascending: true }).limit(1),
-        only(supabase.from("order_statuses").select("return_success_at").eq("store_id", storeId).not("return_success_at", "is", null)).order("return_success_at", { ascending: true }).limit(1),
-      ]);
+      const first = async (col, filtered) => {
+        let q = supabase.from("order_statuses").select(col).eq("store_id", storeId).not(col, "is", null);
+        if (filtered) q = courier === "nex" ? q.eq("courier_name", "NeX") : q.or("courier_name.is.null,courier_name.neq.NeX");
+        return q.order(col, { ascending: true }).limit(1);
+      };
+      let [{ data: delivered, error: e1 }, { data: returned, error: e2 }] = await Promise.all([first("delivered_at", true), first("return_success_at", true)]);
+      if ((e1 || e2) && courier === "dex") {
+        console.warn("statement start date: courier filter failed", e1 || e2);
+        [{ data: delivered }, { data: returned }] = await Promise.all([first("delivered_at", false), first("return_success_at", false)]);
+      }
       const candidates = [delivered?.[0]?.delivered_at, returned?.[0]?.return_success_at].filter(Boolean).map((d) => new Date(d));
       setEarliestDate(candidates.length > 0 ? new Date(Math.min(...candidates.map((d) => d.getTime()))) : null);
     })();
@@ -631,22 +635,12 @@ export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL,
     <div style={{ padding: isMobile ? "1rem" : "1.5rem", color: "var(--ne-text)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: 8 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><Icon name="calculator" size={17} /> {t("finance.title")}</h1>
+          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><Icon name="calculator" size={17} /> {courier === "nex" ? "NeX Statement" : t("finance.title")}</h1>
           <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{ordersStore?.store_name} — {t("finance.subtitle")}</p>
         </div>
         <button onClick={() => setShowRateCard(true)} style={toolbarBtnStyle}>
           <Icon name="card" size={12} /> {t("finance.rateCardButton")}
         </button>
-      </div>
-
-      {/* courier: each has its own statements, both on the DEX cycle (Mon-Wed, Thu-Sun) */}
-      <div role="tablist" aria-label="Courier" style={{ display: "inline-flex", gap: 4, padding: 4, borderRadius: 12, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", marginBottom: "0.75rem" }}>
-        {[["dex", "DEX (Daraz Express)"], ["nex", "NeX (Neezam Express)"]].map(([id, label]) => (
-          <button key={id} role="tab" aria-selected={courier === id} onClick={() => { setCourier(id); setPage(1); }}
-            style={{ padding: "7px 14px", borderRadius: 9, fontSize: 12, fontWeight: 800, cursor: "pointer", border: "none", background: courier === id ? "var(--ne-text)" : "transparent", color: courier === id ? "var(--ne-bg)" : "var(--ne-muted)" }}>
-            {label}
-          </button>
-        ))}
       </div>
 
       {/* Tabs — same pill-button style as BookedOrders.jsx's TAB_STRUCTURE */}
@@ -687,7 +681,7 @@ export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL,
         <PackageOverviewTab key={courier} storeId={storeId} cfUrl={cfUrl} ordersStore={ordersStore} t={t} courier={courier} />
       )}
 
-      {showRateCard && <RateCardModal t={t} cfUrl={cfUrl} canEdit={isCreator} onClose={() => setShowRateCard(false)} />}
+      {showRateCard && <RateCardModal t={t} cfUrl={cfUrl} canEdit={isCreator} courier={courier} onClose={() => setShowRateCard(false)} />}
     </div>
   );
 }

@@ -517,7 +517,7 @@ export default function CourierConnect({ storeId }) {
                           <span>KYC: <b>{nex.kyc.status === "approved" ? "Approved" : nex.kyc.status === "rejected" ? "Wapas aayi" : "Check ho rahi hai"}</b> · {new Date(nex.kyc.updated_at || nex.kyc.created_at).toLocaleDateString("en-PK")}</span>
                         </div>
                       ) : <p style={{ margin: 0 }}>Abhi KYC nahi bhari. NeX on karne ke liye ek dafa KYC aur <a href="/nex-terms" target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)" }}>NeX terms</a> zaroori hain.</p>}
-                      {(!nex.kyc || nex.kyc.status === "rejected") && <button onClick={() => { setOpenCard(""); setKycOpen(true); }} style={{ padding: "10px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontWeight: 700, cursor: "pointer" }}>{nex.kyc ? "KYC dobara bharein" : "KYC bharein aur NeX shuru karein"}</button>}
+                      {(!nex.kyc || nex.kyc.status === "rejected") && <button onClick={() => { setOpenCard(""); setKycOpen(true); }} style={{ padding: "10px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontWeight: 700, cursor: "pointer" }}>{nex.kyc ? "KYC edit karke theek karein" : "KYC bharein aur NeX shuru karein"}</button>}
                     </div>
                   )}
 

@@ -342,6 +342,7 @@ const NAV_ICONS = {
   'group:sales-channels': <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><path d="M3 10h14"/><path d="M10 3c2.2 2 2.2 12 0 14"/><path d="M10 3c-2.2 2-2.2 12 0 14"/></svg>,
   'group:courier-payments': <svg viewBox="0 0 20 20"><rect x="2.5" y="5" width="15" height="10.5" rx="2"/><path d="M2.5 8.5h15"/><path d="M6 12.5h3"/></svg>,
   'finance-statement': <svg viewBox="0 0 20 20"><rect x="4" y="2" width="12" height="16" rx="2"/><rect x="6" y="4.3" width="8" height="3" rx="0.5"/><circle cx="6.8" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="10" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="13.2" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="6.8" cy="14.5" r=".9" fill="currentColor" stroke="none"/><circle cx="10" cy="14.5" r=".9" fill="currentColor" stroke="none"/><circle cx="13.2" cy="14.5" r=".9" fill="currentColor" stroke="none"/></svg>,
+  'nex-statement': <svg viewBox="0 0 20 20"><rect x="4" y="2" width="12" height="16" rx="2"/><rect x="6" y="4.3" width="8" height="3" rx="0.5"/><circle cx="6.8" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="10" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="13.2" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="6.8" cy="14.5" r=".9" fill="currentColor" stroke="none"/><circle cx="10" cy="14.5" r=".9" fill="currentColor" stroke="none"/><circle cx="13.2" cy="14.5" r=".9" fill="currentColor" stroke="none"/></svg>,
 }
 
 // Rendered position:fixed from the trigger's rect because .ne-sidebar is overflow:hidden.
@@ -2394,7 +2395,7 @@ function App() {
   // Store-dependent pages sirf ordersStore (store row) chahte hain, jo orders se pehle set hota hai — orders load hone ka intezar nahi.
   const storePending = !ordersStore && !isAdminOnlyPage
   const ORDERS_DEPENDENT_PAGES = ['ads', 'pnl', 'budget']
-  const STORE_DEPENDENT_PAGES = ['orders', 'products', 'finance-statement', 'courier', 'courier-dashboard', 'courier-dashboard/detailed', 'returns']
+  const STORE_DEPENDENT_PAGES = ['orders', 'products', 'finance-statement', 'nex-statement', 'courier', 'courier-dashboard', 'courier-dashboard/detailed', 'returns']
 
   const currentUserStoreEntry = userStoresList.find(us => us.store_id === selectedStoreId)
   const isStaff = profile.role === 'staff'
@@ -2424,6 +2425,7 @@ function App() {
     // Shopify-style sections: a group is not a page, it opens its pages (inline when one of them is open, flyout otherwise)
     { id: 'group:courier-payments', label: t('nav.group.courierPayments'), isGroup: true },
     { id: 'finance-statement', label: t('nav.finance-statement'), parent: 'group:courier-payments' },
+    { id: 'nex-statement', label: 'NeX Statement', parent: 'group:courier-payments' },
     { id: 'group:sales-channels', label: t('nav.group.salesChannels'), isGroup: true },
     { id: 'online-store', label: t('nav.online-store'), parent: 'group:sales-channels' },
     { id: 'online-store/collections', label: 'Collections', parent: 'group:sales-channels' },
@@ -2853,7 +2855,10 @@ function App() {
               <ProductsManagement storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} />
             )}
             {activeMenu === 'finance-statement' && hasAccess('finance-statement') && !storePending && (
-              <FinanceStatement storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} isCreator={profile.role === 'creator'} />
+              <FinanceStatement key="dex" storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} isCreator={profile.role === 'creator'} courier="dex" />
+            )}
+            {activeMenu === 'nex-statement' && hasAccess('finance-statement') && !storePending && (
+              <FinanceStatement key="nex" storeId={selectedStoreId} ordersStore={ordersStore} cfUrl={CF_URL} isCreator={false} courier="nex" />
             )}
             {activeMenu === 'meta-connect' && hasAccess('meta-connect') && <MetaConnect storeId={selectedStoreId} storeName={currentStoreInfo?.store_name} />}
             {activeMenu === 'ads' && hasAccess('ads') && !ordersPending && (
@@ -2917,7 +2922,7 @@ function App() {
               <StoreGrowthPage storeId={selectedStoreId} page={activeMenu.slice('online-store/'.length)} />
             )}
             <NeeziJobPill onOpen={() => { if (activeMenu !== 'online-store') navigate('/online-store') }} />
-            {!['home', 'dashboard', 'store-connect', 'online-store', 'theme-editor', 'products', 'finance-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'returns', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor', 'master-dashboard/ui-editor', 'master-dashboard/agnes-monitor', 'online-store/collections', 'online-store/menus', 'online-store/campaigns', 'online-store/social-proof', 'online-store/reviews'].includes(navMenu) && (
+            {!['home', 'dashboard', 'store-connect', 'online-store', 'theme-editor', 'products', 'finance-statement', 'nex-statement', 'meta-connect', 'ads', 'orders', 'whatsapp', 'team', 'activity-log', 'settings', 'pnl', 'ledger', 'returns', 'budget', 'courier', 'courier-connect', 'courier-dashboard', 'courier-dashboard/detailed', 'master-dashboard/dev-monitor', 'master-dashboard/gemini-monitor', 'master-dashboard/ui-editor', 'master-dashboard/agnes-monitor', 'online-store/collections', 'online-store/menus', 'online-store/campaigns', 'online-store/social-proof', 'online-store/reviews'].includes(navMenu) && (
               <div style={{ padding: '1.25rem' }}>
                 <div style={{ background: 'var(--ne-surface)', border: '1px solid var(--ne-border)', borderRadius: 14, padding: '2rem', textAlign: 'center' }}>
                   <h2 style={{ color: '#fff', marginBottom: 8 }}>{pageTitleLookup.find(m => m.id === navMenu)?.label}</h2>
