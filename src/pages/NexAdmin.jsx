@@ -4,8 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import Icon from "../components/Icon";
 import { nexApi, NEX_LOGO } from "../lib/nexApi";
 import { NexTerms } from "./NexKyc";
-import { RateCardModal } from "./FinanceStatement";
-import { useLanguage, useTranslation } from "../i18n";
+import RateCard from "../components/RateCard";
+
 
 const card = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: 18 };
 const input = { width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface)", color: "var(--ne-text)", fontSize: 13, boxSizing: "border-box" };
@@ -21,11 +21,9 @@ export default function NexAdmin({ onExit }) {
   const [code, setCode] = useState("");
   const [onlyOpen, setOnlyOpen] = useState(true);
   const [showTerms, setShowTerms] = useState(false);
-  const [showRates, setShowRates] = useState("");
+  const [showRates, setShowRates] = useState(null); // { storeId, name }
   // the KYC being rejected and the reason the merchant will read
   const [rejecting, setRejecting] = useState({ id: "", note: "" });
-  const [lang] = useLanguage();
-  const t = useTranslation(lang);
 
   const load = useCallback(async () => {
     const d = await nexApi("admin/overview");
@@ -85,15 +83,14 @@ export default function NexAdmin({ onExit }) {
 
         {data && (
           <div style={{ ...card, display: "grid", gap: 8 }}>
-            <b>Rate card (rates aur taxes)</b>
-            <p style={{ ...muted, margin: 0 }}>Har province ki shipping fee, VAT, income tax aur sales tax. <b>NeX rate card</b> se merchants ki NeX Statement banti hai (jo aap yahan rakhein, wahi un se kategi). <b>DEX rate card</b> se un stores ki Dex Statement banti hai jin ka apna DEX account hai.</p>
+            <b>NeX rate card</b>
+            <p style={{ ...muted, margin: 0 }}>Yeh <b>default</b> NeX rate card har merchant par lagta hai. Kisi merchant ke liye alag rates chahiye to neeche us ki KYC mein "NeX rate card" kholein. Base fee 0.5 kg tak, har agle 0.5 kg ka alag fee, fuel adjustment shipping par, "Local" = merchant ki apni city. DEX ke rates har merchant khud apni Dex Statement mein rakhta hai.</p>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button style={btn(true)} onClick={() => setShowRates("nex")}><Icon name="card" size={13} /> NeX rate card</button>
-              <button style={btn(false)} onClick={() => setShowRates("dex")}><Icon name="card" size={13} /> DEX rate card</button>
+              <button style={btn(true)} onClick={() => setShowRates({ storeId: null, name: "" })}><Icon name="card" size={13} /> Default NeX rate card</button>
             </div>
           </div>
         )}
-        {showRates && <RateCardModal key={showRates} t={t} cfUrl="https://neezam-erp.chmabdulsamee9.workers.dev" canEdit courier={showRates} onClose={() => setShowRates("")} />}
+        {showRates && <RateCard key={showRates.storeId || "default"} storeId={showRates.storeId} courier="nex" title={showRates.storeId ? `NeX rate card: ${showRates.name}` : "Default NeX rate card"} onClose={() => setShowRates(null)} />}
 
         {data && (
           <div style={{ ...card, display: "grid", gap: 12 }}>
@@ -118,6 +115,7 @@ export default function NexAdmin({ onExit }) {
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button style={btn(false)} onClick={() => view(k.store_id, "front")}><Icon name="eye" size={13} /> CNIC saamne</button>
                   <button style={btn(false)} onClick={() => view(k.store_id, "back")}><Icon name="eye" size={13} /> CNIC peeche</button>
+                  <button style={btn(false)} onClick={() => setShowRates({ storeId: k.store_id, name: k.brand_name || k.stores?.store_name || "" })}><Icon name="card" size={13} /> NeX rate card</button>
                   {k.status !== "approved" && <button style={btn(true)} disabled={busy} onClick={() => window.confirm(`${k.brand_name} ki KYC approve karein? Is ke baad woh NeX se booking kar sakenge.`) && run("admin/kyc-review", { store_id: k.store_id, action: "approve" }, "Approve ho gayi.")}>Approve</button>}
                   {k.status !== "rejected" && rejecting.id !== k.store_id && <button style={btn(false, true)} disabled={busy} onClick={() => setRejecting({ id: k.store_id, note: "" })}>Reject</button>}
                 </div>

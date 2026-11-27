@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "../supabase";
 import Icon from "../components/Icon";
+import RateCard from "../components/RateCard";
 import { SkelBar, SkelTable } from "../components/Skeletons";
 import { useLanguage, useTranslation } from "../i18n";
 import { csvEscapeCell, downloadCsv, sanitizeFilenamePart } from "../utils/csvExport";
@@ -61,7 +62,7 @@ const toDateStrPKT = (date) => {
 // csvEscapeCell/downloadCsv/sanitizeFilenamePart relocated to ../utils/csvExport (imported
 // above) so other pages can reuse them — identical implementations, zero functional change here.
 const ORDER_EXPORT_HEADERS = ["Statement Period", "Order No.", "External Order No.", "Tracking No.", "Province", "City", "Courier Status", "COD Amount", "Shipping Fee", "VAT", "Income Tax", "Sales Tax", "Net Payable"];
-const ORDER_EXPORT_KEYS = ["statement_period", "order_id", "external_order_no", "tracking_no", "province", "city", "courier_status", "cod_amount", "shipping_fee", "vat", "income_tax", "sales_tax", "net_payable"];
+const ORDER_EXPORT_KEYS = ["statement_period", "order_id", "external_order_no", "tracking_no", "province", "city", "courier_status", "weight_kg", "cod_amount", "shipping_fee", "fuel_adjustment", "vat", "income_tax", "sales_tax", "net_payable"];
 const buildOrdersCsv = (rows) => {
   const lines = [ORDER_EXPORT_HEADERS.map(csvEscapeCell).join(",")];
   rows.forEach((row) => {
@@ -220,6 +221,10 @@ function StatementRow({ period, t, cfUrl, storeId, ordersStore, courier }) {
                 <span style={{ color: "var(--ne-muted-2)" }}>{t("finance.totalShippingFee")}</span>
                 <span style={{ color: "var(--ne-danger)" }}>-{fmtMoney(data.total_shipping_fee)}</span>
               </div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
+                <span style={{ color: "var(--ne-muted-2)" }}>Fuel adjustment</span>
+                <span style={{ color: "var(--ne-danger)" }}>-{fmtMoney(data.total_fuel_adjustment || 0)}</span>
+              </div>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
                 <span style={{ color: "var(--ne-muted-2)" }}>{t("finance.totalVat")}</span>
                 <span style={{ color: "var(--ne-danger)" }}>-{fmtMoney(data.total_vat)}</span>
@@ -236,7 +241,7 @@ function StatementRow({ period, t, cfUrl, storeId, ordersStore, courier }) {
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
                 <thead>
                   <tr>
-                    {[t("finance.col.order"), t("finance.col.status"), t("finance.col.province"), t("finance.col.cod"), t("finance.col.shippingFee"), t("finance.col.vat"), t("finance.col.incomeTax"), t("finance.col.salesTax"), t("finance.col.totalDeduction"), t("finance.col.payable")].map((h) => (
+                    {[t("finance.col.order"), t("finance.col.status"), t("finance.col.province"), "Weight", t("finance.col.cod"), t("finance.col.shippingFee"), "Fuel", t("finance.col.vat"), t("finance.col.incomeTax"), t("finance.col.salesTax"), t("finance.col.totalDeduction"), t("finance.col.payable")].map((h) => (
                       <th key={h} style={{ textAlign: "left", padding: "5px 8px", color: "var(--ne-muted)", borderBottom: "1px solid var(--ne-border)", fontWeight: 600, fontSize: 9.5, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
                     ))}
                   </tr>
@@ -260,8 +265,10 @@ function StatementRow({ period, t, cfUrl, storeId, ordersStore, courier }) {
                       <td style={{ padding: "5px 8px", color: "var(--ne-muted)" }}>
                         {li.province_used || "—"}{li.approximated_rate && <Icon name="warning" size={9} style={{ marginLeft: 4, color: "var(--ne-warning)" }} />}
                       </td>
+                      <td style={{ padding: "5px 8px", color: "var(--ne-muted)", whiteSpace: "nowrap" }}>{li.skipped || !li.weight_kg ? "—" : `${li.weight_kg} kg`}</td>
                       <td style={{ padding: "5px 8px", color: "var(--ne-text)" }}>{li.skipped ? "—" : fmtMoney(li.cod_amount)}</td>
                       <td style={{ padding: "5px 8px", color: "var(--ne-text)" }}>{li.skipped ? "—" : fmtMoney(li.shipping_fee)}</td>
+                      <td style={{ padding: "5px 8px", color: "var(--ne-text)" }}>{li.skipped ? "—" : fmtMoney(li.fuel_adjustment || 0)}</td>
                       <td style={{ padding: "5px 8px", color: "var(--ne-text)" }}>{li.skipped ? "—" : fmtMoney(li.vat)}</td>
                       <td style={{ padding: "5px 8px", color: "var(--ne-text)" }}>{li.skipped ? "—" : fmtMoney(li.income_tax)}</td>
                       <td style={{ padding: "5px 8px", color: "var(--ne-text)" }}>{li.skipped ? "—" : fmtMoney(li.sales_tax)}</td>
@@ -293,117 +300,6 @@ function StatementRow({ period, t, cfUrl, storeId, ordersStore, courier }) {
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-export function RateCardModal({ t, cfUrl, onClose, canEdit, courier = "dex" }) {
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [savingId, setSavingId] = useState(null);
-  const [drafts, setDrafts] = useState({});
-
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const res = await fetch(`${cfUrl}/rate-card?courier=${courier}`, { headers: { Authorization: `Bearer ${session?.access_token}` } });
-        const json = await res.json();
-        if (json.error) setError(json.error);
-        else setRows(json.rows || []);
-      } catch (err) {
-        setError(err.message);
-      }
-      setLoading(false);
-    })();
-  }, [cfUrl, courier]);
-
-  const draftKey = (id, field) => `${id}::${field}`;
-  const getValue = (row, field) => {
-    const dk = draftKey(row.id, field);
-    return dk in drafts ? drafts[dk] : row[field];
-  };
-
-  const commit = async (row, field) => {
-    if (!canEdit) return; // the worker accepts rate-card edits from the creator only
-    const dk = draftKey(row.id, field);
-    if (!(dk in drafts)) return;
-    const raw = drafts[dk];
-    setDrafts((prev) => { const n = { ...prev }; delete n[dk]; return n; });
-    const value = Number(raw);
-    if (Number.isNaN(value)) return;
-    if (Number(row[field]) === value) return;
-    setSavingId(row.id);
-    setError("");
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`${cfUrl}/rate-card?courier=${courier}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ id: row.id, [field]: value }),
-      });
-      const json = await res.json();
-      if (json.error) {
-        setError(json.error);
-      } else {
-        setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, [field]: value } : r)));
-      }
-    } catch (err) {
-      setError(err.message);
-    }
-    setSavingId(null);
-  };
-
-  const numInputStyle = { width: 64, padding: "5px 7px", borderRadius: 7, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 11.5, boxSizing: "border-box" };
-
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000000 }}
-      onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()}
-        style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 560, maxWidth: "94vw", maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
-        <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="card" size={14} /> {courier === "nex" ? "NeX Rate Card" : t("finance.rateCardTitle")}</h2>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--ne-muted)", cursor: "pointer", padding: 4, display: "flex" }}>
-            <Icon name="close" size={16} />
-          </button>
-        </div>
-        <div style={{ flex: 1, overflowY: "auto", padding: "10px 18px" }}>
-          {error && <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 9, fontSize: 12, background: "var(--ne-danger-soft)", color: "var(--ne-danger)" }}>{error}</div>}
-          {!canEdit && <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 9, fontSize: 12, background: "var(--ne-surface)", color: "var(--ne-muted)" }}>{t("finance.rateCardReadOnly")}</div>}
-          {loading ? (
-            <SkelTable cols={4} rows={5} />
-          ) : (
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5 }}>
-              <thead>
-                <tr>
-                  {[t("finance.col.province"), t("finance.col.shippingFee"), "VAT %", t("finance.col.incomeTaxPct"), t("finance.col.salesTaxPct")].map((h) => (
-                    <th key={h} style={{ textAlign: "left", padding: "6px 8px", color: "var(--ne-muted)", borderBottom: "1px solid var(--ne-border)", fontWeight: 600, fontSize: 10, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr key={row.id} style={{ borderBottom: "1px solid var(--ne-border)", opacity: savingId === row.id ? 0.6 : 1 }}>
-                    <td style={{ padding: "6px 8px", color: "var(--ne-text)", fontWeight: 600, whiteSpace: "nowrap" }}>{row.province}</td>
-                    {["shipping_fee", "vat_percent", "income_tax_percent", "sales_tax_percent"].map((field) => (
-                      <td key={field} style={{ padding: "6px 8px" }}>
-                        <input type="number" step="0.01" value={getValue(row, field)}
-                          onChange={(e) => setDrafts((prev) => ({ ...prev, [draftKey(row.id, field)]: e.target.value }))}
-                          onBlur={() => commit(row, field)}
-                          onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
-                          readOnly={!canEdit} aria-readonly={!canEdit}
-                          style={canEdit ? numInputStyle : { ...numInputStyle, opacity: 0.7, cursor: "default" }} />
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
@@ -523,8 +419,8 @@ function PackageOverviewTab({ storeId, cfUrl, ordersStore, t, courier }) {
                 <tr>
                   {[
                     t("finance.col.statementPeriod"), t("finance.col.internalOrderNo"), t("finance.col.externalOrderNo"), t("finance.col.trackingNo"),
-                    t("finance.col.province"), t("finance.col.city"), t("finance.col.courierStatus"), t("finance.col.cod"),
-                    t("finance.col.shippingFee"), t("finance.col.vat"), t("finance.col.incomeTax"), t("finance.col.salesTax"), t("finance.col.netPayable"),
+                    t("finance.col.province"), t("finance.col.city"), t("finance.col.courierStatus"), "Weight", t("finance.col.cod"),
+                    t("finance.col.shippingFee"), "Fuel", t("finance.col.vat"), t("finance.col.incomeTax"), t("finance.col.salesTax"), t("finance.col.netPayable"),
                   ].map((h) => (
                     <th key={h} style={{ textAlign: "left", padding: "7px 10px", color: "var(--ne-muted)", borderBottom: "1px solid var(--ne-border)", fontWeight: 600, fontSize: 9.5, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
                   ))}
@@ -550,8 +446,10 @@ function PackageOverviewTab({ storeId, cfUrl, ordersStore, t, courier }) {
                         {o.courier_status}
                       </span>
                     </td>
+                    <td style={{ padding: "6px 10px", color: "var(--ne-muted)", whiteSpace: "nowrap" }}>{o.weight_kg ? `${o.weight_kg} kg` : "—"}</td>
                     <td style={{ padding: "6px 10px", color: "var(--ne-text)", whiteSpace: "nowrap" }}>{fmtMoney(o.cod_amount)}</td>
                     <td style={{ padding: "6px 10px", color: "var(--ne-text)", whiteSpace: "nowrap" }}>{fmtMoney(o.shipping_fee)}</td>
+                    <td style={{ padding: "6px 10px", color: "var(--ne-text)", whiteSpace: "nowrap" }}>{fmtMoney(o.fuel_adjustment || 0)}</td>
                     <td style={{ padding: "6px 10px", color: "var(--ne-text)", whiteSpace: "nowrap" }}>{fmtMoney(o.vat)}</td>
                     <td style={{ padding: "6px 10px", color: "var(--ne-text)", whiteSpace: "nowrap" }}>{fmtMoney(o.income_tax)}</td>
                     <td style={{ padding: "6px 10px", color: "var(--ne-text)", whiteSpace: "nowrap" }}>{fmtMoney(o.sales_tax)}</td>
@@ -570,7 +468,7 @@ function PackageOverviewTab({ storeId, cfUrl, ordersStore, t, courier }) {
 }
 
 /** Courier Payments: courier "dex" (Dex Statement page) or "nex" (NeX Statement page); both on the DEX cycle */
-export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL, isCreator = false, courier = "dex" }) {
+export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL, courier = "dex" }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const [showRateCard, setShowRateCard] = useState(false);
@@ -681,7 +579,7 @@ export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL,
         <PackageOverviewTab key={courier} storeId={storeId} cfUrl={cfUrl} ordersStore={ordersStore} t={t} courier={courier} />
       )}
 
-      {showRateCard && <RateCardModal t={t} cfUrl={cfUrl} canEdit={isCreator} courier={courier} onClose={() => setShowRateCard(false)} />}
+      {showRateCard && <RateCard storeId={storeId} courier={courier} readOnly={courier === "nex"} title={courier === "nex" ? "NeX rate card (aap ke rates)" : "DEX rate card (aap ke apne rates)"} onClose={() => setShowRateCard(false)} />}
     </div>
   );
 }
