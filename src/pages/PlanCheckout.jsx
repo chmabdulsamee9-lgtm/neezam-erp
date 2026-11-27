@@ -4,6 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import Icon from "../components/Icon";
 import { Monogram, Wordmark } from "../components/Logo";
 import { billingApi, rs, dayText, signupChoice, clearSignupChoice } from "../lib/billingApi";
+// the same plan details as the pricing page
+import { CONTENT, PLANS } from "./public/landing/content";
+
+const C = CONTENT.ur;
 
 const card = { background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 16, padding: 20 };
 const input = { width: "100%", padding: "10px 12px", borderRadius: 9, border: "1px solid var(--ne-border)", background: "var(--ne-bg)", color: "var(--ne-text)", fontSize: 14, boxSizing: "border-box" };
@@ -29,6 +33,8 @@ export default function PlanCheckout({ storeId, locked, onExit, onSignOut, onAct
   const [error, setError] = useState("");
   const [waiting, setWaiting] = useState(() => new URLSearchParams(window.location.search).get("payment"));
   const [payNote, setPayNote] = useState("");
+  // 1: choose the plan, 2: pay for it
+  const [step, setStep] = useState("plan");
 
   const load = useCallback(async () => {
     const d = await billingApi("state", storeId ? { store_id: storeId } : {});
@@ -157,19 +163,41 @@ export default function PlanCheckout({ storeId, locked, onExit, onSignOut, onAct
               </div>
             ) : (
               <>
-                <div className="pc-plans">
-                  {state.plans.map((p) => {
-                    const on = p.id === planId;
-                    return (
-                      <button key={p.id} onClick={() => choosePlan(p.id)} aria-pressed={on} style={{ ...card, textAlign: "left", cursor: "pointer", color: "var(--ne-text)", font: "inherit", borderColor: on ? "var(--ne-accent)" : "var(--ne-border)", boxShadow: on ? "0 0 0 2px var(--ne-accent)" : "none" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between" }}><b style={{ fontSize: 16 }}>{p.name}</b>{on && <Icon name="check" size={16} />}</div>
-                        <div style={{ fontSize: 22, fontWeight: 800, margin: "6px 0 8px" }}>{rs(p.monthly_price)}<span style={{ fontSize: 12, fontWeight: 500, color: "var(--ne-muted)" }}> / mahina</span></div>
-                        {(PLAN_POINTS[p.name.toLowerCase()] || []).map((x) => <div key={x} style={{ fontSize: 12.5, color: "var(--ne-muted)", lineHeight: 1.8 }}>{x}</div>)}
-                      </button>
-                    );
-                  })}
-                </div>
-
+                {step === "plan" ? (
+                  <>
+                    <div className="pc-plans">
+                      {state.plans.map((p) => {
+                        const on = p.id === planId;
+                        const k = p.name.toLowerCase();
+                        const info = PLANS.find((x) => x.id === k);
+                        return (
+                          <button key={p.id} onClick={() => choosePlan(p.id)} aria-pressed={on} style={{ ...card, position: "relative", textAlign: "left", cursor: "pointer", color: "var(--ne-text)", font: "inherit", display: "flex", flexDirection: "column", gap: 10, borderColor: on ? "var(--ne-accent)" : "var(--ne-border)", boxShadow: on ? "0 0 0 2px var(--ne-accent)" : "none" }}>
+                            {info?.popular && <span style={{ position: "absolute", top: -11, left: "50%", transform: "translateX(-50%)", background: "var(--ne-grad)", color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999, whiteSpace: "nowrap" }}>{C.popular}</span>}
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><b style={{ fontSize: 18 }}>{p.name}</b>{on && <Icon name="check" size={18} />}</div>
+                            {C.planTag[k] && <div style={{ fontSize: 12.5, color: "var(--ne-muted)", lineHeight: 1.45, minHeight: 36 }}>{C.planTag[k]}</div>}
+                            <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: "-.02em" }}>{rs(p.monthly_price)}<span style={{ fontSize: 12.5, fontWeight: 500, color: "var(--ne-muted)" }}> {C.perMonth}</span></div>
+                            {info && (
+                              <div style={{ display: "grid", gap: 6 }}>
+                                {[[C.limit.staff, info.limits.staff], [C.limit.ads, info.limits.ads], [C.limit.budget, rs(info.limits.budget)], [C.limit.wa, info.limits.wa.toLocaleString("en-PK")]].map(([a, b]) => (
+                                  <div key={a} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, borderBottom: "1px dashed var(--ne-border)", paddingBottom: 5 }}><span style={{ color: "var(--ne-muted)" }}>{a}</span><b>{b}</b></div>
+                                ))}
+                              </div>
+                            )}
+                            <div style={{ display: "grid", gap: 7 }}>
+                              {(C.planHi[k] || PLAN_POINTS[k] || []).map((x) => <div key={x} style={{ display: "flex", gap: 8, fontSize: 12.5, lineHeight: 1.4 }}><span style={{ color: "var(--ne-accent)", flexShrink: 0, marginTop: 1 }}><Icon name="check" size={12} /></span>{x}</div>)}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p style={{ ...muted, fontSize: 12 }}>{C.waNote}</p>
+                    <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                      <button style={{ ...btn(true, !plan), minWidth: 240 }} disabled={!plan} onClick={() => { setStep("pay"); setError(""); window.scrollTo?.(0, 0); }}>Continue: {plan?.name} · {rs(plan?.monthly_price)}</button>
+                    </div>
+                  </>
+                ) : (
+                <>
+                <div><button style={btn(false)} onClick={() => setStep("plan")}>← Plan badlein</button></div>
                 <div className="pc-cols">
                   <div style={{ ...card, display: "grid", gap: 14 }}>
                     {isTrial ? (
@@ -230,6 +258,8 @@ export default function PlanCheckout({ storeId, locked, onExit, onSignOut, onAct
                     <p style={{ ...muted, fontSize: 12 }}>Payment se aap <a href="/refund-policy" target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)" }}>Refund Policy</a> aur <a href="/terms" target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)" }}>Terms</a> se mutafiq hain.</p>
                   </div>
                 </div>
+                </>
+                )}
               </>
             )}
 
