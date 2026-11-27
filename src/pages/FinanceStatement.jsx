@@ -364,7 +364,7 @@ export function RateCardModal({ t, cfUrl, onClose, canEdit, courier = "dex" }) {
       <div onClick={(e) => e.stopPropagation()}
         style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 560, maxWidth: "94vw", maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
         <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="card" size={14} /> {t("finance.rateCardTitle")}</h2>
+          <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="card" size={14} /> {courier === "nex" ? "NeX Rate Card" : t("finance.rateCardTitle")}</h2>
           <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--ne-muted)", cursor: "pointer", padding: 4, display: "flex" }}>
             <Icon name="close" size={16} />
           </button>
