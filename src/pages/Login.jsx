@@ -463,13 +463,6 @@ export default function Login() {
           <button type="button" onClick={() => setMode('signup')} style={{ background: 'none', border: 'none', color: 'var(--ne-muted)', fontSize: 12, cursor: 'pointer', padding: 0, marginBottom: 14 }}>
             ← Wapas
           </button>
-          <div style={{ border: '1px solid var(--ne-accent)', borderRadius: 12, padding: '14px', marginBottom: '1.25rem', background: 'var(--ne-accent-soft)' }}>
-            <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--ne-text)', margin: '0 0 8px' }}>Bank Transfer Details</p>
-            <p style={{ fontSize: 12, color: 'var(--ne-text)', margin: '0 0 3px' }}>Muhammad Abdul Samee</p>
-            <p style={{ fontSize: 12, color: 'var(--ne-text)', margin: '0 0 3px' }}>MCB (Muslim Commercial Bank)</p>
-            <p style={{ fontSize: 12, color: 'var(--ne-text)', margin: '0 0 8px', fontFamily: 'monospace' }}>PK75MUCB1101500011009142</p>
-            <p style={{ fontSize: 11, color: 'var(--ne-muted)', margin: 0 }}>Payment Invoice Screenshot share karein <strong>support@eneezam.com</strong> par</p>
-          </div>
           <p style={{ color: 'var(--ne-muted)', fontSize: '13px', margin: '0 0 1rem', lineHeight: 1.6 }}>
             <strong style={{ color: 'var(--ne-text)' }}>{email}</strong> pe 6-digit code bheja gaya hai — daal do.
           </p>
