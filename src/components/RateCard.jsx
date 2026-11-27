@@ -27,7 +27,8 @@ const FIELDS = [
 ];
 const REGION_LABEL = { "Federally Administered Tribal Areas": "FATA" };
 
-export default function RateCard({ storeId = null, courier, title, onClose }) {
+// readOnly: only show the rates (NeX statement: rates are assigned from Master Dashboard > NeX).
+export default function RateCard({ storeId = null, courier, title, onClose, readOnly = false }) {
   const [data, setData] = useState(null);
   const [rows, setRows] = useState([]);
   const [error, setError] = useState("");
@@ -60,7 +61,7 @@ export default function RateCard({ storeId = null, courier, title, onClose }) {
     setMsg("Default rates lag gaye."); load();
   };
 
-  const edit = Boolean(data?.editable);
+  const edit = !readOnly && Boolean(data?.editable);
   const cell = { padding: "6px 6px", borderBottom: "1px solid var(--ne-border)", whiteSpace: "nowrap" };
   const inp = { width: 74, padding: "5px 7px", borderRadius: 7, border: "1px solid var(--ne-border)", background: edit ? "var(--ne-bg)" : "var(--ne-surface)", color: "var(--ne-text)", fontSize: 12, boxSizing: "border-box" };
   return (

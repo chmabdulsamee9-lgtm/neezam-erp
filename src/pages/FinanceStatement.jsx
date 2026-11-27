@@ -579,7 +579,7 @@ export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL,
         <PackageOverviewTab key={courier} storeId={storeId} cfUrl={cfUrl} ordersStore={ordersStore} t={t} courier={courier} />
       )}
 
-      {showRateCard && <RateCard storeId={storeId} courier={courier} title={courier === "nex" ? "NeX rate card (aap ke rates)" : "DEX rate card (aap ke apne rates)"} onClose={() => setShowRateCard(false)} />}
+      {showRateCard && <RateCard storeId={storeId} courier={courier} readOnly={courier === "nex"} title={courier === "nex" ? "NeX rate card (aap ke rates)" : "DEX rate card (aap ke apne rates)"} onClose={() => setShowRateCard(false)} />}
     </div>
   );
 }
