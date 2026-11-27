@@ -7,7 +7,7 @@ const input = { width: "100%", padding: "9px 11px", borderRadius: 9, border: "1p
 const btn = (primary) => ({ padding: "10px 16px", borderRadius: 10, border: primary ? "none" : "1px solid var(--ne-border)", background: primary ? "var(--ne-grad)" : "transparent", color: primary ? "#fff" : "var(--ne-text)", fontSize: 13.5, fontWeight: 700, cursor: "pointer" });
 const BAD = {
   email: "Sahi email likhein", mobile: "Mobile number aise: 03001234567", contact_name: "Contact person ka naam likhein", category: "Category chunein",
-  brand_name: "Brand ka naam likhein", address: "Poora address likhein", bank_name: "Bank ka naam likhein", account_number: "Account number likhein",
+  brand_name: "Brand ka naam likhein", address: "Poora address likhein", bank_name: "Bank ka naam likhein", account_number: "Account number likhein", account_title: "Account title likhein (bank account par jo naam hai)",
   iban: "IBAN aise: PK36MEEZ0000000123456702 (24 harf)", cnic_front: "CNIC ki saamne wali tasveer lagayein", cnic_back: "CNIC ki peeche wali tasveer lagayein", terms: "Terms aur policy accept karein",
 };
 
@@ -16,7 +16,7 @@ export function NexTerms() {
   const li = { margin: "0 0 6px" };
   return (
     <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, lineHeight: 1.6, color: "var(--ne-text)" }}>
-      <li style={li}><b>eNeezam aggregator hai.</b> NeX (Neezam Express) ke zariye aap ke parcels hamare courier partners (jaise Daraz Express) se deliver hote hain. Booking, tracking aur hisaab eNeezam mein hota hai.</li>
+      <li style={li}><b>eNeezam aggregator hai.</b> NeX (Neezam Express) ke zariye aap ke parcels hamare courier partners, jaise Daraz Express (DEX), TCS, Leopards, PostEx aur FastEx, se deliver hote hain. Booking, tracking aur hisaab eNeezam mein hota hai.</li>
       <li style={li}><b>COD ki raqam:</b> customer se li gayi COD courier pehle eNeezam ko deta hai. Courier ki payment jis cycle par aati hai, usi cycle ke hisaab se eNeezam aap ke diye gaye bank account mein transfer karega, courier aur NeX charges kaat kar.</li>
       <li style={li}><b>Charges:</b> har parcel par delivery, return aur failed-delivery charges NeX ke rate card ke mutabiq lagenge, jo Courier Connect mein dikhaye jayenge. Taxes qanoon ke mutabiq kaate jayenge.</li>
       <li style={li}><b>Sahi maloomat:</b> KYC mein di gayi maloomat (bank, CNIC, address) sahi honi chahiye. Payment sirf usi bank account mein jayegi. Account badalne ke liye support@eneezam.com par likhein.</li>
@@ -108,7 +108,7 @@ export default function NexKyc({ storeId, state, onClose, onDone }) {
         <b style={{ fontSize: 13 }}>Bank (COD ki payment yahan aayegi)</b>
         <div className="nk-g">
           {field("bank_name", "Bank ka naam", { placeholder: "Meezan Bank" })}
-          {field("account_title", "Account title (optional)")}
+          {field("account_title", "Account title (bank account par naam)")}
           {field("account_number", "Account number", { inputMode: "numeric", autoComplete: "off" })}
           {field("iban", "IBAN", { autoComplete: "off", placeholder: "PK36MEEZ0000000123456702" })}
         </div>
@@ -116,11 +116,9 @@ export default function NexKyc({ storeId, state, onClose, onDone }) {
         <b style={{ fontSize: 13 }}>CNIC</b>
         <div className="nk-g">{photo("front", "Saamne wali tasveer")}{photo("back", "Peeche wali tasveer")}</div>
 
-        <b style={{ fontSize: 13 }}>NeX terms aur policy</b>
-        <div style={{ maxHeight: 220, overflowY: "auto", border: "1px solid var(--ne-border)", borderRadius: 10, padding: 12, background: "var(--ne-surface)" }}><NexTerms /></div>
         <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 13 }}>
           <input type="checkbox" checked={accept} onChange={(e) => setAccept(e.target.checked)} style={{ marginTop: 3 }} />
-          <span>Main ne NeX ki terms aur policy parh li hain aur qubool karta/karti hoon, aur upar di gayi maloomat sahi hai.</span>
+          <span>Main ne <a href="/nex-terms" target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)", fontWeight: 700 }}>NeX terms aur policy</a> parh li hain aur qubool karta/karti hoon, aur upar di gayi maloomat sahi hai.</span>
         </label>
         {bad === "terms" && <span role="alert" style={{ color: "var(--ne-danger)", fontSize: 12 }}>{BAD.terms}</span>}
         {error && <div role="alert" style={{ color: "var(--ne-danger)", fontSize: 13 }}>{error}</div>}

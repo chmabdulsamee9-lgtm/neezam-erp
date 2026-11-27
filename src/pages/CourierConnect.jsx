@@ -509,14 +509,14 @@ export default function CourierConnect({ storeId }) {
 
                   {open.id === "nex" && (
                     <div style={{ display: "grid", gap: 10, fontSize: 13 }}>
-                      <p style={{ margin: 0, color: "var(--ne-muted)", lineHeight: 1.6 }}>NeX eNeezam ki apni courier service hai. Booking eNeezam ke courier partner (Daraz Express) se hoti hai, COD eNeezam ko aati hai aur courier ke cycle par charges kaat kar aap ke bank mein bhej di jati hai.</p>
+                      <p style={{ margin: 0, color: "var(--ne-muted)", lineHeight: 1.6 }}>NeX eNeezam ki apni courier service hai. Booking eNeezam ke courier partners (Daraz Express (DEX), TCS, Leopards, PostEx aur FastEx) se hoti hai, COD eNeezam ko aati hai aur courier ke cycle par charges kaat kar aap ke bank mein bhej di jati hai.</p>
                       {nex.kyc ? (
                         <div style={{ background: "var(--ne-surface)", border: "1px solid var(--ne-border)", borderRadius: 10, padding: "12px 14px", display: "grid", gap: 4 }}>
                           <span>Brand: <b>{nex.kyc.brand_name}</b></span>
                           <span>Bank: <b>{nex.kyc.bank_name}</b> · Account {nex.kyc.account_number} · IBAN {nex.kyc.iban}</span>
                           <span>KYC: <b>{nex.kyc.status === "approved" ? "Approved" : nex.kyc.status === "rejected" ? "Wapas aayi" : "Check ho rahi hai"}</b> · {new Date(nex.kyc.updated_at || nex.kyc.created_at).toLocaleDateString("en-PK")}</span>
                         </div>
-                      ) : <p style={{ margin: 0 }}>Abhi KYC nahi bhari. NeX on karne ke liye ek dafa KYC aur terms zaroori hain.</p>}
+                      ) : <p style={{ margin: 0 }}>Abhi KYC nahi bhari. NeX on karne ke liye ek dafa KYC aur <a href="/nex-terms" target="_blank" rel="noreferrer" style={{ color: "var(--ne-accent)" }}>NeX terms</a> zaroori hain.</p>}
                       {(!nex.kyc || nex.kyc.status === "rejected") && <button onClick={() => { setOpenCard(""); setKycOpen(true); }} style={{ padding: "10px", borderRadius: 9, border: "none", background: "var(--ne-grad)", color: "#fff", fontWeight: 700, cursor: "pointer" }}>{nex.kyc ? "KYC dobara bharein" : "KYC bharein aur NeX shuru karein"}</button>}
                     </div>
                   )}

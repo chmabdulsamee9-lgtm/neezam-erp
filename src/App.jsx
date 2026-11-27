@@ -149,6 +149,7 @@ const PublicDataDeletion = lazyPage(() => import('./pages/public/DataDeletion'),
 const PublicRefund = lazyPage(() => import('./pages/public/PolicyPage').then((m) => ({ default: m.RefundPolicy })), null)
 const PublicShipping = lazyPage(() => import('./pages/public/PolicyPage').then((m) => ({ default: m.ShippingPolicy })), null)
 const PlanBuy = lazyPage(() => import('./pages/public/PlanBuy'), null)
+const NexTermsPage = lazyPage(() => import('./pages/public/NexTermsPage'), null)
 const PublicFaq = lazyPage(() => import('./pages/public/PolicyPage').then((m) => ({ default: m.FaqPage })), null)
 const LEGAL_ROUTES = {
   '/privacy': PublicPrivacy, '/terms': PublicTerms, '/data-deletion': PublicDataDeletion,
@@ -156,6 +157,8 @@ const LEGAL_ROUTES = {
   '/refund-policy': PublicRefund, '/shipping-policy': PublicShipping, '/faq': PublicFaq,
   // plan checkout without an account
   '/checkout': PlanBuy,
+  // NeX courier terms (linked from the NeX KYC)
+  '/nex-terms': NexTermsPage,
 }
 
 // Public marketing-site routes — sirf logged-out visitors ke liye (jaisa
