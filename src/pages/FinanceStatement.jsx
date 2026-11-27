@@ -80,7 +80,7 @@ const iconBtnStyle = {
   padding: "5px 7px", display: "inline-flex", alignItems: "center", justifyContent: "center",
 };
 
-function StatementRow({ period, t, cfUrl, storeId, ordersStore }) {
+function StatementRow({ period, t, cfUrl, storeId, ordersStore, courier }) {
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -96,7 +96,7 @@ function StatementRow({ period, t, cfUrl, storeId, ordersStore }) {
       setError("");
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        const res = await fetch(`${cfUrl}/finance-statement?store_id=${encodeURIComponent(storeId)}&period_start=${encodeURIComponent(period.start.toISOString())}&period_end=${encodeURIComponent(period.end.toISOString())}`, {
+        const res = await fetch(`${cfUrl}/finance-statement?store_id=${encodeURIComponent(storeId)}&courier=${courier}&period_start=${encodeURIComponent(period.start.toISOString())}&period_end=${encodeURIComponent(period.end.toISOString())}`, {
           headers: { Authorization: `Bearer ${session?.access_token}` },
         });
         const json = await res.json();
@@ -110,7 +110,7 @@ function StatementRow({ period, t, cfUrl, storeId, ordersStore }) {
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cfUrl, storeId]);
+  }, [cfUrl, storeId, courier]);
 
   const toggle = () => setExpanded((e) => !e);
   const [exporting, setExporting] = useState(false);
@@ -122,12 +122,12 @@ function StatementRow({ period, t, cfUrl, storeId, ordersStore }) {
       const { data: { session } } = await supabase.auth.getSession();
       const startStr = toDateStrPKT(period.start);
       const endStr = toDateStrPKT(new Date(period.end.getTime() - 1));
-      const res = await fetch(`${cfUrl}/finance-statement-orders?store_id=${encodeURIComponent(storeId)}&start_date=${startStr}&end_date=${endStr}`, {
+      const res = await fetch(`${cfUrl}/finance-statement-orders?store_id=${encodeURIComponent(storeId)}&courier=${courier}&start_date=${startStr}&end_date=${endStr}`, {
         headers: { Authorization: `Bearer ${session?.access_token}` },
       });
       const json = await res.json();
       if (json.error) { setError(json.error); setExporting(false); return; }
-      downloadCsv(`Statement_${sanitizeFilenamePart(ordersStore?.store_name)}_${startStr}_to_${endStr}.csv`, buildOrdersCsv(json.orders || []));
+      downloadCsv(`Statement_${courier.toUpperCase()}_${sanitizeFilenamePart(ordersStore?.store_name)}_${startStr}_to_${endStr}.csv`, buildOrdersCsv(json.orders || []));
     } catch (err) {
       setError(err.message);
     }
@@ -433,7 +433,7 @@ function PageControls({ page, setPage, totalPages, totalCount, perPage, t }) {
 
 const PACKAGE_ROWS_PER_PAGE = 10;
 
-function PackageOverviewTab({ storeId, cfUrl, ordersStore, t }) {
+function PackageOverviewTab({ storeId, cfUrl, ordersStore, t, courier }) {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [startDate, setStartDate] = useState("");
@@ -457,7 +457,7 @@ function PackageOverviewTab({ storeId, cfUrl, ordersStore, t }) {
       setError("");
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        const qs = new URLSearchParams({ store_id: storeId });
+        const qs = new URLSearchParams({ store_id: storeId, courier });
         if (startDate) qs.set("start_date", startDate);
         if (endDate) qs.set("end_date", endDate);
         if (debouncedSearch) qs.set("search", debouncedSearch);
@@ -578,6 +578,8 @@ export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL,
   const [page, setPage] = useState(1);
   const [activeTab, setActiveTab] = useState("overview"); // 'overview' | 'packages'
   const [exportingAll, setExportingAll] = useState(false);
+  // DEX: parcels on the store's own DEX account; NeX: parcels booked through NeX (same DEX statement cycle)
+  const [courier, setCourier] = useState("dex");
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 900);
@@ -593,14 +595,15 @@ export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL,
     setEarliestDate(undefined);
     setPage(1);
     (async () => {
+      const only = (q) => (courier === "nex" ? q.eq("courier_name", "NeX") : q.or("courier_name.is.null,courier_name.neq.NeX"));
       const [{ data: delivered }, { data: returned }] = await Promise.all([
-        supabase.from("order_statuses").select("delivered_at").eq("store_id", storeId).not("delivered_at", "is", null).order("delivered_at", { ascending: true }).limit(1),
-        supabase.from("order_statuses").select("return_success_at").eq("store_id", storeId).not("return_success_at", "is", null).order("return_success_at", { ascending: true }).limit(1),
+        only(supabase.from("order_statuses").select("delivered_at").eq("store_id", storeId).not("delivered_at", "is", null)).order("delivered_at", { ascending: true }).limit(1),
+        only(supabase.from("order_statuses").select("return_success_at").eq("store_id", storeId).not("return_success_at", "is", null)).order("return_success_at", { ascending: true }).limit(1),
       ]);
       const candidates = [delivered?.[0]?.delivered_at, returned?.[0]?.return_success_at].filter(Boolean).map((d) => new Date(d));
       setEarliestDate(candidates.length > 0 ? new Date(Math.min(...candidates.map((d) => d.getTime()))) : null);
     })();
-  }, [storeId]);
+  }, [storeId, courier]);
 
   const periods = useMemo(() => getPeriodsSince(earliestDate), [earliestDate]);
   const totalPages = Math.max(1, Math.ceil(periods.length / PERIODS_PER_PAGE));
@@ -614,12 +617,12 @@ export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL,
     setExportingAll(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`${cfUrl}/finance-statement-orders?store_id=${encodeURIComponent(storeId)}`, {
+      const res = await fetch(`${cfUrl}/finance-statement-orders?store_id=${encodeURIComponent(storeId)}&courier=${courier}`, {
         headers: { Authorization: `Bearer ${session?.access_token}` },
       });
       const json = await res.json();
       if (json.error) { setExportingAll(false); return; }
-      downloadCsv(`Statement_${sanitizeFilenamePart(ordersStore?.store_name)}_AllPeriods_${toDateStrPKT(new Date())}.csv`, buildOrdersCsv(json.orders || []));
+      downloadCsv(`Statement_${courier.toUpperCase()}_${sanitizeFilenamePart(ordersStore?.store_name)}_AllPeriods_${toDateStrPKT(new Date())}.csv`, buildOrdersCsv(json.orders || []));
     } catch { /* best-effort — export failures don't block the page */ }
     setExportingAll(false);
   };
@@ -647,6 +650,16 @@ export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL,
         </button>
       </div>
 
+      {/* courier: each has its own statements, both on the DEX cycle (Mon-Wed, Thu-Sun) */}
+      <div role="tablist" aria-label="Courier" style={{ display: "inline-flex", gap: 4, padding: 4, borderRadius: 12, background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", marginBottom: "0.75rem" }}>
+        {[["dex", "DEX (Daraz Express)"], ["nex", "NeX (Neezam Express)"]].map(([id, label]) => (
+          <button key={id} role="tab" aria-selected={courier === id} onClick={() => { setCourier(id); setPage(1); }}
+            style={{ padding: "7px 14px", borderRadius: 9, fontSize: 12, fontWeight: 800, cursor: "pointer", border: "none", background: courier === id ? "var(--ne-text)" : "transparent", color: courier === id ? "var(--ne-bg)" : "var(--ne-muted)" }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* Tabs — same pill-button style as BookedOrders.jsx's TAB_STRUCTURE */}
       <div style={{ display: "flex", gap: 7, marginBottom: "0.75rem", flexWrap: "wrap" }}>
         {[{ key: "overview", label: t("finance.tabOverview") }, { key: "packages", label: t("finance.tabPackages") }].map((tab) => (
@@ -670,14 +683,14 @@ export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL,
 
           <div>
             {pagedPeriods.map((p) => (
-              <StatementRow key={periodKey(p)} period={p} t={t} cfUrl={cfUrl} storeId={storeId} ordersStore={ordersStore} />
+              <StatementRow key={`${courier}-${periodKey(p)}`} period={p} t={t} cfUrl={cfUrl} storeId={storeId} ordersStore={ordersStore} courier={courier} />
             ))}
           </div>
 
           <PageControls page={page} setPage={setPage} totalPages={totalPages} totalCount={periods.length} perPage={PERIODS_PER_PAGE} t={t} />
         </>
       ) : (
-        <PackageOverviewTab storeId={storeId} cfUrl={cfUrl} ordersStore={ordersStore} t={t} />
+        <PackageOverviewTab key={courier} storeId={storeId} cfUrl={cfUrl} ordersStore={ordersStore} t={t} courier={courier} />
       )}
 
       {showRateCard && <RateCardModal t={t} cfUrl={cfUrl} canEdit={isCreator} onClose={() => setShowRateCard(false)} />}
