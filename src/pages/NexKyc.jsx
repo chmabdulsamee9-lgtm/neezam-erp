@@ -1,5 +1,5 @@
 // NeX first-time setup: the merchant's KYC (contact, business, bank, CNIC) and the NeX terms. Worker nex.js /nex/kyc-submit.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Icon from "../components/Icon";
 import { nexApi, NEX_LOGO } from "../lib/nexApi";
 
@@ -31,6 +31,19 @@ export function NexTerms() {
 export default function NexKyc({ storeId, state, onClose, onDone }) {
   const [f, setF] = useState({ email: "", mobile: "", contact_name: "", category: "", brand_name: "", address: "", city: "", bank_name: "", account_title: "", account_number: "", iban: "" });
   const [files, setFiles] = useState({ front: null, back: null });
+  // correcting a KYC that came back: the earlier answers, the reason and the saved CNIC pictures
+  const [prev, setPrev] = useState(null);
+  useEffect(() => {
+    if (!state.kyc) return undefined;
+    let alive = true;
+    nexApi("kyc-get", { store_id: storeId }).then((d) => {
+      if (!alive || !d.kyc) return;
+      const k = d.kyc;
+      setPrev(k);
+      setF({ email: k.email || "", mobile: k.mobile || "", contact_name: k.contact_name || "", category: k.category || "", brand_name: k.brand_name || "", address: k.address || "", city: k.city || "", bank_name: k.bank_name || "", account_title: k.account_title || "", account_number: k.account_number || "", iban: k.iban || "" });
+    });
+    return () => { alive = false; };
+  }, [storeId, state.kyc]);
   const [accept, setAccept] = useState(false);
   const [bad, setBad] = useState("");
   const [error, setError] = useState("");
@@ -43,15 +56,15 @@ export default function NexKyc({ storeId, state, onClose, onDone }) {
     if (!accept) { setBad("terms"); return; }
     for (const side of ["front", "back"]) {
       const file = files[side];
-      if (!file) { setBad(`cnic_${side}`); return; }
-      if (file.size > 5 * 1024 * 1024) { setError("Har tasveer 5 MB se chhoti honi chahiye"); return; }
+      if (!file && !prev?.[`has_${side}`]) { setBad(`cnic_${side}`); return; }
+      if (file && file.size > 5 * 1024 * 1024) { setError("Har tasveer 5 MB se chhoti honi chahiye"); return; }
     }
     setBusy(true);
     const form = new FormData();
     form.append("store_id", storeId);
     Object.entries(f).forEach(([k, v]) => form.append(k, v));
-    form.append("cnic_front", files.front);
-    form.append("cnic_back", files.back);
+    if (files.front) form.append("cnic_front", files.front);
+    if (files.back) form.append("cnic_back", files.back);
     form.append("accept_terms", "true");
     form.append("terms_version", state.terms_version);
     const r = await nexApi("kyc-submit", form);
@@ -70,6 +83,7 @@ export default function NexKyc({ storeId, state, onClose, onDone }) {
   const photo = (side, label) => (
     <label style={{ fontSize: 12.5, color: "var(--ne-muted)" }}>{label}
       <input style={input} type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => setFiles({ ...files, [side]: e.target.files?.[0] || null })} />
+      {prev?.[`has_${side}`] && !files[side] && <span style={{ fontSize: 11.5 }}>Pehle wali tasveer lagi hai. Badalni ho to nayi chunein.</span>}
       {bad === `cnic_${side}` && <span role="alert" style={{ color: "var(--ne-danger)", fontSize: 12 }}>{BAD[`cnic_${side}`]}</span>}
     </label>
   );
@@ -79,9 +93,14 @@ export default function NexKyc({ storeId, state, onClose, onDone }) {
       <form onSubmit={submit} style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 640, maxWidth: "100%", padding: 20, display: "grid", gap: 14, color: "var(--ne-text)", boxSizing: "border-box" }}>
         <style>{".nk-g{display:grid;grid-template-columns:1fr 1fr;gap:10px}@media(max-width:620px){.nk-g{grid-template-columns:1fr}}"}</style>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}><img src={NEX_LOGO} alt="" width={36} height={36} style={{ borderRadius: 9 }} /><div><b style={{ fontSize: 16 }}>NeX shuru karein</b><div style={{ fontSize: 12, color: "var(--ne-muted)" }}>Ek dafa ki KYC. eNeezam check karke NeX on kar dega.</div></div></div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}><img src={NEX_LOGO} alt="" width={36} height={36} style={{ borderRadius: 9 }} /><div><b style={{ fontSize: 16 }}>{prev ? "KYC theek karein" : "NeX shuru karein"}</b><div style={{ fontSize: 12, color: "var(--ne-muted)" }}>{prev ? "Neeche di gayi wajah ke mutabiq theek karke dobara bhejein." : "Ek dafa ki KYC. eNeezam check karke NeX on kar dega."}</div></div></div>
           <button type="button" aria-label="Band karein" onClick={onClose} style={{ background: "transparent", border: "none", color: "var(--ne-muted)", fontSize: 20, cursor: "pointer" }}>×</button>
         </div>
+        {prev?.status === "rejected" && prev.review_note && (
+          <div role="alert" style={{ border: "1px solid var(--ne-danger)", background: "var(--ne-danger-soft, transparent)", borderRadius: 10, padding: "10px 12px", fontSize: 13 }}>
+            <b style={{ color: "var(--ne-danger)" }}>eNeezam ne KYC wapas bheji:</b> {prev.review_note}
+          </div>
+        )}
 
         <b style={{ fontSize: 13 }}>Raabta</b>
         <div className="nk-g">
@@ -124,7 +143,7 @@ export default function NexKyc({ storeId, state, onClose, onDone }) {
         {error && <div role="alert" style={{ color: "var(--ne-danger)", fontSize: 13 }}>{error}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button type="button" style={btn(false)} onClick={onClose}>Baad mein</button>
-          <button type="submit" style={btn(true)} disabled={busy}>{busy ? "Bhej rahe hain..." : <><Icon name="check" size={13} /> KYC jama karein</>}</button>
+          <button type="submit" style={btn(true)} disabled={busy}>{busy ? "Bhej rahe hain..." : <><Icon name="check" size={13} /> {prev ? "Theek karke dobara bhejein" : "KYC jama karein"}</>}</button>
         </div>
       </form>
     </div>

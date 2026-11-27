@@ -80,7 +80,7 @@ const iconBtnStyle = {
   padding: "5px 7px", display: "inline-flex", alignItems: "center", justifyContent: "center",
 };
 
-function StatementRow({ period, t, cfUrl, storeId, ordersStore }) {
+function StatementRow({ period, t, cfUrl, storeId, ordersStore, courier }) {
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -96,7 +96,7 @@ function StatementRow({ period, t, cfUrl, storeId, ordersStore }) {
       setError("");
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        const res = await fetch(`${cfUrl}/finance-statement?store_id=${encodeURIComponent(storeId)}&period_start=${encodeURIComponent(period.start.toISOString())}&period_end=${encodeURIComponent(period.end.toISOString())}`, {
+        const res = await fetch(`${cfUrl}/finance-statement?store_id=${encodeURIComponent(storeId)}&courier=${courier}&period_start=${encodeURIComponent(period.start.toISOString())}&period_end=${encodeURIComponent(period.end.toISOString())}`, {
           headers: { Authorization: `Bearer ${session?.access_token}` },
         });
         const json = await res.json();
@@ -110,7 +110,7 @@ function StatementRow({ period, t, cfUrl, storeId, ordersStore }) {
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cfUrl, storeId]);
+  }, [cfUrl, storeId, courier]);
 
   const toggle = () => setExpanded((e) => !e);
   const [exporting, setExporting] = useState(false);
@@ -122,12 +122,12 @@ function StatementRow({ period, t, cfUrl, storeId, ordersStore }) {
       const { data: { session } } = await supabase.auth.getSession();
       const startStr = toDateStrPKT(period.start);
       const endStr = toDateStrPKT(new Date(period.end.getTime() - 1));
-      const res = await fetch(`${cfUrl}/finance-statement-orders?store_id=${encodeURIComponent(storeId)}&start_date=${startStr}&end_date=${endStr}`, {
+      const res = await fetch(`${cfUrl}/finance-statement-orders?store_id=${encodeURIComponent(storeId)}&courier=${courier}&start_date=${startStr}&end_date=${endStr}`, {
         headers: { Authorization: `Bearer ${session?.access_token}` },
       });
       const json = await res.json();
       if (json.error) { setError(json.error); setExporting(false); return; }
-      downloadCsv(`Statement_${sanitizeFilenamePart(ordersStore?.store_name)}_${startStr}_to_${endStr}.csv`, buildOrdersCsv(json.orders || []));
+      downloadCsv(`Statement_${courier.toUpperCase()}_${sanitizeFilenamePart(ordersStore?.store_name)}_${startStr}_to_${endStr}.csv`, buildOrdersCsv(json.orders || []));
     } catch (err) {
       setError(err.message);
     }
@@ -297,7 +297,7 @@ function StatementRow({ period, t, cfUrl, storeId, ordersStore }) {
   );
 }
 
-function RateCardModal({ t, cfUrl, onClose, canEdit }) {
+export function RateCardModal({ t, cfUrl, onClose, canEdit, courier = "dex" }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -309,7 +309,7 @@ function RateCardModal({ t, cfUrl, onClose, canEdit }) {
       setLoading(true);
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        const res = await fetch(`${cfUrl}/rate-card`, { headers: { Authorization: `Bearer ${session?.access_token}` } });
+        const res = await fetch(`${cfUrl}/rate-card?courier=${courier}`, { headers: { Authorization: `Bearer ${session?.access_token}` } });
         const json = await res.json();
         if (json.error) setError(json.error);
         else setRows(json.rows || []);
@@ -318,7 +318,7 @@ function RateCardModal({ t, cfUrl, onClose, canEdit }) {
       }
       setLoading(false);
     })();
-  }, [cfUrl]);
+  }, [cfUrl, courier]);
 
   const draftKey = (id, field) => `${id}::${field}`;
   const getValue = (row, field) => {
@@ -339,7 +339,7 @@ function RateCardModal({ t, cfUrl, onClose, canEdit }) {
     setError("");
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`${cfUrl}/rate-card`, {
+      const res = await fetch(`${cfUrl}/rate-card?courier=${courier}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
         body: JSON.stringify({ id: row.id, [field]: value }),
@@ -364,7 +364,7 @@ function RateCardModal({ t, cfUrl, onClose, canEdit }) {
       <div onClick={(e) => e.stopPropagation()}
         style={{ background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 16, width: 560, maxWidth: "94vw", maxHeight: "85vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
         <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--ne-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="card" size={14} /> {t("finance.rateCardTitle")}</h2>
+          <h2 style={{ margin: 0, fontSize: 15, color: "var(--ne-text)", display: "flex", alignItems: "center", gap: 8 }}><Icon name="card" size={14} /> {courier === "nex" ? "NeX Rate Card" : t("finance.rateCardTitle")}</h2>
           <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--ne-muted)", cursor: "pointer", padding: 4, display: "flex" }}>
             <Icon name="close" size={16} />
           </button>
@@ -433,7 +433,7 @@ function PageControls({ page, setPage, totalPages, totalCount, perPage, t }) {
 
 const PACKAGE_ROWS_PER_PAGE = 10;
 
-function PackageOverviewTab({ storeId, cfUrl, ordersStore, t }) {
+function PackageOverviewTab({ storeId, cfUrl, ordersStore, t, courier }) {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [startDate, setStartDate] = useState("");
@@ -457,7 +457,7 @@ function PackageOverviewTab({ storeId, cfUrl, ordersStore, t }) {
       setError("");
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        const qs = new URLSearchParams({ store_id: storeId });
+        const qs = new URLSearchParams({ store_id: storeId, courier });
         if (startDate) qs.set("start_date", startDate);
         if (endDate) qs.set("end_date", endDate);
         if (debouncedSearch) qs.set("search", debouncedSearch);
@@ -569,7 +569,8 @@ function PackageOverviewTab({ storeId, cfUrl, ordersStore, t }) {
   );
 }
 
-export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL, isCreator = false }) {
+/** Courier Payments: courier "dex" (Dex Statement page) or "nex" (NeX Statement page); both on the DEX cycle */
+export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL, isCreator = false, courier = "dex" }) {
   const [lang] = useLanguage();
   const t = useTranslation(lang);
   const [showRateCard, setShowRateCard] = useState(false);
@@ -593,14 +594,20 @@ export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL,
     setEarliestDate(undefined);
     setPage(1);
     (async () => {
-      const [{ data: delivered }, { data: returned }] = await Promise.all([
-        supabase.from("order_statuses").select("delivered_at").eq("store_id", storeId).not("delivered_at", "is", null).order("delivered_at", { ascending: true }).limit(1),
-        supabase.from("order_statuses").select("return_success_at").eq("store_id", storeId).not("return_success_at", "is", null).order("return_success_at", { ascending: true }).limit(1),
-      ]);
+      const first = async (col, filtered) => {
+        let q = supabase.from("order_statuses").select(col).eq("store_id", storeId).not(col, "is", null);
+        if (filtered) q = courier === "nex" ? q.eq("courier_name", "NeX") : q.or("courier_name.is.null,courier_name.neq.NeX");
+        return q.order(col, { ascending: true }).limit(1);
+      };
+      let [{ data: delivered, error: e1 }, { data: returned, error: e2 }] = await Promise.all([first("delivered_at", true), first("return_success_at", true)]);
+      if ((e1 || e2) && courier === "dex") {
+        console.warn("statement start date: courier filter failed", e1 || e2);
+        [{ data: delivered }, { data: returned }] = await Promise.all([first("delivered_at", false), first("return_success_at", false)]);
+      }
       const candidates = [delivered?.[0]?.delivered_at, returned?.[0]?.return_success_at].filter(Boolean).map((d) => new Date(d));
       setEarliestDate(candidates.length > 0 ? new Date(Math.min(...candidates.map((d) => d.getTime()))) : null);
     })();
-  }, [storeId]);
+  }, [storeId, courier]);
 
   const periods = useMemo(() => getPeriodsSince(earliestDate), [earliestDate]);
   const totalPages = Math.max(1, Math.ceil(periods.length / PERIODS_PER_PAGE));
@@ -614,32 +621,21 @@ export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL,
     setExportingAll(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`${cfUrl}/finance-statement-orders?store_id=${encodeURIComponent(storeId)}`, {
+      const res = await fetch(`${cfUrl}/finance-statement-orders?store_id=${encodeURIComponent(storeId)}&courier=${courier}`, {
         headers: { Authorization: `Bearer ${session?.access_token}` },
       });
       const json = await res.json();
       if (json.error) { setExportingAll(false); return; }
-      downloadCsv(`Statement_${sanitizeFilenamePart(ordersStore?.store_name)}_AllPeriods_${toDateStrPKT(new Date())}.csv`, buildOrdersCsv(json.orders || []));
+      downloadCsv(`Statement_${courier.toUpperCase()}_${sanitizeFilenamePart(ordersStore?.store_name)}_AllPeriods_${toDateStrPKT(new Date())}.csv`, buildOrdersCsv(json.orders || []));
     } catch { /* best-effort — export failures don't block the page */ }
     setExportingAll(false);
   };
-
-  if (!ordersStore?.shopify_url) {
-    return (
-      <div style={{ padding: isMobile ? "1rem" : "1.5rem", color: "var(--ne-text)" }}>
-        <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><Icon name="calculator" size={17} /> {t("finance.title")}</h1>
-        <div style={{ ...cardStyle, marginTop: "1.5rem", textAlign: "center", color: "var(--ne-muted)" }}>
-          {t("finance.connectStoreFirst")}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div style={{ padding: isMobile ? "1rem" : "1.5rem", color: "var(--ne-text)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap", gap: 8 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><Icon name="calculator" size={17} /> {t("finance.title")}</h1>
+          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><Icon name="calculator" size={17} /> {courier === "nex" ? "NeX Statement" : t("finance.title")}</h1>
           <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "var(--ne-muted)" }}>{ordersStore?.store_name} — {t("finance.subtitle")}</p>
         </div>
         <button onClick={() => setShowRateCard(true)} style={toolbarBtnStyle}>
@@ -668,19 +664,24 @@ export default function FinanceStatement({ storeId, ordersStore, cfUrl = CF_URL,
             </button>
           </div>
 
+          {earliestDate === null && (
+            <div style={{ ...cardStyle, textAlign: "center", color: "var(--ne-muted)" }}>
+              {courier === "nex" ? "Abhi NeX ka koi parcel deliver ya return nahi hua. Pehla parcel deliver ya return hote hi statement yahan ban jayegi." : "Abhi DEX ka koi parcel deliver ya return nahi hua. Pehla parcel deliver ya return hote hi statement yahan ban jayegi."}
+            </div>
+          )}
           <div>
             {pagedPeriods.map((p) => (
-              <StatementRow key={periodKey(p)} period={p} t={t} cfUrl={cfUrl} storeId={storeId} ordersStore={ordersStore} />
+              <StatementRow key={`${courier}-${periodKey(p)}`} period={p} t={t} cfUrl={cfUrl} storeId={storeId} ordersStore={ordersStore} courier={courier} />
             ))}
           </div>
 
           <PageControls page={page} setPage={setPage} totalPages={totalPages} totalCount={periods.length} perPage={PERIODS_PER_PAGE} t={t} />
         </>
       ) : (
-        <PackageOverviewTab storeId={storeId} cfUrl={cfUrl} ordersStore={ordersStore} t={t} />
+        <PackageOverviewTab key={courier} storeId={storeId} cfUrl={cfUrl} ordersStore={ordersStore} t={t} courier={courier} />
       )}
 
-      {showRateCard && <RateCardModal t={t} cfUrl={cfUrl} canEdit={isCreator} onClose={() => setShowRateCard(false)} />}
+      {showRateCard && <RateCardModal t={t} cfUrl={cfUrl} canEdit={isCreator} courier={courier} onClose={() => setShowRateCard(false)} />}
     </div>
   );
 }

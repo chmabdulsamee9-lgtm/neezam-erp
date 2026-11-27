@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import Icon from "../components/Icon";
 import { nexApi, NEX_LOGO } from "../lib/nexApi";
 import { NexTerms } from "./NexKyc";
+import { RateCardModal } from "./FinanceStatement";
+import { useLanguage, useTranslation } from "../i18n";
 
 const card = { background: "var(--ne-surface-2)", border: "1px solid var(--ne-border)", borderRadius: 14, padding: 18 };
 const input = { width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--ne-border)", background: "var(--ne-surface)", color: "var(--ne-text)", fontSize: 13, boxSizing: "border-box" };
@@ -19,6 +21,11 @@ export default function NexAdmin({ onExit }) {
   const [code, setCode] = useState("");
   const [onlyOpen, setOnlyOpen] = useState(true);
   const [showTerms, setShowTerms] = useState(false);
+  const [showRates, setShowRates] = useState("");
+  // the KYC being rejected and the reason the merchant will read
+  const [rejecting, setRejecting] = useState({ id: "", note: "" });
+  const [lang] = useLanguage();
+  const t = useTranslation(lang);
 
   const load = useCallback(async () => {
     const d = await nexApi("admin/overview");
@@ -77,6 +84,18 @@ export default function NexAdmin({ onExit }) {
         )}
 
         {data && (
+          <div style={{ ...card, display: "grid", gap: 8 }}>
+            <b>Rate card (rates aur taxes)</b>
+            <p style={{ ...muted, margin: 0 }}>Har province ki shipping fee, VAT, income tax aur sales tax. <b>NeX rate card</b> se merchants ki NeX Statement banti hai (jo aap yahan rakhein, wahi un se kategi). <b>DEX rate card</b> se un stores ki Dex Statement banti hai jin ka apna DEX account hai.</p>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button style={btn(true)} onClick={() => setShowRates("nex")}><Icon name="card" size={13} /> NeX rate card</button>
+              <button style={btn(false)} onClick={() => setShowRates("dex")}><Icon name="card" size={13} /> DEX rate card</button>
+            </div>
+          </div>
+        )}
+        {showRates && <RateCardModal key={showRates} t={t} cfUrl="https://neezam-erp.chmabdulsamee9.workers.dev" canEdit courier={showRates} onClose={() => setShowRates("")} />}
+
+        {data && (
           <div style={{ ...card, display: "grid", gap: 12 }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
               <b>Merchants ki KYC ({data.kyc.length})</b>
@@ -100,8 +119,19 @@ export default function NexAdmin({ onExit }) {
                   <button style={btn(false)} onClick={() => view(k.store_id, "front")}><Icon name="eye" size={13} /> CNIC saamne</button>
                   <button style={btn(false)} onClick={() => view(k.store_id, "back")}><Icon name="eye" size={13} /> CNIC peeche</button>
                   {k.status !== "approved" && <button style={btn(true)} disabled={busy} onClick={() => window.confirm(`${k.brand_name} ki KYC approve karein? Is ke baad woh NeX se booking kar sakenge.`) && run("admin/kyc-review", { store_id: k.store_id, action: "approve" }, "Approve ho gayi.")}>Approve</button>}
-                  {k.status !== "rejected" && <button style={btn(false, true)} disabled={busy} onClick={() => { const note = window.prompt("Wajah (merchant ko Courier Connect mein dikhegi):"); if (note?.trim()) run("admin/kyc-review", { store_id: k.store_id, action: "reject", note }, "Wapas bhej di."); }}>Reject</button>}
+                  {k.status !== "rejected" && rejecting.id !== k.store_id && <button style={btn(false, true)} disabled={busy} onClick={() => setRejecting({ id: k.store_id, note: "" })}>Reject</button>}
                 </div>
+                {rejecting.id === k.store_id && (
+                  <div style={{ display: "grid", gap: 8, border: "1px solid var(--ne-danger)", borderRadius: 10, padding: 12 }}>
+                    <label style={{ fontSize: 12.5, color: "var(--ne-muted)" }}>Reject ki wajah (merchant ko Courier Connect mein dikhegi, woh form theek karke dobara bhejega)
+                      <textarea style={{ ...input, marginTop: 4 }} rows={3} maxLength={300} autoFocus value={rejecting.note} onChange={(e) => setRejecting({ ...rejecting, note: e.target.value })} placeholder="Jaise: IBAN account number se match nahi karta, CNIC ki tasveer saaf nahi" />
+                    </label>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button style={btn(false, true)} disabled={busy || !rejecting.note.trim()} onClick={() => run("admin/kyc-review", { store_id: k.store_id, action: "reject", note: rejecting.note.trim() }, "Wajah ke saath wapas bhej di.").then((ok) => ok && setRejecting({ id: "", note: "" }))}>Reject karein</button>
+                      <button style={btn(false)} onClick={() => setRejecting({ id: "", note: "" })}>Rehne dein</button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
