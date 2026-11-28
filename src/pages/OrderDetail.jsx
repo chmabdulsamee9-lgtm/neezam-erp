@@ -487,7 +487,15 @@ function AddressCard({ order, locked, t, busy, cfUrl, onSave }) {
       {!edit ? (
         <div style={{ fontSize: 12.5, color: "var(--ne-text)", lineHeight: 1.6 }}>
           {line.length ? line.map((x, i) => <div key={i}>{x}</div>) : <span style={{ color: "var(--ne-muted)" }}>—</span>}
-          {a.lat !== undefined && a.lng !== undefined && <a href={`https://www.google.com/maps?q=${a.lat},${a.lng}`} target="_blank" rel="noreferrer" style={{ ...linkBtn, textDecoration: "none", display: "inline-block", marginTop: 6 }}>{t("orderDetail.viewMap")}</a>}
+          {a.lat !== undefined && a.lng !== undefined && (
+            <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--ne-border)" }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--ne-muted)", textTransform: "uppercase", letterSpacing: ".06em" }}>Location (map)</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <span style={{ fontVariantNumeric: "tabular-nums", userSelect: "all" }}>{a.lat}, {a.lng}</span>
+                <a href={`https://www.google.com/maps?q=${a.lat},${a.lng}`} target="_blank" rel="noreferrer" style={{ ...linkBtn, textDecoration: "none" }}>{t("orderDetail.viewMap")}</a>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div style={{ display: "grid", gap: 8 }}>
