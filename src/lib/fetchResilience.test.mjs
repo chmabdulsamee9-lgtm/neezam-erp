@@ -53,14 +53,21 @@ test("a risky POST is tried once, and the error is readable", async () => {
 });
 
 test("a sign-up after a quiet time goes to the address that answers, once; no ping right after", async () => {
-  const a = install((u) => (u.startsWith(WORKER) ? down() : Promise.resolve({ ok: true })));
+  const a = install((u) => (u.startsWith(API) ? down() : Promise.resolve({ ok: true })));
   await a.fetch(`${WORKER}/send-otp`, { method: "POST", body: "{}" });
-  assert.deepEqual(a.calls, [`${WORKER}/ping`, `${API}/ping`, `${API}/send-otp`]);
+  assert.deepEqual(a.calls, [`${API}/ping`, `${WORKER}/ping`, `${WORKER}/send-otp`]);
   await a.fetch(`${API}/verify-otp`, { method: "POST", body: "{}" });
   assert.equal(a.calls.length, 4);
   const c = install(() => Promise.resolve({ ok: true }));
   await c.fetch("https://example.com/x", { method: "POST", body: "{}" });
   assert.deepEqual(c.calls, ["https://example.com/x"]);
+});
+
+test("a call written for workers.dev goes to api.eneezam.com first, workers.dev is the backup", async () => {
+  const { calls, fetch } = install((u) => (u.startsWith(API) ? down() : Promise.resolve({ ok: true })));
+  const res = await fetch(`${WORKER}/get-performance-stats`);
+  assert.equal(res.ok, true);
+  assert.deepEqual(calls, [`${API}/get-performance-stats`, `${WORKER}/get-performance-stats`]);
 });
 
 test("a save POST is retried; an aborted request is not", async () => {
