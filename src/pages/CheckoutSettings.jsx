@@ -15,18 +15,20 @@ const MAX_TEXT = 80;
 // mirrors the storefront's built-in texts (shown as the hint when a label/placeholder is blank)
 const DEFAULT_LABELS = {
   full_name: "Full name", email: "Email", phone: "Mobile number", province: "Province", city: "City / Province", area: "Area / Sub Area", subarea: "Subarea",
-  address: "Street address", address2: "Apartment, floor", postal_code: "Postal code", order_notes: "Delivery notes",
+  address: "Street address", address2: "Apartment, floor", postal_code: "Postal code", order_notes: "Delivery notes", location: "Use my location",
 };
 const DEFAULT_PLACEHOLDERS = {
   full_name: "e.g. Ayesha Khan", email: "you@example.com", phone: "03XXXXXXXXX", province: "Search province…", city: "Search your city…",
   area: "Search area or sub area…", subarea: "Search subarea…", address: "House, street, landmark…", address2: "Apartment, floor, building", postal_code: "e.g. 54000", order_notes: "e.g. Leave with the guard",
 };
+// layout tiles: the fields plus the "Use my location" button (its own tile)
+const LAYOUT_ORDER = ["full_name", "email", "phone", "province", "city", "location", "area", "subarea", "address", "address2", "postal_code", "order_notes"];
 const DEFAULT_LAYOUT = () => {
-  const one = (pad, outer) => ({ order: [...FIELD_ORDER], span: Object.fromEntries(FIELD_ORDER.map((n) => [n, 12])), gap: 20, pad, outer, input_height: 44, title_size: 100 });
+  const one = (pad, outer) => ({ order: [...LAYOUT_ORDER], span: Object.fromEntries(LAYOUT_ORDER.map((n) => [n, 12])), gap: 20, pad, outer, font: 16, input_height: 44, title_size: 100 });
   return { mobile: one(20, 20), desktop: one(28, 48) };
 };
 // label place, language, optional mark, city guess, logo height (worker: sanitizeCheckoutForm)
-const DEFAULT_FORM = { label: "above", lang: "en", optional_mark: "none", auto_city: true, logo_height: 0 };
+const DEFAULT_FORM = { label: "above", lang: "en", optional_mark: "none", auto_city: true, logo_height: 0, hide_title: false };
 // Urdu names of the fields, as the storefront shows them
 const UR_LABELS = {
   full_name: "پورا نام", email: "ای میل", phone: "موبائل نمبر", province: "صوبہ", city: "شہر / صوبہ", area: "علاقہ / ذیلی علاقہ", subarea: "ذیلی علاقہ",
@@ -89,6 +91,7 @@ function FormLook({ form, setForm, hasLogo, location, setLocation, locationLabel
       {row("Field names", "Above the box, or inside it.", seg("label", [["above", "Above"], ["inside", "Inside"]]))}
       {row("Language of names", "Both = English left, Urdu right.", seg("lang", [["en", "English"], ["ur", "اردو"], ["both", "Both"]]))}
       {row("Optional fields", "Required always get a red *.", seg("optional_mark", [["none", "No mark"], ["grey", "Grey *"]]))}
+      {row("\"Checkout\" heading", "The \"Cash on delivery / Checkout\" text above the form.", seg("hide_title", [[false, "Show"], [true, "Hide"]]))}
       <div style={{ display: "grid", gap: 8 }}>
         {[[location, setLocation, locationLabel, "Map button under City."], [form.auto_city !== false, (v) => setForm({ auto_city: v }), "Guess the city", "Suggests a city; the customer taps to use it."]].map(([on, set, title, help]) => (
           <div key={title} style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -244,7 +247,7 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
 
   const desktop = device === "desktop";
   const lay = draft.layout[device];
-  const shown = (n) => LOCKED.includes(n) || F[n].visible;
+  const shown = (n) => (n === "location" ? F.location_picker?.enabled !== false : LOCKED.includes(n) || F[n]?.visible);
   const sel = selected && shown(selected) ? selected : null;
   const PHONE_RATIO = 9 / 19.5;
   const phoneH = cardH || 720;
@@ -278,12 +281,13 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
         {sliderRow("Space inside the box", 0, 40, 1, lay.pad ?? (desktop ? 28 : 20), "px", (v) => setLayout(device, { ...lay, pad: v }))}
         {sliderRow("Space around the box", 0, 64, 1, lay.outer ?? (desktop ? 48 : 20), "px", (v) => setLayout(device, { ...lay, outer: v }))}
         {sliderRow("Field height", 34, 64, 1, lay.input_height, "px", (v) => setLayout(device, { ...lay, input_height: v }))}
+        {sliderRow("Text size in fields", 12, 22, 1, lay.font ?? 16, "px", (v) => setLayout(device, { ...lay, font: v }))}
         {sliderRow("Heading size", 50, 130, 5, lay.title_size ?? 100, "%", (v) => setLayout(device, { ...lay, title_size: v }))}
       </div>
       <div style={{ minWidth: 0, flex: narrow ? "1 1 200px" : undefined }}>
         {sel ? (
           <>
-            <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--ne-text)", marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{F[sel].label.trim() || DEFAULT_LABELS[sel]} · width</div>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--ne-text)", marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(F[sel]?.label || "").trim() || DEFAULT_LABELS[sel]} · width</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 5 }}>
               {SPANS.map((sp) => (
                 <button key={sp} type="button" onClick={() => setLayout(device, { ...lay, span: { ...lay.span, [sel]: sp } })}
@@ -337,7 +341,7 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
             <span style={{ ...th, textAlign: "center" }} title={t("checkoutSettings.colVisible")}>Show</span>
             <span style={{ ...th, textAlign: "center" }} title={t("checkoutSettings.colRequired")}>Req.</span>
           </div>
-          {lay.order.filter((n) => n !== "subarea" && n !== "province").map((n) => {
+          {lay.order.filter((n) => n !== "subarea" && n !== "province" && n !== "location" && F[n]).map((n) => {
             const f = F[n];
             const locked = LOCKED.includes(n);
             const isSel = sel === n;
@@ -366,12 +370,11 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
             device={device}
             layout={lay}
             fields={F}
-            names={FIELD_ORDER.filter((n) => shown(n) && n !== "subarea" && n !== "province")}
-            labelOf={(n) => F[n].label.trim() || DEFAULT_LABELS[n]}
-            placeholderOf={(n) => F[n].placeholder.trim() || DEFAULT_PLACEHOLDERS[n]}
-            required={(n) => LOCKED.includes(n) || F[n].required}
-            urOf={(n) => (F[n].label_ur || "").trim() || UR_LABELS[n]}
-            locationOn={F.location_picker?.enabled !== false}
+            names={LAYOUT_ORDER.filter((n) => shown(n) && n !== "subarea" && n !== "province")}
+            labelOf={(n) => (F[n]?.label || "").trim() || DEFAULT_LABELS[n]}
+            placeholderOf={(n) => (F[n]?.placeholder || "").trim() || DEFAULT_PLACEHOLDERS[n] || ""}
+            required={(n) => LOCKED.includes(n) || !!F[n]?.required}
+            urOf={(n) => (F[n]?.label_ur || "").trim() || UR_LABELS[n] || ""}
             form={FM}
             theme={look}
             onChange={(next) => setLayout(device, next)}

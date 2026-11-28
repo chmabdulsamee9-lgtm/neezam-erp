@@ -6,13 +6,13 @@ import { useEffect, useRef, useState } from "react";
 
 import { SPAN_LABEL, COL_GAP, snapSpan, packRows } from "../lib/checkoutLayout";
 
-export default function CheckoutCanvas({ device, layout, fields, names, labelOf, placeholderOf, required, urOf = () => "", form: formLook = {}, locationOn = true, theme, onChange, selected, onSelect }) {
+export default function CheckoutCanvas({ device, layout, fields, names, labelOf, placeholderOf, required, urOf = () => "", form: formLook = {}, theme, onChange, selected, onSelect }) {
   const gridRef = useRef(null);
   const [drag, setDrag] = useState(null);     // { name, x, y, w, h, over, side }
   const [resize, setResize] = useState(null); // { name, span, guideX, aligned }
   const [heightDrag, setHeightDrag] = useState(null);
   const lay = layout;
-  const visible = lay.order.filter((n) => names.includes(n) && fields[n]);
+  const visible = lay.order.filter((n) => names.includes(n) && (fields[n] || n === "location"));
   const rows = packRows(visible, lay.span);
   const t = theme;
 
@@ -136,13 +136,15 @@ export default function CheckoutCanvas({ device, layout, fields, names, labelOf,
         onMouseEnter={(e) => { if (!sel) e.currentTarget.style.outline = `1px dashed ${t.accentUi}88`; }}
         onMouseLeave={(e) => { if (!sel) e.currentTarget.style.outline = "1px dashed transparent"; }}>
         {isOver && <span style={{ position: "absolute", top: 0, bottom: 0, [drag.side === "before" ? "left" : "right"]: -8, width: 4, borderRadius: 4, background: t.accentUi, boxShadow: `0 0 0 3px ${t.accentUi}33` }} />}
+        {n === "location" ? (
+          <div style={{ height: 40, borderRadius: t.radius, border: `1px solid ${t.border}`, color: t.text, fontSize: 12.5, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, letterSpacing: ".04em" }}>⌖ Use my location</div>
+        ) : <>
         {!inside && <div style={{ fontSize: 10.5, fontWeight: 700, color: t.muted, marginBottom: 5, display: "flex" }}>{nameOf(n, false)}</div>}
-        <div style={{ height: ih, borderRadius: t.radius, border: `1px solid ${t.border}`, background: t.inputBg, color: t.muted, fontSize: 13, padding: "0 12px", display: "flex", alignItems: "center", overflow: "hidden", whiteSpace: "nowrap", transition: "height .15s" }}>
+        <div style={{ height: ih, borderRadius: t.radius, border: `1px solid ${t.border}`, background: t.inputBg, color: t.muted, fontSize: Math.round((lay.font ?? 16) * 0.82), padding: "0 12px", display: "flex", alignItems: "center", overflow: "hidden", whiteSpace: "nowrap", transition: "height .15s" }}>
           {inside ? nameOf(n, true) : placeholderOf(n)}
         </div>
-        {n === "city" && locationOn && (
-          <div style={{ marginTop: 8, height: 40, borderRadius: t.radius, border: `1px solid ${t.border}`, color: t.text, fontSize: 12.5, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, letterSpacing: ".04em" }}>⌖ Use my location</div>
-        )}
+        </>}
+
         {sel && (
           <>
             {/* width handle (right edge, like the Android tile editor) */}
@@ -192,12 +194,12 @@ export default function CheckoutCanvas({ device, layout, fields, names, labelOf,
   // the checkout page has no header or announcement bar: a small logo / store name, then "Cash on delivery" + "Checkout"
   const topBlock = (
     <div style={{ padding: isDesktop ? "18px 22px 0" : "8px 14px 0" }}>
-      <div style={{ marginBottom: 12 }}>
+      <div style={{ marginBottom: 12, display: "flex", justifyContent: "center" }}>
         {t.logoUrl
           ? <img src={t.logoUrl} alt="" style={{ height: formLook.logo_height ? Math.round(formLook.logo_height * (isDesktop ? 1 : 0.8)) : isDesktop ? 30 : 24, maxWidth: "60%", objectFit: "contain", display: "block" }} />
           : <span style={{ fontFamily: hFont, fontWeight: 800, fontSize: 15, color: t.text }}>{t.storeName}</span>}
       </div>
-      {t.showTitle && (
+      {t.showTitle && !formLook.hide_title && (
         <div style={{ marginBottom: 4 }}>
           <div style={{ fontSize: 11 * ts, letterSpacing: ".14em", textTransform: "uppercase", color: t.muted, marginBottom: 4, transition: "font-size .15s" }}>{t.subtitle}</div>
           <div style={{ fontFamily: hFont, fontWeight: t.hWeight || 700, fontSize: titlePx, lineHeight: 1.15, color: t.text, textTransform: t.hUpper ? "uppercase" : "none", transition: "font-size .15s" }}>{t.title}</div>
