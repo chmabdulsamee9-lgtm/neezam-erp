@@ -22,8 +22,8 @@ const DEFAULT_PLACEHOLDERS = {
   area: "Search area or sub area…", subarea: "Search subarea…", address: "House, street, landmark…", address2: "Apartment, floor, building", postal_code: "e.g. 54000", order_notes: "e.g. Leave with the guard",
 };
 const DEFAULT_LAYOUT = () => {
-  const one = (pad) => ({ order: [...FIELD_ORDER], span: Object.fromEntries(FIELD_ORDER.map((n) => [n, 12])), gap: 20, pad, input_height: 44, title_size: 100 });
-  return { mobile: one(20), desktop: one(28) };
+  const one = (pad, outer) => ({ order: [...FIELD_ORDER], span: Object.fromEntries(FIELD_ORDER.map((n) => [n, 12])), gap: 20, pad, outer, input_height: 44, title_size: 100 });
+  return { mobile: one(20, 20), desktop: one(28, 48) };
 };
 // label place, language, optional mark, city guess, logo height (worker: sanitizeCheckoutForm)
 const DEFAULT_FORM = { label: "above", lang: "en", optional_mark: "none", auto_city: true, logo_height: 0 };
@@ -69,7 +69,7 @@ function themeLook(cfg, storeName, host) {
 }
 
 /** label place, language, optional-field mark, city guess and logo height */
-function FormLook({ form, setForm, hasLogo }) {
+function FormLook({ form, setForm, hasLogo, location, setLocation, locationLabel }) {
   const seg = (key, options) => (
     <div style={{ display: "flex", gap: 4, border: "1px solid var(--ne-border)", borderRadius: 9, padding: 3, background: "var(--ne-surface)", flexWrap: "wrap" }}>
       {options.map(([v, l]) => (
@@ -85,18 +85,19 @@ function FormLook({ form, setForm, hasLogo }) {
     </div>
   );
   return (
-    <div style={{ display: "grid", gap: 14, padding: "12px 4px 2px", borderTop: "1px solid var(--ne-border)", marginTop: 10 }}>
-      {row("Field names", "Above the box, or inside the empty box (it disappears when the customer types).", seg("label", [["above", "Above the box"], ["inside", "Inside the box"]]))}
-      {row("Language of field names", "Both: English on the left, Urdu on the right. Customers can always type and search cities and areas in Urdu.", seg("lang", [["en", "English"], ["ur", "اردو"], ["both", "Both / دونوں"]]))}
-      {row("Optional fields", "Required fields always get a red star *.", seg("optional_mark", [["none", "No mark"], ["grey", "Grey star *"]]))}
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <Toggle on={form.auto_city !== false} label="Guess the customer's city" onChange={(v) => setForm({ auto_city: v })} />
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--ne-text)" }}>Guess the customer's city</div>
-          <div style={{ fontSize: 11, color: "var(--ne-muted)", lineHeight: 1.45 }}>Suggests a city (their last choice, their GPS if already allowed, or their internet connection). The customer still has to tap it.</div>
-        </div>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "12px 18px", padding: 12, marginBottom: 14, border: "1px solid var(--ne-border)", borderRadius: 14, background: "var(--ne-surface-2)", alignItems: "start" }}>
+      {row("Field names", "Above the box, or inside it.", seg("label", [["above", "Above"], ["inside", "Inside"]]))}
+      {row("Language of names", "Both = English left, Urdu right.", seg("lang", [["en", "English"], ["ur", "اردو"], ["both", "Both"]]))}
+      {row("Optional fields", "Required always get a red *.", seg("optional_mark", [["none", "No mark"], ["grey", "Grey *"]]))}
+      <div style={{ display: "grid", gap: 8 }}>
+        {[[location, setLocation, locationLabel, "Map button under City."], [form.auto_city !== false, (v) => setForm({ auto_city: v }), "Guess the city", "Suggests a city; the customer taps to use it."]].map(([on, set, title, help]) => (
+          <div key={title} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Toggle on={on} label={title} onChange={set} />
+            <div style={{ minWidth: 0 }}><div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--ne-text)" }}>{title}</div><div style={{ fontSize: 11, color: "var(--ne-muted)", lineHeight: 1.4 }}>{help}</div></div>
+          </div>
+        ))}
       </div>
-      {row("Logo height", hasLogo ? "0 = the theme's own size." : "This store's theme has no logo yet: upload one in Online Store > Themes > Customize > Logo (or Checkout logo).",
+      {row("Logo height", hasLogo ? "0 = the theme's own size." : "No logo in the theme yet: upload one in Themes > Customize > Logo.",
         <label style={{ display: "grid", gap: 4, fontSize: 11.5, color: "var(--ne-muted)" }}>
           <span style={{ display: "flex", justifyContent: "space-between" }}>Height<b style={{ color: "var(--ne-text)" }}>{form.logo_height ? `${form.logo_height}px` : "Theme"}</b></span>
           <input type="range" min={0} max={120} step={2} value={form.logo_height || 0} onChange={(e) => setForm({ logo_height: Number(e.target.value) })} style={{ width: "100%" }} />
@@ -274,7 +275,8 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
       </div>
       <div style={{ display: "grid", gap: 12, minWidth: narrow ? 180 : 0, flex: narrow ? "1 1 180px" : undefined }}>
         {sliderRow("Space between fields", 0, 40, 1, lay.gap, "px", (v) => setLayout(device, { ...lay, gap: v }))}
-        {sliderRow("Side space", 0, 40, 1, lay.pad ?? (desktop ? 28 : 20), "px", (v) => setLayout(device, { ...lay, pad: v }))}
+        {sliderRow("Space inside the box", 0, 40, 1, lay.pad ?? (desktop ? 28 : 20), "px", (v) => setLayout(device, { ...lay, pad: v }))}
+        {sliderRow("Space around the box", 0, 64, 1, lay.outer ?? (desktop ? 48 : 20), "px", (v) => setLayout(device, { ...lay, outer: v }))}
         {sliderRow("Field height", 34, 64, 1, lay.input_height, "px", (v) => setLayout(device, { ...lay, input_height: v }))}
         {sliderRow("Heading size", 50, 130, 5, lay.title_size ?? 100, "%", (v) => setLayout(device, { ...lay, title_size: v }))}
       </div>
@@ -321,6 +323,9 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
       {!contactOk && <p style={{ color: "var(--ne-danger)", fontSize: 12.5, margin: "0 0 12px" }}>{t("checkoutSettings.contactRule")}</p>}
       {notice && <p style={{ color: notice.type === "ok" ? "var(--ne-success)" : "var(--ne-danger)", fontSize: 12.5, margin: "0 0 12px" }}>{notice.text}</p>}
 
+      {/* form look: one bar across the top, so the details card (and the phone preview beside it) stays short */}
+      <FormLook form={FM} setForm={setForm} hasLogo={!!look.logoUrl}
+        location={F.location_picker?.enabled !== false} setLocation={(v) => setDraft((d) => ({ ...d, fields: { ...d.fields, location_picker: { enabled: v } } }))} locationLabel={t("checkoutSettings.locationPicker")} />
       {narrow && rail}
       <div className="ne-co-cols" style={{ display: "grid", gridTemplateColumns: COLS, gap: 18, alignItems: desktop ? "stretch" : "start" }}>
         {/* fields: label, placeholder, visible, required (desktop: name + toggles only) */}
@@ -349,14 +354,7 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
             );
           })}
           <p style={{ margin: "8px 4px 2px", fontSize: 11, color: "var(--ne-muted)" }}>{desktop ? "Switch to Mobile to edit the labels and placeholders." : t("checkoutSettings.labelHint")}</p>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 4px 2px", borderTop: "1px solid var(--ne-border)", marginTop: 8 }}>
-            <Toggle on={F.location_picker?.enabled !== false} label={t("checkoutSettings.locationPicker")} onChange={(v) => setDraft((d) => ({ ...d, fields: { ...d.fields, location_picker: { enabled: v } } }))} />
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--ne-text)" }}>{t("checkoutSettings.locationPicker")}</div>
-              {!desktop && <div style={{ fontSize: 11, color: "var(--ne-muted)", lineHeight: 1.45 }}>{t("checkoutSettings.locationPickerHelp")}</div>}
-            </div>
-          </div>
-          <FormLook form={FM} setForm={setForm} hasLogo={!!look.logoUrl} />
+
         </SettingsCard>
         </div>
 
@@ -373,6 +371,7 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
             placeholderOf={(n) => F[n].placeholder.trim() || DEFAULT_PLACEHOLDERS[n]}
             required={(n) => LOCKED.includes(n) || F[n].required}
             urOf={(n) => (F[n].label_ur || "").trim() || UR_LABELS[n]}
+            locationOn={F.location_picker?.enabled !== false}
             form={FM}
             theme={look}
             onChange={(next) => setLayout(device, next)}

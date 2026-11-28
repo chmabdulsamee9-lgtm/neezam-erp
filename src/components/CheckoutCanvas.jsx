@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { SPAN_LABEL, COL_GAP, snapSpan, packRows } from "../lib/checkoutLayout";
 
-export default function CheckoutCanvas({ device, layout, fields, names, labelOf, placeholderOf, required, urOf = () => "", form: formLook = {}, theme, onChange, selected, onSelect }) {
+export default function CheckoutCanvas({ device, layout, fields, names, labelOf, placeholderOf, required, urOf = () => "", form: formLook = {}, locationOn = true, theme, onChange, selected, onSelect }) {
   const gridRef = useRef(null);
   const [drag, setDrag] = useState(null);     // { name, x, y, w, h, over, side }
   const [resize, setResize] = useState(null); // { name, span, guideX, aligned }
@@ -129,7 +129,6 @@ export default function CheckoutCanvas({ device, layout, fields, names, labelOf,
     const sel = selected === n;
     const dragging = drag?.name === n;
     const isOver = drag?.over === n;
-    const area = n === "address";
     return (
       <div key={n} data-tile={n} onPointerDown={(e) => startMove(e, n)}
         style={{ gridColumn: `span ${span}`, position: "relative", minWidth: 0, cursor: "grab", touchAction: "none", userSelect: "none", opacity: dragging ? 0.25 : 1,
@@ -138,9 +137,12 @@ export default function CheckoutCanvas({ device, layout, fields, names, labelOf,
         onMouseLeave={(e) => { if (!sel) e.currentTarget.style.outline = "1px dashed transparent"; }}>
         {isOver && <span style={{ position: "absolute", top: 0, bottom: 0, [drag.side === "before" ? "left" : "right"]: -8, width: 4, borderRadius: 4, background: t.accentUi, boxShadow: `0 0 0 3px ${t.accentUi}33` }} />}
         {!inside && <div style={{ fontSize: 10.5, fontWeight: 700, color: t.muted, marginBottom: 5, display: "flex" }}>{nameOf(n, false)}</div>}
-        <div style={{ height: area ? Math.max(ih * 1.7, 64) : ih, borderRadius: t.radius, border: `1px solid ${t.border}`, background: t.inputBg, color: t.muted, fontSize: 13, padding: "0 12px", display: "flex", alignItems: area ? "flex-start" : "center", paddingTop: area ? 10 : 0, overflow: "hidden", whiteSpace: "nowrap", transition: "height .15s" }}>
+        <div style={{ height: ih, borderRadius: t.radius, border: `1px solid ${t.border}`, background: t.inputBg, color: t.muted, fontSize: 13, padding: "0 12px", display: "flex", alignItems: "center", overflow: "hidden", whiteSpace: "nowrap", transition: "height .15s" }}>
           {inside ? nameOf(n, true) : placeholderOf(n)}
         </div>
+        {n === "city" && locationOn && (
+          <div style={{ marginTop: 8, height: 40, borderRadius: t.radius, border: `1px solid ${t.border}`, color: t.text, fontSize: 12.5, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, letterSpacing: ".04em" }}>⌖ Use my location</div>
+        )}
         {sel && (
           <>
             {/* width handle (right edge, like the Android tile editor) */}
@@ -204,7 +206,7 @@ export default function CheckoutCanvas({ device, layout, fields, names, labelOf,
     </div>
   );
   const body = (
-    <div style={{ padding: isDesktop ? 22 : 12, paddingTop: isDesktop ? 14 : 10, display: "grid", gridTemplateColumns: isDesktop ? "minmax(0,1fr) 260px" : "1fr", gap: 16, alignItems: "start" }}>
+    <div style={{ padding: `${isDesktop ? 14 : 10}px ${Math.round((lay.outer ?? (isDesktop ? 48 : 20)) * (isDesktop ? 0.5 : 0.75))}px ${isDesktop ? 22 : 12}px`, transition: "padding .2s", display: "grid", gridTemplateColumns: isDesktop ? "minmax(0,1fr) 260px" : "1fr", gap: 16, alignItems: "start" }}>
       {form}
       {summary}
     </div>
