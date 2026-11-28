@@ -1,7 +1,9 @@
 // Some networks in Pakistan drop connections to Cloudflare now and then (ERR_QUIC_PROTOCOL_ERROR, ERR_CONNECTION_RESET,
 // "Failed to fetch") although the internet itself works, and often only for ONE hostname. So a request that fails with a
 // network error is tried again, and a call to our worker alternates between its two addresses
-// (the workers.dev address first, api.eneezam.com as the backup), which are different hostnames and IPs.
+// (api.eneezam.com first, the workers.dev address as the backup), which are different hostnames and IPs.
+// 2026-11-28: Pakistani networks reset connections that use Encrypted Client Hello (ECH). ECH is now off on our own zones,
+// but *.workers.dev is Cloudflare's zone and keeps ECH on, so calls written for workers.dev go to api.eneezam.com first.
 //
 // Only requests that are safe to repeat are retried: GET / HEAD, and POSTs of the read/save kind (get-, list-, check-,
 // save-, update-, preview-, quote-: repeating them changes nothing twice). Anything else (booking a courier, sending a
@@ -24,6 +26,12 @@ export function otherAddress(url) {
   if (url.startsWith(API + "/") || url === API) return WORKER + url.slice(API.length);
   if (url.startsWith(WORKER + "/") || url === WORKER) return API + url.slice(WORKER.length);
   return null;
+}
+
+/** a call written for the workers.dev address goes to api.eneezam.com first (no ECH there) */
+export function preferredAddress(url) {
+  if (typeof url === "string" && (url.startsWith(WORKER + "/") || url === WORKER)) return API + url.slice(WORKER.length);
+  return url;
 }
 
 /** is this request safe to repeat after a network error? */
@@ -69,9 +77,15 @@ export function installFetchRetry() {
   window.__neFetchRetry = true;
   const original = window.fetch.bind(window);
   let lastAnswer = 0; // when our worker last answered this page
+  let workerAnswered = false; // the last answer came from workers.dev (api.eneezam.com was down): stay there
   window.fetch = async (input, init) => {
     const isReq = typeof Request !== "undefined" && input instanceof Request;
-    const url = typeof input === "string" ? input : input instanceof URL ? input.href : isReq ? input.url : "";
+    let url = typeof input === "string" ? input : input instanceof URL ? input.href : isReq ? input.url : "";
+    if (!isReq && url && otherAddress(url) !== null) {
+      // api.eneezam.com first; but while only workers.dev answers, go there
+      const want = workerAnswered ? (url.startsWith(API) ? otherAddress(url) : url) : preferredAddress(url);
+      if (want !== url) { url = want; input = url; }
+    }
     const method = String(init?.method || (isReq && input.method) || "GET").toUpperCase();
     const signal = init?.signal || (isReq ? input.signal : undefined);
     const repeatable = isRepeatable(method, url);
@@ -85,7 +99,7 @@ export function installFetchRetry() {
       const target = alt && attempt % 2 === 1 ? alt : input;
       try {
         const res = await original(isReq ? input.clone() : target, init);
-        if (ours) lastAnswer = Date.now();
+        if (ours) { lastAnswer = Date.now(); workerAnswered = String(isReq ? input.url : target).startsWith(WORKER); }
         return res;
       } catch (err) {
         lastErr = err;
