@@ -6,13 +6,13 @@ import { useEffect, useRef, useState } from "react";
 
 import { SPAN_LABEL, COL_GAP, snapSpan, packRows } from "../lib/checkoutLayout";
 
-export default function CheckoutCanvas({ device, layout, fields, names, labelOf, placeholderOf, required, theme, onChange, selected, onSelect }) {
+export default function CheckoutCanvas({ device, layout, fields, names, labelOf, placeholderOf, required, urOf = () => "", form: formLook = {}, theme, onChange, selected, onSelect }) {
   const gridRef = useRef(null);
   const [drag, setDrag] = useState(null);     // { name, x, y, w, h, over, side }
   const [resize, setResize] = useState(null); // { name, span, guideX, aligned }
   const [heightDrag, setHeightDrag] = useState(null);
   const lay = layout;
-  const visible = lay.order.filter((n) => names.includes(n) && fields[n]);
+  const visible = lay.order.filter((n) => names.includes(n) && (fields[n] || n === "location"));
   const rows = packRows(visible, lay.span);
   const t = theme;
 
@@ -107,6 +107,19 @@ export default function CheckoutCanvas({ device, layout, fields, names, labelOf,
   }, [onSelect]);
 
   const ih = heightDrag || lay.input_height;
+  const inside = formLook.label === "inside";
+  const lang = formLook.lang || "en";
+  const pad = lay.pad ?? (device === "desktop" ? 28 : 20);
+  // field name like the storefront: English / Urdu / both, red star when required, grey star when optional (if chosen)
+  const nameOf = (n, big) => {
+    const mk = required(n) ? <span style={{ color: "#ef4444", marginLeft: 2 }}>*</span> : formLook.optional_mark === "grey" ? <span style={{ color: "#9ca3af", marginLeft: 2 }}>*</span> : null;
+    return (
+      <span style={{ display: "flex", justifyContent: "space-between", gap: 8, width: "100%", minWidth: 0 }}>
+        {lang !== "ur" && <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textTransform: big ? "none" : "uppercase", letterSpacing: big ? 0 : ".06em" }}>{labelOf(n)}{lang === "en" || lang === "both" ? mk : null}</span>}
+        {lang !== "en" && <span dir="rtl" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginLeft: "auto", fontSize: big ? 13.5 : 12, letterSpacing: 0 }}>{urOf(n)}{lang === "ur" ? mk : null}</span>}
+      </span>
+    );
+  };
   const isDesktop = device === "desktop";
   const font = t.fontBody ? `'${t.fontBody}', system-ui, sans-serif` : "system-ui, sans-serif";
   const headFont = t.fontHeading ? `'${t.fontHeading}', system-ui, sans-serif` : font;
@@ -116,7 +129,6 @@ export default function CheckoutCanvas({ device, layout, fields, names, labelOf,
     const sel = selected === n;
     const dragging = drag?.name === n;
     const isOver = drag?.over === n;
-    const area = n === "address";
     return (
       <div key={n} data-tile={n} onPointerDown={(e) => startMove(e, n)}
         style={{ gridColumn: `span ${span}`, position: "relative", minWidth: 0, cursor: "grab", touchAction: "none", userSelect: "none", opacity: dragging ? 0.25 : 1,
@@ -124,12 +136,15 @@ export default function CheckoutCanvas({ device, layout, fields, names, labelOf,
         onMouseEnter={(e) => { if (!sel) e.currentTarget.style.outline = `1px dashed ${t.accentUi}88`; }}
         onMouseLeave={(e) => { if (!sel) e.currentTarget.style.outline = "1px dashed transparent"; }}>
         {isOver && <span style={{ position: "absolute", top: 0, bottom: 0, [drag.side === "before" ? "left" : "right"]: -8, width: 4, borderRadius: 4, background: t.accentUi, boxShadow: `0 0 0 3px ${t.accentUi}33` }} />}
-        <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: t.muted, marginBottom: 5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {labelOf(n)}{required(n) ? "" : " (optional)"}
+        {n === "location" ? (
+          <div style={{ height: 40, borderRadius: t.radius, border: `1px solid ${t.border}`, color: t.text, fontSize: 12.5, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, letterSpacing: ".04em" }}>⌖ Use my location</div>
+        ) : <>
+        {!inside && <div style={{ fontSize: 10.5, fontWeight: 700, color: t.muted, marginBottom: 5, display: "flex" }}>{nameOf(n, false)}</div>}
+        <div style={{ height: ih, borderRadius: t.radius, border: `1px solid ${t.border}`, background: t.inputBg, color: t.muted, fontSize: Math.round((lay.font ?? 16) * 0.82), padding: "0 12px", display: "flex", alignItems: "center", overflow: "hidden", whiteSpace: "nowrap", transition: "height .15s" }}>
+          {inside ? nameOf(n, true) : placeholderOf(n)}
         </div>
-        <div style={{ height: area ? Math.max(ih * 1.7, 64) : ih, borderRadius: t.radius, border: `1px solid ${t.border}`, background: t.inputBg, color: t.muted, fontSize: 13, padding: "0 12px", display: "flex", alignItems: area ? "flex-start" : "center", paddingTop: area ? 10 : 0, overflow: "hidden", whiteSpace: "nowrap", transition: "height .15s" }}>
-          {placeholderOf(n)}
-        </div>
+        </>}
+
         {sel && (
           <>
             {/* width handle (right edge, like the Android tile editor) */}
@@ -150,9 +165,9 @@ export default function CheckoutCanvas({ device, layout, fields, names, labelOf,
   const titlePx = (isDesktop ? 36 : 28) * (t.hScale || 1) * ts;
 
   const form = (
-    <div style={{ background: t.surface, border: `1px solid ${t.border}`, borderRadius: 14, padding: isDesktop ? 22 : 16 }}>
+    <div style={{ background: t.surface, border: `1px solid ${t.border}`, borderRadius: 14, padding: `${isDesktop ? 22 : 16}px ${pad}px`, transition: "padding .2s" }}>
       <div style={{ fontFamily: headFont, fontSize: isDesktop ? 20 : 17, fontWeight: 700, color: t.text, marginBottom: 14 }}>Delivery address</div>
-      <div ref={gridRef} style={{ position: "relative", display: "grid", gridTemplateColumns: "repeat(12, minmax(0,1fr))", columnGap: COL_GAP, rowGap: lay.gap, transition: "row-gap .2s" }}>
+      <div ref={gridRef} style={{ position: "relative", display: "grid", gridTemplateColumns: "repeat(12, minmax(0,1fr))", columnGap: Math.min(COL_GAP, lay.gap), rowGap: lay.gap, transition: "row-gap .2s" }}>
         {/* column guides while resizing */}
         {resize && Array.from({ length: 13 }, (_, i) => (
           <span key={i} style={{ position: "absolute", top: -6, bottom: -6, left: i * (resize.cw + COL_GAP) - (i === 0 || i === 12 ? 0 : COL_GAP / 2), width: 1, background: `${t.accentUi}22`, pointerEvents: "none" }} />
@@ -179,12 +194,12 @@ export default function CheckoutCanvas({ device, layout, fields, names, labelOf,
   // the checkout page has no header or announcement bar: a small logo / store name, then "Cash on delivery" + "Checkout"
   const topBlock = (
     <div style={{ padding: isDesktop ? "18px 22px 0" : "8px 14px 0" }}>
-      <div style={{ marginBottom: 12 }}>
+      <div style={{ marginBottom: 12, display: "flex", justifyContent: "center" }}>
         {t.logoUrl
-          ? <img src={t.logoUrl} alt="" style={{ height: isDesktop ? 30 : 24, maxWidth: "60%", objectFit: "contain", display: "block" }} />
+          ? <img src={t.logoUrl} alt="" style={{ height: formLook.logo_height ? Math.round(formLook.logo_height * (isDesktop ? 1 : 0.8)) : isDesktop ? 30 : 24, maxWidth: "60%", objectFit: "contain", display: "block" }} />
           : <span style={{ fontFamily: hFont, fontWeight: 800, fontSize: 15, color: t.text }}>{t.storeName}</span>}
       </div>
-      {t.showTitle && (
+      {t.showTitle && !formLook.hide_title && (
         <div style={{ marginBottom: 4 }}>
           <div style={{ fontSize: 11 * ts, letterSpacing: ".14em", textTransform: "uppercase", color: t.muted, marginBottom: 4, transition: "font-size .15s" }}>{t.subtitle}</div>
           <div style={{ fontFamily: hFont, fontWeight: t.hWeight || 700, fontSize: titlePx, lineHeight: 1.15, color: t.text, textTransform: t.hUpper ? "uppercase" : "none", transition: "font-size .15s" }}>{t.title}</div>
@@ -193,7 +208,7 @@ export default function CheckoutCanvas({ device, layout, fields, names, labelOf,
     </div>
   );
   const body = (
-    <div style={{ padding: isDesktop ? 22 : 12, paddingTop: isDesktop ? 14 : 10, display: "grid", gridTemplateColumns: isDesktop ? "minmax(0,1fr) 260px" : "1fr", gap: 16, alignItems: "start" }}>
+    <div style={{ padding: `${isDesktop ? 14 : 10}px ${Math.round((lay.outer ?? (isDesktop ? 48 : 20)) * (isDesktop ? 0.5 : 0.75))}px ${isDesktop ? 22 : 12}px`, transition: "padding .2s", display: "grid", gridTemplateColumns: isDesktop ? "minmax(0,1fr) 260px" : "1fr", gap: 16, alignItems: "start" }}>
       {form}
       {summary}
     </div>

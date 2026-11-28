@@ -15,15 +15,24 @@ const MAX_TEXT = 80;
 // mirrors the storefront's built-in texts (shown as the hint when a label/placeholder is blank)
 const DEFAULT_LABELS = {
   full_name: "Full name", email: "Email", phone: "Mobile number", province: "Province", city: "City / Province", area: "Area / Sub Area", subarea: "Subarea",
-  address: "Street address", address2: "Apartment, floor (optional)", postal_code: "Postal code", order_notes: "Delivery notes (optional)",
+  address: "Street address", address2: "Apartment, floor", postal_code: "Postal code", order_notes: "Delivery notes", location: "Use my location",
 };
 const DEFAULT_PLACEHOLDERS = {
   full_name: "e.g. Ayesha Khan", email: "you@example.com", phone: "03XXXXXXXXX", province: "Search province…", city: "Search your city…",
   area: "Search area or sub area…", subarea: "Search subarea…", address: "House, street, landmark…", address2: "Apartment, floor, building", postal_code: "e.g. 54000", order_notes: "e.g. Leave with the guard",
 };
+// layout tiles: the fields plus the "Use my location" button (its own tile)
+const LAYOUT_ORDER = ["full_name", "email", "phone", "province", "city", "location", "area", "subarea", "address", "address2", "postal_code", "order_notes"];
 const DEFAULT_LAYOUT = () => {
-  const one = () => ({ order: [...FIELD_ORDER], span: Object.fromEntries(FIELD_ORDER.map((n) => [n, 12])), gap: 20, input_height: 44, title_size: 100 });
-  return { mobile: one(), desktop: one() };
+  const one = (pad, outer) => ({ order: [...LAYOUT_ORDER], span: Object.fromEntries(LAYOUT_ORDER.map((n) => [n, 12])), gap: 20, pad, outer, font: 16, input_height: 44, title_size: 100 });
+  return { mobile: one(20, 20), desktop: one(28, 48) };
+};
+// label place, language, optional mark, city guess, logo height (worker: sanitizeCheckoutForm)
+const DEFAULT_FORM = { label: "above", lang: "en", optional_mark: "none", auto_city: true, logo_height: 0, hide_title: false };
+// Urdu names of the fields, as the storefront shows them
+const UR_LABELS = {
+  full_name: "پورا نام", email: "ای میل", phone: "موبائل نمبر", province: "صوبہ", city: "شہر / صوبہ", area: "علاقہ / ذیلی علاقہ", subarea: "ذیلی علاقہ",
+  address: "مکمل پتہ", address2: "اپارٹمنٹ، منزل", postal_code: "پوسٹل کوڈ", order_notes: "ڈیلیوری ہدایات",
 };
 const SPAN_NAME = { 3: "1/4", 4: "1/3", 6: "1/2", 8: "2/3", 9: "3/4", 12: "Full" };
 
@@ -59,6 +68,45 @@ function themeLook(cfg, storeName, host) {
     accentUi: "#6366f1", radius: Number(s.input_radius ?? 10), fontBody: fam(s.font_body || "inter"), fontHeading: fam(s.font_heading || ""),
     storeName: s.store_name || storeName || "Your store", host: host || "yourstore.com",
   };
+}
+
+/** label place, language, optional-field mark, city guess and logo height */
+function FormLook({ form, setForm, hasLogo, location, setLocation, locationLabel }) {
+  const seg = (key, options) => (
+    <div style={{ display: "flex", gap: 4, border: "1px solid var(--ne-border)", borderRadius: 9, padding: 3, background: "var(--ne-surface)", flexWrap: "wrap" }}>
+      {options.map(([v, l]) => (
+        <button key={v} type="button" onClick={() => setForm({ [key]: v })}
+          style={{ flex: "1 1 auto", border: "none", borderRadius: 7, padding: "6px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer", background: form[key] === v ? "var(--ne-grad)" : "transparent", color: form[key] === v ? "#fff" : "var(--ne-text)" }}>{l}</button>
+      ))}
+    </div>
+  );
+  const row = (title, help, control) => (
+    <div style={{ display: "grid", gap: 6 }}>
+      <div><div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--ne-text)" }}>{title}</div>{help && <div style={{ fontSize: 11, color: "var(--ne-muted)", lineHeight: 1.45 }}>{help}</div>}</div>
+      {control}
+    </div>
+  );
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "12px 18px", padding: 12, marginBottom: 14, border: "1px solid var(--ne-border)", borderRadius: 14, background: "var(--ne-surface-2)", alignItems: "start" }}>
+      {row("Field names", "Above the box, or inside it.", seg("label", [["above", "Above"], ["inside", "Inside"]]))}
+      {row("Language of names", "Both = English left, Urdu right.", seg("lang", [["en", "English"], ["ur", "اردو"], ["both", "Both"]]))}
+      {row("Optional fields", "Required always get a red *.", seg("optional_mark", [["none", "No mark"], ["grey", "Grey *"]]))}
+      {row("\"Checkout\" heading", "The \"Cash on delivery / Checkout\" text above the form.", seg("hide_title", [[false, "Show"], [true, "Hide"]]))}
+      <div style={{ display: "grid", gap: 8 }}>
+        {[[location, setLocation, locationLabel, "Map button under City."], [form.auto_city !== false, (v) => setForm({ auto_city: v }), "Guess the city", "Suggests a city; the customer taps to use it."]].map(([on, set, title, help]) => (
+          <div key={title} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Toggle on={on} label={title} onChange={set} />
+            <div style={{ minWidth: 0 }}><div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--ne-text)" }}>{title}</div><div style={{ fontSize: 11, color: "var(--ne-muted)", lineHeight: 1.4 }}>{help}</div></div>
+          </div>
+        ))}
+      </div>
+      {row("Logo height", hasLogo ? "0 = the theme's own size." : "No logo in the theme yet: upload one in Themes > Customize > Logo.",
+        <label style={{ display: "grid", gap: 4, fontSize: 11.5, color: "var(--ne-muted)" }}>
+          <span style={{ display: "flex", justifyContent: "space-between" }}>Height<b style={{ color: "var(--ne-text)" }}>{form.logo_height ? `${form.logo_height}px` : "Theme"}</b></span>
+          <input type="range" min={0} max={120} step={2} value={form.logo_height || 0} onChange={(e) => setForm({ logo_height: Number(e.target.value) })} style={{ width: "100%" }} />
+        </label>)}
+    </div>
+  );
 }
 
 export default function CheckoutSettings({ storeId, cfUrl }) {
@@ -105,10 +153,10 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
         setLoadError(data.error || t("checkoutSettings.errorLoad"));
       } else {
         if (data.error) setLoadError(data.error);
-        const v = { fields: data.settings.fields, layout: data.settings.layout || DEFAULT_LAYOUT() };
+        const v = { fields: data.settings.fields, layout: data.settings.layout || DEFAULT_LAYOUT(), form: { ...DEFAULT_FORM, ...(data.settings.form || {}) } };
         setSaved(v);
         setDraft(v);
-        setDefaults({ fields: data.defaults.fields, layout: data.defaults.layout || DEFAULT_LAYOUT() });
+        setDefaults({ fields: data.defaults.fields, layout: data.defaults.layout || DEFAULT_LAYOUT(), form: { ...DEFAULT_FORM, ...(data.defaults.form || {}) } });
       }
       setLoading(false);
     })();
@@ -157,6 +205,9 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
     return h.slice(0, -1);
   });
 
+  const FM = draft?.form || DEFAULT_FORM;
+  const setForm = (patch) => setDraft((d) => ({ ...d, form: { ...(d.form || DEFAULT_FORM), ...patch } }));
+
   const contactOk = !!F && ((F.phone.visible && F.phone.required) || (F.email.visible && F.email.required));
   const tooLong = !!F && FIELD_ORDER.some((n) => (F[n].label || "").length > MAX_TEXT || (F[n].placeholder || "").length > MAX_TEXT);
   const canSave = dirty && contactOk && !tooLong && !saving;
@@ -166,20 +217,21 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
     setNotice(null);
     const payload = {};
     for (const n of FIELD_ORDER) {
+      const ur = (F[n].label_ur || "").trim();
       payload[n] = LOCKED.includes(n)
-        ? { label: F[n].label.trim(), placeholder: F[n].placeholder.trim() }
-        : { visible: F[n].visible, required: F[n].required, label: F[n].label.trim(), placeholder: F[n].placeholder.trim() };
+        ? { label: F[n].label.trim(), label_ur: ur, placeholder: F[n].placeholder.trim() }
+        : { visible: F[n].visible, required: F[n].required, label: F[n].label.trim(), label_ur: ur, placeholder: F[n].placeholder.trim() };
     }
     payload.location_picker = { enabled: F.location_picker?.enabled !== false };
-    const { status, data } = await workerFetch(cfUrl, "/save-checkout-settings", { method: "POST", body: JSON.stringify({ store_id: storeId, settings: { version: 1, fields: payload, layout: draft.layout } }) });
+    const { status, data } = await workerFetch(cfUrl, "/save-checkout-settings", { method: "POST", body: JSON.stringify({ store_id: storeId, settings: { version: 1, fields: payload, layout: draft.layout, form: draft.form } }) });
     if (status === 200 && data.success) {
-      const v = { fields: data.settings.fields, layout: data.settings.layout || draft.layout };
+      const v = { fields: data.settings.fields, layout: data.settings.layout || draft.layout, form: { ...DEFAULT_FORM, ...(data.settings.form || draft.form) } };
       setSaved(v);
       setDraft(v);
       setHistory([]);
       setNotice({ type: "ok", text: t("checkoutSettings.saved") });
       const changed = [...FIELD_ORDER, "location_picker"].filter((n) => JSON.stringify(saved.fields[n]) !== JSON.stringify(v.fields[n]));
-      logStoreActivity(storeId, "checkout_settings_saved", { changed_fields: changed, layout_changed: JSON.stringify(saved.layout) !== JSON.stringify(v.layout) });
+      logStoreActivity(storeId, "checkout_settings_saved", { changed_fields: changed, layout_changed: JSON.stringify(saved.layout) !== JSON.stringify(v.layout), form_changed: JSON.stringify(saved.form) !== JSON.stringify(v.form) });
     } else {
       setNotice({ type: "error", text: data.error || t("checkoutSettings.errorSave") });
     }
@@ -195,7 +247,7 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
 
   const desktop = device === "desktop";
   const lay = draft.layout[device];
-  const shown = (n) => LOCKED.includes(n) || F[n].visible;
+  const shown = (n) => (n === "location" ? F.location_picker?.enabled !== false : LOCKED.includes(n) || F[n]?.visible);
   const sel = selected && shown(selected) ? selected : null;
   const PHONE_RATIO = 9 / 19.5;
   const phoneH = cardH || 720;
@@ -225,14 +277,17 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
         <button type="button" style={{ ...btn(false), textAlign: "left" }} onClick={() => { setLayout(device, defaults.layout[device]); setSelected(null); }}>Reset layout</button>
       </div>
       <div style={{ display: "grid", gap: 12, minWidth: narrow ? 180 : 0, flex: narrow ? "1 1 180px" : undefined }}>
-        {sliderRow("Space between fields", 4, 40, 1, lay.gap, "px", (v) => setLayout(device, { ...lay, gap: v }))}
+        {sliderRow("Space between fields", 0, 40, 1, lay.gap, "px", (v) => setLayout(device, { ...lay, gap: v }))}
+        {sliderRow("Space inside the box", 0, 40, 1, lay.pad ?? (desktop ? 28 : 20), "px", (v) => setLayout(device, { ...lay, pad: v }))}
+        {sliderRow("Space around the box", 0, 64, 1, lay.outer ?? (desktop ? 48 : 20), "px", (v) => setLayout(device, { ...lay, outer: v }))}
         {sliderRow("Field height", 34, 64, 1, lay.input_height, "px", (v) => setLayout(device, { ...lay, input_height: v }))}
+        {sliderRow("Text size in fields", 12, 22, 1, lay.font ?? 16, "px", (v) => setLayout(device, { ...lay, font: v }))}
         {sliderRow("Heading size", 50, 130, 5, lay.title_size ?? 100, "%", (v) => setLayout(device, { ...lay, title_size: v }))}
       </div>
       <div style={{ minWidth: 0, flex: narrow ? "1 1 200px" : undefined }}>
         {sel ? (
           <>
-            <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--ne-text)", marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{F[sel].label.trim() || DEFAULT_LABELS[sel]} · width</div>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--ne-text)", marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(F[sel]?.label || "").trim() || DEFAULT_LABELS[sel]} · width</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 5 }}>
               {SPANS.map((sp) => (
                 <button key={sp} type="button" onClick={() => setLayout(device, { ...lay, span: { ...lay.span, [sel]: sp } })}
@@ -272,6 +327,9 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
       {!contactOk && <p style={{ color: "var(--ne-danger)", fontSize: 12.5, margin: "0 0 12px" }}>{t("checkoutSettings.contactRule")}</p>}
       {notice && <p style={{ color: notice.type === "ok" ? "var(--ne-success)" : "var(--ne-danger)", fontSize: 12.5, margin: "0 0 12px" }}>{notice.text}</p>}
 
+      {/* form look: one bar across the top, so the details card (and the phone preview beside it) stays short */}
+      <FormLook form={FM} setForm={setForm} hasLogo={!!look.logoUrl}
+        location={F.location_picker?.enabled !== false} setLocation={(v) => setDraft((d) => ({ ...d, fields: { ...d.fields, location_picker: { enabled: v } } }))} locationLabel={t("checkoutSettings.locationPicker")} />
       {narrow && rail}
       <div className="ne-co-cols" style={{ display: "grid", gridTemplateColumns: COLS, gap: 18, alignItems: desktop ? "stretch" : "start" }}>
         {/* fields: label, placeholder, visible, required (desktop: name + toggles only) */}
@@ -283,7 +341,7 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
             <span style={{ ...th, textAlign: "center" }} title={t("checkoutSettings.colVisible")}>Show</span>
             <span style={{ ...th, textAlign: "center" }} title={t("checkoutSettings.colRequired")}>Req.</span>
           </div>
-          {lay.order.filter((n) => n !== "subarea" && n !== "province").map((n) => {
+          {lay.order.filter((n) => n !== "subarea" && n !== "province" && n !== "location" && F[n]).map((n) => {
             const f = F[n];
             const locked = LOCKED.includes(n);
             const isSel = sel === n;
@@ -300,13 +358,7 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
             );
           })}
           <p style={{ margin: "8px 4px 2px", fontSize: 11, color: "var(--ne-muted)" }}>{desktop ? "Switch to Mobile to edit the labels and placeholders." : t("checkoutSettings.labelHint")}</p>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 4px 2px", borderTop: "1px solid var(--ne-border)", marginTop: 8 }}>
-            <Toggle on={F.location_picker?.enabled !== false} label={t("checkoutSettings.locationPicker")} onChange={(v) => setDraft((d) => ({ ...d, fields: { ...d.fields, location_picker: { enabled: v } } }))} />
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--ne-text)" }}>{t("checkoutSettings.locationPicker")}</div>
-              {!desktop && <div style={{ fontSize: 11, color: "var(--ne-muted)", lineHeight: 1.45 }}>{t("checkoutSettings.locationPickerHelp")}</div>}
-            </div>
-          </div>
+
         </SettingsCard>
         </div>
 
@@ -318,10 +370,12 @@ export default function CheckoutSettings({ storeId, cfUrl }) {
             device={device}
             layout={lay}
             fields={F}
-            names={FIELD_ORDER.filter((n) => shown(n) && n !== "subarea" && n !== "province")}
-            labelOf={(n) => F[n].label.trim() || DEFAULT_LABELS[n].replace(/ \(optional\)$/, "")}
-            placeholderOf={(n) => F[n].placeholder.trim() || DEFAULT_PLACEHOLDERS[n]}
-            required={(n) => LOCKED.includes(n) || F[n].required}
+            names={LAYOUT_ORDER.filter((n) => shown(n) && n !== "subarea" && n !== "province")}
+            labelOf={(n) => (F[n]?.label || "").trim() || DEFAULT_LABELS[n]}
+            placeholderOf={(n) => (F[n]?.placeholder || "").trim() || DEFAULT_PLACEHOLDERS[n] || ""}
+            required={(n) => LOCKED.includes(n) || !!F[n]?.required}
+            urOf={(n) => (F[n]?.label_ur || "").trim() || UR_LABELS[n] || ""}
+            form={FM}
             theme={look}
             onChange={(next) => setLayout(device, next)}
             selected={sel}
